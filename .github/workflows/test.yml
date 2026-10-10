@@ -61,3 +61,76 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/bindings/pyjuiz
         # テストはブローカーのポートや埋め込み Python を使うので直列に実行する
         run: cargo test --verbose -- --test-threads=1
+
+  # テストカバレッジ(cargo-llvm-cov)。結果はジョブサマリーに表示し、
+  # main への push 時は shields.io 用の JSON を badges ブランチに置いて README のバッジに使う。
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake clang python3-dev python3-pip
+
+      - name: Install pyjuiz dependencies (used by the embedded Python)
+        run: python3 -m pip install --break-system-packages pyyaml httpx pillow docstring_parser
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - uses: taiki-e/install-action@cargo-llvm-cov
+
+      - uses: Swatinem/rust-cache@v2
+
+      # system_test が読み込む例(Rust/C++)は通常ビルドで ../target/debug に用意する
+      - name: Build (default workspace members)
+        run: cargo build
+
+      - name: Build C++ examples
+        run: |
+          cmake -S examples/cpp -B examples/cpp/build -DCMAKE_BUILD_TYPE=Debug
+          cmake --build examples/cpp/build --parallel
+
+      - name: Test with coverage
+        env:
+          PYTHONPATH: ${{ github.workspace }}/bindings/pyjuiz
+        run: cargo llvm-cov --no-report -- --test-threads=1
+
+      - name: Coverage report
+        run: |
+          cargo llvm-cov report --lcov --output-path lcov.info
+          cargo llvm-cov report --json --summary-only --output-path coverage-summary.json
+          {
+            echo '## Coverage'
+            echo '```'
+            cargo llvm-cov report --summary-only
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: lcov.info
+
+      - name: Publish coverage badge data
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pct=$(jq '.data[0].totals.lines.percent' coverage-summary.json)
+          label=$(printf '%.1f%%' "$pct")
+          color=$(awk -v p="$pct" 'BEGIN { if (p >= 80) print "brightgreen"; else if (p >= 60) print "yellow"; else if (p >= 40) print "orange"; else print "red" }')
+          mkdir badges && cd badges
+          printf '{"schemaVersion":1,"label":"coverage","message":"%s","color":"%s"}\n' "$label" "$color" > coverage.json
+          git init -q -b badges
+          git config user.name "github-actions[bot]"
+          git config user.email "41898299+github-actions[bot]@users.noreply.github.com"
+          git add coverage.json
+          git commit -q -m "Update coverage badge: $label"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" badges
