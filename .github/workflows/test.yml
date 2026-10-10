@@ -97,19 +97,27 @@ jobs:
           cmake -S examples/cpp -B examples/cpp/build -DCMAKE_BUILD_TYPE=Debug
           cmake --build examples/cpp/build --parallel
 
+      # パッケージを指定しないと cargo-llvm-cov はルートパッケージ(juiz_meta)だけを集計し、
+      # サブディレクトリのメンバーが除外されて 0% になるので、default-members を明示する。
+      - name: Select default workspace members
+        run: |
+          pkgs=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.workspace_default_members as $d | [.packages[] | select(.id as $i | $d | index($i)) | "-p " + .name] | join(" ")')
+          echo "COV_PACKAGES=$pkgs" >> "$GITHUB_ENV"
+
       - name: Test with coverage
         env:
           PYTHONPATH: ${{ github.workspace }}/bindings/pyjuiz
-        run: cargo llvm-cov --no-report -- --test-threads=1
+        run: cargo llvm-cov --no-report $COV_PACKAGES -- --test-threads=1
 
       - name: Coverage report
         run: |
-          cargo llvm-cov report --lcov --output-path lcov.info
-          cargo llvm-cov report --json --summary-only --output-path coverage-summary.json
+          cargo llvm-cov report $COV_PACKAGES --lcov --output-path lcov.info
+          cargo llvm-cov report $COV_PACKAGES --json --summary-only --output-path coverage-summary.json
           {
             echo '## Coverage'
             echo '```'
-            cargo llvm-cov report --summary-only
+            cargo llvm-cov report $COV_PACKAGES --summary-only
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
