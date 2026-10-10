@@ -366,6 +366,17 @@ impl ProcessBrokerProxy for MessengerBrokerProxy {
     fn process_destroy(&mut self, identifier: &ProcessIdentifier) -> Result<ProcessProfile, juiz_sdk::anyhow::Error> {
         Ok(serde_json::from_value(  capsule_to_value(self.delete_by_id("process", "destroy", &identifier.to_string())?)? )? )
     }
+    
+    fn process_openapi_spec(&self, id: &ProcessIdentifier) -> JuizResult<Value> {
+        log::trace!("【呼出】process_openapi_spec({id})");
+        capsule_to_value(self.read_by_id("process", "openapi_spec", &id.to_string()).and_then(|v| {
+            log::trace!("【完了】process_openapi_spec({id})");
+            Ok(v)
+        }).or_else(|e| {
+            log::error!("【エラー】process_openapi_spec({id})。エラーは ({e})");
+            Err(e)
+        } )?)
+    }
 }
 
 
@@ -384,8 +395,6 @@ impl ContainerBrokerProxy for MessengerBrokerProxy {
     fn container_list(&self, recursive: bool, _caller_broker_profile: Option<Value>) -> Result<Vec<ContainerIdentifier>, juiz_sdk::anyhow::Error> {
         Ok(serde_json::from_value(  capsule_to_value(self.read_with_param("container", "list", &[("recursive".to_owned(), recursive.to_string())])?)? )? )
     }
-    
-    
     
     fn container_destroy(&mut self, identifier: &ContainerIdentifier) -> Result<ContainerProfile, juiz_sdk::anyhow::Error> {
         let value = capsule_to_value(self.delete_by_id("container", "destroy", &identifier.to_string())?)?;
@@ -428,6 +437,17 @@ impl ContainerProcessBrokerProxy for MessengerBrokerProxy {
         let arg = vec!(("arg_name", jvalue!(arg_name)), ("value", capsule_to_value(value)?));
         self.update_by_id("container_process", "p_apply", arg.into(), &id.to_string())
     }
+    
+    fn container_process_openapi_spec(&self, id: &ProcessIdentifier) -> JuizResult<Value> {
+        log::trace!("【呼出】container_process_openapi_spec({id})");
+        capsule_to_value(self.read_by_id("container_process", "openapi_spec", &id.to_string()).and_then(|v| {
+            log::trace!("【完了】container_process_openapi_spec({id})");
+            Ok(v)
+        }).or_else(|e| {
+            log::error!("【エラー】container_process_openapi_spec({id})。エラーは ({e})");
+            Err(e)
+        } )?)
+    }
 }
 
 impl ExecutionContextBrokerProxy for MessengerBrokerProxy {
@@ -469,8 +489,8 @@ impl BrokerBrokerProxy for MessengerBrokerProxy {
         }).collect::<JuizResult<Vec<String>>>()
     }
 
-    fn broker_profile_full(&self, id: &Identifier) -> JuizResult<Value> {
-        capsule_to_value(self.read_by_id("broker", "profile_full", id)?)
+    fn broker_profile_full(&self, id: &Identifier) -> JuizResult<BrokerProfile> {
+        capsule_to_value(self.read_by_id("broker", "profile_full", id)?)?.try_into()
     }
 }
 

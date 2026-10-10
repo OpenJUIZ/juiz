@@ -2,7 +2,7 @@
 use std::{collections::HashMap, fmt::Display};
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
-use crate::{prelude::*, process_identifier::ProcessIdentifier};
+use crate::{manifests::OutputProfile, prelude::*, process_identifier::ProcessIdentifier};
 use super::{manifest_description::Description, ArgumentProfile, TopicProfile};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -20,6 +20,7 @@ pub struct ProcessProfile {
     pub subscribes: HashMap<String, TopicProfile>,
     pub container_name: Option<String>,
     pub container_type: Option<String>,
+    pub outputs: Option<OutputProfile>,
 }
 
 impl TryFrom<ProcessManifest> for ProcessProfile {
@@ -43,6 +44,7 @@ impl TryFrom<ProcessManifest> for ProcessProfile {
             subscribes: value.subscribes.into_iter().map(|(k, v)| { (k, v.into())}).collect(),
             container_name: value.container_name,
             container_type: value.container_type,
+            outputs: value.outputs,
         })
     }
 }
@@ -85,7 +87,13 @@ impl Display for ProcessProfile {
         for (arg_name, tm) in self.subscribes.iter() {
             f.write_fmt(format_args!("{}:{}, ", arg_name, tm))?;
         }
-        f.write_str("})")?;
+        if self.outputs.is_none() {
+
+            f.write_fmt(format_args!("}}, outputs=null"))?;
+        } else {
+            f.write_fmt(format_args!("}}, outputs={}", self.outputs.as_ref().unwrap()))?;
+        }
+        f.write_str(")")?;
         Ok(())
     }
 }
@@ -151,6 +159,7 @@ impl ProcessProfile {
             container_name: None,
             container_type: None,
             language: "rust".to_owned(),
+            outputs: None, // OutputProfile::default()
         }
     }
 
@@ -299,6 +308,16 @@ impl ProcessProfile {
             class_name: if self.container_name.is_none() { "process".to_owned() } else { "container_process".to_owned() },
             container_name: self.container_name.clone(),
         }
+    }
+
+
+    pub fn outputs(&self) -> Option<OutputProfile> { 
+        self.outputs.clone()
+    }
+
+    pub fn set_outputs(mut self, outputs: Option<OutputProfile>) -> Self {
+        self.outputs = outputs;
+        self
     }
 }
 

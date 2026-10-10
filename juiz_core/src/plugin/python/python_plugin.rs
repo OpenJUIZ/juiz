@@ -37,17 +37,17 @@ impl PythonPlugin {
     }
 
     pub fn load(path: PathBuf, pythonpaths: Option<Vec<PathBuf>>) -> JuizResult<PythonPlugin> {
-        log::trace!("PythonPlugin::load({:?}) called", path);
+        log::trace!("【呼出】PythonPlugin::load({:?})", path);
         Ok(PythonPlugin{path, pythonpaths})
     }
 
     fn init_path(&self, working_dir: Option<PathBuf>) -> JuizResult<()> {
         let fullpath = working_dir.clone().unwrap_or(env!("CARGO_MANIFEST_DIR").into()).join(self.path.clone());
         let pythonpaths = self.pythonpaths.clone();
-        log::debug!("pythonpaths:{pythonpaths:?}");
+        log::debug!("【デバッグ情報】pythonpaths:{pythonpaths:?}");
         Python::with_gil(|py| -> PyResult<()> {
             log::trace!("in get_manifest_with_name(), Python:with_gil called (fullpath={:?}", fullpath.clone());
-            log::debug!("PythonPlugin uses python version={:?}", py.version_info());
+            log::debug!("【デバッグ情報】プラグインが使用するPythonのバージョン情報 ({:?})", py.version_info());
             // サブモジュールのためにルートディレクトリをpathに入れとく。
             let parent = fullpath.parent().unwrap().to_str().unwrap();
             let _ = PyModule::from_code_bound(py, &format!(r#"
@@ -345,7 +345,7 @@ if not "{path_str:}" in sys.path:
 
 
     pub fn load_container_factory(&self, working_dir: Option<PathBuf>, symbol_name: &str, type_name_opt: Option<&str>) -> JuizResult<ContainerFactoryPtr> {
-        log::trace!("PythonPlugin({:?})::load_container_factory(symbol_name='{symbol_name}') called", self.path);
+        log::trace!("【呼出】PythonPlugin({:?})::load_container_factory(symbol_name='{symbol_name}') called", self.path);
         
         let type_name = match type_name_opt {
             Some(v) => v,
@@ -395,7 +395,7 @@ if not "{path_str:}" in sys.path:
     }
 
     pub fn load_component_manifest(&self, working_dir: Option<PathBuf>) -> JuizResult<ComponentManifest> {
-        log::trace!("load_component_manifest() called");
+        log::trace!("【呼出】load_component_manifest()");
         match self.get_component_manifest_with_name(working_dir, "component_manifest") {
             Ok(manif) => {
                 serde_json::from_value(manif).or_else(|e| {

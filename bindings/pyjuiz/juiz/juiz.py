@@ -1,5 +1,5 @@
 from dataclasses import dataclass, asdict
-from typing import List, Any, Optional
+from typing import List, Any, Optional, Dict, ForwardRef
 from PIL.Image import Image
 
 @dataclass
@@ -14,6 +14,25 @@ class ArgumentManifest:
         return ArgumentManifest(type_name=type_name, name=name, default=default_value, description=description )
 
 @dataclass
+class PrimitiveProfile: 
+    type_name: str
+    default_value: str
+    enum_type: str = 'Primitive'
+    
+
+StructProfile = ForwardRef('StructProfile')
+@dataclass
+class StructProfile: 
+    type_name: str
+    members: Dict[str, PrimitiveProfile|StructProfile]
+    enum_type: str = 'Struct'
+    
+@dataclass
+class OutputProfile: 
+    type_name: str
+    default_value: str
+    
+@dataclass
 class ProcessManifest:
     
     type_name: str
@@ -24,6 +43,7 @@ class ProcessManifest:
     language: str = "python"
     name: Optional[str] = None
     container_name: Optional[str] = None
+    outputs: Optional[PrimitiveProfile] = None
     container_type: Optional[str] = None
     
     @classmethod

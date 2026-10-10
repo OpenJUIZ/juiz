@@ -1,8 +1,7 @@
 
-
 FROM rust:1.82-bullseye
 RUN mkdir /code
 WORKDIR /code
 RUN apt update
-RUN apt install libpython3.9-dev clang cmake
+RUN apt install cmake clang libpython3.9-dev -y
 ADD . /code/

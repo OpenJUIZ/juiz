@@ -2,14 +2,14 @@ from setuptools import setup, find_packages
 
 setup(
     name="pyjuiz",
-    version="0.0.4",
+    version="0.0.5",
     description='Python binding interface for JUIZ robot middleware components',
     url='https://github.com/juiz',
     author='ysuga',
     author_email='ysuga@ysuga.net',
     license='MIT',
     keywords='robot,middleware',
-    install_requires=["pyyaml", "httpx", "pillow"],
+    install_requires=["pyyaml", "httpx", "pillow", "docstring_parser"],
     extras_require={
         #"develop": ["dev-packageA", "dev-packageB"]
     },

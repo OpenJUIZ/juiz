@@ -22,6 +22,7 @@ fn rust_integer_container_get(container: &mut ContainerImpl<RustIntegerContainer
     Ok(jvalue!(container.value).into())
 }
 
+
 #[juiz_component_container_process( 
     container_type = "rust_integer_container"
     arguments = {

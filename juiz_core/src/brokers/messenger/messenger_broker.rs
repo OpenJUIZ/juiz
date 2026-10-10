@@ -12,7 +12,7 @@ use std::sync::atomic::Ordering::SeqCst;
 use super::super::crud_broker::CRUDBroker;
 
 #[allow(dead_code)]
-// #[derive(Debug)]
+#[derive(Debug)]
 pub struct MessengerBroker {
     core: ObjectCore, 
     thread_handle: Option<tokio::task::JoinHandle<()>>,
@@ -22,7 +22,7 @@ pub struct MessengerBroker {
     tokio_runtime: Option<runtime::Runtime>,
 }
 
-pub trait MessengerBrokerCore : Send {
+pub trait MessengerBrokerCore : Send + std::fmt::Debug {
     fn receive_and_send(&self, timeout: Duration, func: Arc<Mutex<dyn Fn(CapsuleMap)->JuizResult<CapsulePtr >>>) -> JuizResult<Capsule>;
 }
 
@@ -165,5 +165,13 @@ impl Broker for MessengerBroker {
 
     fn wait_until_started(&mut self, _timeout: Duration) -> JuizResult<()> {
         Ok(())
+    }
+    
+    fn identifier(&self) -> BrokerIdentifier {
+        self.core.identifier().try_into().unwrap()
+    }
+    
+    fn profile(&self) -> BrokerProfile {
+        self.core.profile_full().unwrap().try_into().unwrap()  
     }
 }

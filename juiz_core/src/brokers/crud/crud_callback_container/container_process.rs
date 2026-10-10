@@ -32,6 +32,11 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
         let profiles: Vec<ProcessIdentifier> = cb.lock()?.container_process_list(recursive, None)?;
         Ok(profiles.into_iter().map(|id| { serde_json::to_value(id) }).collect::<serde_json::Result<Value>>()?.into())
     });
+    cpro_cbs.insert("openapi_spec", |_crud,cb, args| {
+        log::debug!("[READ  ] container_process/openapi_spec");
+        let process_id: ProcessIdentifier = args.get_param("identifier").ok_or_else(||{anyhow!(JuizError::CRUDBrokerCanNotParameterFunctionError { key_name: "identifier".to_owned() })})?.clone().try_into()?;
+        Ok(cb.lock()?.container_process_openapi_spec(&process_id)?.into())
+    });
     cpro_cbs
 }
 

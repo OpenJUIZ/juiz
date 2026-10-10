@@ -1,9 +1,11 @@
 
 use std::{collections::HashMap, fmt::Display};
+use image::Primitive;
 use serde::{Serialize, Deserialize};
-use crate::{prelude::*, process_identifier::ProcessIdentifier};
+use crate::{manifests::{OutputProfile, PrimitiveProfile}, prelude::*, process_identifier::ProcessIdentifier};
 use super::{argument_manifest::ArgumentManifest, manifest_description::Description, topic_manifest::TopicManifest};
 
+fn default_output_profile() -> Option<OutputProfile> { None } //OutputProfile::Primitive(PrimitiveProfile{type_name: "int".to_owned(), default_value: Some("0".to_owned())}) } 
 fn default_description() -> Description { Description{text: "".to_owned()} }
 fn default_broker_type_name() -> String { "core".to_owned() }
 fn default_broker_name() -> String { "core".to_owned() }
@@ -36,6 +38,8 @@ pub struct ProcessManifest {
     pub container_name: Option<String>,
     #[serde(default)]
     pub container_type: Option<String>,
+    #[serde(default="default_output_profile")]
+    pub outputs: Option<OutputProfile>
 }
 
 impl Display for ProcessManifest {
@@ -92,6 +96,7 @@ impl ProcessManifest {
         partial_instance_manifest.arguments.clear();
         partial_instance_manifest.arguments = new_argument_manif;
         log::warn!("partial_instance_manifest = {:?}", partial_instance_manifest);
+        partial_instance_manifest.outputs = self.outputs.clone();
         Ok(partial_instance_manifest)
     }   
 
@@ -124,6 +129,7 @@ impl ProcessManifest {
             container_name: None,
             container_type: None,
             language: "rust".to_owned(),
+            outputs: None, // OutputProfile::default()
         }
     }
 
@@ -281,6 +287,15 @@ impl ProcessManifest {
             self.name.as_ref().unwrap().clone()))
         }
     }
+
+    pub fn outputs(&self) -> Option<OutputProfile> { 
+        self.outputs.clone()
+    }
+
+    pub fn set_outputs(mut self, outputs: Option<OutputProfile>) -> Self {
+        self.outputs = outputs;
+        self
+    }
 }
 
 // #[allow(dead_code)]
@@ -431,6 +446,12 @@ impl TryFrom<Value> for ProcessManifest {
                 for (arg_name, arg_obj) in value_map.into_iter() {
                     p = p.subscribes(arg_name.as_str(), arg_obj.as_str().unwrap());
                 }
+            }
+            Err(_) => {},
+        };
+        match obj_get(&value, "outputs") {
+            Ok(value) => {
+                p = p.set_outputs(serde_json::from_value(value.clone())?);
             }
             Err(_) => {},
         };

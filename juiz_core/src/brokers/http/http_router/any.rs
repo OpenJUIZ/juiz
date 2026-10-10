@@ -5,7 +5,7 @@ use reqwest::StatusCode;
 use std::{net::SocketAddr, sync::{Arc, Mutex}};
 use axum::{extract::{ConnectInfo, Multipart, Path, Query, State}, http::HeaderMap, response::IntoResponse, routing, Json, Router};
 
-use crate::{brokers::http::http_router::{multipart_to_capsule_map, FullQuery}, prelude::*};
+use crate::{brokers::http::http_router::{multipart_to_capsule_map, system, FullQuery}, prelude::*};
 use crate::brokers::crud_broker::CRUDBroker;
 
 use super::{json_output_wrap, full_query_to_map};
@@ -226,11 +226,14 @@ pub async fn object_get_handler(
     let full_path = "";
     let map = full_query_to_map(&query);
     log::trace!("[GET] ({class_name}, {function_name}, {map:?}, {full_path:?}, {headers:?}) called");
-    let v = tokio::task::spawn_blocking(move ||{
-        juiz_lock(&crud_broker).unwrap().read_class(class_name.as_str(), function_name.as_str(), construct_capsule_map(CapsuleMap::new(), "READ", class_name.as_str(), function_name.as_str(), query, headers, remote_addr))
-    }).await;
-    let r = json_output_wrap(v.unwrap());
-    r
+    if class_name == "system" && function_name == "openapi.json" {
+        return system::system_openapi_handler().into_response();
+    } else {
+        let v = tokio::task::spawn_blocking(move ||{
+            juiz_lock(&crud_broker).unwrap().read_class(class_name.as_str(), function_name.as_str(), construct_capsule_map(CapsuleMap::new(), "READ", class_name.as_str(), function_name.as_str(), query, headers, remote_addr))
+        }).await;
+        return json_output_wrap(v.unwrap()).into_response();
+    }
 }
 
 #[utoipa::path(

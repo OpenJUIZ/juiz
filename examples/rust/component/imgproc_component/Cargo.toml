@@ -1,0 +1,16 @@
+[package]
+name = "imgproc_component"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+
+juiz_core = { path="../../../../" }
+# mozjpeg-sys = {version="2.2"}
+imageproc = { version="0.25.0" }
+#eye = { version="0.5" }

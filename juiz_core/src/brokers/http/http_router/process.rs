@@ -39,6 +39,22 @@ pub fn profile_handler_dummy(
 #[allow(unused)]
 #[utoipa::path(
     get,
+    path = "/api/process/openapi_spec",
+    params(
+        IdentifierQuery
+    ),
+    responses(
+        (status = 200, description = "System")
+    ),
+    tag = "universal.process",
+)]
+pub fn openapi_spec_handler_dummy(
+    _query: Query<IdentifierQuery>,) {
+}
+
+#[allow(unused)]
+#[utoipa::path(
+    get,
     path = "/api/process/list",
     params(
         RecursiveQuery
@@ -129,6 +145,7 @@ _query: Query<IdentifierQuery>) {
 #[openapi(
     paths(
         profile_handler_dummy,
+        openapi_spec_handler_dummy,
         list_dummy,
         call_dummy,
         execute_dummy,

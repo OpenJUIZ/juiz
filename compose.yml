@@ -1,0 +1,12 @@
+services:
+  rust_juiz:
+    restart: always
+    container_name: rust_juiz
+    build: 
+      dockerfile: Dockerfile
+    command: sleep infinity
+    working_dir: /code
+    volumes:
+      - .:/code
+    environment: 
+      - USER=user

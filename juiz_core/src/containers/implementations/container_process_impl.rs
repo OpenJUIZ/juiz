@@ -87,8 +87,14 @@ impl Process for ContainerProcessImpl {
     }
 
     fn call(&self, args: CapsuleMap) -> JuizResult<CapsulePtr> {
-        log::trace!("ContainerProcessImpl({})::call() called", self.identifier());
-        self.process().context("ContainerProcessImpl::call()")?.call(args)
+        log::trace!("【呼出】ContainerProcessImpl({})::call()", self.identifier());
+        self.process().context("ContainerProcessImpl::call()")?.call(args).and_then(|v| {
+            log::trace!("【完了】ContainerProcessImpl({})::call()", self.identifier());
+            Ok(v)
+        }).or_else(|e| {
+            log::error!("【失敗】ContainerProcessImpl({})::call()", self.identifier());
+            Err(e)
+        })
     }
 
     fn is_updated(& self) -> JuizResult<bool> {
@@ -139,6 +145,11 @@ impl Process for ContainerProcessImpl {
     
     fn identifier(&self) -> ProcessIdentifier {
         todo!()
+    }
+    
+    fn openapi_spec(&self) -> JuizResult<Value> {
+        log::trace!("【呼出】ContainerProcessImpl({})::openapi_spec()", self.identifier());
+        todo!("ContainerProcessImpl({})::openapi_spec()", self.identifier())
     }
 }
 

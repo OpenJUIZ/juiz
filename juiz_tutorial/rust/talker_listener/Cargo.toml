@@ -5,9 +5,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [workspace.dependencies]
-juiz_sdk = { version="0.0.8" }
-
-# juiz_core = { path = "../../../../juiz_core/" }
+# juiz_sdk = { version="0.0.8" }
+juiz_sdk = { path = "../../../../juiz_sdk/" }
 [workspace]
 members = [
     "talker",

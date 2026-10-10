@@ -25,7 +25,7 @@ impl ProcessProxy {
             JuizObjectClass::ContainerProcess(_) => Ok("container_process"),
             _ => {Err(anyhow::Error::from(JuizError::ProcessProxyCanNotAcceptClassError{class_name: class_name.as_str().to_string()}))}
         }?;
-        log::debug!("作成：ProcessProxy({class_name}, {identifier})");
+        log::debug!("【作成】ProcessProxy({class_name}, {identifier})");
         Ok(ProcessPtr::new(ProcessProxy{
             broker_proxy,
             identifier,
@@ -58,13 +58,13 @@ impl Process for ProcessProxy {
     
     fn call(&self, args: CapsuleMap) -> JuizResult<CapsulePtr> {
         log::trace!("ProcessProxy({})::call() called", self.identifier());
-        let result = juiz_lock(&self.broker_proxy)?.any_process_call(&self.identifier(), args);
-        if result.is_err() {
-            log::warn!("【call】失敗： {result:?}");
-        } else {
-            log::debug!("【call】成功： {}", result.as_ref().unwrap());
-        }
-        return result;
+        juiz_lock(&self.broker_proxy)?.any_process_call(&self.identifier(), args).and_then(|v| {
+            log::trace!("【完了】ProcessProxy({})::call()", self.identifier());
+            Ok(v)
+        }).or_else(|e| {
+            log::error!("【失敗】ProcessProxy({})::call()", self.identifier());
+            Err(e)
+        })
     }
 
     fn is_updated(& self) -> JuizResult<bool> {
@@ -85,7 +85,13 @@ impl Process for ProcessProxy {
 
     fn push_by(&self, arg_name: &str, value: CapsulePtr) -> JuizResult<CapsulePtr> {
         log::trace!("【呼出】ProcessProxy::push_by({arg_name}, {value})");
-        juiz_lock(&self.broker_proxy)?.process_push_by(&self.identifier(), arg_name.to_owned(), value)
+        juiz_lock(&self.broker_proxy)?.process_push_by(&self.identifier(), arg_name.to_owned(), value).and_then(|v| {
+            log::trace!("【完了】ProcessProxy({})::push_by({})", self.identifier(), arg_name);
+            Ok(v)
+        }).or_else(|e| {
+            log::error!("【失敗】ProcessProxy({})::push_by({})", self.identifier(), arg_name);
+            Err(e)
+        })
     }
 
     fn get_output(&self) -> CapsulePtr {
@@ -94,12 +100,24 @@ impl Process for ProcessProxy {
 
     fn notify_connected_from<'b>(&'b mut self, _source: ProcessPtr, manifest: &ConnectionManifest) -> JuizResult<ConnectionProfile> {
         log::trace!("【呼出】ProcessProxy::notify_connected_from({manifest})");
-        juiz_lock(&self.broker_proxy)?.process_notify_connected_from(&manifest)
+        juiz_lock(&self.broker_proxy)?.process_notify_connected_from(&manifest).and_then(|v| {
+            log::trace!("【完了】ProcessProxy({})::notify_connect_to()", self.identifier());
+            Ok(v)
+        }).or_else(|e| {
+            log::error!("【失敗】ProcessProxy({})::notify_connect_to()", self.identifier());
+            Err(e)
+        })
     }
 
     fn try_connect_to(&mut self, _destination: ProcessPtr, manifest: &ConnectionManifest) -> JuizResult<ConnectionManifest> {
         log::trace!("【呼出】ProcessProxy::try_connect_to({manifest})");
-        juiz_lock(&self.broker_proxy)?.process_try_connect_to(&manifest)
+        juiz_lock(&self.broker_proxy)?.process_try_connect_to(&manifest).and_then(|v| {
+            log::trace!("【完了】ProcessProxy({})::try_connect_to()", self.identifier());
+            Ok(v)
+        }).or_else(|e| {
+            log::error!("【失敗】ProcessProxy({})::try_connect_to()", self.identifier());
+            Err(e)
+        })
     }
 
     fn source_connections(&self) -> JuizResult<Vec<&Box<dyn SourceConnection>>> {
@@ -115,7 +133,13 @@ impl Process for ProcessProxy {
 
     fn p_apply(&mut self, arg_name: &str, value: CapsulePtr) -> JuizResult<CapsulePtr> {
         log::trace!("【呼出】ProcessProxy({})::p_aplly({arg_name}, {value:})", self.identifier());
-        juiz_lock(&self.broker_proxy)?.process_p_apply(&self.identifier(), arg_name, value)
+        juiz_lock(&self.broker_proxy)?.process_p_apply(&self.identifier(), arg_name, value).and_then(|v| {
+            log::trace!("【完了】ProcessProxy({})::p_aplly({arg_name})", self.identifier());
+            Ok(v)
+        }).or_else(|e| {
+            log::error!("【失敗】ProcessProxy({})::p_aplly({arg_name})", self.identifier());
+            Err(e)
+        })
     }
     
     fn purge(&mut self) -> JuizResult<()> {
@@ -127,6 +151,11 @@ impl Process for ProcessProxy {
         let id = self.identifier.clone();
         log::debug!("【identifier】id = {id}");
         return id;
+    }
+    
+    fn openapi_spec(&self) -> JuizResult<Value> {
+        log::trace!("【呼出】ProcessProxy({})::openapi_spec()", self.identifier());
+        todo!()
     }
     
 }

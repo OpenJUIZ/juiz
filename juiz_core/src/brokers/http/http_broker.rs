@@ -69,12 +69,12 @@ async fn on_start_inner(broker_manifest: Value, crud_broker: Arc<Mutex<CRUDBroke
                                 "broker_type": "http",
                                 "broker_name": format!("127.0.0.1:{port}"),
                             })).or_else(|e| {
-                                log::error!("CRUDBroker.reserve_master_broker() failed. Err({e}). This is ignored.");
+                                log::error!("【失敗】CRUDBroker.reserve_master_broker(). エラーは({e})。このエラーは無視されます。");
                                 Err(e)
                             });
                         },
                         Err(_) => {
-                            log::error!("CRUDBroker lock failed. Err:{e:?}");
+                            log::error!("【ロック失敗】CRUDBroker。エラー:{e:?}");
                             panic!()
                         }
                     }
