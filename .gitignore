@@ -1,6 +1,8 @@
 /target
 *~
 .*
+!.gitignore
+!.github/
 *.pyc
 increment_process/target
 examples/cpp/build/
