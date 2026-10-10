@@ -15,10 +15,6 @@ proc-macro = true
 proc-macro2 = { workspace = true}
 quote = {workspace = true }
 syn = { workspace = true, features = ["full", "extra-traits", "parsing"] }
-yaml-rust2 = {workspace = true}
-toml = {workspace = true}
-serde = {workspace = true}
 serde_json = {workspace = true}
 anyhow = {workspace = true}
 litrs = {workspace = true}
-image = {workspace = true}

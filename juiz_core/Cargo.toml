@@ -13,11 +13,8 @@ crate-type = ["cdylib", "lib"]
 [dependencies]
 axum = {workspace = true}
 futures ={workspace = true}
-image-stream = {workspace = true}
 interprocess = {workspace = true, features=["tokio"]}
 libloading = {workspace = true}
-num-traits = {workspace = true}
-nalgebra = {workspace = true}
 
 home = {workspace = true}
 
@@ -25,25 +22,18 @@ home = {workspace = true}
 # opencv = {version="0.92.0", default-features=false, features=["highgui", "videoio", "imgproc", "imgcodecs", "clang-runtime"], optional=true}
 pyo3 = {workspace = true, features=["auto-initialize", "gil-refs"]}
 
-quaternion-core = {workspace = true}
-regex ={workspace = true}
 reqwest = {workspace = true, features = ["blocking", "json"]}
 signal-hook = {workspace = true}
 
-structopt = {workspace = true}
 
 serde = {workspace = true, features = ["derive"]}
 
 thiserror = {workspace = true}
-tower = { workspace=true, features = ["util"] }
 tower-http = { workspace = true, features = ["fs", "trace"] }
 tokio = {workspace = true, features = ["full"] }
 uuid = {workspace = true, features = ["v4"] }
 utoipa = {workspace = true, features = ["axum_extras"] }
 utoipa-swagger-ui = {workspace = true, features = ["axum"] }
-utoipa-redoc = {workspace = true, features = ["axum"] }
-utoipa-rapidoc = {workspace = true, features = ["axum"] }
 
-yaml-rust2 = {workspace = true}
 
 juiz_sdk = { workspace = true}
