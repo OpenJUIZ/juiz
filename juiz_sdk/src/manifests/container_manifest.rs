@@ -187,7 +187,7 @@ impl ContainerManifest {
         Ok(ContainerIdentifier::new(self.broker_name.clone(),
             self.broker_type_name.clone(), 
             self.type_name.clone(), 
-            self.name.as_ref().unwrap().clone()))
+            self.name.as_ref().ok_or_else(|| anyhow::anyhow!(JuizError::ContainerManifestInvalidError{message: format!("ContainerManifest does not include 'name' value.") }))?.clone()))
     }
 
     pub fn add_array_arg(self, name: &str, description: &str, default: Vec<serde_json::Value>) -> ContainerManifest {
