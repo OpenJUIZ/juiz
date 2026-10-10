@@ -1,5 +1,9 @@
 # juiz - the robot middleware
 
+[![Test](https://github.com/sugarsweetrobotics/juiz/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/sugarsweetrobotics/juiz/actions/workflows/test.yml)
+[![Python](https://github.com/sugarsweetrobotics/juiz/actions/workflows/python.yml/badge.svg?branch=main)](https://github.com/sugarsweetrobotics/juiz/actions/workflows/python.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/sugarsweetrobotics/juiz/badges/coverage.json)](https://github.com/sugarsweetrobotics/juiz/actions/workflows/test.yml)
+
 ## 概要
 
 JUIZ (ジュイス) はロボットをネットワーク分散システム的に開発するためのミドルウェアおよびソフトウェアプラットフォームの呼称である。
