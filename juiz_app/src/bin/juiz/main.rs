@@ -56,8 +56,11 @@ struct Args {
     #[arg(short = 'f', default_value = "./juiz.conf", help = "Input system definition file path")]
     filepath: String,
 
-    #[arg(short = 's', long = "server", default_value = "http://localhost:8000", help = "Host of server (ex., http://localhost:8000)")]
+    #[arg(short = 's', long = "server", default_value = "http://127.0.0.1:8000", help = "Host of server (ex., http://localhost:8000)")]
     server: String,
+
+    #[arg(short = 'C', long = "cwd", default_value = ".", help = "Set current working directory.")]
+    cwd: String,
 
     #[arg(long = "process", help = "ProcessModule loader mode.")]
     process: Option<String>,
@@ -154,7 +157,7 @@ fn do_task_once(system: &mut System, args: Args) -> JuizResult<()> {
     let module_manifest_print = args.module_manifest_print;
     let create_instance = args.create_instance;
     if let Some(process_path) = args.process {
-        let pm: ProcessManifest = system.core_broker().lock_mut()?.system_load_process(language, process_path)?.try_into()?;
+        let pm: ProcessManifest = serde_json::from_value(system.core_broker().lock_mut()?.system_load_process(language, process_path)?)?;
         if module_manifest_print {
             println!("{pm:?}");
         }
@@ -180,7 +183,7 @@ fn do_task_once(system: &mut System, args: Args) -> JuizResult<()> {
             }
         }
     } else if let Some(container_path) = args.container {
-        let cm: ContainerManifest = system.core_broker().lock_mut()?.system_load_container(language.clone(), container_path)?.try_into()?;
+        let cm: ContainerManifest = serde_json::from_value(system.core_broker().lock_mut()?.system_load_container(language.clone(), container_path)?)?;
         let mut container_id = None;
         if module_manifest_print {
             println!("{cm:?}");
@@ -198,12 +201,12 @@ fn do_task_once(system: &mut System, args: Args) -> JuizResult<()> {
             }
         }
         if let Some(container_process_path) = args.container_process {
-            let pm: ProcessManifest = system.core_broker().lock_mut()?.system_load_container_process(language, container_process_path)?.try_into()?;
+            let pm: ProcessManifest = serde_json::from_value(system.core_broker().lock_mut()?.system_load_container_process(language, container_process_path)?)?;
             if module_manifest_print {
                 println!("{pm:?}");
             }
             if create_every {
-                let process_proxy = create_container_process_by_cid_and_pm(system, container_id.unwrap(), &pm)?;
+                let process_proxy = create_container_process_by_cid_and_pm(system, &container_id.unwrap(), &pm)?;
                 if execute {
                     let v = process_proxy.lock_mut()?.execute()?;
                     if print {
@@ -214,7 +217,7 @@ fn do_task_once(system: &mut System, args: Args) -> JuizResult<()> {
                 if let Some(cid) = container_id {
                     for create_type_name in create_instance.iter() {
                         if pm.type_name == create_type_name.as_str() {
-                            let process_proxy = create_container_process_by_cid_and_pm(system, cid.clone(), &pm)?;
+                            let process_proxy = create_container_process_by_cid_and_pm(system, &cid, &pm)?;
                             if execute {
                                 let v = process_proxy.lock_mut()?.execute()?;
                                 if print {
@@ -244,7 +247,7 @@ fn do_task_once(system: &mut System, args: Args) -> JuizResult<()> {
             let cont = create_container_by_cm(system, cm)?;
             let cid = cont.identifier().clone();
             for pm in cm.processes.iter() {
-                let cproc = create_container_process_by_cid_and_pm(system, cid.clone(), pm)?;
+                let cproc = create_container_process_by_cid_and_pm(system, &cid, pm)?;
                 if execute {
                     let v = cproc.lock_mut()?.execute()?;
                     if print {
@@ -272,16 +275,17 @@ fn do_task(system: &mut System, args: Args) -> JuizResult<()> {
     let print = args.module_execute_print;
     let module_manifest_print = args.module_manifest_print;
     if let Some(process_path) = args.process {
-        let pm: ProcessManifest = system.core_broker().lock_mut()?.system_load_process(language, process_path)?.try_into()?;
+        let pm: ProcessManifest = serde_json::from_value(system.core_broker().lock_mut()?.system_load_process(language, process_path)?)?;
         if module_manifest_print {
             println!("{pm:?}");
         }
         if create {
             let type_name = pm.type_name;
-            let prof = system.core_broker().lock_mut()?.process_create(ProcessManifest::new(type_name.as_str()).name(format!("{}0", type_name).as_str()))?;
+            let prof = system.core_broker().lock_mut()?.process_create(&ProcessManifest::new(type_name.as_str()).name(format!("{}0", type_name).as_str()))?;
             if execute {
-                let identifier = obj_get_str(&prof, "identifier")?;
-                let process_proxy = system.core_broker().lock()?.worker().process_from_identifier(&identifier.to_owned(), true)?;
+                let identifier = prof.identifier();
+                //let identifier = obj_get_str(&prof, "identifier")?;
+                let process_proxy = system.core_broker().lock()?.worker().process_from_identifier(&identifier, true)?;
                 if let Some(ratio_hz) = ratio {
                     let duration = Duration::from_secs_f64(1.0 / ratio_hz);
                     loop {
@@ -303,30 +307,33 @@ fn do_task(system: &mut System, args: Args) -> JuizResult<()> {
             }
         }
     }  else if let Some(container_path) = args.container {
-        let cm: ContainerManifest = system.core_broker().lock_mut()?.system_load_container(language.clone(), container_path)?.try_into()?;
+        let cm: ContainerManifest = serde_json::from_value(system.core_broker().lock_mut()?.system_load_container(language.clone(), container_path)?)?;
         let mut container_id = None;
         if module_manifest_print {
             println!("{cm:?}");
         }if create {
-            let type_name = cm.type_name;
+            let type_name = cm.type_name.clone();
             let name = format!("{}0", type_name);
-            let  mut cp = CapsuleMap::new();
-            cp.insert("name".to_owned(), jvalue!(name).into());
-            cp.insert("type_name".to_owned(), jvalue!(type_name).into());
-            let cont_prof = system.core_broker().lock_mut()?.container_create(cp)?;
-            container_id = Some(obj_get_str(&cont_prof, "identifier")?.to_owned());
+            //let  mut cp = CapsuleMap::new();
+            //cp.insert("name".to_owned(), jvalue!(name).into());
+            //cp.insert("type_name".to_owned(), jvalue!(type_name).into());
+            let cm2 = cm.clone().name(name.as_str());
+            let cont_prof = system.core_broker().lock_mut()?.container_create(&cm2, CapsuleMap::new())?;
+            //container_id = Some(obj_get_str(&cont_prof, "identifier")?.to_owned());
+            container_id = Some(cont_prof.identifier());
         }
         if let Some(container_process_path) = args.container_process {
-            let pm: ProcessManifest = system.core_broker().lock_mut()?.system_load_container_process(language, container_process_path)?.try_into()?;
+            let pm: ProcessManifest = serde_json::from_value(system.core_broker().lock_mut()?.system_load_container_process(language, container_process_path)?)?;
             if module_manifest_print {
                 println!("{pm:?}");
             }
             if create {
                 let type_name = pm.type_name;
-                let prof = system.core_broker().lock_mut()?.container_process_create(&container_id.unwrap(), ProcessManifest::new(type_name.as_str()).name(format!("{}0", type_name).as_str()))?;
+                let prof = system.core_broker().lock_mut()?.container_process_create(&container_id.unwrap(), &ProcessManifest::new(type_name.as_str()).name(format!("{}0", type_name).as_str()))?;
                 if execute {
-                    let identifier = obj_get_str(&prof, "identifier")?;
-                    let process_proxy = system.core_broker().lock()?.worker().any_process_from_identifier(&identifier.to_owned(), true)?;
+                    // let identifier = obj_get_str(&prof, "identifier")?;
+                    let identifier = prof.identifier();
+                    let process_proxy = system.core_broker().lock()?.worker().any_process_from_identifier(&identifier, true)?;
                     if let Some(ratio_hz) = ratio {
                         let duration = Duration::from_secs_f64(1.0 / ratio_hz);
                         loop {
@@ -372,7 +379,7 @@ fn do_task(system: &mut System, args: Args) -> JuizResult<()> {
                     conts.push(cont.clone());
                     let cid = cont.identifier().clone();
                     for pm in cm.processes.iter() {
-                        let cproc = create_container_process_by_cid_and_pm(system, cid.clone(), pm)?;
+                        let cproc = create_container_process_by_cid_and_pm(system, &cid, pm)?;
                         cont_procs.push(cproc.clone());
                         if execute {
                             let v = cproc.lock_mut()?.execute()?;
@@ -408,31 +415,36 @@ fn do_task(system: &mut System, args: Args) -> JuizResult<()> {
 
 fn create_process_by_pm(system: &mut System, pm: &ProcessManifest) -> JuizResult<ProcessPtr> {
     let type_name = pm.type_name.clone();
-    let prof = system.core_broker().lock_mut()?.process_create(ProcessManifest::new(type_name.as_str()).name(format!("{}0", type_name).as_str()))?;
-    let pid = Some(obj_get_str(&prof, "identifier")?.to_owned());
+    let prof = system.core_broker().lock_mut()?.process_create(&ProcessManifest::new(type_name.as_str()).name(format!("{}0", type_name).as_str()))?;
+    //let pid = Some(obj_get_str(&prof, "identifier")?.to_owned());
+    let pid = Some(prof.identifier());
     system.core_broker().lock_mut()?.worker_mut().process_from_identifier(&pid.unwrap(), true)
 }
 
 fn create_container_by_cm(system: &mut System, cm: &ContainerManifest) -> JuizResult<ContainerPtr> {
-    let type_name = cm.type_name.clone();
-    let name = format!("{}0", type_name);
-    let  mut cp = CapsuleMap::new();
-    cp.insert("name".to_owned(), jvalue!(name).into());
-    cp.insert("type_name".to_owned(), jvalue!(type_name).into());
-    let cont_prof = system.core_broker().lock_mut()?.container_create(cp)?;
-    let container_id = Some(obj_get_str(&cont_prof, "identifier")?.to_owned());
+    //let type_name = cm.type_name.clone();
+    let name = format!("{}0", cm.type_name);
+    let cm2 = cm.clone().name(name.as_str());
+    let cp = CapsuleMap::new();
+    // cp.insert("name".to_owned(), jvalue!(name).into());
+    // cp.insert("type_name".to_owned(), jvalue!(type_name).into());
+
+    let cont_prof = system.core_broker().lock_mut()?.container_create(&cm2, cp)?;
+    // let container_id = Some(obj_get_str(&cont_prof, "identifier")?.to_owned());
+    let container_id = Some(cont_prof.identifier());
     system.core_broker().lock_mut()?.worker_mut().container_from_identifier(&container_id.unwrap())
 }
 
-fn create_container_process_by_cid_and_pm(system: &mut System, cid: Identifier, pm: &ProcessManifest) -> JuizResult<ProcessPtr> {
+fn create_container_process_by_cid_and_pm(system: &mut System, cid: &ContainerIdentifier, pm: &ProcessManifest) -> JuizResult<ProcessPtr> {
     let type_name = pm.type_name.clone();
-    let prof = system.core_broker().lock_mut()?.container_process_create(&cid, ProcessManifest::new(type_name.as_str()).name(format!("{}0", type_name).as_str()))?;
-    let pid = Some(obj_get_str(&prof, "identifier")?.to_owned());
-    system.core_broker().lock_mut()?.worker_mut().any_process_from_identifier(&pid.unwrap(), true)
+    let prof = system.core_broker().lock_mut()?.container_process_create(&cid, &ProcessManifest::new(type_name.as_str()).name(format!("{}0", type_name).as_str()))?;
+    // let pid = Some(obj_get_str(&prof, "identifier")?.to_owned());
+    let pid = prof.identifier();
+    system.core_broker().lock_mut()?.worker_mut().any_process_from_identifier(&pid, true)
 }
 
 fn main() -> () {
-    env_logger::init();
+    let _ = env_logger::try_init();
     match do_once() {
         Ok(_) => (),
         Err(e) => println!("Error:{:?}", e)
@@ -440,13 +452,12 @@ fn main() -> () {
 }
 
 fn do_once() -> JuizResult<()>{
-    log::trace!("main::do_once called");
+    log::trace!("【呼出】main::do_once called");
     let args = Args::parse();
     let manifest = yaml_conf_load(args.filepath.clone())?;
     let flag_start = if args.daemonize { true } else { args.start_http_broker };
     let manifest_filepath = PathBuf::from(args.filepath.as_str().to_string());
     let working_dir = manifest_filepath.parent().unwrap();
-    let server = args.server.clone();
     let ratio = args.ratio;
     // サブコマンドが指定されていない場合は単純に起動。
     if args.subcommand.is_none() {

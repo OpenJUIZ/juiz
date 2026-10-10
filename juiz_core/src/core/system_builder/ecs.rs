@@ -1,5 +1,5 @@
 use std::sync::{Arc, Mutex};
-use juiz_sdk::anyhow::Context;
+use juiz_sdk::{anyhow::Context, process_identifier::ProcessIdentifier};
 
 use crate::{ecs::{execution_context_function::ExecutionContextFunction, execution_context_holder_factory::ExecutionContextHolderFactory, ExecutionContextFactory}, plugin::{concat_dirname, plugin_name_to_file_name, RustPlugin}, prelude::*};
 
@@ -7,7 +7,8 @@ pub(super) fn setup_execution_context_factories(system: &System, manifest: &Valu
     log::trace!("system_builder::setup_execution_context_factories() called");
     for (name, value) in get_hashmap(manifest)?.iter() {
         log::debug!("ExecutionContextFactory (name={name:}, value='{value:}') Loading...");
-        let plugin_filename = concat_dirname(value, plugin_name_to_file_name(name))?;
+        let working_dir = None;
+        let plugin_filename = concat_dirname(value, plugin_name_to_file_name(name), working_dir)?;
 
         log::debug!(" - filename: {plugin_filename:?}");
         let cpf;
@@ -19,13 +20,19 @@ pub(super) fn setup_execution_context_factories(system: &System, manifest: &Valu
                 cpf = (symbol)().with_context(||format!("calling symbol 'execution_context_factory'. arg is {manifest:}"))?;
                 let _ccpf = juiz_lock(&cpf)?;
             }
-            system.core_broker().lock_mut()?.worker_mut().store_mut().ecs.register_factory(ExecutionContextHolderFactory::new(plugin, cpf)?)?;
+            system.core_broker().lock_mut()?.worker_mut().store_mut().ecs.register_factory(ExecutionContextHolderFactory::new(Some(plugin), cpf)?)?;
         }
         log::info!("ExecutionContextFactory (name={name:}) Loaded");
     }
     Ok(())
 }
 
+pub(super) fn setup_main_loop_ec_factory(system: &mut System) -> JuizResult<()> {
+    log::trace!("【呼出】setup_main_loop_ec()");
+    let ecf = crate::ecs::main_loop_ec::execution_context_factory()?;
+    system.core_broker().lock_mut()?.worker_mut().store_mut().ecs.register_factory(ExecutionContextHolderFactory::new(None, ecf)?)?;
+    Ok(())
+}
 
 pub(super) fn setup_ecs(system: &mut System, manifest: &Value) -> JuizResult<()> {
     log::trace!("system_builder::setup_ecs({manifest}) called");
@@ -71,7 +78,7 @@ pub(super) fn cleanup_ecs(system: &System) -> JuizResult<()> {
 fn setup_ec_bind(system: &System, ec: Arc<Mutex<dyn ExecutionContextFunction>>, bind_info: &Value) -> JuizResult<()> {
     let ec_id = juiz_lock(&ec)?.identifier().clone();
     log::trace!("system_builder::setup_ec_bind(ec={:}) called", ec_id);
-    let target_process = system.core_broker().lock_mut()?.worker_mut().any_process_from_manifest(bind_info, false)?;
+    let target_process = system.core_broker().lock_mut()?.worker_mut().any_process_from_identifier(&ProcessIdentifier::from_value(bind_info)?, false)?;
     let proc_id = target_process.identifier().clone();
     log::trace!("EC({:}) -> Process({:})", ec_id, proc_id);
     let ret = juiz_lock(&ec)?.bind(target_process);

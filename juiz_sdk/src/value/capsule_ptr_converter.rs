@@ -46,14 +46,14 @@ pub unsafe extern "C" fn capsule_ptr_get_string(capsule_ptr: *mut CapsulePtr, v:
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn capsule_ptr_lock_as_value(capsule_ptr: *mut CapsulePtr, callback: extern fn(*mut Value) -> ()) -> () {
+pub unsafe extern "C" fn capsule_ptr_lock_as_value(capsule_ptr: *mut CapsulePtr, callback: extern "C" fn(*mut Value) -> ()) -> () {
     let _ = capsule_ptr.as_mut().unwrap().lock_modify_as_value(|v|->() {
         callback(v)
     } );
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn capsule_ptr_lock_as_value_with_arg(capsule_ptr: *mut CapsulePtr, callback: extern fn(*mut std::ffi::c_void, *mut Value) -> i64, arg: *mut std::ffi::c_void) -> i64 {
+pub unsafe extern "C" fn capsule_ptr_lock_as_value_with_arg(capsule_ptr: *mut CapsulePtr, callback: extern "C" fn(*mut std::ffi::c_void, *mut Value) -> i64, arg: *mut std::ffi::c_void) -> i64 {
     capsule_ptr.as_mut().unwrap().lock_modify_as_value(|v|->i64 {
         callback(arg, v)
     } ).or::<i64>(Ok(JUIZ_CAPSULEPTR_LOCK_ERROR)).unwrap()

@@ -66,11 +66,11 @@ impl<T, TF> BufferObjectCollection<T, TF> where T: JuizObject + ?Sized, TF: Juiz
         }
     }
 
-    pub fn get(&self, id: &Identifier) -> JuizResult<Arc<Mutex<T>>> {
+    pub fn get_with_error_ignore(&self, id: &Identifier) -> JuizResult<Arc<Mutex<T>>> {
         match self.objects.borrow().get(id) {
             Some(p) => Ok(Arc::clone(p)),
             None => {
-                log::trace!("StoreWorker({})::get(id={:?}) failed.", self.name, id);
+                log::trace!("StoreWorker({})::get_with_error_ignore(id={:?})が失敗しました。オブジェクトが見つかりません。", self.name, id);
                 log::trace!(" - CoreStore includes objects[");
                 for (k, _v) in self.objects.borrow().iter() {
                     log::trace!("    - {:?}", k);
@@ -79,6 +79,21 @@ impl<T, TF> BufferObjectCollection<T, TF> where T: JuizObject + ?Sized, TF: Juiz
                 Err(anyhow::Error::from(JuizError::ObjectCanNotFoundByIdError{id: id.clone()}))
             }
             
+        }
+    }
+
+    pub fn get(&self, id: &Identifier) -> JuizResult<Arc<Mutex<T>>> {
+        match self.objects.borrow().get(id) {
+            Some(p) => Ok(Arc::clone(p)),
+            None => {
+                log::error!("StoreWorker({})::get(id={:?})が失敗しました。オブジェクトが見つかりません。", self.name, id);
+                log::trace!(" - CoreStore includes objects[");
+                for (k, _v) in self.objects.borrow().iter() {
+                    log::trace!("    - {:?}", k);
+                }
+                log::trace!("]");
+                Err(anyhow::Error::from(JuizError::ObjectCanNotFoundByIdError{id: id.clone()}))
+            }
         }
     }
 

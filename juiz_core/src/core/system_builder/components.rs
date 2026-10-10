@@ -9,11 +9,11 @@ use crate::{core::system_builder::{containers::{register_container_factory, regi
 
 
 pub(super) fn setup_components(system: &System, manifest: &Value, option: &Value) -> JuizResult<()> {
-    log::trace!("system_builder::setup_component_factories({manifest:?}) called");
+    log::trace!("【呼出】system_builder::setup_component_factories({manifest:?})");
     for (name, v) in get_hashmap(manifest)?.iter() {
-        log::info!("Component (name={name:}) Loading...");
+        log::debug!("【ロード】コンポーネント (name={name:})");
         setup_component(system, name, v, option)?;
-        log::info!("Component (name={name:}) Fully Loaded")
+        log::debug!("【ロード完了】コンポーネント (name={name:})")
     }
     Ok(())
 }
@@ -24,7 +24,7 @@ fn setup_component(system: &System, name: &String, v: &Value, option: &Value) ->
     
     log::trace!("setup_component(name={:}, value={:}) called", name, v);
     let language = obj_get_str(v, "language").or::<JuizResult<&str>>(Ok("rust")).unwrap();
-    let plugin = JuizObjectPlugin::new(language, name, v, manifest_entry_point, option)?;
+    let plugin = JuizObjectPlugin::new(language, name, v, system.get_working_dir(), manifest_entry_point, option)?;
     let working_dir = system.get_working_dir();
     register_component(system.core_broker().lock_mut()?.worker_mut(), working_dir, plugin)?;
     // let component_manifest = plugin.load_component_manifest(system.get_working_dir())?;
@@ -56,7 +56,7 @@ pub(crate) fn register_component(core_worker: &mut CoreWorker, working_dir: Opti
     for container_profile in component_manifest.containers.iter() {
         log::debug!(" - ContainerFactory ({container_profile:?}) Loading...");
         register_container_factory(core_worker, working_dir.clone(), plugin.clone(), container_profile.factory.as_str(), Some(container_profile.type_name.as_str()))?;
-        log::info!(" - ContainerFactory ({container_profile:?}) Loaded");
+        log::debug!("【ロード】コンテナファクトリ ({})", container_profile.type_name);
         for container_process_profile in container_profile.processes.iter() {
             log::debug!(" - ContainerProcessFactory ({container_process_profile:?}) Loading...");
             register_container_process_factory(core_worker, working_dir.clone(), plugin.clone(), container_process_profile.factory.as_str(), Some(container_process_profile.type_name.as_str()))?;

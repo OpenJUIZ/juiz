@@ -212,7 +212,7 @@ impl CRUDBroker {
         .and_then(|cb|{
             cb(self, self.core_broker.clone(), args)
         }).or_else(|e| {
-            log::error!("Error in CRUDBroker::call_callback({class_name}, {function_name}). Error({e})");
+            log::error!("CRUDBrokerクラスのコールバック(call_callback({class_name}, {function_name}))関数内でエラーが発生。エラーは({e})です。");
             Err(e)
         })
         .and_then( |mut capsule|{

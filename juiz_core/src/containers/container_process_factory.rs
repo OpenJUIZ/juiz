@@ -1,28 +1,35 @@
 
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
-
+use std::fmt::Debug;
 use crate::prelude::*;
-use juiz_sdk::anyhow::anyhow;
+use juiz_sdk::{anyhow::anyhow, manifests::ProcessProfile};
 /// ContainerProcessを生成するためのFactoryクラスのtrait
 /// 
-pub trait ContainerProcessFactory : JuizObject + 'static {
+/// 
+pub trait ContainerProcessFactory : JuizObject + Debug + 'static {
 
     /// ContainerProcessを生成
     /// 
-    fn create_container_process(&self, container: ContainerPtr, manifest: ProcessManifest) -> JuizResult<ProcessPtr>;
+    fn create_container_process(&self, container: ContainerPtr, manifest: &ProcessManifest) -> JuizResult<ProcessPtr>;
 
-    fn destroy_container_process(&mut self, p: ProcessPtr) -> JuizResult<Value>;
+    fn destroy_container_process(&mut self, p: ProcessPtr) -> JuizResult<ProcessProfile>;
 }
 
 // pub type ContainerProcessFactoryPtr = Arc<Mutex<dyn ContainerProcessFactory>>;
 
 
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ContainerProcessFactoryPtr {
     identifier: Identifier,
     type_name: String,
     ptr: Arc<RwLock<dyn ContainerProcessFactory>>,
+}
+
+impl std::fmt::Display for ContainerProcessFactoryPtr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("ContainerProcessFactoryPtr(type_name={}, identifier={})", self.type_name, self.identifier))
+    }
 }
 
 impl ContainerProcessFactoryPtr {

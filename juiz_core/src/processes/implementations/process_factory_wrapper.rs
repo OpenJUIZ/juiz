@@ -49,7 +49,7 @@ impl JuizObject for ProcessFactoryWrapper {
 
 impl ProcessFactory for ProcessFactoryWrapper {
 
-    fn create_process(&self, manifest: ProcessManifest) -> JuizResult<ProcessPtr> {
+    fn create_process(&self, manifest: &ProcessManifest) -> JuizResult<ProcessPtr> {
         log::trace!("ProcessFactoryWrapper::create_process(manifest={:?}) called", manifest);
         let p = self.process_factory.lock()?.create_process(manifest)?;
         self.processes.borrow_mut().push(p.clone());

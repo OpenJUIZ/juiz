@@ -18,7 +18,8 @@ pub(super) fn setup_broker_factories(system: &mut System, manifest: &Value) -> J
 
 fn setup_broker_factory(system: &mut System, manifest: &Value, name: &String, v: &Value) -> JuizResult<()> {
     log::trace!("setup_broker_factory(name={name:}) called");
-    let plugin_filename = concat_dirname(v, plugin_name_to_file_name(&name.to_string()))?;
+    let working_dir = None;
+    let plugin_filename = concat_dirname(v, plugin_name_to_file_name(&name.to_string()), working_dir)?;
     let bf;
     let bpf;
     unsafe {

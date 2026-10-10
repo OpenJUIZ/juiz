@@ -77,7 +77,7 @@ fn construct_url(base_url: &String, class_name: &str, function_name: &str, param
 
 impl CRUDBrokerProxy for HTTPBrokerProxy {
     fn create(&self, class_name: &str, function_name: &str, payload: Value, param: std::collections::HashMap<String, String>) -> JuizResult<CapsulePtr> {
-        log::trace!("HTTPBrokerProxy({}).create({class_name:}, {function_name}, {payload}, {param:?}) called", self.base_url);
+        log::trace!("【呼出】HTTPBrokerProxy({}).create({class_name:}, {function_name}, {payload}, {param:?})", self.base_url);
         let client = reqwest::blocking::Client::new();
         match client.post(construct_url(&self.base_url, class_name, function_name, &param))
             .json(&payload)
@@ -94,7 +94,7 @@ impl CRUDBrokerProxy for HTTPBrokerProxy {
     }
 
     fn delete(&self, class_name: &str, function_name: &str, param: std::collections::HashMap<String, String>) -> JuizResult<CapsulePtr> {
-        log::trace!("HTTPBrokerProxy({}).delete({class_name:}, {function_name}, {param:?}) called", self.base_url);
+        log::trace!("【呼出】HTTPBrokerProxy({}).delete({class_name:}, {function_name}, {param:?})", self.base_url);
         let client = reqwest::blocking::Client::new();
         match client.delete(construct_url(&self.base_url, class_name, function_name, &param)).send() {
             Err(e) => Err(anyhow::Error::from(e)),
@@ -106,20 +106,20 @@ impl CRUDBrokerProxy for HTTPBrokerProxy {
 
 
     fn read(&self, class_name: &str, function_name: &str, param: std::collections::HashMap<String, String>) -> JuizResult<CapsulePtr> {
-        log::trace!("HTTPBrokerProxy({}).read({class_name:}, {function_name}, {param:?}) called", self.base_url);
+        log::trace!("【呼出】HTTPBrokerProxy({}).read({class_name:}, {function_name}, {param:?})", self.base_url);
         
         // let client = reqwest::blocking::Client::new();
         let url  =construct_url(&self.base_url, class_name, function_name, &param);
-        log::trace!("HTTPBrokerProxy({}).read(url={url:})", self.base_url);
+        log::trace!("【read】(url={url:})に対してリクエストをします。");
         match self.client.get(url.clone()).send() {
             Err(e) => Err(anyhow::Error::from(e)),
             Ok(response) => {
                 if response.status() != 200 {
-                    log::error!("HTTPBrokerProxy.read(url={url:}) failed. Response is {response:?}");
+                    log::error!("HTTPBrokerProxy.read(url={url:})が失敗しました。Responseは{response:?}");
                     return Err(anyhow::Error::from(HTTPBrokerError::HTTPStatusError{status_code: response.status(), message: format!("{:?}", response) }));
                 }
                 let value = response.json::<Value>().map_err(|e| anyhow::Error::from(e))?;
-                log::trace!("HTTPBrokerProxy.read({}) Response = {value:?}", self.base_url);
+                log::debug!("【read】Responseは{value:}");
                 let return_value = Ok(value.into());
                 //log::trace!("HTTPBrokerProxy.read({}) returns {return_value:?}", self.base_url);
                 return_value
@@ -129,13 +129,16 @@ impl CRUDBrokerProxy for HTTPBrokerProxy {
 
 
     fn update(&self, class_name: &str, function_name: &str, payload: CapsuleMap, param: std::collections::HashMap<String, String>) -> JuizResult<CapsulePtr>{
-        log::trace!("HTTPBrokerProxy({}).update({class_name:}, {function_name}, {payload}, {param:?}) called", self.base_url);
+        log::trace!("【呼出】HTTPBrokerProxy({}).update({class_name:}, {function_name}, {payload}, {param:?})", self.base_url);
         let client = reqwest::blocking::Client::new();
         let v: Value = payload.into();
         match client.patch(construct_url(&self.base_url, class_name, function_name, &param))
             .json(&v)
             .send() {
-            Err(e) => Err(anyhow::Error::from(e)),
+            Err(e) => {
+                log::error!("HttpBrokerProxy::update() failed. Error is {:?}", e);
+                Err(anyhow::Error::from(e))
+            }, 
             Ok(response) => {
                 let hdr = response.headers();
                 if hdr["content-type"] == "image/png" {

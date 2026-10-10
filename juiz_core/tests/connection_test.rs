@@ -41,16 +41,16 @@ fn simple_connection_invoke_test() -> JuizResult<()>{
         rp1.identifier().clone(),
         "arg1".to_owned(),
         rp2.identifier().clone(),
-        Some("con1".to_owned()),
+        //Some("con1".to_owned()),
     );
     // let manifeset =jvalue!({
     //     "identi": "con1",
     //     "type": "pull",
     // });
     // rp1 -> rp2
-    let result1 = rp2.lock_mut()?.notify_connected_from(rp1.clone(), manifest.clone());
+    let result1 = rp2.lock_mut()?.notify_connected_from(rp1.clone(), &manifest);
     assert!(result1.is_ok(), "Failed to connected_from function. Error is {:?}", result1.err());
-    let result2 = rp1.lock_mut()?.try_connect_to(rp2.clone(), manifest.clone());
+    let result2 = rp1.lock_mut()?.try_connect_to(rp2.clone(), &manifest);
     assert!(result2.is_ok(), "Failed to connect_to function. Error is {:?}", result2.err());
 
     let result = rp2.lock()?.invoke().unwrap();
@@ -76,13 +76,12 @@ fn simple_connection_push_invoke_test() -> JuizResult<()> {
         ConnectionType::Push,
         rp1.identifier().clone(),
         "arg1".to_owned(),
-        rp2.identifier().clone(),
-        Some("con1".to_owned()),
+        rp2.identifier().clone()
     );
     // rp1 -> rp2
-    let result1 = rp2.lock_mut()?.notify_connected_from(rp1.clone(),  manifest.clone());
+    let result1 = rp2.lock_mut()?.notify_connected_from(rp1.clone(),  &manifest);
     assert!(result1.is_ok(), "Failed to connected_from function. Error is {:?}", result1.err());
-    let result2 = rp1.lock_mut()?.try_connect_to(rp2.clone(), manifest.clone());
+    let result2 = rp1.lock_mut()?.try_connect_to(rp2.clone(), &manifest);
     assert!(result2.is_ok(), "Failed to connect_to function. Error is {:?}", result2.err());
 
     let result = rp2.lock()?.invoke().unwrap();
@@ -101,7 +100,6 @@ fn simple_connection_execute_test() -> JuizResult<()> {
         rp1.identifier().clone(),
         "arg1".to_owned(),
         rp2.identifier().clone(),
-        Some("con1".to_owned()),
     );
     // let manifeset =jvalue!({
     //     "id": "con1",
@@ -109,9 +107,9 @@ fn simple_connection_execute_test() -> JuizResult<()> {
     // });
 
     // rp1 -> rp2
-    let result1 = rp2.lock_mut()?.notify_connected_from(rp1.clone(), manifest.clone());
+    let result1 = rp2.lock_mut()?.notify_connected_from(rp1.clone(), &manifest);
     assert!(result1.is_ok(), "Failed to connected_from function. Error is {:?}", result1.err());
-    let result2 = rp1.lock_mut()?.try_connect_to(rp2.clone(), manifest.clone());
+    let result2 = rp1.lock_mut()?.try_connect_to(rp2.clone(), &manifest);
     assert!(result2.is_ok(), "Failed to connect_to function. Error is {:?}", result2.err());
 
     //let p =  
@@ -150,10 +148,9 @@ fn simple_connection_builder_invoke_test() -> JuizResult<()> {
         rp1.identifier().clone(),
         "arg1".to_owned(),
         rp2.identifier().clone(),
-        Some("con1".to_owned()),
     );
 
-    let result1 = connect(rp1.clone(), rp2.clone(), manifest);
+    let result1 = connect(rp1.clone(), rp2.clone(), &manifest);
     // rp1 -> rp2
     assert!(result1.is_ok(), "Failed to ConnectionBuilder::connected function. Error is {:?}", result1.err());
     

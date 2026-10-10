@@ -21,12 +21,12 @@ pub(super) fn setup_local_broker_factory(system: &mut System) -> JuizResult<()> 
 
 
 pub(super) fn setup_local_broker(system: &mut System) -> JuizResult<()> {
-    log::trace!("system_builder::setup_local_broker() called");
+    log::trace!("【呼出】system_builder::setup_local_broker()");
     let local_broker = system.create_broker(&jvalue!({
         "type_name": "local",
         "name": "local"
     })).context("system.create_broker() failed in system_builder::setup_local_broker()")?;
     system.register_broker(local_broker)?;
-    log::info!("LocalBroker Created");
+    log::info!("【生成】LocalBroker");
     Ok(())
 }

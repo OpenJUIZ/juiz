@@ -1,12 +1,13 @@
 
 use std::fmt::Display;
 
-use crate::value::{jvalue, obj_get_array, obj_get_str, Value};
+use serde::{Deserialize, Serialize};
+
 
 use super::{ContainerManifest, Description, ProcessManifest};
 
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ComponentManifest {
     pub type_name: String,
     pub description: Description,
@@ -83,51 +84,50 @@ impl ComponentManifest {
     }
 }
 
-impl TryFrom<Value> for ComponentManifest {
-    type Error = anyhow::Error;
+// impl TryFrom<Value> for ComponentManifest {
+//     type Error = anyhow::Error;
 
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
-        let desc = match obj_get_str(&value, "description") {
-            Ok(v) => v,
-            Err(_) => ""
-        };
-        let mut p = ComponentManifest::new(obj_get_str(&value, "type_name")?).description(desc);
-        match obj_get_str(&value, "language") {
-            Ok(lang) => {
-                p = p.language(lang);
-            },
-            Err(_) => {}
-        }
-        match obj_get_array(&value, "containers") {
-            Ok(value_array) => {
-                for v in value_array.iter() {
-                    p = p.add_container(v.clone().try_into()?);
-                }
-            }
-            Err(_) => {}
-        }
-        match obj_get_array(&value, "processes") {
-            Ok(value_array) => {
-                for v in value_array.iter() {
-                    p = p.add_process(v.clone().try_into()?);
-                }
-            }
-            Err(_) => {}
-        }
-        Ok(p)
-    }
-}
+//     fn try_from(value: Value) -> Result<Self, Self::Error> {
+//         let desc = match obj_get_str(&value, "description") {
+//             Ok(v) => v,
+//             Err(_) => ""
+//         };
+//         let mut p = ComponentManifest::new(obj_get_str(&value, "type_name")?).description(desc);
+//         match obj_get_str(&value, "language") {
+//             Ok(lang) => {
+//                 p = p.language(lang);
+//             },
+//             Err(_) => {}
+//         }
+//         match obj_get_array(&value, "containers") {
+//             Ok(value_array) => {
+//                 for v in value_array.iter() {
+//                     p = p.add_container(v.clone().try_into()?);
+//                 }
+//             }
+//             Err(_) => {}
+//         }
+//         match obj_get_array(&value, "processes") {
+//             Ok(value_array) => {
+//                 for v in value_array.iter() {
+//                     p = p.add_process(v.clone().try_into()?);
+//                 }
+//             }
+//             Err(_) => {}
+//         }
+//         Ok(p)
+//     }
+// }
 
-impl Into<Value> for ComponentManifest {
-    fn into(self) -> Value {
-        let v = jvalue!({
-            "type_name": self.type_name,
-            "language": self.language,
-            "description": self.description.to_str(),
-            "processes": self.processes.iter().map(|c| { c.clone().into() }).collect::<Vec<Value>>(),
-            "containers": self.containers.iter().map(|c| { c.clone().into() }).collect::<Vec<Value>>(),
-        });
-
-        v
-    }
-}
+// impl Into<Value> for ComponentManifest {
+//     fn into(self) -> Value {
+//         let v = jvalue!({
+//             "type_name": self.type_name,
+//             "language": self.language,
+//             "description": self.description.to_str(),
+//             "processes": self.processes.iter().map(|c| { c.clone().into() }).collect::<Vec<Value>>(),
+//             "containers": self.containers.iter().map(|c| { c.clone().into() }).collect::<Vec<Value>>(),
+//         });
+//         v
+//     }
+// }

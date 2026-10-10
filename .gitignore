@@ -3,4 +3,8 @@
 .*
 *.pyc
 increment_process/target
+examples/cpp/build/
 Cargo.lock
+/juiz_tutorial/rust/*/target/
+/bindings/pyjuiz/dist/
+/bindings/pyjuiz/*.egg-info/

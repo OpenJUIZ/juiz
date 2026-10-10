@@ -88,6 +88,6 @@ impl ExecutionContextFactory for MainLoopECFactory {
 
 #[no_mangle]
 pub unsafe extern "Rust" fn execution_context_factory() -> JuizResult<Arc<Mutex<dyn ExecutionContextFactory>>> {
-    env_logger::init();
+    let _ = env_logger::try_init();
     Ok(Arc::new(Mutex::new(MainLoopECFactory{})))
 }

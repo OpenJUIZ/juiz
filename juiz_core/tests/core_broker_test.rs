@@ -7,19 +7,22 @@ use juiz_core::prelude::*;
 mod common;
 
 fn new_increment_process<'a> () -> JuizResult<impl Process> {
-    let manifest = jvalue!({
-        "name": "test_function",
-        "type_name": "increment",
-        "arguments" : [
-            {
-                "name": "arg1",
-                "type": "int",
-                "description": "test_argument",
-                "default": 1,
-            }, 
-        ] 
-    });
-    let p = process_new(manifest.try_into()?, common::increment_function);
+    let manifest = ProcessManifest::new("increment")
+        .name("test_function")
+        .add_int_arg("arg1", "test_argument", 1);
+    // let manifest = jvalue!({
+    //     "name": "test_function",
+    //     "type_name": "increment",
+    //     "arguments" : [
+    //         {
+    //             "name": "arg1",
+    //             "type": "int",
+    //             "description": "test_argument",
+    //             "default": 1,
+    //         }, 
+    //     ] 
+    // });
+    let p = process_new(manifest, common::increment_function);
     assert!(p.is_ok() , "ProcessImpl::new() failed. Error is {:?}", p.err());
     p
 }
@@ -48,7 +51,7 @@ fn core_broker_test() ->JuizResult<()> {
 
     let p = new_increment_process()?;
     let id = p.identifier().clone();
-    let result = cb.worker_mut().store_mut().processes.register(&id, ProcessPtr::new(p));
+    let result = cb.worker_mut().store_mut().processes.register(&id.to_string(), ProcessPtr::new(p));
 
     assert!(result.is_ok());
 

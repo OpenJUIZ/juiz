@@ -5,7 +5,7 @@
 //! プロセス、コンテナ、コンテナプロセスおよびコンポーネントの実体の関数定義に宣言型マクロとして使います。
 //! 
 //! ## Cargo.toml
-//! ```
+//! ```ignore
 //! [package]
 //! name = "listener"
 //! version = "0.1.0"
@@ -24,7 +24,7 @@
 //! ## プロセスの例
 //! 
 //! ### lib.rs
-//! ```
+//! ```ignore
 //! #[juiz_process(
 //!     description = "This is listener process."
 //!     arguments = {
@@ -44,7 +44,7 @@
 //! ```
 //! ## コンテナの例
 //! 
-//! ```
+//! ```ignore
 //! use juiz_sdk::prelude::*;
 //! #[repr(Rust)]
 //! pub struct ExampleContainer {
@@ -73,7 +73,7 @@
 //!
 //! # Examples
 //!
-//! ```
+//! ```ignore
 //! use example_container::ExampleContainer;
 //! use juiz_sdk::prelude::*;
 //! 
@@ -95,7 +95,7 @@
 //! 
 //! ## コンポーネントの例
 //! 
-//! ```
+//! ```ignore
 //! use juiz_sdk::prelude::*;
 //! #[juiz_component_process]
 //! fn example_component_increment(arg1: i64) -> JuizResult<Capsule> {
@@ -159,7 +159,7 @@
 pub mod identifier;
 pub mod connection_identifier;
 pub mod process_identifier;
-pub mod container_identifier;
+pub mod topic_identifier;
 pub mod value;
 pub mod result;
 pub mod manifests;

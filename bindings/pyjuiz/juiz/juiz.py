@@ -4,14 +4,14 @@ from PIL.Image import Image
 
 @dataclass
 class ArgumentManifest:
-    type: str
+    type_name: str
     name: str
     default: Any
     description: str = ""
     
     @classmethod
     def new(cls, type_name, name, description, default_value):
-        return ArgumentManifest(type=type_name, name=name, default=default_value, description=description )
+        return ArgumentManifest(type_name=type_name, name=name, default=default_value, description=description )
 
 @dataclass
 class ProcessManifest:
@@ -20,7 +20,7 @@ class ProcessManifest:
     arguments: List[ArgumentManifest]
     description: str = ""
     factory: str = "process_factory"
-    use_demo: bool = False
+    use_memo: bool = False
     language: str = "python"
     name: Optional[str] = None
     container_name: Optional[str] = None
@@ -59,31 +59,31 @@ class ProcessManifest:
         return self
 
     def add_bool_arg(self, name, description, default_value:bool):
-        self.add_argument(ArgumentManifest.new("bool", name, description, default_value))
+        self.add_argument(ArgumentManifest.new("Bool", name, description, default_value))
         return self
     
     def add_int_arg(self, name, description, default_value:int):
-        self.add_argument(ArgumentManifest.new("int", name, description, default_value))
+        self.add_argument(ArgumentManifest.new("Int", name, description, default_value))
         return self
         
     def add_float_arg(self, name, description, default_value:float):
-        self.add_argument(ArgumentManifest.new("float", name, description, default_value))
+        self.add_argument(ArgumentManifest.new("Float", name, description, default_value))
         return self
         
     def add_string_arg(self, name, description, default_value:str):
-        self.add_argument(ArgumentManifest.new("string", name, description, default_value))
+        self.add_argument(ArgumentManifest.new("String", name, description, default_value))
         return self
 
     def add_object_arg(self, name, description, default_value: dict):
-        self.add_argument(ArgumentManifest.new("object", name, description, default_value))
+        self.add_argument(ArgumentManifest.new("Object", name, description, default_value))
         return self
     
     def add_array_arg(self, name, description, default_value: list):
-        self.add_argument(ArgumentManifest.new("array", name, description, default_value))
+        self.add_argument(ArgumentManifest.new("Array", name, description, default_value))
         return self
         
     def add_image_arg(self, name, description, default_value: object):
-        self.add_argument(ArgumentManifest.new("image", name, description, default_value))
+        self.add_argument(ArgumentManifest.new("Image", name, description, default_value))
         
     def into_value(self):
         return asdict(self, dict_factory=lambda x: {k: v for (k, v) in x if v is not None})
@@ -112,7 +112,8 @@ class ContainerManifest:
         return self
     
     def set_description(self, desc): 
-        self.description = desc
+        if desc is not None:
+            self.description = desc
         return self
     
     def into_value(self):
@@ -123,31 +124,31 @@ class ContainerManifest:
         return self
     
     def add_bool_arg(self, name, description, default_value:bool):
-        self.add_argument(ArgumentManifest.new("bool", name, description, default_value))
+        self.add_argument(ArgumentManifest.new("Bool", name, description, default_value))
         return self
     
     def add_int_arg(self, name, description, default_value:int):
-        self.add_argument(ArgumentManifest.new("int", name, description, default_value))
+        self.add_argument(ArgumentManifest.new("Int", name, description, default_value))
         return self
         
     def add_float_arg(self, name, description, default_value:float):
-        self.add_argument(ArgumentManifest.new("float", name, description, default_value))
+        self.add_argument(ArgumentManifest.new("Float", name, description, default_value))
         return self
         
     def add_string_arg(self, name, description, default_value:str):
-        self.add_argument(ArgumentManifest.new("string", name, description, default_value))
+        self.add_argument(ArgumentManifest.new("String", name, description, default_value))
         return self
 
     def add_object_arg(self, name, description, default_value: dict):
-        self.add_argument(ArgumentManifest.new("object", name, description, default_value))
+        self.add_argument(ArgumentManifest.new("Object", name, description, default_value))
         return self
     
     def add_array_arg(self, name, description, default_value: list):
-        self.add_argument(ArgumentManifest.new("array", name, description, default_value))
+        self.add_argument(ArgumentManifest.new("Array", name, description, default_value))
         return self
     
     def add_image_arg(self, name, description, default_value: object):
-        self.add_argument(ArgumentManifest.new("image", name, description, default_value))
+        self.add_argument(ArgumentManifest.new("Image", name, description, default_value))
         
 @dataclass
 class ComponentManifest:
@@ -162,7 +163,8 @@ class ComponentManifest:
         return ComponentManifest(type_name=type_name, containers=[], processes=[])
     
     def set_description(self, desc):
-        self.description = desc
+        if desc is not None:
+            self.description = desc
         return self
     
     def set_language(self, lang):

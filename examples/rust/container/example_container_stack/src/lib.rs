@@ -30,7 +30,7 @@ fn create_example_container_ex(manifest: ContainerManifest, container_ptr: Conta
 
 #[no_mangle]
 pub unsafe extern "Rust" fn container_factory() -> JuizResult<ContainerStackFactoryStruct> {
-    env_logger::init();
+    let _ = env_logger::try_init();
     let manifest = ExampleContainerStack::manifest();
     Ok(container_stack_factory(manifest, create_example_container_ex))
 }

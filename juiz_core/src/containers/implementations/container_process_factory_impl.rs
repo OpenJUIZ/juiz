@@ -1,16 +1,25 @@
 use std::sync::Arc;
 use juiz_sdk::anyhow::anyhow;
+use juiz_sdk::manifests::ProcessProfile;
 use crate::connections::ConnectionFactoryImpl;
 use crate::prelude::*;
 use crate::containers::{ContainerImpl, ContainerProcessImpl};
-use crate::processes::process_from_clousure_new_with_class_name;
+use crate::processes::ProcessImpl;
 
 pub type BindedContainerFunctionType = Arc<dyn Fn(ContainerPtr, CapsuleMap)->JuizResult<Capsule>>;
+
+// #[derive(Debug)]
 pub struct ContainerProcessFactoryImpl {
     core: ObjectCore,
     manifest: ProcessManifest,
    // function: ContainerFunctionTypePtr<T>,
     binded_function: BindedContainerFunctionType,
+}
+
+impl std::fmt::Debug for ContainerProcessFactoryImpl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ContainerProcessFactoryImpl").field("core", &self.core).field("manifest", &self.manifest).field("binded_function", &"{}".to_owned()).finish()
+    }
 }
 
 // pub type ContainerProcessConstructorType<T>=&'static dyn Fn(&mut ContainerImpl<T>, CapsuleMap) -> JuizResult<Capsule> ;
@@ -65,7 +74,7 @@ impl JuizObjectCoreHolder for ContainerProcessFactoryImpl {
 impl JuizObject for ContainerProcessFactoryImpl {
     fn profile_full(&self) -> JuizResult<Value> {
         let mut v = self.core.profile_full()?;
-        let vv = self.manifest.arguments.iter().map(|v|{ v.clone().into() }).collect::<Vec<Value>>();
+        let vv = self.manifest.arguments.iter().map(|v|{ serde_json::to_value(v) }).collect::<serde_json::Result<Vec<Value>>>()?;
         obj_merge_mut(&mut v, &jvalue!({
             "arguments": vv,
             "language": self.manifest.language,
@@ -86,8 +95,8 @@ pub fn bind_container_function<T: 'static >(function: impl Fn(&mut ContainerImpl
 }
 
 impl ContainerProcessFactory for ContainerProcessFactoryImpl {
-    fn create_container_process(&self, container: ContainerPtr, manifest: ProcessManifest) -> JuizResult<ProcessPtr> {
-        log::trace!("ContainerProcessFactoryImpl::create_container_process(container, manifest={:?}) called", manifest);
+    fn create_container_process(&self, container: ContainerPtr, manifest: &ProcessManifest) -> JuizResult<ProcessPtr> {
+        log::trace!("【呼出】ContainerProcessFactoryImpl::create_container_process(container, manifest={:?})", manifest);
         
         //let function_clone = self.function.clone();
         // let func = move |args| -> JuizResult<Capsule> {
@@ -99,9 +108,9 @@ impl ContainerProcessFactory for ContainerProcessFactoryImpl {
         let func = move |args| -> JuizResult<Capsule> {
             function_clone(container.clone(), args)
         };
-        Ok(ProcessPtr::new(process_from_clousure_new_with_class_name(
+        Ok(ProcessPtr::new(ProcessImpl::new_from_clousure_and_class_name(
             JuizObjectClass::ContainerProcess("ContainerProcessImpl"), 
-            self.manifest.build_instance_manifest(manifest)?, 
+            self.manifest.build_instance_manifest(manifest.clone())?, 
             func, 
             Box::new(ConnectionFactoryImpl::new()))?))
         // Ok(ProcessPtr::new(
@@ -115,10 +124,10 @@ impl ContainerProcessFactory for ContainerProcessFactoryImpl {
         // ))
     }
     
-    fn destroy_container_process(&mut self, proc: ProcessPtr) -> JuizResult<Value> {
+    fn destroy_container_process(&mut self, proc: ProcessPtr) -> JuizResult<ProcessProfile> {
         log::trace!("ContainerProcessFactoryImpl({})::destroy_container_process() called", self.type_name());
         proc.downcast_mut_and_then(|p: &mut ContainerProcessImpl| { 
-            let prof = p.profile_full()?;
+            let prof = p.profile()?;
             p.container.take();
             log::trace!("ContainerFactoryImpl({})::destroy_container_process() exit", self.type_name());
             Ok(prof)

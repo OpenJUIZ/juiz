@@ -1,6 +1,6 @@
 use juiz_sdk::anyhow::Context;
 
-use crate::{core::system_builder::{brokers::setup_broker_factories, components::setup_components, containers::setup_container_factories, ecs::setup_execution_context_factories, processes::setup_process_factories}, prelude::*};
+use crate::{core::system_builder::{brokers::setup_broker_factories, components::setup_components, containers::setup_container_factories, ecs::{setup_execution_context_factories, setup_main_loop_ec_factory}, processes::setup_process_factories}, prelude::*};
 
 pub(crate) fn setup_plugins(system: &mut System, manifest: &Value, option: &Value) -> JuizResult<()> {
     log::trace!("system_builder::setup_plugins({}) called", manifest);
@@ -20,8 +20,9 @@ pub(crate) fn setup_plugins(system: &mut System, manifest: &Value, option: &Valu
     let _ = when_contains_do(manifest, "ec_factories", |v| {
         setup_execution_context_factories(system, v).with_context(||format!("system_builder::setup_execution_context_factories(manifest={manifest:}) failed."))
     })?;
-    
-    log::trace!("system_builder::setup_plugins() exit");
+
+    setup_main_loop_ec_factory(system).with_context(||format!("system_builder::setup_main_loop_ec_factory() failed."))?;
+    log::trace!("【終了】system_builder::setup_plugins()");
     Ok(())
 }
 

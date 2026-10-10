@@ -8,7 +8,7 @@ pub type Identifier = String;
 
 
 pub fn identifier_new(broker_type_name: &str, broker_name: &str, class_name: &str, type_name: &str, object_name: &str) -> Identifier {
-    broker_type_name.to_string() + "://" + broker_name + "/" + class_name + "/" + object_name + "::" + type_name
+    broker_type_name.to_string() + "://" + broker_name + "/" + class_name.to_owned().to_lowercase().as_str() + "/" + object_name + "::" + type_name
 }
 
 pub fn connection_identifier_new(source_id: &Identifier, destination_id: &Identifier, arg_name: &str) -> Identifier {

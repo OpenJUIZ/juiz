@@ -1,5 +1,7 @@
 
 
+use crate::manifests::ArgumentProfile;
+use crate::manifests::ProcessProfile;
 use crate::prelude::*;
 use crate::value::*;
 
@@ -81,16 +83,16 @@ pub fn check_connection_manifest(connection_manifest: Value) -> Result<Value, Ju
 //     Ok(process_manifest)
 // }
 
-fn check_arguments(args_manifest: &Vec<ArgumentManifest>, argument: &CapsuleMap) -> JuizResult<()> {
+fn check_arguments(args_manifest: &Vec<ArgumentProfile>, argument: &CapsuleMap) -> JuizResult<()> {
     //let arg_map = get_hashmap(argument).context("check_arguments")?;
     for arg_manifest in args_manifest.iter() {
         match argument.get(arg_manifest.name.as_str()) {
             Err(_) => {
-                log::error!("In Process Manifest there is argument named '{arg_manifest:?}', but can not be found in argument:CapsuleMap ().");
+                log::error!("プロセスのマニフェストチェック中にエラーが発生しました。引数のマニフェストは('{arg_manifest:?}')ですが、この引数が渡されたカプセルの中に見つかりません。渡された引数の名前が間違っているかもしれません。");
                 
                 return Err(
                 anyhow::Error::from(JuizError::ArgumentMissingWhenCallingError{
-                    process_manifest: args_manifest.iter().map(|a|{a.clone().into()}).collect::<Vec<Value>>().into(), 
+                    process_manifest: args_manifest.iter().map(|a|{ serde_json::to_value(a) }).collect::<Result<Vec<Value>, serde_json::Error>>()?.into(), 
                     missing_arg_name: arg_manifest.name.clone()}));
                 },
             Ok(_) => {}
@@ -99,6 +101,6 @@ fn check_arguments(args_manifest: &Vec<ArgumentManifest>, argument: &CapsuleMap)
     Ok(())
 }
 
-pub fn check_manifest_before_call(manifest: &ProcessManifest, argument: &CapsuleMap) -> JuizResult<()> {
+pub fn check_manifest_before_call(manifest: &ProcessProfile, argument: &CapsuleMap) -> JuizResult<()> {
     check_arguments(&manifest.arguments, argument)
 }

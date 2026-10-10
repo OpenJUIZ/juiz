@@ -1,25 +1,27 @@
 extern crate juiz_core;
-use std::sync::{Arc, Mutex};
 use juiz_core::{prelude::*, SystemStore, SystemStorePtr};
 
 mod common;
 
 
 fn new_process_factory(cb: &mut CoreBroker) -> JuizResult<ProcessFactoryPtr> {
-    let manifest = jvalue!({
-        "type_name" : "increment",
-        "use_memo": true,
-        "arguments" : [
-            {
-                "name": "arg1",
-                "type": "int",
-                "description": "test_argument",
-                "default": 1,
-            }, 
-        ], 
-    });
+    // let manifest = jvalue!({
+    //     "type_name" : "increment",
+    //     "use_memo": true,
+    //     "arguments" : [
+    //         {
+    //             "name": "arg1",
+    //             "type": "int",
+    //             "description": "test_argument",
+    //             "default": 1,
+    //         }, 
+    //     ], 
+    // });
+    let manifest = ProcessManifest::new("increment")
+        .use_memo(true)
+        .add_int_arg("arg1", "test_argument", 1);
     let type_name = "increment";
-    let pf = process_factory_create(manifest.try_into()?, common::increment_function)?;
+    let pf = process_factory_create(manifest, common::increment_function)?;
     let result_pf = cb.worker_mut().store_mut().processes.register_factory(
         &type_name.to_owned(), pf.clone());
     assert!(result_pf.is_ok(), "register_process_factory failed. Error is {:?}", result_pf.err());
@@ -49,10 +51,9 @@ fn core_broker_process_factory_integration_test() -> JuizResult<()> {
 
     //let mut id = "".to_string();
 
-    let p_result = cb.worker_mut().create_process_ref(jvalue!({
-        "name": "test_function",
-        "type_name": "increment",
-    }).try_into()?);
+    let p_result = cb.worker_mut().create_process_ref(
+        &ProcessManifest::new("increment").name("test_function")
+    );
     assert!(p_result.is_ok(), "process_create failed. Error is {:?}", p_result.err());
 
     let arc_p = p_result.ok().unwrap();
@@ -89,20 +90,27 @@ fn core_broker_process_factory_integration_connection_test() -> JuizResult<()> {
     let mut cb = new_core_broker();
     let _pf = new_process_factory(&mut cb);
     
-    let p1_result = cb.worker_mut().create_process_ref(jvalue!({
-        "name": "test_function1",
-        "type_name": "increment",
-    }).try_into()?);
+    let p1_result = cb.worker_mut().create_process_ref(
+        &ProcessManifest::new("increment").name("test_function1"));
+    //     jvalue!({
+    //     "name": "test_function1",
+    //     "type_name": "increment",
+    // }).try_into()?);
     assert!(p1_result.is_ok(), "process_create failed. Error is {:?}", p1_result.err());
+
+    let list_v1 = cb.process_list(true, None)?;
+    assert!(list_v1.len() == 1, "First process is not registered to CoreBroker");
 
     let arc_p1 = p1_result.ok().unwrap();
     
     let id1 = arc_p1.lock()?.identifier().clone();
 
-    let p2_result = cb.worker_mut().create_process_ref(jvalue!({
-        "name": "test_function2",
-        "type_name": "increment",
-    }).try_into()?);
+    let p2_result = cb.worker_mut().create_process_ref(
+        &ProcessManifest::new("increment").name("test_function2"));
+    //     jvalue!({
+    //     "name": "test_function2",
+    //     "type_name": "increment",
+    // }).try_into()?);
     assert!(p2_result.is_ok(), "process_create failed. Error is {:?}", p2_result.err());
 
     let arc_p2 = p2_result.ok().unwrap();
@@ -111,18 +119,17 @@ fn core_broker_process_factory_integration_connection_test() -> JuizResult<()> {
     //assert!(cb.is_in_charge_for_process(&id1));
     //assert!(cb.is_in_charge_for_process(&id2));
     
+    let con_manif = ConnectionManifest::new(
+        ConnectionType::Push,
+        id1.clone(),
+        "arg1".to_owned(),
+        id2.clone()
+    );
 
-    let con_result = cb.connection_create(
-         jvalue!({
-            "source": {
-                "identifier": id1
-            },
-            "destination": {
-                "identifier": id2,
-            },
-            "arg_name": "arg1"
-        }));
-    assert!(con_result.is_ok(), "CoreBroker::connect() failed. Error is {:?}", con_result.err());
+    let list_v = cb.process_list(true, None)?;
+    println!("list_v={list_v:?}");
+    let con_result = cb.connection_create(&con_manif);
+    assert!(con_result.is_ok(), "core_broker_integration_test.rs: CoreBroker::connect() failed. Error is {:?}", con_result.err());
 
     let retval = cb.process_execute(&id1);
     match retval {
@@ -136,7 +143,7 @@ fn core_broker_process_factory_integration_connection_test() -> JuizResult<()> {
             print!("Return value is {:?}", ev);
         }
     }
-    let p2_result2 = cb.worker().store().processes.get(&id2);
+    let p2_result2 = cb.worker().store().processes.get(&id2.to_string());
     assert!(p2_result2.is_ok(), "Process 2 can not acquire. Error is {:?}", p2_result2.err());
     
     let arc_out = p2_result2.ok().unwrap().lock()?.get_output();

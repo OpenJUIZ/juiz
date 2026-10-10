@@ -13,6 +13,11 @@ pub struct Inlet {
     buffer: RefCell<Option<CapsulePtr>>,
 }
 
+impl std::fmt::Debug for Inlet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Inlet").field("name", &self.name).field("default_value", &self.default_value).field("buffer", &self.buffer).finish()
+    }
+}
 
 impl Inlet {
 
@@ -45,12 +50,12 @@ impl Inlet {
     // pub fn source_connections_mut(&mut self) -> &mut Vec<Box<dyn SourceConnection>> {
     //     return &mut self.source_connections
     // }
-
+    #[allow(unused)]
     pub fn profile_full(&self) -> JuizResult<Value> {
         Ok(jvalue!({
             "name": self.name,
             "source_connections": self.source_connections.iter().map(|sc| -> Value {
-                sc.profile_full().unwrap_or_else(|e| { jvalue!(format!("Error. SourceConnection::profile_full() failed. Error {e:}")) })
+                sc.profile().into()
             }).collect::<Vec<Value>>()
         }).into())
     }
@@ -79,7 +84,7 @@ impl Inlet {
             if sc.connection_type() == ConnectionType::Pull {
                 match sc.pull() {
                     Err(e) => {
-                        log::error!("Pull data via Connection({}) in Inlet({})::collect_value() failed. Error: {:}", sc.name(), self.name(), e);
+                        log::error!("Pull data via Connection({}) in Inlet({})::collect_value() failed. Error: {:}", sc.identifier(), self.name(), e);
                     },
                     Ok(output) => {
                         self.buffer.replace(Some(output.clone()));

@@ -4,6 +4,8 @@ use std::sync::{Mutex, Arc, atomic::AtomicI64};
 
 
 
+use juiz_sdk::process_identifier::ProcessIdentifier;
+
 use crate::prelude::*;
 
 
@@ -61,10 +63,10 @@ impl ExecutionContextCore {
         Ok(())
     }
 
-    pub fn unbind(&mut self, target_process_id: Identifier) -> JuizResult<()> {
+    pub fn unbind(&mut self, target_process_id: ProcessIdentifier) -> JuizResult<()> {
         let mut remove_index: Option<usize> = None;
         for (i, p) in self.target_processes.iter().enumerate() {
-            if target_process_id == *p.identifier() {
+            if target_process_id == p.identifier() {
                 remove_index = Some(i);
             }
         }
@@ -90,7 +92,7 @@ impl ExecutionContextCore {
 
     pub fn profile(&self) -> JuizResult<Value> {
         Ok(jvalue!({
-            "targets": self.target_processes.iter().map(|tp| { Ok(tp.identifier().clone()) }).collect::<JuizResult<Vec<String>>>()?,
+            "targets": self.target_processes.iter().map(|tp| { serde_json::to_value(tp.identifier()) }).collect::<serde_json::Result<Vec<Value>>>()?,
             "state": ExecutionContextState::from(self.state.load(std::sync::atomic::Ordering::SeqCst)).to_string()
         }))
     }

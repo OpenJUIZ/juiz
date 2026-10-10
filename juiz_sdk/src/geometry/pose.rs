@@ -37,7 +37,7 @@ impl<T: Float> Add for Vec3<T> {
 pub type Point3D<T> = Vec3<T>;
 
 /// ```
-/// use juiz_core::geometry::Point3D;
+/// use juiz_sdk::geometry::Point3D;
 /// use nalgebra::base::Vector3;
 /// let vec = Vector3::<f32>::new(0.1, 0.2, 0.3);
 /// let p: Point3D<f32> = vec.into();
@@ -102,7 +102,7 @@ pub type Quaternion<T> = Vec4<T>;
 pub type Orientation3D<T> = Quaternion<T>;
 
 /// ```
-/// use juiz_core::geometry::Orientation3D;
+/// use juiz_sdk::geometry::Orientation3D;
 /// use nalgebra::base::Vector4;
 /// let vec = Vector4::<f32>::new(0.1, 0.2, 0.3, 0.4);
 /// let p: Orientation3D<f32> = vec.into();
@@ -191,7 +191,7 @@ pub use quaternion_from_euler_xyz as q_from_e;
 
 /// ```
 /// use approx::assert_relative_eq;
-/// use juiz_core::geometry::{Transform3D, Vec3, Quaternion, quaternion_from_euler_xyz, euler_xyz_from_quaternion};
+/// use juiz_sdk::geometry::{Transform3D, Vec3, Quaternion, quaternion_from_euler_xyz, euler_xyz_from_quaternion};
 /// use nalgebra::RealField;
 /// let vec1 = Transform3D::<f32>::new(Vec3::<f32>::new(0.1, 0.2, 0.3), Quaternion::<f32>::zero());
 /// let vec2 = Transform3D::<f32>::new(Vec3::<f32>::new(0.1, 0.2, 0.3), Quaternion::<f32>::zero());

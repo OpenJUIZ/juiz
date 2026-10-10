@@ -18,6 +18,14 @@ pub struct CppPlugin{
     manifest: Value,
 }
 
+
+impl std::fmt::Debug for CppPlugin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CppPlugin").field("path", &self.path).field("lib", &self.lib).field("manifest", &self.manifest).finish()
+    }
+}
+
+
 pub struct CppContainerStruct {
     pub cobj: *mut std::ffi::c_void
 }
@@ -31,22 +39,25 @@ impl CppPlugin {
     /// path:
     /// manifest_entry_point: ファイル自体のマニフェストのエントリーポイント
     pub fn new(path: PathBuf, manifest_entry_point: &str) -> JuizResult<CppPlugin> {
-        log::trace!("CppPlugin::new({:?}, {:?}) called", path, manifest_entry_point);
+        log::trace!("【呼出】CppPlugin::new(path={:?}, manifest_entry_point={:?})", path, manifest_entry_point);
         let entry_point = manifest_entry_point.to_owned() + "_entry_point";
         unsafe {
             let lib = Library::new(path.clone()).or_else(|e| {
-                log::error!("Library::new({path:?}) failed. Error ({e:?})");
+                log::error!("【エラー】Library::new({path:?}) failed. Error ({e:?})");
                 Err(e)
             })?;
             let mut manif_cap = CapsulePtr::new();
             let manifest_function: Symbol<unsafe fn(*mut CapsulePtr) -> i64> = lib.get(entry_point.as_bytes()).or_else(|e| {
-                log::error!("Library::new({path:?}) failed. Error ({e:?})");
+                log::error!("【エラー】Library::new({path:?}) failed. Error ({e:?})");
                 Err(e)
             })?;
             if manifest_function(&mut manif_cap) != 0 {
+                log::error!("プロセスのマニフェスト取得に失敗");
                 return Err(anyhow::Error::from(JuizError::CppProcessFunctionCallError{}));
             }
-            Ok(CppPlugin{path, lib, manifest: manif_cap.extract_value()?})
+            let manifest_value = manif_cap.extract_value()?;
+            log::debug!("プロセスのマニフェスト取得に成功。マニフェスト：{manifest_value:}");
+            Ok(CppPlugin{path, lib, manifest: manifest_value})
         }
     }
 
@@ -58,15 +69,16 @@ impl CppPlugin {
     }
 
     pub fn get_manifest(&self) -> &Value {
+        log::trace!("【呼出】get_manifest() -> {:?}", self.manifest);
         &self.manifest
     }
 
     pub fn load_component_manifest(&self, _working_dir: Option<PathBuf>) -> JuizResult<ComponentManifest> {
-        Ok(self.get_manifest().clone().try_into()?)
+        serde_json::from_value(self.get_manifest().clone()).or_else(|e| { Err(anyhow!(e))})
     }
     
     pub fn load_process_factory(&self, _working_dir: Option<PathBuf>, symbol_name: &str, type_name_opt: Option<&str>) -> JuizResult<ProcessFactoryPtr> {
-        log::trace!("load_process_factory({symbol_name:}) called");
+        log::trace!("【呼出】load_process_factory({symbol_name:})");
         let full_symbol_name = symbol_name.to_owned() + "_entry_point";
         type SymbolType = libloading::Symbol<'static, unsafe fn() -> unsafe fn(*mut CapsuleMap, *mut Capsule)->i64 >;
         let f = unsafe {
@@ -75,13 +87,26 @@ impl CppPlugin {
         };
         let manifest = match type_name_opt {
             Some(type_name) => {
-                let manif: ComponentManifest = self.get_manifest().clone().try_into()?;
+                log::debug!("type_name_optが検出されました({type_name})。コンポーネントのマニフェストを取得します。");
+                let manif: ComponentManifest = serde_json::from_value(self.get_manifest().clone())?;
                 manif.processes.iter().find(|p| { p.type_name == type_name })
                    .ok_or(anyhow!(JuizError::ArgumentError { message: format!("ComponentManifest does not include process(type_name={type_name})") }))?.clone()
             }
-            None => self.get_manifest().clone().try_into()?
+            None => {
+                log::debug!("type_name_optが検出されませんでした。バイナリから取得したマニフェストを使用します。");
+                match serde_json::from_value(self.get_manifest().clone()) {
+                    Ok(proc_manif) => {
+                        log::debug!("バイナリから取得したマニフェストからProcessManifestへの変換に成功しました ({proc_manif}) ");
+                        Ok(proc_manif)
+                    },
+                    Err(e) => {
+                        log::error!("バイナリから取得したマニフェストからProcessManifestへの変換に失敗しました。エラー ({e})");
+                        Err(e)
+                    }
+                }?
+            }
         };
-        create_cpp_process_factory(manifest.into(), f)
+        create_cpp_process_factory(manifest, f)
     }
 
     pub fn load_container_factory(&self, _working_dir: Option<PathBuf>, symbol_name: &str, type_name_opt: Option<&str>) -> JuizResult<ContainerFactoryPtr> {
@@ -95,11 +120,11 @@ impl CppPlugin {
 
         let container_manifest = match type_name_opt {
             Some(type_name) => {
-                let manif: ComponentManifest = self.get_manifest().clone().try_into()?;
+                let manif: ComponentManifest = serde_json::from_value(self.get_manifest().clone())?;
                 manif.containers.iter().find(|p| { p.type_name == type_name })
                    .ok_or(anyhow!(JuizError::ArgumentError { message: format!("ComponentManifest does not include container(type_name={type_name})") }))?.clone()
             }
-            None => self.get_manifest().clone().try_into()?
+            None => serde_json::from_value(self.get_manifest().clone())?
         };
         let constructor = move |cm: ContainerManifest, mut v: CapsuleMap| -> JuizResult<ContainerPtr> {
             let mut pobj: *mut c_void = std::ptr::null_mut();
@@ -124,10 +149,10 @@ impl CppPlugin {
         };
         let container_process_manifest: ProcessManifest = match type_name_opt {
             Some(type_name) => {
-                find_container_process_from_component_manifest(self.get_manifest().clone().try_into()?, type_name)
+                find_container_process_from_component_manifest(serde_json::from_value(self.get_manifest().clone())?, type_name)?
             }
-            None => self.get_manifest().clone().try_into()
-        }?;
+            None => serde_json::from_value(self.get_manifest().clone())?
+        };
         let type_name = container_process_manifest.type_name.to_owned();
         let constructor = move |c: &mut ContainerImpl<CppContainerStruct>, mut argument: CapsuleMap| -> JuizResult<Capsule> {
             let mut retval = Capsule::empty();
@@ -167,10 +192,11 @@ fn find_container_process_from_component_manifest(comp_manif: ComponentManifest,
     Err(anyhow!(JuizError::ArgumentError { message: format!("ComponentManifest does not include container(type_name={type_name})") }))
 }
 
-fn create_cpp_process_factory(manifest: Value, entry_point: unsafe fn(*mut CapsuleMap, *mut Capsule) -> i64) -> JuizResult<ProcessFactoryPtr> {
+fn create_cpp_process_factory(manifest: ProcessManifest, entry_point: unsafe fn(*mut CapsuleMap, *mut Capsule) -> i64) -> JuizResult<ProcessFactoryPtr> {
+    log::trace!("【呼出】create_cpp_process_factory({manifest}, {entry_point:?}");
     let entry_point_name = "process_entry_point".to_owned();
     let function = move |mut argument: CapsuleMap| -> JuizResult<Capsule> {
-        log::trace!("cppfunc (argument={argument:?}) called");
+        log::trace!("【呼出】func_cpp(argument={argument:?})");
         let mut func_result : Capsule = Capsule::empty();
         unsafe {
             let v = entry_point(&mut argument, &mut func_result);
@@ -181,5 +207,5 @@ fn create_cpp_process_factory(manifest: Value, entry_point: unsafe fn(*mut Capsu
         return Ok(func_result);
     };
 
-    process_factory_create_from_trait(manifest.try_into()?, function)
+    process_factory_create_from_trait(manifest, function)
 }

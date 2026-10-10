@@ -25,7 +25,7 @@ public:
   juiz::Value into_value() const {
     return {
         {"name", name_},
-        {"type", type_name_},
+        {"type_name", type_name_},
         {"description", description_},
         {"default", default_}
     };
@@ -62,34 +62,34 @@ public:
     return *this;
   }
   ProcessManifest add_bool_arg(const std::string& name, const std::string& description, bool default_value) {
-    arguments_.push_back(ArgumentManifest("bool", name, description, juiz::Value{default_value}));
+    arguments_.push_back(ArgumentManifest("Bool", name, description, juiz::Value{default_value}));
     return *this;
   }
 
   ProcessManifest add_int_arg(const std::string& name, const std::string& description, int64_t default_value) {
-    arguments_.push_back(ArgumentManifest("int", name, description, {default_value}));
+    arguments_.push_back(ArgumentManifest("Int", name, description, {default_value}));
     return *this;
   }
 
   ProcessManifest add_float_arg(const std::string& name, const std::string& description, double default_value) {
-    arguments_.push_back(ArgumentManifest("float", name, description, {default_value}));
+    arguments_.push_back(ArgumentManifest("Float", name, description, {default_value}));
     return *this;
   }
 
   ProcessManifest add_string_arg(const std::string& name, const std::string& description, const std::string& default_value) {
-    arguments_.push_back(ArgumentManifest("string", name, description, {default_value}));
+    arguments_.push_back(ArgumentManifest("String", name, description, {default_value}));
     return *this;
   }
 
   ProcessManifest add_array_arg(const std::string& name, const std::string& description) {
     auto arr = juiz::Value::list();
-    arguments_.push_back(ArgumentManifest("array", name, description, arr));
+    arguments_.push_back(ArgumentManifest("Array", name, description, arr));
     return *this;
   }
 
   ProcessManifest add_object_arg(const std::string& name, const std::string& description) {
     auto v = juiz::Value::object();
-    arguments_.push_back(ArgumentManifest("object", name, description, v));
+    arguments_.push_back(ArgumentManifest("Object", name, description, v));
     return *this;
   }
 

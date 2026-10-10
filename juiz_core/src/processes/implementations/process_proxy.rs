@@ -1,61 +1,69 @@
 
 
 use std::sync::{Arc, Mutex};
-use juiz_sdk::{anyhow, connections::ConnectionManifest};
+use juiz_sdk::{anyhow, connections::{ConnectionManifest, ConnectionProfile}, manifests::ProcessProfile, process_identifier::ProcessIdentifier};
 use crate::prelude::*;
 use juiz_sdk::prelude::*;
 use crate::brokers::BrokerProxy;
 
 #[allow(unused)]
 pub struct ProcessProxy {
-    core: ObjectCore,
+    // core: ObjectCore,
     broker_proxy: Arc<Mutex<dyn BrokerProxy>>,
-    identifier: Identifier,
+    identifier: ProcessIdentifier,
+    //profile: ProcessProfile,
     class_name_str: String,
 }
 
 impl ProcessProxy {
 
-    pub fn new(class_name: JuizObjectClass, identifier: &Identifier, broker_proxy: Arc<Mutex<dyn BrokerProxy>>) -> JuizResult<ProcessPtr> {
-        log::trace!("ProcessProxy::new({class_name:?}, {identifier}, broker_proxy) called");
-        let id_struct = IdentifierStruct::try_from(identifier.clone())?;
+    pub fn new(class_name: JuizObjectClass, identifier: ProcessIdentifier, broker_proxy: Arc<Mutex<dyn BrokerProxy>>) -> JuizResult<ProcessPtr> {
+        log::trace!("【呼出】ProcessProxy::new({class_name:}, {identifier}, broker_proxy)");
+        // let id_struct = IdentifierStruct::try_from(identifier.clone())?;
         let class_name_str = match class_name {
             JuizObjectClass::Process(_) => Ok("process"),
             JuizObjectClass::ContainerProcess(_) => Ok("container_process"),
             _ => {Err(anyhow::Error::from(JuizError::ProcessProxyCanNotAcceptClassError{class_name: class_name.as_str().to_string()}))}
         }?;
-        log::trace!("id_struct: {id_struct:?}");
+        log::debug!("作成：ProcessProxy({class_name}, {identifier})");
         Ok(ProcessPtr::new(ProcessProxy{
-            core: ObjectCore::new(identifier.clone(), class_name, id_struct.type_name.as_str(), id_struct.object_name.as_str(), id_struct.broker_name.as_str(), id_struct.broker_type_name.as_str()),
             broker_proxy,
-            identifier: identifier.clone(),
+            identifier,
             class_name_str: class_name_str.to_string(),
         }))
     }
 }
 
-impl JuizObjectCoreHolder for ProcessProxy {
-    fn core(&self) -> &ObjectCore {
-        &self.core
-    }
-}
+// impl JuizObjectCoreHolder for ProcessProxy {
+//     fn core(&self) -> &ObjectCore {
+//         &self.core
+//     }
+// }
+// impl JuizObject for ProcessProxy {
 
-impl JuizObject for ProcessProxy {
+//     fn profile_full(&self) -> JuizResult<Value> {
+//         let id = self.identifier();
+//         log::trace!("ProcessProxy({id})::profile_full() called");
+//         juiz_lock(&self.broker_proxy)?.any_process_profile_full(self.identifier())
+//     }
+// }
 
-    fn profile_full(&self) -> JuizResult<Value> {
-        let id = self.identifier();
-        log::trace!("ProcessProxy({id})::profile_full() called");
-        juiz_lock(&self.broker_proxy)?.any_process_profile_full(self.identifier())
+impl std::fmt::Debug for ProcessProxy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProcessProxy").field("identifier", &self.identifier).field("class_name_str", &self.class_name_str).finish()
     }
 }
 
 impl Process for ProcessProxy {
     
     fn call(&self, args: CapsuleMap) -> JuizResult<CapsulePtr> {
-        let id = self.identifier();
-        log::trace!("ProcessProxy({id})::call() called");
+        log::trace!("ProcessProxy({})::call() called", self.identifier());
         let result = juiz_lock(&self.broker_proxy)?.any_process_call(&self.identifier(), args);
-        log::trace!(" - return: {result:?}");
+        if result.is_err() {
+            log::warn!("【call】失敗： {result:?}");
+        } else {
+            log::debug!("【call】成功： {}", result.as_ref().unwrap());
+        }
         return result;
     }
 
@@ -63,8 +71,8 @@ impl Process for ProcessProxy {
         todo!()
     }
 
-    fn manifest(&self) -> &ProcessManifest {
-        todo!()
+    fn profile(&self) -> JuizResult<ProcessProfile> {
+        juiz_lock(&self.broker_proxy)?.any_process_profile_full(&self.identifier())
     }
 
     fn invoke<'b>(&self) -> JuizResult<CapsulePtr> {
@@ -76,6 +84,7 @@ impl Process for ProcessProxy {
     }
 
     fn push_by(&self, arg_name: &str, value: CapsulePtr) -> JuizResult<CapsulePtr> {
+        log::trace!("【呼出】ProcessProxy::push_by({arg_name}, {value})");
         juiz_lock(&self.broker_proxy)?.process_push_by(&self.identifier(), arg_name.to_owned(), value)
     }
 
@@ -83,33 +92,41 @@ impl Process for ProcessProxy {
         todo!()
     }
 
-    fn notify_connected_from<'b>(&'b mut self, source: ProcessPtr, manifest: ConnectionManifest) -> JuizResult<ConnectionManifest> {
-        log::trace!("ProcessProxy::notify_connected_from() called");
-        juiz_lock(&self.broker_proxy)?.process_notify_connected_from(source.identifier(), manifest.arg_name.clone().as_str(), &manifest.destination_process_id, manifest.connection_type.to_string(), manifest.identifier)?.try_into()
+    fn notify_connected_from<'b>(&'b mut self, _source: ProcessPtr, manifest: &ConnectionManifest) -> JuizResult<ConnectionProfile> {
+        log::trace!("【呼出】ProcessProxy::notify_connected_from({manifest})");
+        juiz_lock(&self.broker_proxy)?.process_notify_connected_from(&manifest)
     }
 
-    fn try_connect_to(&mut self, destination: ProcessPtr, manifest: ConnectionManifest) -> JuizResult<ConnectionManifest> {
-        log::trace!("ProcessProxy::try_connect_to() called");
-        juiz_lock(&self.broker_proxy)?.process_try_connect_to(&manifest.source_process_id, manifest.arg_name.clone().as_str(), destination.identifier(), manifest.connection_type.to_string(), manifest.identifier)?.try_into()
+    fn try_connect_to(&mut self, _destination: ProcessPtr, manifest: &ConnectionManifest) -> JuizResult<ConnectionManifest> {
+        log::trace!("【呼出】ProcessProxy::try_connect_to({manifest})");
+        juiz_lock(&self.broker_proxy)?.process_try_connect_to(&manifest)
     }
 
     fn source_connections(&self) -> JuizResult<Vec<&Box<dyn SourceConnection>>> {
-        todo!()
+        log::trace!("【呼出】ProcessProxy::source_connections()");
+        todo!("source_connectionsはまだ実装されていません。")
     }
 
     fn destination_connections(&self) -> JuizResult<Vec<&Box<dyn DestinationConnection>>> {
-        todo!()
+        log::trace!("【呼出】ProcessProxy::destination_connections()");
+        todo!("destination_connectionsはまだ実装されていません。")
     }
 
 
     fn p_apply(&mut self, arg_name: &str, value: CapsulePtr) -> JuizResult<CapsulePtr> {
+        log::trace!("【呼出】ProcessProxy({})::p_aplly({arg_name}, {value:})", self.identifier());
         juiz_lock(&self.broker_proxy)?.process_p_apply(&self.identifier(), arg_name, value)
     }
     
     fn purge(&mut self) -> JuizResult<()> {
-
-        log::trace!("ProcessProxy({})::purge() called", self.identifier());
+        log::trace!("【呼出】ProcessProxy({})::purge()", self.identifier());
         todo!()
+    }
+    
+    fn identifier(&self) -> ProcessIdentifier {
+        let id = self.identifier.clone();
+        log::debug!("【identifier】id = {id}");
+        return id;
     }
     
 }

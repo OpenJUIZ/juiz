@@ -5,15 +5,17 @@ use crate::{core::system_builder::subsystems::{setup_mastersystem, setup_subsyst
 use crate::core::system_builder::{brokers::{setup_broker_proxies, setup_brokers}, connections::setup_connections, containers::setup_containers, ecs::setup_ecs, http_broker::{setup_http_broker, setup_http_broker_factory}, local_broker::{setup_local_broker, setup_local_broker_factory}, processes::setup_processes};
 
 pub(crate) fn setup_objects(system: &mut System, manifest: &Value) -> JuizResult<()> {
-    log::trace!("System::setup() called");
+    log::trace!("【呼出】System::setup_objects()");
     let manifest_copied = manifest.clone();
 
     let _ = when_contains_do(manifest, "processes", |v| {
-        setup_processes(system, v).context("system_builder::setup_processes in System::setup() failed")
+        setup_processes(system, v)
+            .with_context(||{format!("setup_processes({}) in setup_objects() in setup_objects.rs", manifest.get("processes").unwrap())})
     })?;
 
     let _ = when_contains_do(manifest, "containers", |v| {
-        setup_containers(system, v).context("system_builder::setup_containers in System::setup() failed")
+        setup_containers(system, v)
+            .with_context(||{format!("setup_containers({}) in setup_objects() in setup_objects.rs", manifest.get("containers").unwrap())})
     })?;
 
     setup_http_broker_factory(system).context("system_builder::setup_http_broker_factory in System::setup() failed.")?;
@@ -65,7 +67,7 @@ pub(crate) fn setup_objects(system: &mut System, manifest: &Value) -> JuizResult
     })?;
 
     let _ =  when_contains_do(&manifest, "connections", |v| {
-        setup_connections(system, v).context("system_builder::setup_connections in System::setup() failed.")
+        setup_connections(system, v).context("コネクションの作成(system_builder::setup_connections)が失敗しました。")
     })?;
     log::debug!("System::setup() successfully finished.");
     Ok(())

@@ -1,6 +1,6 @@
 [package]
 name = "juiz_core"
-version = "0.0.4"
+version = "0.0.5"
 edition = "2021"
 description = "Core library for JUIZ application. This package is not required if you want to build juiz functional module."
 license = "WTFPL"
@@ -46,4 +46,4 @@ utoipa-rapidoc = {workspace = true, features = ["axum"] }
 
 yaml-rust2 = {workspace = true}
 
-juiz_sdk = { workspace = true }
+juiz_sdk = { workspace = true}

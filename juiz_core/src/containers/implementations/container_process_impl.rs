@@ -1,5 +1,5 @@
 use anyhow::Context;
-use juiz_sdk::{anyhow, connections::ConnectionManifest};
+use juiz_sdk::{anyhow, connections::{ConnectionManifest, ConnectionProfile}, manifests::ProcessProfile, process_identifier::ProcessIdentifier};
 
 use crate::prelude::*;
 //use crate::processes::process_from_clousure;
@@ -10,9 +10,10 @@ use crate::prelude::*;
 
 #[allow(dead_code)]
 pub struct ContainerProcessImpl {
-    core: ObjectCore,
+    /// core: ObjectCore,
     pub process: Box<dyn Process>,
     pub container: Option<ContainerPtr>,
+    identifier: ProcessIdentifier,
     container_identifier: Identifier,
 }
 
@@ -57,26 +58,32 @@ impl ContainerProcessImpl {
     
 }
 
-impl JuizObjectCoreHolder for ContainerProcessImpl {
-    fn core(&self) -> &ObjectCore {
-        &self.core
-    }
-}
+// impl JuizObjectCoreHolder for ContainerProcessImpl {
+//     fn core(&self) -> &ObjectCore {
+//         &self.core
+//     }
+// }
 
-impl JuizObject for ContainerProcessImpl {
-    fn profile_full(&self) -> JuizResult<Value> {
-        log::trace!("ContainerProcessImpl({})::profile_full() called", self.identifier());
-        obj_merge(self.process().context("ContainerProcessImpl()::profile_full()")?.profile_full()?.try_into()?, &jvalue!({
-            "container_identifier": self.container_identifier
-        }))
+// impl JuizObject for ContainerProcessImpl {
+//     fn profile_full(&self) -> JuizResult<Value> {
+//         log::trace!("ContainerProcessImpl({})::profile_full() called", self.identifier());
+//         obj_merge(self.process().context("ContainerProcessImpl()::profile_full()")?.profile_full()?.try_into()?, &jvalue!({
+//             "container_identifier": self.container_identifier
+//         }))
+//     }
+// }
+
+impl std::fmt::Debug for ContainerProcessImpl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ContainerProcessImpl").field("process", &self.process).field("container", &self.container).field("container_identifier", &self.container_identifier).finish()
     }
 }
 
 impl Process for ContainerProcessImpl {
 
-    fn manifest(&self) -> &ProcessManifest {
+    fn profile(&self) -> JuizResult<ProcessProfile> {
         log::trace!("ContainerProcessImpl({})::manifest() called", self.identifier());
-        self.process().context("ContainerProcessImpl::manifest()").unwrap().manifest()
+        self.process().context("ContainerProcessImpl::manifest()").unwrap().profile()
     }
 
     fn call(&self, args: CapsuleMap) -> JuizResult<CapsulePtr> {
@@ -104,11 +111,11 @@ impl Process for ContainerProcessImpl {
         self.process().unwrap().get_output()
     }
 
-    fn notify_connected_from<'b>(&'b mut self, source: ProcessPtr, connection_manifest: ConnectionManifest) -> JuizResult<ConnectionManifest> {
+    fn notify_connected_from<'b>(&'b mut self, source: ProcessPtr, connection_manifest: &ConnectionManifest) -> JuizResult<ConnectionProfile> {
         self.process_mut()?.notify_connected_from(source, connection_manifest)
     }
 
-    fn try_connect_to(&mut self, target: ProcessPtr, connection_manifest: ConnectionManifest) -> JuizResult<ConnectionManifest> {
+    fn try_connect_to(&mut self, target: ProcessPtr, connection_manifest: &ConnectionManifest) -> JuizResult<ConnectionManifest> {
         self.process_mut()?.try_connect_to(target, connection_manifest)
     }
 
@@ -128,6 +135,10 @@ impl Process for ContainerProcessImpl {
         log::trace!("ContainerProcessImpl({})::purge() called", self.identifier());
         log::trace!("ContainerProcessImpl({})::purge() exit", self.identifier());
         Ok(())
+    }
+    
+    fn identifier(&self) -> ProcessIdentifier {
+        todo!()
     }
 }
 

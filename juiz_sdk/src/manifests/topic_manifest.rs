@@ -3,9 +3,10 @@ use std::fmt::Display;
 use crate::prelude::*;
 
 use anyhow::anyhow;
+use serde::{Deserialize, Serialize};
 
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TopicManifest {
     pub name: String
 }

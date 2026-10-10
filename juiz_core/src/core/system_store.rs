@@ -79,7 +79,6 @@ impl SystemStorePtr {
                 })
             },
             None => {
-                
                 Err(anyhow!(JuizError::FactoryCanNotFoundError { type_name: type_name.to_owned() }))
             },
         }

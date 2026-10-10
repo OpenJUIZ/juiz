@@ -2,35 +2,37 @@
 extern crate juiz_core;
 
 use juiz_core::prelude::*;
-use std::sync::{Arc, Mutex};
 
 
 mod common;
 
 #[test]
 fn simple_process_create_test() -> JuizResult<()>{
-    let manifest = jvalue!({
-        "type_name" : "increment",
-        "arguments" : [
-            {
-                "name": "arg1",
-                "type": "int", 
-                "description": "test_argument",
-                "default": 1,
-            }, 
-        ]
-    });
-    let result_pf =process_factory_create(manifest.try_into()?, common::increment_function)?;
+    // let manifest = jvalue!({
+    //     "type_name" : "increment",
+    //     "arguments" : [
+    //         {
+    //             "name": "arg1",
+    //             "type": "int", 
+    //             "description": "test_argument",
+    //             "default": 1,
+    //         }, 
+    //     ]
+    // });
+    let manifest = ProcessManifest::new("increment")
+        .add_int_arg("arg1", "test_argument", 1);
+    let result_pf =process_factory_create(manifest, common::increment_function)?;
     /*
     assert!(result_pf.is_ok());
     */
-    let proc_manifest = jvalue!(
-        {
-            "name": "hogehoge",
-            "type_name": "increment",
-        }
-    );
-    let p = result_pf.lock()?.create_process(proc_manifest.try_into()?);
+    // let proc_manifest = jvalue!(
+    //     {
+    //         "name": "hogehoge",
+    //         "type_name": "increment",
+    //     }
+    // );
+    let proc_manifest = ProcessManifest::new("increment").name("hogehoge");
+    let p = result_pf.lock()?.create_process(&proc_manifest);
     assert!(p.is_ok(), "ProcessImpl::new() failed. Error is {:?}", p.err());
     let result = p.ok().unwrap().lock()?.call(vec!(("arg1", jvalue!(3))).into());
     assert!(result.is_ok());

@@ -2,6 +2,8 @@
 
 use std::sync::Arc;
 
+use juiz_sdk::manifests::ContainerProfile;
+
 use crate::prelude::*;
 
 pub type ContainerConstructor = dyn Fn(ContainerManifest, CapsuleMap)->JuizResult<ContainerPtr>;
@@ -44,7 +46,7 @@ impl JuizObjectCoreHolder for ContainerFactoryImpl {
 impl JuizObject for ContainerFactoryImpl {
     fn profile_full(&self) -> JuizResult<Value> {
         let mut v = self.core.profile_full()?;
-        let vv = self.manifest.arguments.iter().map(|v|{ v.clone().into() }).collect::<Vec<Value>>();
+        let vv = self.manifest.arguments.iter().map(|v|{ serde_json::to_value(v) }).collect::<serde_json::Result<Vec<Value>>>()?;
         obj_merge_mut(&mut v, &jvalue!({
             "arguments": vv,
             "language": self.manifest.language,
@@ -55,7 +57,7 @@ impl JuizObject for ContainerFactoryImpl {
 
 impl ContainerFactory for ContainerFactoryImpl {
 
-    fn create_container(&self, _core_worker: &mut CoreWorker, mut args: CapsuleMap) -> JuizResult<ContainerPtr>{
+    fn create_container(&self, _core_worker: &mut CoreWorker, _name: String, mut args: CapsuleMap) -> JuizResult<ContainerPtr>{
         log::trace!("ContainerFactoryImpl::create_container(manifest={:?}) called", args);
         //println!("create_container");
         // ここでデフォルトを与えていく
@@ -79,10 +81,10 @@ impl ContainerFactory for ContainerFactoryImpl {
         (self.binded_container_constructor)(manifest, args)
     }
     
-    fn destroy_container(&mut self, c: ContainerPtr) -> JuizResult<Value> {
+    fn destroy_container(&mut self, c: ContainerPtr) -> JuizResult<ContainerProfile> {
         // todo!()
         log::trace!("ContainerFractoryImpl::destroy_container() called");
-        c.lock()?.profile_full()
+        c.lock()?.profile()
     }
     
 }

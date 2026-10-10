@@ -152,7 +152,7 @@ pub unsafe extern "C" fn value_is_array(value: *mut Value) -> bool {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn value_array_foreach(value: *mut Value, callback: extern fn(*mut std::ffi::c_void, *mut Value) -> (), arg: *mut std::ffi::c_void) -> () {
+pub unsafe extern "C" fn value_array_foreach(value: *mut Value, callback: extern "C" fn(*mut std::ffi::c_void, *mut Value) -> (), arg: *mut std::ffi::c_void) -> () {
     let obj = value.as_mut().unwrap().as_array_mut().unwrap();
     for v in obj.iter_mut() {
         callback(arg, v);
@@ -161,7 +161,7 @@ pub unsafe extern "C" fn value_array_foreach(value: *mut Value, callback: extern
 
 
 #[no_mangle]
-pub unsafe extern "C" fn value_object_foreach(value: *mut Value, callback: extern fn(*mut std::ffi::c_void, *mut std::os::raw::c_char, *mut Value) -> (), arg: *mut std::ffi::c_void) -> () {
+pub unsafe extern "C" fn value_object_foreach(value: *mut Value, callback: extern "C" fn(*mut std::ffi::c_void, *mut std::os::raw::c_char, *mut Value) -> (), arg: *mut std::ffi::c_void) -> () {
     let obj = value.as_mut().unwrap().as_object_mut().unwrap();
     for (k, v) in obj.iter_mut() {
         let key = CString::new(k.as_str()).unwrap();

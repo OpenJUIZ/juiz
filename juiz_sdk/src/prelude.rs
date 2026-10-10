@@ -14,7 +14,11 @@ pub use crate::{
         Description,
         ContainerManifest,
         ComponentManifest,
+        ContainerIdentifier,
         TopicManifest,
+        ProcessProfile,
+        ContainerProfile, 
+        TopicProfile,
     },
     value::{
         jvalue, Value, 
@@ -87,6 +91,7 @@ pub use crate::{
         ObjectCore},
     log,
     image::DynamicImage,
+
 };
 
 pub use image;

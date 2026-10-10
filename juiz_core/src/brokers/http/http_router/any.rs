@@ -86,6 +86,11 @@ fn construct_capsule_map(mut capsule_map: CapsuleMap, method_name: &str, class_n
                 Ok(host) => {
                     let accessed_broker_id = format!("http://{}", host);
                     capsule_map.set_param("accessed_broker_id", accessed_broker_id.as_str());
+
+                    let accessed_broker_type = "http".to_owned();
+                    capsule_map.set_param("accessed_broker_type", accessed_broker_type.as_str());
+                    let accessed_broker_name = host.to_owned();
+                    capsule_map.set_param("accessed_broker_name", accessed_broker_name.as_str());
                 }
                 Err(_) => {}
             }
@@ -143,10 +148,11 @@ pub async fn object_patch_handler(
     Json(body): Json<Value>,
 ) -> impl IntoResponse {
     let map = full_query_to_map(&query);
-    log::trace!("[PATCH] ({class_name}, {function_name}, {body}, {map:?}) called");
+    log::trace!("[PATCH] ({class_name}, {function_name}, {body}, {map:?})が呼ばれました");
     let v = tokio::task::spawn_blocking(move ||{
         juiz_lock(&crud_broker).unwrap().update_class(class_name.as_str(), function_name.as_str(), construct_capsule_map(body_to_capsule_map(body, &headers)?, "UPDATE", class_name.as_str(), function_name.as_str(), query, headers, remote_addr))
     }).await;
+    log::debug!("【patch】 Resultは{v:?}");
     let r = json_output_wrap(v.unwrap());
     r
 }

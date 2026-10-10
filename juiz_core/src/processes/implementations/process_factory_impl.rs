@@ -57,7 +57,7 @@ impl JuizObjectCoreHolder for ProcessFactoryImpl {
 impl JuizObject for ProcessFactoryImpl {
     fn profile_full(&self) -> JuizResult<Value> {
         let mut v = self.core.profile_full()?;
-        let vv = self.manifest.arguments.iter().map(|v|{ v.clone().into() }).collect::<Vec<Value>>();
+        let vv = self.manifest.arguments.iter().map(|v|{ serde_json::to_value(v) }).collect::<serde_json::Result<Vec<Value>>>()?;
         obj_merge_mut(&mut v, &jvalue!({
             "arguments": vv,
             "language": self.manifest.language,
@@ -69,11 +69,11 @@ impl JuizObject for ProcessFactoryImpl {
 
 impl ProcessFactory for ProcessFactoryImpl {
 
-    fn create_process(&self, manifest: ProcessManifest) -> JuizResult<ProcessPtr> {
+    fn create_process(&self, manifest: &ProcessManifest) -> JuizResult<ProcessPtr> {
         log::trace!("ProcessFactoryImpl::create_process(manifest={:?}) called", manifest);
         Ok(ProcessPtr::new(
             ProcessImpl::new_from_clousure_ref(
-                self.manifest.build_instance_manifest(manifest)?, 
+                self.manifest.build_instance_manifest(manifest.clone())?, 
                 self.function.clone(), 
             Box::new(ConnectionFactoryImpl::new()))?
         ))

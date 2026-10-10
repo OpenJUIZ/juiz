@@ -14,7 +14,7 @@ pub struct SubSystemProxy {
 
 impl Display for SubSystemProxy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("SubSystemProxy(uuid={}, broker={})", self.uuid.to_string(), self.profile))
+        f.write_fmt(format_args!("SubSystemProxy(uuid={}, broker_proxy={})", self.uuid.to_string(), self.profile))
     }
 }
 

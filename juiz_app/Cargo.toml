@@ -1,6 +1,6 @@
 [package]
 name = "juiz_app"
-version = "0.0.4"
+version = "0.0.5"
 edition = "2021"
 description = "JUIZ utility command-line application package"
 license = "MIT"
@@ -12,6 +12,13 @@ name = "juiz"
 path = "src/bin/juiz/main.rs"
 
 [dependencies]
+
 clap = {workspace = true}
 home = {workspace = true}
 juiz_core = { workspace = true }
+
+
+[dev-dependencies]
+assert_cmd = "2.0.14"
+predicates = "3.1.0"
+

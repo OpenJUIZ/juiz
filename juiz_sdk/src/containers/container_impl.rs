@@ -3,16 +3,23 @@
 /// 
 
 use std::{collections::HashMap, fmt::Display, ops::{Deref, DerefMut}};
-use crate::{prelude::*, processes::ProcessPtr};
+use crate::{manifests::ContainerProfile, prelude::*, processes::ProcessPtr};
 
 
 #[allow(unused)]
 pub struct ContainerImpl<S: 'static> {
-    core: ObjectCore,
-    manifest: ContainerManifest,
+   // core: ObjectCore,
+    profile: ContainerProfile,
+    identifier: ContainerIdentifier,
     pub t: Box<S>,
     processes: HashMap<String, ProcessPtr>,
     parent_container: Option<ContainerPtr>,
+}
+
+impl<S: 'static> std::fmt::Debug for ContainerImpl<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ContainerImpl").field("profile", &self.profile).field("identifier", &self.identifier).field("t", &"User object.".to_owned()).field("processes", &self.processes).field("parent_container", &self.parent_container).finish()
+    }
 }
 
 fn _identifier_from_manifest(manifest: &Value) -> Identifier {
@@ -26,8 +33,9 @@ impl<S: 'static> ContainerImpl<S> {
     pub fn new(manifest: ContainerManifest, t: Box<S>) -> JuizResult<Self> {
         //println!("new(manifest:{manifest:?}");
         Ok(ContainerImpl{
-            core: ObjectCore::create(JuizObjectClass::Container("ContainerImpl"), manifest.type_name.to_owned(), manifest.name.as_ref().unwrap().to_owned()),
-            manifest, 
+            // core: ObjectCore::create(JuizObjectClass::Container("ContainerImpl"), manifest.type_name.to_owned(), manifest.name.as_ref().unwrap().to_owned()),
+            identifier: manifest.identifier()?,
+            profile: manifest.try_into()?, 
             t,
             processes: HashMap::new(),
             parent_container: None,
@@ -38,8 +46,8 @@ impl<S: 'static> ContainerImpl<S> {
         //let type_name = obj_get_str(&manifest, "type_name")?;
         //let object_name = obj_get_str(&manifest, "name")?;
         Ok(ContainerImpl{
-            core: ObjectCore::create(JuizObjectClass::Container("ContainerImpl"), manifest.type_name.to_owned(),manifest.name.as_ref().unwrap().to_owned()),
-            manifest, 
+            identifier: manifest.identifier()?,
+            profile: manifest.try_into()?, 
             t,
             processes: HashMap::new(),
             parent_container: Some(parent_container),
@@ -63,25 +71,29 @@ impl<S: 'static> DerefMut for ContainerImpl<S> {
 }
 
 
-impl<S: 'static> JuizObjectCoreHolder for ContainerImpl<S> {
-    fn core(&self) -> &ObjectCore {
-        &self.core
-    }
-}
+// impl<S: 'static> JuizObjectCoreHolder for ContainerImpl<S> {
+//     fn core(&self) -> &ObjectCore {
+//         &self.core
+//     }
+// }
 
-impl<S: 'static> JuizObject for ContainerImpl<S> {
-    fn profile_full(&self) -> JuizResult<Value> {
-        log::trace!("ContainerImpl({})::profile_full() called", self.identifier());
-        let ids = self.processes().iter().map(|p| -> JuizResult<Identifier> { Ok(p.identifier().clone()) }).collect::<JuizResult<Vec<Identifier>>>()?;
-        obj_merge(self.core.profile_full()?, &jvalue!({
-            "processes": ids}))
-    }
-}
+// impl<S: 'static> JuizObject for ContainerImpl<S> {
+//     fn profile_full(&self) -> JuizResult<Value> {
+//         log::trace!("ContainerImpl({})::profile_full() called", self.identifier());
+//         let ids = self.processes().iter().map(|p| -> JuizResult<Identifier> { Ok(p.identifier().to_string()) }).collect::<JuizResult<Vec<Identifier>>>()?;
+//         obj_merge(self.core.profile_full()?, &jvalue!({
+//             "processes": ids}))
+//     }
+// }
 
 impl<S: 'static> Container for ContainerImpl<S> {
 
-    fn manifest(&self) -> &ContainerManifest {
-        &self.manifest
+    fn identifier(&self) -> ContainerIdentifier {
+        self.identifier.clone()
+    }
+
+    fn profile(&self) -> JuizResult<ContainerProfile> {
+        Ok(self.profile.clone())
     }
 
     fn process(&self, name_or_id: &String) -> Option<ProcessPtr> {
@@ -108,7 +120,7 @@ impl<S: 'static> Container for ContainerImpl<S> {
 
     fn register_process(&mut self, p: ProcessPtr) -> JuizResult<ProcessPtr> {
         let id = p.identifier().clone();
-        self.processes.insert(id, p.clone());
+        self.processes.insert(id.to_string(), p.clone());
         Ok(p)
     }
 
@@ -118,7 +130,7 @@ impl<S: 'static> Container for ContainerImpl<S> {
         match self.process(name_or_id) {
             Some(p) => {
                 //let _ = p.write().unwrap().purge()?;
-                let _res = self.processes.remove(p.identifier());
+                let _res = self.processes.remove(&p.identifier().to_string());
                 //log::trace!("ContainerImpl::purge_process({}) result: {:?}", name_or_id, res.is_some());
                 Ok(())
             },
@@ -143,13 +155,13 @@ impl<S: 'static> Container for ContainerImpl<S> {
 
 impl<S: 'static> Display for ContainerImpl<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ContainerImpl(identifier={}, manifest={:?})", self.identifier(), self.manifest())
+        write!(f, "ContainerImpl(identifier={})", self.identifier())
     }
 }
 
 impl<S: 'static> Drop for ContainerImpl<S> {
     fn drop(&mut self) {
-        let id = self.type_name().to_owned();
+        let id = &self.identifier;
         log::info!("ContainerImpl({})::drop() called", id);
         self.processes.clear();
         log::trace!("ContainerImpl({})::drop() exit", id);

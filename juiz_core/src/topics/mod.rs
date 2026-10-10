@@ -2,7 +2,7 @@ use std::sync::{Arc, RwLock};
 
 use uuid::Uuid;
 use juiz_sdk::anyhow::anyhow;
-use crate::{connections::ConnectionFactoryImpl, core::SubSystemProxy, prelude::*, processes::process_from_clousure_new_with_class_name};
+use crate::{connections::ConnectionFactoryImpl, core::SubSystemProxy, prelude::*, processes::ProcessImpl};
 pub type TopicName = String;
 
 #[derive(Clone)]
@@ -62,19 +62,8 @@ impl TopicPtr {
 
     pub fn new(name: &str, system_uuid: Uuid) -> Self {
         log::trace!("new(name={name}, uuid={system_uuid}) called");
-        let manifest: ProcessManifest = jvalue!({
-            "type_name": "topic",
-            "topic_name": name,
-            "name": name,
-            "use_memo": false,
-            "arguments": [
-                {
-                    "name": "input",
-                    "default": {},
-                    "type": "object",
-                }
-            ]
-        }).try_into().unwrap();
+        let manifest = ProcessManifest::new("topic").name(name).use_memo(false)
+            .add_object_arg("input", "", jvalue!({}));
 
         let topic = Arc::new(RwLock::new(Topic::new(name)));
         let my_topic_name = name.to_owned();
@@ -117,7 +106,7 @@ impl TopicPtr {
             topic,
             ptr: ProcessPtr::new(
                 //ProcessImpl::clousure_new_with_class_name(JuizObjectClass::Topic("Topic"), manifest, Box::new(topic_func)).unwrap()))
-                process_from_clousure_new_with_class_name(JuizObjectClass::Topic("Topic"), manifest, topic_func, Box::new(ConnectionFactoryImpl::new())).unwrap())
+                ProcessImpl::new_from_clousure_and_class_name(JuizObjectClass::Topic("Topic"), manifest, topic_func, Box::new(ConnectionFactoryImpl::new())).unwrap())
  
         }
     }
@@ -130,8 +119,8 @@ impl TopicPtr {
         self.ptr.clone()
     }
 
-    pub fn profile_full(&self) -> JuizResult<Value> {
-        self.ptr.lock()?.profile_full()
+    pub fn profile(&self) -> JuizResult<Value> {
+        Ok(serde_json::to_value(self.ptr.lock()?.profile()?)?)
     }
 
     pub fn push(&self, capsule: CapsulePtr, pushed_system_uuid: Option<Uuid>) -> JuizResult<()> {

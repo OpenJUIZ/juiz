@@ -7,7 +7,7 @@ use crate::{containers::{ContainerFactoryPtr, ContainerProcessFactoryPtr}, prelu
 use super::{cpp::CppPlugin, python::PythonPlugin, rust::RustPlugin};
 
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum JuizObjectPlugin {
     Rust(Rc<RustPlugin>),
     Python(Rc<PythonPlugin>),
@@ -16,8 +16,12 @@ pub enum JuizObjectPlugin {
 
 
 /// 引数vからpathメンバの値を引き出し、nameと連結したPathを作成する
-pub fn concat_dirname(v: &Value, name: String) -> JuizResult<PathBuf> {
-    Ok(PathBuf::from(obj_get_str(v, "path")?.to_owned()).join(name))
+pub fn concat_dirname(v: &Value, name: String, working_dir: Option<PathBuf>) -> JuizResult<PathBuf> {
+    match working_dir {
+        Some(wd) => Ok(wd.join(obj_get_str(v, "path")?.to_owned()).join(name)),
+        None => Ok(PathBuf::from(obj_get_str(v, "path")?.to_owned()).join(name)),
+    }
+    
 }
 
 #[cfg(target_os = "macos")]
@@ -42,27 +46,27 @@ fn plugin_name_to_python_file_name(name: &str) -> String {
 
 
 /// まずnameからpluginのファイル名に変換する。macだと.dylibをつける作業。そしてvの中のpathと連結させてpathを作る
-fn plugin_path(name: &str, v: &Value) -> JuizResult<std::path::PathBuf> {
-    concat_dirname(v, plugin_name_to_file_name(name))
+fn plugin_path(name: &str, v: &Value, working_dir: Option<PathBuf>) -> JuizResult<std::path::PathBuf> {
+    concat_dirname(v, plugin_name_to_file_name(name), working_dir)
 }
 
 /// まずnameからpluginのファイル名に変換する。macだと.dylibをつける作業。そしてvの中のpathと連結させてpathを作る
-fn python_plugin_path(name: &str, v: &Value) -> JuizResult<std::path::PathBuf> {
-    concat_dirname(v, plugin_name_to_python_file_name(name))
+fn python_plugin_path(name: &str, v: &Value, working_dir: Option<PathBuf>) -> JuizResult<std::path::PathBuf> {
+    concat_dirname(v, plugin_name_to_python_file_name(name), working_dir)
 }
 
 /// まずnameからpluginのファイル名に変換する。macだと.dylibをつける作業。そしてvの中のpathと連結させてpathを作る
-fn cpp_plugin_path(name: &str, v: &Value) -> JuizResult<std::path::PathBuf> {
-    concat_dirname(v, plugin_name_to_file_name(name))
+fn cpp_plugin_path(name: &str, v: &Value, working_dir: Option<PathBuf>) -> JuizResult<std::path::PathBuf> {
+    concat_dirname(v, plugin_name_to_file_name(name), working_dir)
 }
 
 
 impl JuizObjectPlugin {
 
-    pub fn new(language: &str, name: &str, v: &Value, manifest_entry_point: &str, option: &Value) -> JuizResult<JuizObjectPlugin> {
-        //let manifest_entry_point = "manifest_entry_point";
+    pub fn new(language: &str, name: &str, v: &Value, working_dir: Option<PathBuf>, manifest_entry_point: &str, option: &Value) -> JuizResult<JuizObjectPlugin> {
+        log::trace!("【呼出】JuizObjectPlugin::new({language}, {name}, {v}, {manifest_entry_point}, {option}");
         match language {
-            "rust" => Ok(JuizObjectPlugin::Rust(Rc::new(RustPlugin::load(plugin_path(name, v)?)?))),
+            "rust" => Ok(JuizObjectPlugin::Rust(Rc::new(RustPlugin::load(plugin_path(name, v, working_dir)?)?))),
             "python" => {
                 let pythonpaths = match obj_get_array(option, "pythonpath") {
                     Ok(arr_value) => {
@@ -70,9 +74,9 @@ impl JuizObjectPlugin {
                     },
                     Err(_) => None,
                 };
-                Ok( JuizObjectPlugin::Python(Rc::new(PythonPlugin::load(python_plugin_path(name, v)?, pythonpaths)?)))
+                Ok( JuizObjectPlugin::Python(Rc::new(PythonPlugin::load(python_plugin_path(name, v, working_dir)?, pythonpaths)?)))
             },
-            "c++" => Ok(JuizObjectPlugin::Cpp(Rc::new(CppPlugin::new(cpp_plugin_path(name, v)?, manifest_entry_point)?))),
+            "c++" => Ok(JuizObjectPlugin::Cpp(Rc::new(CppPlugin::new(cpp_plugin_path(name, v, working_dir)?, manifest_entry_point)?))),
             _ => {
                 log::error!("In setup_container_factories() function, unknown language option ({:}) detected", language);
                 Err(anyhow::Error::from(JuizError::InvalidSettingError{message: format!("In setup_container_factories() function, unknown language option ({:}) detected", language)}))

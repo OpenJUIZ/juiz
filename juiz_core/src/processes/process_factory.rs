@@ -3,7 +3,7 @@ use juiz_sdk::anyhow::anyhow;
 use crate::prelude::*;
 
 pub trait ProcessFactory: JuizObject + 'static  {
-    fn create_process(&self, manifest: ProcessManifest) -> JuizResult<ProcessPtr>;
+    fn create_process(&self, manifest: &ProcessManifest) -> JuizResult<ProcessPtr>;
 }
 
 #[derive(Clone)]

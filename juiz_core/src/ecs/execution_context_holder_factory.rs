@@ -8,12 +8,12 @@ use super::{execution_context_factory::ExecutionContextFactory, execution_contex
 pub struct ExecutionContextHolderFactory {
     core: ObjectCore,
     ec_factory: Arc<Mutex<dyn ExecutionContextFactory>>,
-    plugin: RustPlugin,
+    plugin: Option<RustPlugin>,
     //tokio_runtime: &'static tokio::runtime::Runtime,
 }
 
 impl ExecutionContextHolderFactory {
-    pub fn new(plugin: RustPlugin, ec_factory: Arc<Mutex<dyn ExecutionContextFactory>>) -> JuizResult<Arc<Mutex<ExecutionContextHolderFactory>>> {
+    pub fn new(plugin: Option<RustPlugin>, ec_factory: Arc<Mutex<dyn ExecutionContextFactory>>) -> JuizResult<Arc<Mutex<ExecutionContextHolderFactory>>> {
         let type_name = juiz_lock(&ec_factory)?.type_name().to_string();
         Ok(Arc::new(Mutex::new(
             ExecutionContextHolderFactory{

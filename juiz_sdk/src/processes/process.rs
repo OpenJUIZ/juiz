@@ -1,7 +1,8 @@
 
-use crate::object::JuizObject;
+use crate::manifests::ProcessProfile;
 use crate::prelude::*;
-use crate::connections::{ConnectionManifest, DestinationConnection, SourceConnection};
+use crate::connections::{ConnectionManifest, ConnectionProfile, DestinationConnection, SourceConnection};
+use crate::process_identifier::ProcessIdentifier;
 use mopa::mopafy;
 
 use super::ProcessPtr;
@@ -9,7 +10,7 @@ use super::ProcessPtr;
 pub type ProcessBodyFunctionType = fn(CapsuleMap) -> JuizResult<Capsule>;
 pub type ProcessBodyFunctionTrait = dyn Fn(CapsuleMap) -> JuizResult<Capsule>;
 
-pub trait Process : Send + Sync + mopa::Any + JuizObject + 'static {
+pub trait Process : Send + Sync + mopa::Any + std::fmt::Debug + 'static {
 
     fn call(&self, _args: CapsuleMap) -> JuizResult<CapsulePtr>;
 
@@ -17,7 +18,9 @@ pub trait Process : Send + Sync + mopa::Any + JuizObject + 'static {
 
     //fn is_updated_exclude(& self, inlet_name: &str) -> JuizResult<bool>;
 
-    fn manifest(&self) -> &ProcessManifest;
+    fn identifier(&self) -> ProcessIdentifier;
+
+    fn profile(&self) -> JuizResult<ProcessProfile>;
     
     // fn profile_full(&self) -> JuizResult<Value>;
     /*
@@ -43,9 +46,9 @@ pub trait Process : Send + Sync + mopa::Any + JuizObject + 'static {
 
     fn get_output(&self) -> CapsulePtr;
 
-    fn notify_connected_from<'b>(&'b mut self, source: ProcessPtr, connection_manifest: ConnectionManifest) -> JuizResult<ConnectionManifest>;
+    fn notify_connected_from<'b>(&'b mut self, source: ProcessPtr, connection_manifest: &ConnectionManifest) -> JuizResult<ConnectionProfile>;
 
-    fn try_connect_to(&mut self, target: ProcessPtr, connection_manifest: ConnectionManifest) -> JuizResult<ConnectionManifest>;
+    fn try_connect_to(&mut self, target: ProcessPtr, connection_manifest: &ConnectionManifest) -> JuizResult<ConnectionManifest>;
     
     fn source_connections(&self) -> JuizResult<Vec<&Box<dyn SourceConnection>>>;
 

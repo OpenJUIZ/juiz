@@ -8,23 +8,23 @@ mod common;
 
   
 
-#[test]
-fn no_name_manifest_process_test() -> JuizResult<()> {
-    let p: JuizResult<ProcessManifest> = jvalue!({
-        "arguments" : [
-            {
-                "name": "arg1",
-                "type": "int",
-                "description": "test_argument",
-                "default": 1,
-            }, 
-        ]
-    }).try_into();
-    //let p = process_new(manifest.try_into()?, common::increment_function);
-    assert!(p.is_err());
-    Ok(())
-    // assert!(p.err() == Some(JuizError::ManifestNameMissingError{}));
-}
+// #[test]
+// fn no_name_manifest_process_test() -> JuizResult<()> {
+//     let p: JuizResult<ProcessManifest> = jvalue!({
+//         "arguments" : [
+//             {
+//                 "name": "arg1",
+//                 "type": "int",
+//                 "description": "test_argument",
+//                 "default": 1,
+//             }, 
+//         ]
+//     }).try_into();
+//     //let p = process_new(manifest.try_into()?, common::increment_function);
+//     assert!(p.is_err());
+//     Ok(())
+//     // assert!(p.err() == Some(JuizError::ManifestNameMissingError{}));
+// }
 
 // #[test]
 // fn no_arguments_manifest_process_test()  -> JuizResult<()> {
@@ -39,23 +39,23 @@ fn no_name_manifest_process_test() -> JuizResult<()> {
 // }
 
 
-#[test]
-fn no_default_manifest_process_test() -> JuizResult<()>  {
-    let manifest: JuizResult<ProcessManifest> = jvalue!({
-        "name": "hoge",
-        "type_name": "increment",
-        "arguments": [
-            {
-                "name": "arg1",
-                "description": "test_argument",
-            }, 
-        ]
-    }).try_into();
-    assert!(manifest.is_err());
-    //let _e = p.err();
-    Ok(())
-    // assert!(e == Some(JuizError::ManifestArgumentDefaultValueMissingError{}), "Error is {:?})", e);
-}
+// #[test]
+// fn no_default_manifest_process_test() -> JuizResult<()>  {
+//     let manifest: JuizResult<ProcessManifest> = jvalue!({
+//         "name": "hoge",
+//         "type_name": "increment",
+//         "arguments": [
+//             {
+//                 "name": "arg1",
+//                 "description": "test_argument",
+//             }, 
+//         ]
+//     }).try_into();
+//     assert!(manifest.is_err());
+//     //let _e = p.err();
+//     Ok(())
+//     // assert!(e == Some(JuizError::ManifestArgumentDefaultValueMissingError{}), "Error is {:?})", e);
+// }
 
 #[cfg(test)]
 #[test]

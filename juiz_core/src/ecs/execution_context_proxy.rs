@@ -3,6 +3,7 @@
 use std::sync::{Arc, Mutex};
 use juiz_sdk::anyhow;
 use juiz_sdk::object::JuizObject;
+use juiz_sdk::process_identifier::ProcessIdentifier;
 
 use crate::prelude::*;
 use crate::brokers::BrokerProxy;
@@ -72,7 +73,7 @@ impl ExecutionContextFunction for ExecutionContextProxy {
         todo!()
     }
 
-    fn unbind(&mut self, _target_process_id: Identifier) -> JuizResult<()> {
+    fn unbind(&mut self, _target_process_id: ProcessIdentifier) -> JuizResult<()> {
         todo!()
     }
 }

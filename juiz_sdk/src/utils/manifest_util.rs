@@ -7,7 +7,7 @@ use crate::value::obj_get_str;
 
 pub fn construct_id(class_name: &str, type_name: &str, name: &str, broker_type: &str, broker_name: &str) -> Identifier {
     //broker_type.to_string() + "://" + broker_name + "/" + class_name + "/" + name + ":" + type_name
-    identifier_new(broker_type, broker_name, class_name, type_name, name)
+    identifier_new(broker_type, broker_name, class_name.to_owned().to_lowercase().as_str(), type_name, name)
 }
 
 pub fn id_from_manifest(manifest: &serde_json::Value) -> JuizResult<Identifier> {

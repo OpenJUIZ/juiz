@@ -11,6 +11,11 @@ pub struct Outlet {
     use_memo: bool,
 }
 
+impl std::fmt::Debug for Outlet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Outlet").field("name", &self.name).field("output_memo", &self.output_memo).field("use_memo", &self.use_memo).finish()
+    }
+}
 
 impl Outlet {
 
@@ -27,9 +32,10 @@ impl Outlet {
     // pub fn use_memo(&self) -> bool {
     //     self.use_memo
     // }
+    #[allow(unused)]
     pub fn profile_full(&self) -> JuizResult<Value> {
         Ok(jvalue!({
-            "destination_connections": self.destination_connections.iter().map(| (_name, dc) | -> Value { dc.profile_full().unwrap() }).collect::<Vec<Value>>()
+            "destination_connections": self.destination_connections.iter().map(| (_name, dc) | -> Value { dc.profile().into() }).collect::<Vec<Value>>()
         }).into())
     }
 
@@ -69,11 +75,12 @@ impl Outlet {
 
     /// 出力バッファー (memo) にデータを書き込む
     pub(crate) fn set_value(&self, capsule: CapsulePtr) -> CapsulePtr {
-        log::trace!("Outlet({})::set_value() called", self.name);
+        log::trace!("Outlet({})::set_value()が呼ばれました。", self.name);
         if self.use_memo {
+            log::trace!("【set_value】use_memoがtrueなのでmemoにします。");
             self.output_memo.replace(capsule);
         } else {
-            log::trace!("Outlet({})::set_value() called but 'use_memo' property is set to false so value is spoiled.", self.name);
+            log::debug!("【set_value】use_memoがfalseです。値は消費されます。");
             return capsule;
         }
         self.memo()
@@ -82,10 +89,13 @@ impl Outlet {
     /// 出力を出力接続 (DestinationConnection) に投げる
     /// 
     pub fn push(&self, output: CapsulePtr) -> JuizResult<CapsulePtr> {
-        log::trace!("Outlet({})::push() called", self.name);
+        log::trace!("Outlet({})::push()が呼ばれました。", self.name);
         for (_name, dc) in self.destination_connections.iter() {
+            let cp = dc.profile();
+            log::debug!("【push】DestinationConnection ({cp}) があります。pushします。");
             let _ = dc.push(output.clone())?;
         }
+        log::trace!("【push】が成功しました。");
         return Ok(output);
     }
 

@@ -67,21 +67,21 @@ pub(crate) fn on_container_inner(manifest: Value, working_dir: &Path, subcommand
 
 fn on_container_list(system: &mut System, _server: Option<String>, recursive: bool) -> JuizResult<()> {
     log::trace!("on_container_list() called");
-    let proc_manifests: Vec<Value> = system.container_list(recursive)?;
+    let proc_manifests = system.container_list(recursive)?;
     log::debug!("system.container_list() returns '{proc_manifests:?}'");
     let mut ids: Vec<String> = Vec::new();
 
     for v in proc_manifests.iter() {
-        ids.push(v.as_str().unwrap().to_owned());
+        ids.push(v.to_string());
     }
     println!("{ids:?}");
     Ok(())
 }
 
 fn on_container_info(system: &mut System, id: String) -> JuizResult<()> {
-    let p = system.core_broker().lock_mut()?.worker_mut().container_from_identifier(&id);
+    let p = system.core_broker().lock_mut()?.worker_mut().container_from_identifier(&id.try_into()?);
     match p {
-        Ok(ps) => println!("{:}",  ps.lock()?.profile_full()?),
+        Ok(ps) => println!("{:}",  ps.lock()?.profile()?),
         Err(e) => println!("Error: {e:?}"),
     }
     Ok(())

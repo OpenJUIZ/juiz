@@ -1,15 +1,23 @@
 [package]
+rust-version = "1.81"
 name = "juiz_meta"
 version = "0.4.0"
 edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+#[dependencies]
+#juiz_macro = {path=".", workspace=true}
+#juiz_core = {path=".", workspace=true}
+#juiz_sdk = {path=".", workspace=true}
+#juiz_app = {path=".", workspace=true}
+
 
 [workspace.dependencies]
 
-juiz_macro = {version="0.0.4", path="juiz_macro"}
-juiz_sdk = {version="0.0.7", path="juiz_sdk"}
-juiz_core = {version="0.0.4", path="juiz_core"}
+juiz_macro = {version="0.0.5", path="juiz_macro"}
+juiz_sdk = {version="0.0.8", path="juiz_sdk"}
+juiz_core = {version="0.0.5", path="juiz_core"}
+juiz_app= {version="0.0.5", path="juiz_app"}
 
 anyhow = "1.0.89"
 approx = "0.5.1"
@@ -115,7 +123,7 @@ default-members = [
     "ecs/timer_ec",
     "ecs/one_shot_ec", 
     "ecs/main_loop_ec",
-    #"examples/rust/process/increment_process",
+    "examples/rust/process/increment_process",
     #"examples/rust/process/decrement_process",
     #"examples/rust/container",
     "examples/rust/process/talker",
@@ -146,4 +154,9 @@ default-members = [
     # "juiz_sdk/test_packages/ss_arg_proc",
     # "juiz_sdk/test_packages/sss_arg_proc",
     # "juiz_sdk/test_packages/img_arg_proc",
+]
+
+
+workspace.exclude = [
+    "juiz_tutorial/rust/integer_component"
 ]

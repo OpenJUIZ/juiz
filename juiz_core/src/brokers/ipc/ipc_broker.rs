@@ -45,7 +45,7 @@ fn extract_class_name<'a>(args: &'a CapsuleMap) -> JuizResult<String> {
 }
 
 
-fn extract_function_name<'a>(args: &'a CapsuleMap) -> JuizResult<&String> {
+fn extract_function_name<'a>(args: &'a CapsuleMap) -> JuizResult<&'a String> {
     let err = |name: &str | anyhow::Error::from(JuizError::CapsuleDoesNotIncludeParamError{ name: name.to_owned() });
     let function_name = args.get_param("function_name").ok_or_else( || err("function_name") )?;
     Ok(function_name)

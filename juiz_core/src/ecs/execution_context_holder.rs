@@ -2,6 +2,7 @@ use std::sync::{Mutex, Arc, RwLock, atomic::AtomicBool};
 use juiz_sdk::anyhow;
 
 
+use juiz_sdk::process_identifier::ProcessIdentifier;
 use tokio::runtime;
 
 use crate::prelude::*;
@@ -180,7 +181,7 @@ impl ExecutionContextFunction for ExecutionContextHolder {
         juiz_lock(&self.core)?.bind(target_process)
     }
 
-    fn unbind(&mut self, target_process_id: Identifier) -> JuizResult<()> {
+    fn unbind(&mut self, target_process_id: ProcessIdentifier) -> JuizResult<()> {
         juiz_lock(&self.core)?.unbind(target_process_id)
     }
 

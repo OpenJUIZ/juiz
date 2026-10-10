@@ -1,6 +1,8 @@
 
 use std::sync::{Arc, Mutex};
 
+use juiz_sdk::manifests::ContainerProfile;
+
 use crate::prelude::*;
 //use crate::{containers::ContainerImpl};
 
@@ -51,7 +53,7 @@ impl<T: 'static> JuizObject for ContainerStackFactoryImpl<T> {}
 
 impl<T: 'static> ContainerFactory for ContainerStackFactoryImpl<T> {
 
-    fn create_container(&self, _core_worker: &mut CoreWorker, manifest: CapsuleMap) -> JuizResult<ContainerPtr>{
+    fn create_container(&self, _core_worker: &mut CoreWorker, _name: String, manifest: CapsuleMap) -> JuizResult<ContainerPtr>{
         log::trace!("ContainerStackFactory::create_container(manifest={:?}) called", manifest);
         // //let parent_id = obj_get_str(&manifest, "parent_container")?.to_owned();
         // //let parent_manifest = obj_get(&manifest, "parent_container")?;
@@ -67,9 +69,9 @@ impl<T: 'static> ContainerFactory for ContainerStackFactoryImpl<T> {
         todo!()
     }
     
-    fn destroy_container(&mut self, c: ContainerPtr) -> JuizResult<Value> {
+    fn destroy_container(&mut self, c: ContainerPtr) -> JuizResult<ContainerProfile> {
         log::trace!("ContainerFractoryImpl::destroy_container() called");
-        c.lock()?.profile_full()
+        c.lock()?.profile()
     }
     
 }

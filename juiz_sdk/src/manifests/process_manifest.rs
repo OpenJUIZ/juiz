@@ -1,24 +1,40 @@
 
 use std::{collections::HashMap, fmt::Display};
-use anyhow::anyhow;
-use serde_json::Map;
-use crate::{identifier::identifier_new, prelude::*};
+use serde::{Serialize, Deserialize};
+use crate::{prelude::*, process_identifier::ProcessIdentifier};
 use super::{argument_manifest::ArgumentManifest, manifest_description::Description, topic_manifest::TopicManifest};
 
-#[derive(Clone, Debug)]
+fn default_description() -> Description { Description{text: "".to_owned()} }
+fn default_broker_type_name() -> String { "core".to_owned() }
+fn default_broker_name() -> String { "core".to_owned() }
+fn default_factory() -> String { "process_factory".to_owned() }
+fn default_use_memo() -> bool { false }
+fn default_language() -> String { "rust".to_owned() }
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProcessManifest {
     pub name: Option<String>,
     pub type_name: String,
+    #[serde(default="default_description")]
     pub description: Description,
+    #[serde(default)]
     pub arguments: Vec<ArgumentManifest>,
+    #[serde(default="default_factory")]
     pub factory: String,
+    #[serde(default="default_use_memo")]
     pub use_memo: bool,
+    #[serde(default="default_language")]
     pub language: String,
+    #[serde(default="default_broker_type_name")]
     pub broker_type_name: String,
+    #[serde(default="default_broker_name")]
     pub broker_name: String,
+    #[serde(default)]
     pub publishes: Vec<TopicManifest>,
+    #[serde(default)]
     pub subscribes: HashMap<String, TopicManifest>,
+    #[serde(default)]
     pub container_name: Option<String>,
+    #[serde(default)]
     pub container_type: Option<String>,
 }
 
@@ -75,23 +91,23 @@ impl ProcessManifest {
         }
         partial_instance_manifest.arguments.clear();
         partial_instance_manifest.arguments = new_argument_manif;
-
+        log::warn!("partial_instance_manifest = {:?}", partial_instance_manifest);
         Ok(partial_instance_manifest)
     }   
 
     /// ```
-    /// use juiz_core::prelude::*;
+    /// use juiz_sdk::prelude::*;
     /// let manifest = ProcessManifest::new("hoge_type")
     ///   .description("hoge manifest")
     ///   .add_int_arg("arg0", "int_arg", 1.into())
     ///   .add_float_arg("arg1", "float_arg", 1.0.into())
     ///   .add_string_arg("arg2", "string_arg", "default_string".into());
     /// assert_eq!(manifest.arguments[0].name, "arg0");
-    /// assert_eq!(manifest.arguments[0].type_name.as_str(), "int");
+    /// assert_eq!(manifest.arguments[0].type_name.as_str(), "Int");
     /// assert_eq!(manifest.arguments[1].name, "arg1");
-    /// assert_eq!(manifest.arguments[1].type_name.as_str(), "float");
+    /// assert_eq!(manifest.arguments[1].type_name.as_str(), "Float");
     /// assert_eq!(manifest.arguments[2].name, "arg2");
-    /// assert_eq!(manifest.arguments[2].type_name.as_str(), "string");
+    /// assert_eq!(manifest.arguments[2].type_name.as_str(), "String");
     /// ```
     pub fn new(type_name: &str) -> Self {
         Self {
@@ -141,36 +157,36 @@ impl ProcessManifest {
         self
     }
     /// ```
-    /// use juiz_core::prelude::*;
+    /// use juiz_sdk::prelude::*;
     /// let manifest = ProcessManifest::new("hoge_type")
     ///   .description("hoge manifest")
     ///   .add_bool_arg("arg0", "boolt_arg", false.into());
     /// assert_eq!(manifest.arguments[0].name, "arg0");
-    /// assert_eq!(manifest.arguments[0].type_name.as_str(), "bool");
+    /// assert_eq!(manifest.arguments[0].type_name.as_str(), "Bool");
     /// ```
     pub fn add_bool_arg(self, name: &str, description: &str, default: bool) -> Self {
         self.add_arg(ArgumentManifest::new_bool(name, default).description(description))
     }
 
     /// ```
-    /// use juiz_core::prelude::*;
+    /// use juiz_sdk::prelude::*;
     /// let manifest = ProcessManifest::new("hoge_type")
     ///   .description("hoge manifest")
     ///   .add_int_arg("arg0", "int_arg", 1.into());
     /// assert_eq!(manifest.arguments[0].name, "arg0");
-    /// assert_eq!(manifest.arguments[0].type_name.as_str(), "int");
+    /// assert_eq!(manifest.arguments[0].type_name.as_str(), "Int");
     /// ```
     pub fn add_int_arg(self, name: &str, description: &str, default: i64) -> Self {
         self.add_arg(ArgumentManifest::new_int(name, default).description(description))
     }
 
         /// ```
-    /// use juiz_core::prelude::*;
+    /// use juiz_sdk::prelude::*;
     /// let manifest = ProcessManifest::new("hoge_type")
     ///   .description("hoge manifest")
     ///   .add_float_arg("arg1", "float_arg", 1.0.into());
     /// assert_eq!(manifest.arguments[0].name, "arg1");
-    /// assert_eq!(manifest.arguments[0].type_name.as_str(), "float");
+    /// assert_eq!(manifest.arguments[0].type_name.as_str(), "Float");
     /// ```
     pub fn add_float_arg(self, name: &str, description: &str, default: f64) -> Self {
         self.add_arg(ArgumentManifest::new_float(name, default).description(description))
@@ -189,12 +205,12 @@ impl ProcessManifest {
     }
 
     /// ```
-    /// use juiz_core::prelude::*;
+    /// use juiz_sdk::prelude::*;
     /// let manifest = ProcessManifest::new("hoge_type")
     ///   .description("hoge manifest")
     ///   .add_string_arg("arg2", "string_arg", "default_string".into());
     /// assert_eq!(manifest.arguments[0].name, "arg2");
-    /// assert_eq!(manifest.arguments[0].type_name.as_str(), "string");
+    /// assert_eq!(manifest.arguments[0].type_name.as_str(), "String");
     /// ```
     pub fn add_string_arg(self, name: &str, description: &str, default: &str) -> Self {
         self.add_arg(ArgumentManifest::new_string(name, default).description(description))
@@ -217,7 +233,7 @@ impl ProcessManifest {
     }
 
     /// ```
-    /// use juiz_core::prelude::*;
+    /// use juiz_sdk::prelude::*;
     /// let manifest = ProcessManifest::new("hoge_type")
     ///   .description("hoge manifest")
     ///   .publishes("topic1");
@@ -228,8 +244,8 @@ impl ProcessManifest {
         self
     }
 
-        /// ```
-    /// use juiz_core::prelude::*;
+    /// ```
+    /// use juiz_sdk::prelude::*;
     /// let manifest = ProcessManifest::new("hoge_type")
     ///   .description("hoge manifest")
     ///   .add_int_arg("arg0", "int_arg", 1.into())
@@ -241,81 +257,92 @@ impl ProcessManifest {
         self
     }
 
-    pub fn identifier(&self) -> JuizResult<Identifier> { 
-        if let Some(name) = self.name.as_ref() {
-            Ok(identifier_new(
-                self.broker_type_name.as_str(), 
-                self.broker_name.as_str(), 
-                "Process", 
-                self.type_name.as_str(), 
-                name.as_str()))
+    pub fn identifier(&self) -> JuizResult<ProcessIdentifier> { 
+        // if let Some(name) = self.name.as_ref() {
+        //     Ok(identifier_new(
+        //         self.broker_type_name.as_str(), 
+        //         self.broker_name.as_str(), 
+        //         "Process", 
+        //         self.type_name.as_str(), 
+        //         name.as_str()))
+        // } else {
+        //     Err(anyhow!(JuizError::ProcessManifestInvalidError{message:"ProcessManifest::identifier() failed.".to_owned()}))
+        // }
+        if self.container_name.is_some() {
+            Ok(ProcessIdentifier::new_container_process_id(self.broker_name.clone(),
+            self.broker_type_name.clone(), 
+            self.type_name.clone(), 
+            self.container_name.clone().unwrap(),
+            self.name.as_ref().unwrap().clone()))
         } else {
-            Err(anyhow!(JuizError::ProcessManifestInvalidError{message:"ProcessManifest::identifier() failed.".to_owned()}))
+            Ok(ProcessIdentifier::new_process_id(self.broker_name.clone(),
+            self.broker_type_name.clone(), 
+            self.type_name.clone(), 
+            self.name.as_ref().unwrap().clone()))
         }
+    }
+}
+
+// #[allow(dead_code)]
+// fn arguments_to_object(args: Vec<ArgumentManifest>) -> Value {
+//     let mut v : serde_json::Map<String, Value> = serde_json::Map::new();
+//     for a in args.into_iter() {
+//         v.insert(a.name.clone(), a.into());
+//     }
+//     v.into()
+// }
+
+// fn arguments_to_array(args: Vec<ArgumentManifest>) -> Value {
+//     args.into_iter().map(|arg| -> Value {
+//         arg.into()
+//     }).collect()
+// }
+
+
+// /// ```
+// /// use juiz_core::prelude::*;
+// /// fn main() -> JuizResult<()> {
+// ///     let manifest = ProcessManifest::new("hoge_type")
+// ///         .description("hoge manifest")
+// ///         .add_int_arg("arg0", "int_arg", 1.into());
+// ///     let value: Value = manifest.into();
+// ///     assert_eq!(obj_get_str(&value, "type_name")?, "hoge_type");
+// ///     assert_eq!(obj_get_str(&value, "description")?, "hoge manifest");
+// ///     let arr: &Vec<Value> = obj_get_array(&value, "arguments")?;
+// ///     assert_eq!(obj_get_str(&arr[0] , "type")?, "int");
+// ///     assert_eq!(obj_get_str(&arr[0] , "name")?, "arg0");
+// ///     assert_eq!(obj_get_str(&arr[0] , "description")?, "int_arg");
+// ///     Ok(())
+// /// }
+// /// ```
+// impl Into<Value> for ProcessManifest {
+//     fn into(self) -> Value {
+//         let mut v = jvalue!({
+//             "type_name": self.type_name,
+//             "description": self.description.to_str(),
+//             "language": self.language,
+//             "arguments": arguments_to_array(self.arguments),
+//             "publishes": self.publishes.iter().map(|v|{ v.clone().into() }).collect::<Vec<Value>>(),
+//             "subscribes": self.subscribes.iter().map(|(k,v)|{ (k.clone(), v.clone().into() ) }).collect::<Map<String, Value>>(),
+//             "factory": self.factory,
+//         });
+//         let map = v.as_object_mut().unwrap();
+//         if let Some(container_name) = self.container_name {
+//             map.insert("container_name".to_owned(), container_name.into());
+//         }
+//         if let Some(container_type) = self.container_type {
+//             map.insert("container_type".to_owned(), container_type.into());
+//         }
+//         if let Some(name) = self.name {
+//             map.insert("name".to_owned(), name.into());
+//         }
         
-    }
-}
-
-#[allow(dead_code)]
-fn arguments_to_object(args: Vec<ArgumentManifest>) -> Value {
-    let mut v : serde_json::Map<String, Value> = serde_json::Map::new();
-    for a in args.into_iter() {
-        v.insert(a.name.clone(), a.into());
-    }
-    v.into()
-}
-
-fn arguments_to_array(args: Vec<ArgumentManifest>) -> Value {
-    args.into_iter().map(|arg| -> Value {
-        arg.into()
-    }).collect()
-}
-
+//         v
+//     }
+// }
 
 /// ```
-/// use juiz_core::prelude::*;
-/// fn main() -> JuizResult<()> {
-///     let manifest = ProcessManifest::new("hoge_type")
-///         .description("hoge manifest")
-///         .add_int_arg("arg0", "int_arg", 1.into());
-///     let value: Value = manifest.into();
-///     assert_eq!(obj_get_str(&value, "type_name")?, "hoge_type");
-///     assert_eq!(obj_get_str(&value, "description")?, "hoge manifest");
-///     let arr: &Vec<Value> = obj_get_array(&value, "arguments")?;
-///     assert_eq!(obj_get_str(&arr[0] , "type")?, "int");
-///     assert_eq!(obj_get_str(&arr[0] , "name")?, "arg0");
-///     assert_eq!(obj_get_str(&arr[0] , "description")?, "int_arg");
-///     Ok(())
-/// }
-/// ```
-impl Into<Value> for ProcessManifest {
-    fn into(self) -> Value {
-        let mut v = jvalue!({
-            "type_name": self.type_name,
-            "description": self.description.to_str(),
-            "language": self.language,
-            "arguments": arguments_to_array(self.arguments),
-            "publishes": self.publishes.iter().map(|v|{ v.clone().into() }).collect::<Vec<Value>>(),
-            "subscribes": self.subscribes.iter().map(|(k,v)|{ (k.clone(), v.clone().into() ) }).collect::<Map<String, Value>>(),
-            "factory": self.factory,
-        });
-        let map = v.as_object_mut().unwrap();
-        if let Some(container_name) = self.container_name {
-            map.insert("container_name".to_owned(), container_name.into());
-        }
-        if let Some(container_type) = self.container_type {
-            map.insert("container_type".to_owned(), container_type.into());
-        }
-        if let Some(name) = self.name {
-            map.insert("name".to_owned(), name.into());
-        }
-        
-        v
-    }
-}
-
-/// ```
-/// use juiz_core::prelude::*;
+/// use juiz_sdk::prelude::*;
 /// fn main() -> JuizResult<()> {
 /// 
 /// let manifest_value: Value = jvalue!({
@@ -324,7 +351,7 @@ impl Into<Value> for ProcessManifest {
 ///   "arguments": [
 ///     {
 ///        "name": "arg0",
-///        "type": "int",
+///        "type_name": "Int",
 ///        "default": 1,
 ///        "description": "int_arg"
 ///     }, 
@@ -346,7 +373,7 @@ impl TryFrom<Value> for ProcessManifest {
         match obj_get_array(&value, "arguments") {
             Ok(arg_manifest_values) => {
                 for arg_manifest_value in arg_manifest_values.iter() {
-                    p = p.add_arg(arg_manifest_value.clone().try_into()?);
+                    p = p.add_arg(serde_json::from_value(arg_manifest_value.clone())?);
                 }
             }
             Err(_) => {},

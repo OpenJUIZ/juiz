@@ -40,7 +40,7 @@ pub fn juiz_borrow<'b, T: ?Sized>(obj: &'b Arc<RwLock<T>>) -> JuizResult<RwLockR
     }
 }
 
-pub fn juiz_borrow_mut<'b, T: ?Sized>(obj: &'b mut Arc<RwLock<T>>) -> JuizResult<RwLockWriteGuard<T>> {
+pub fn juiz_borrow_mut<'b, T>(obj: &'b mut Arc<RwLock<T>>) -> JuizResult<RwLockWriteGuard<'b, T>> where T: ?Sized + 'b {
     // log::trace!("juiz_lock() called");
     match obj.write() {
         Err(e) => {

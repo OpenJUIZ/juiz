@@ -1,11 +1,15 @@
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 
 use mopa::mopafy;
-use crate::{object::JuizObject, prelude::*, processes::ProcessPtr};
+use crate::{manifests::ContainerProfile, prelude::*, processes::ProcessPtr};
 
-pub trait Container : Display + mopa::Any + JuizObject{
+pub trait Container : Display + Debug + mopa::Any {
+
+    fn identifier(&self) -> ContainerIdentifier;
+
+    fn profile(&self) -> JuizResult<ContainerProfile>;
     
-    fn manifest(&self) -> &ContainerManifest;
+    // fn manifest(&self) -> &ContainerManifest;
 
     fn process(&self, name_or_id: &String) -> Option<ProcessPtr>;
 
@@ -16,6 +20,7 @@ pub trait Container : Display + mopa::Any + JuizObject{
     fn purge_process(&mut self, name_or_id: &String) -> JuizResult<()>;
 
     fn clear(&mut self) -> JuizResult<()>;
+
 }
 
 mopafy!(Container);

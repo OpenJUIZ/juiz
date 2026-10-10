@@ -8,6 +8,10 @@ use crate::prelude::*;
 use crate::ecs::{execution_context_function::ExecutionContextFunction, execution_context_holder_factory::ExecutionContextHolderFactory};
 
 use juiz_sdk::anyhow::{self, anyhow};
+use juiz_sdk::manifests::ContainerIdentifier;
+use juiz_sdk::manifests::{ContainerProfile, ProcessProfile};
+use juiz_sdk::process_identifier::ProcessIdentifier;
+use juiz_sdk::topic_identifier::TopicIdentifier;
 
 // #[derive(Debug)]
 pub struct CoreStore {
@@ -122,87 +126,87 @@ impl CoreStore {
     }
 
     pub fn brokers_profile_full(&self) -> JuizResult<Value> {
-        Ok(jvalue!(self.brokers_manifests))
+        Ok(self.brokers_manifests.iter().map(| (_k, v) | { v.clone() }).collect())
     }
 
-    pub fn brokers_list_ids(&self) -> JuizResult<Value> {
+    pub fn brokers_list_ids(&self) -> JuizResult<Vec<String>> {
         self.brokers_manifests.values().into_iter().map(|pv| {
-            obj_get_str(pv, "identifier")
+            Ok(obj_get_str(pv, "identifier")?.to_owned())
         }).collect()
     }
 
-    pub fn topics_list_ids(&self) -> JuizResult<Value> {
-        Ok(self.topics.values().into_iter().map(|topic| {
-            topic.name()
-        }).collect())
+    pub fn topics_list_ids(&self) -> JuizResult<Vec<TopicIdentifier>> {
+        self.topics.values().into_iter().map(|topic| {
+            topic.name().to_owned().try_into()
+        }).collect()
     }
 
-    pub fn topics_profile_full(&self) -> JuizResult<Value> {
+    pub fn topics_profile_full(&self) -> JuizResult<Vec<Value>> {
         self.topics.values().into_iter().map(|t| {
-            t.profile_full()
+            t.profile()
         }).collect()
     }
 
-    pub fn processes_profile_full(&self) -> JuizResult<Value> {
+    pub fn processes_profile_full(&self) -> JuizResult<Vec<ProcessProfile>> {
         log::trace!("process_profile_full() called");
         self.processes.objects().iter().map(|(_k, c)| {
             c.lock().and_then(|co| { 
-                let id = co.identifier().clone();
-                Ok((id, co.profile_full()?))
+                //let id = co.identifier().clone();
+                co.profile()
             })} ).collect()
      }
 
-    pub fn containers_profile_full(&self) -> JuizResult<Value> {
+    pub fn containers_profile_full(&self) -> JuizResult<Vec<ContainerProfile>> {
        self.containers.objects().iter().map(|(_k, c)| {
             c.lock()
                 .and_then(|co| { 
-                    let id = co.identifier().clone();
-                    Ok((id, co.profile_full()?))
+                    //let id = co.identifier().clone();
+                    Ok(co.profile()?)
                 })
             } ).collect()
     }
 
-    pub fn container_processes_profile_full(&self) -> JuizResult<Value> {
+    pub fn container_processes_profile_full(&self) -> JuizResult<Vec<ProcessProfile>> {
         self.container_processes.objects().iter().map(|(_k, c)| {
             c.lock()
                 .and_then(|co| { 
-                    let id = co.identifier().clone();
-                    Ok((id, co.profile_full()?))
+                    co.profile()
                 })
             } ).collect()
     }
 
-    pub fn processes_id(&self) -> Value {
+    pub fn processes_id(&self) -> Vec<ProcessIdentifier> {
+        log::debug!("process_id()が呼ばれました");
         self.processes.objects().iter().map(|(_k, c)| {
-         c.identifier().clone()
-         } ).collect()
+            c.identifier()
+        }).collect()
     }
 
-    pub fn containers_id(&self) -> Value {
+    pub fn containers_id(&self) -> Vec<ContainerIdentifier> {
         self.containers.objects().iter().map(|(_k, c)| {
          c.identifier().clone()
          } ).collect()
     }
 
-    pub fn container_processes_id(&self) -> Value {
+    pub fn container_processes_id(&self) -> Vec<ProcessIdentifier> {
         self.container_processes.objects().iter().map(|(_k, c)| {
-         c.identifier().clone()
-         } ).collect()
+            c.identifier()
+        }).collect()
     }
 
-    pub fn process_factories_profile_full(&self) -> JuizResult<Value> {
+    pub fn process_factories_profile_full(&self) -> JuizResult<Vec<Value>> {
         self.processes.factories().iter().map(|(_k, c)| {
          c.lock().or_else(|e|{Err(anyhow!(JuizError::ObjectLockError{target:e.to_string()}))}).and_then(|co| { co.profile_full() })
          } ).collect()
     }
 
-    pub fn container_factories_profile_full(&self) -> JuizResult<Value> {
+    pub fn container_factories_profile_full(&self) -> JuizResult<Vec<Value>> {
         self.containers.factories().iter().map(|(_k, c)| {
          c.lock().or_else(|e|{Err(anyhow!(JuizError::ObjectLockError{target:e.to_string()}))}).and_then(|co| { co.profile_full() })
          } ).collect()
     }
 
-    pub fn container_process_factories_profile_full(&self) -> JuizResult<Value> {
+    pub fn container_process_factories_profile_full(&self) -> JuizResult<Vec<Value>> {
         self.container_processes.factories().iter().map(|(_k, c)| {
          c.lock().or_else(|e|{Err(anyhow!(JuizError::ObjectLockError{target:e.to_string()}))}).and_then(|co| { co.profile_full() })
          } ).collect()

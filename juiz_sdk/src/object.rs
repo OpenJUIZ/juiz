@@ -1,6 +1,8 @@
 //! juizにおける各オブジェクトのベースとなるtrait
 //! 
 //! 
+use std::fmt::Display;
+
 use crate::prelude::*;
 use crate::identifier::identifier_new;
 
@@ -27,29 +29,34 @@ pub enum JuizObjectClass {
     Topic(&'static str),
 }
 
+impl Display for JuizObjectClass {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("JuizObjectClass({})", self.as_str()))
+    }
+}
 
 impl JuizObjectClass {
 
     pub fn as_str(&self) -> &'static str {
         match *self {
-            JuizObjectClass::Process(_) => "Process",
-            JuizObjectClass::ProcessFactory(_) => "ProcessFactory",
-            JuizObjectClass::Container(_) => "Container",
-            JuizObjectClass::ContainerFactory(_) => "ContainerFactory",
-            JuizObjectClass::ContainerProcess(_) => "ContainerProcess",
-            JuizObjectClass::ContainerProcessFactory(_) => "ContainerProcessFactory",
-            JuizObjectClass::Connection(_) => "Connection",
-            JuizObjectClass::ExecutionContext(_) => "ExecutionContext",
-            JuizObjectClass::ExecutionContextFactory(_) => "ExecutionContextFactory",
+            JuizObjectClass::Process(_) => "process",
+            JuizObjectClass::ProcessFactory(_) => "process_factory",
+            JuizObjectClass::Container(_) => "container",
+            JuizObjectClass::ContainerFactory(_) => "container_factory",
+            JuizObjectClass::ContainerProcess(_) => "container_process",
+            JuizObjectClass::ContainerProcessFactory(_) => "container_process_factory",
+            JuizObjectClass::Connection(_) => "connection",
+            JuizObjectClass::ExecutionContext(_) => "execution_context",
+            JuizObjectClass::ExecutionContextFactory(_) => "execution_context_factory",
 
-            JuizObjectClass::Broker(_) => "Broker",
-            JuizObjectClass::BrokerFactory(_) => "BrokerFactory",
-            JuizObjectClass::BrokerProxy(_) => "BrokerProxy",
-            JuizObjectClass::BrokerProxyFactory(_) => "BrokerProxyFactory",
+            JuizObjectClass::Broker(_) => "broker",
+            JuizObjectClass::BrokerFactory(_) => "broker_factory",
+            JuizObjectClass::BrokerProxy(_) => "broker_proxy",
+            JuizObjectClass::BrokerProxyFactory(_) => "broker_proxy_factory",
 
-            JuizObjectClass::System(_) => "System",
-            JuizObjectClass::ProcessProxy(_) => "ProcessProxy",
-            JuizObjectClass::Topic(_) => "Topic", 
+            JuizObjectClass::System(_) => "system",
+            JuizObjectClass::ProcessProxy(_) => "process_proxy",
+            JuizObjectClass::Topic(_) => "topic", 
         }
     }
 }
@@ -101,6 +108,8 @@ impl ObjectCore {
             "class_name": self.class_name.as_str(),
             "type_name": self.type_name,
             "name": self.name,
+            "broker_type_name": self.broker_type_name,
+            "broker_name": self.broker_name,
         }))
     }
 }
@@ -121,6 +130,8 @@ pub trait JuizObject : JuizObjectCoreHolder {
             "class_name": self.class_name().as_str(),
             "type_name": self.type_name(),
             "name": self.name(),
+            "broker_type_name": self.broker_type(),
+            "broker_name": self.broker_name(),
         }).into())
     }
 

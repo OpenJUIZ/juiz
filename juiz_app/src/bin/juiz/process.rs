@@ -43,6 +43,9 @@ pub(crate) enum ProcSubCommands {
 
         #[arg(short = 'o', help = "Output Filename")]
         fileout: Option<String>,
+
+        #[arg(short = 'p', long, help = "Print Output")]
+        print: bool,
     },
 
 }
@@ -86,14 +89,14 @@ pub(crate) fn on_process_inner(manifest: Value, working_dir: &Path, subcommand: 
                 on_process_info(system, identifier)
             }) 
         },
-        ProcSubCommands::Call { identifier, argument , fileout} => {
+        ProcSubCommands::Call { identifier, argument , fileout, print} => {
             System::new(manifest)?
                 .set_working_dir(working_dir)
                 .start_http_broker(args.start_http_broker)
                 .setup()?
                 .add_systemproxy_by_id(Some(server.clone()))?
                 .run_and_do_once( |system| { 
-                on_process_call(system, identifier, argument, fileout)
+                on_process_call(system, identifier, argument, fileout, print)
             }) 
         } 
     }
@@ -101,20 +104,20 @@ pub(crate) fn on_process_inner(manifest: Value, working_dir: &Path, subcommand: 
 
 fn on_process_list(system: &mut System, _server: Option<String>, recursive: bool) -> JuizResult<()> {
     log::info!("on_process_list() called");
-    let proc_manifests: Vec<Value> = system.process_list(recursive)?;
+    let proc_manifests = system.process_list(recursive)?;
     let mut ids: Vec<String> = Vec::new();
     for v in proc_manifests.iter() {
-        ids.push(v.as_str().unwrap().to_owned());
+        ids.push(v.to_string());
     }
     println!("{ids:?}");
     Ok(())
 }
 
 fn on_any_process_list(system: &mut System, _server: Option<String>, recursive: bool) -> JuizResult<()> {
-    let proc_manifests: Vec<Value> = system.any_process_list(recursive)?;
+    let proc_manifests = system.any_process_list(recursive)?;
     let mut ids: Vec<String> = Vec::new();
     for v in proc_manifests.iter() {
-        ids.push(v.as_str().unwrap().to_owned());
+        ids.push(v.to_string());
     }
     println!("{ids:?}");
     Ok(())
@@ -122,9 +125,10 @@ fn on_any_process_list(system: &mut System, _server: Option<String>, recursive: 
 
 fn on_process_info(system: &mut System, id: String) -> JuizResult<()> {
     //println!("processes:");
-    let p = system.core_broker().lock_mut()?.worker_mut().any_process_from_identifier(&id, true);
+    let pid = id.try_into()?;
+    let p = system.core_broker().lock_mut()?.worker_mut().any_process_from_identifier(&pid, true);
     match p {
-        Ok(ps) => println!("{:}", ps.lock()?.profile_full()?),
+        Ok(ps) => println!("{:}", ps.lock()?.profile()?),
         Err(e) => println!("Error: {e:?}"),
     }
     Ok(())
@@ -218,15 +222,17 @@ fn do_with_capsule_ptr(value: CapsulePtr) -> JuizResult<()> {
 // }
 
 
-fn on_process_call(system: &mut System, id: String, arg: String, _fileout: Option<String>) -> JuizResult<()> {
+fn on_process_call(system: &mut System, id: String, arg: String, _fileout: Option<String>, print: bool) -> JuizResult<()> {
     //println!("processes:");
-    let p = system.core_broker().lock_mut()?.worker_mut().any_process_from_identifier(&id, true);
+    let p = system.core_broker().lock_mut()?.worker_mut().any_process_from_identifier(&id.try_into()?, true);
     match p {
         Ok(ps) => {
             let argv = load_str(arg.as_str())?;
             // println!("Value is {argv:?}");
-            let _value = ps.lock()?.call(argv.try_into()?)?;
-            
+            let value = ps.lock()?.call(argv.try_into()?)?;
+            if print {
+                println!("{value}");
+            }
         },
         Err(e) => println!("Error: {e:?}"),
     }

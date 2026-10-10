@@ -7,7 +7,7 @@
 //! プロセス、コンテナ、コンテナプロセスおよびコンポーネントの実体の関数定義に宣言型マクロとして使います。
 //! 
 //! ## プロセスの例
-//! ```
+//! ```ignore
 //! #[juiz_process(
 //!     description = "This is listener process."
 //!     arguments = {
@@ -27,7 +27,7 @@
 //! ```
 //! ## コンテナの例
 //! 
-//! ```
+//! ```ignore
 //! use juiz_sdk::prelude::*;
 //! #[repr(Rust)]
 //! pub struct ExampleContainer {
@@ -56,7 +56,7 @@
 //!
 //! # Examples
 //!
-//! ```
+//! ```ignore
 //! use example_container::ExampleContainer;
 //! use juiz_sdk::prelude::*;
 //! 
@@ -78,7 +78,7 @@
 //! 
 //! ## コンポーネントの例
 //! 
-//! ```
+//! ```ignore
 //! use juiz_sdk::prelude::*;
 //! #[juiz_component_process]
 //! fn example_component_increment(arg1: i64) -> JuizResult<Capsule> {
@@ -138,6 +138,11 @@
 //! );
 //! 
 //! ```
+//! 
+//! 
+
+
+
 extern crate proc_macro;
 
 mod util;
@@ -155,7 +160,7 @@ use crate::proc_macro::TokenStream;
 /// 
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// #[juiz_process(
 ///     description = "This is listener process."
 ///     arguments = {
@@ -185,7 +190,7 @@ pub fn juiz_process(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use juiz_sdk::prelude::*;
 /// #[repr(Rust)]
 /// pub struct ExampleContainer {
@@ -216,7 +221,7 @@ pub fn juiz_container(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// use example_container::ExampleContainer;
 /// use juiz_sdk::prelude::*;
 /// 
@@ -246,7 +251,7 @@ pub fn juiz_container_process(attr: TokenStream, item: TokenStream) -> TokenStre
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// juiz_component_manifest!(
 ///     component_name = "example_component"
 ///     containers = {
@@ -271,7 +276,7 @@ pub fn juiz_component_manifest(attr: TokenStream) -> TokenStream {
 /// `juiz_process`と同じ使い方ができます。例は引数を省略しています。
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// #[juiz_component_process]
 /// fn example_component_increment(arg1: i64) -> JuizResult<Capsule> {
 ///     log::trace!("increment_process({:?}) called", arg1);
@@ -288,7 +293,7 @@ pub fn juiz_component_process(attr: TokenStream, item: TokenStream) -> TokenStre
 /// `juiz_container`と同様の使い方ができます。例は引数を全て省略した使い方。
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// #[repr(Rust)]
 /// pub struct ExampleComponentContainer {
 ///     pub value: i64
@@ -309,7 +314,7 @@ pub fn juiz_component_container(attr: TokenStream, item: TokenStream) -> TokenSt
 ///
 /// # Examples
 ///
-/// ```
+/// ```ignore
 /// #[juiz_component_container_process( container_type = "example_component_container" 
 ///    arguments = {
 ///     default = {

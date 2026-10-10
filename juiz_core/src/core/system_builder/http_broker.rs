@@ -59,6 +59,6 @@ pub(super) fn setup_http_broker(system: &mut System, port_number: i64, options: 
     
     let _http_broker = system.create_broker(&manifest).context("system.create_broker() failed in system_builder::setup_http_broker()")?;
     //system.register_broker(http_broker)?;
-    log::info!("HTTPBroker Created");
+    log::info!("【作成】ブローカ(HTTP) setup_http_brokerよりHTTPBrokerを作成しました。");
     Ok(())
 }
