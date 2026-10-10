@@ -22,7 +22,6 @@ env_logger = {workspace = true}
 # futures = {workspace = true}
 # home = {workspace = true}
 image = {workspace = true}
-image-stream = {workspace = true}
 
 log = {workspace = true}
 mopa = {workspace = true}
@@ -35,7 +34,6 @@ serde = {workspace = true, features = ["derive"]}
 serde_json= {workspace = true}
 
 thiserror = {workspace = true}
-uuid = {workspace = true, features = ["v4"] }
 
 yaml-rust2 = {workspace = true}
 

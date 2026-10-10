@@ -3,7 +3,17 @@ name: Test
 on:
   push:
     branches: [main]
+    paths-ignore: &rust-ignore
+      # Rust のビルドとテストに影響しないファイルだけの変更ではジョブを走らせない。
+      # examples/python と bindings/pyjuiz は Rust のテストから使われるので対象に含める。
+      - "**.md"
+      - "juiz_tutorial/**"
+      - "Dockerfile"
+      - "compose.yml"
+      - "build_docker.sh"
+      - ".github/workflows/python.yml"
   pull_request:
+    paths-ignore: *rust-ignore
   workflow_dispatch:
 
 concurrency:
@@ -51,24 +61,3 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/bindings/pyjuiz
         # テストはブローカーのポートや埋め込み Python を使うので直列に実行する
         run: cargo test --verbose -- --test-threads=1
-
-  # Python バインディング(pyjuiz)と Python の例
-  python:
-    name: Python bindings & examples
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install pyjuiz
-        run: python -m pip install ./bindings/pyjuiz
-
-      - name: Syntax check Python sources
-        run: python -m compileall -q bindings/pyjuiz examples/python juiz_tutorial
-
-      - name: Run pyjuiz decorator test
-        working-directory: bindings/pyjuiz
-        run: python test/decorator_test.py

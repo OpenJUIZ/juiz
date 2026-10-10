@@ -30,7 +30,6 @@ env_logger = "0.11.5"
 futures = "0.3.29"
 home = "0.5.9"
 image = "0.24"
-image-stream = "0.1.0"
 interprocess = {version="2.2.0", features=["tokio"]}
 libloading = "0.8.5"
 litrs = "0.4.1"
@@ -48,23 +47,19 @@ pyo3 = {version = "0.22.2", features=["auto-initialize", "gil-refs"]}
 quote = "1.0.37"
 quaternion-core = "0.5.2"
 regex = "1.10.6"
-reqwest = {version="0.12.8", features = ["blocking", "json"]}
+# TLS は rustls を使う(qmp_broker の quinn と ring を共有し、OpenSSL のビルドを省く)
+reqwest = {version="0.12.8", default-features = false, features = ["blocking", "json", "rustls-tls-native-roots", "charset", "http2", "system-proxy"]}
 serde = {version = "1.0.209", features = ["derive"]}
 serde_json="1.0.127"
 signal-hook = "0.3.17"
 
-structopt = "0.3.26"
 syn = { version = "2.0.87", features = ["full", "extra-traits", "parsing"] }
 thiserror = "1.0.63"
-tower = { version = "0.5.1", features = ["util"] }
 tower-http = { version = "0.6.1", features = ["fs", "trace"] }
 tokio = { version = "1.40.0", features = ["full"] }
-toml = "0.8.19"
 uuid = {version = "1.10.0", features = ["v4"] }
 utoipa = { version="4.2.3", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "7.1.0", features = ["axum", "vendored"] }
-utoipa-redoc = { version="4.0.0", features = ["axum"] }
-utoipa-rapidoc = { version="4.0.0", features = ["axum"] }
 
 yaml-rust2 = "0.9.0"
 
@@ -160,3 +155,8 @@ default-members = [
 workspace.exclude = [
     "juiz_tutorial/rust/integer_component"
 ]
+
+# デバッグ情報を行番号のみにして、コンパイル・リンク時間と target の容量を減らす。
+# バックトレースの行番号は残る。デバッガで変数を見たい場合は一時的に debug = true に戻す。
+[profile.dev]
+debug = "line-tables-only"
