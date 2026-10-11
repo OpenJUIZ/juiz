@@ -1,0 +1,29 @@
+{
+  "name": "juiz",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "remoteUser": "vscode",
+  "containerEnv": {
+    "CARGO_TERM_COLOR": "always",
+    "RUST_BACKTRACE": "1",
+    // pyo3 が埋め込む Python をシステムの python3 に固定する(CI と同じ)
+    "PYO3_PYTHON": "python3",
+    // 埋め込み Python から pyjuiz を読み込めるようにする(CI と同じ)
+    "PYTHONPATH": "${containerWorkspaceFolder}/bindings/pyjuiz"
+  },
+  // HTTP ブローカー(Swagger UI: http://localhost:8000/docs)
+  "forwardPorts": [8000],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "vadimcn.vscode-lldb",
+        "tamasfe.even-better-toml",
+        "ms-python.python",
+        "ms-vscode.cmake-tools",
+        "ms-vscode.cpptools"
+      ]
+    }
+  }
+}
