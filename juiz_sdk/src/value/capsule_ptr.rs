@@ -434,3 +434,5 @@ impl TryInto<DynamicImage> for CapsulePtr {
         self.extract_image()
     }
 }
+/// Process::callが返すレスポンスを表す型。実体はCapsulePtrです。
+pub type ResponsePtr = CapsulePtr;

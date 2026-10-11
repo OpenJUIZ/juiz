@@ -30,7 +30,7 @@ pub use crate::{
         as_obj, capsule_to_value, jvalue, load_str, obj_get, obj_get_array, obj_get_bool,
         obj_get_f64, obj_get_hashmap, obj_get_i64, obj_get_mut, obj_get_obj, obj_get_str,
         obj_insert, obj_merge, obj_merge_mut, value_merge, value_to_capsule, Capsule, CapsuleMap,
-        CapsulePtr, Value,
+        CapsulePtr, RequestMap, ResponsePtr, Value,
     },
 };
 

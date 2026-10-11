@@ -184,3 +184,6 @@ impl From<&[(&str, Value)]> for CapsuleMap {
         c
     }
 }
+
+/// Process::callに渡すリクエスト（引数の集合）を表す型。実体はCapsuleMapです。
+pub type RequestMap = CapsuleMap;

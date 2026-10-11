@@ -141,7 +141,7 @@ impl Process for ProcessImpl {
         Ok(self.profile.clone())
     }
 
-    fn call(&self, args: CapsuleMap) -> JuizResult<CapsulePtr> {
+    fn call(&self, args: RequestMap) -> JuizResult<ResponsePtr> {
         log::trace!("【呼出】ProcessImpl({:})::call({args})", self.identifier());
         check_manifest_before_call(&(self.profile), &args)?;
         (self.function)(args).and_then(|v| {

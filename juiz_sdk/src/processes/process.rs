@@ -12,7 +12,7 @@ pub type ProcessBodyFunctionType = fn(CapsuleMap) -> JuizResult<Capsule>;
 pub type ProcessBodyFunctionTrait = dyn Fn(CapsuleMap) -> JuizResult<Capsule>;
 
 pub trait Process: Send + Sync + mopa::Any + std::fmt::Debug + 'static {
-    fn call(&self, _args: CapsuleMap) -> JuizResult<CapsulePtr>;
+    fn call(&self, _args: RequestMap) -> JuizResult<ResponsePtr>;
 
     fn is_updated(&self) -> JuizResult<bool>;
 

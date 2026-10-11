@@ -34,7 +34,7 @@ impl DummyProcess {
 }
 
 impl Process for DummyProcess {
-    fn call(&self, _args: CapsuleMap) -> JuizResult<CapsulePtr> { Ok(jvalue!(1).into()) }
+    fn call(&self, _args: RequestMap) -> JuizResult<ResponsePtr> { Ok(jvalue!(1).into()) }
     fn is_updated(&self) -> JuizResult<bool> { Ok(false) }
     fn identifier(&self) -> ProcessIdentifier { self.id.clone() }
     fn profile(&self) -> JuizResult<ProcessProfile> { Ok(ProcessProfile::new(&self.id.name, "get")) }

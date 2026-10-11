@@ -86,7 +86,7 @@ impl Process for ContainerProcessImpl {
         self.process().context("ContainerProcessImpl::manifest()").unwrap().profile()
     }
 
-    fn call(&self, args: CapsuleMap) -> JuizResult<CapsulePtr> {
+    fn call(&self, args: RequestMap) -> JuizResult<ResponsePtr> {
         log::trace!("【呼出】ContainerProcessImpl({})::call()", self.identifier());
         self.process().context("ContainerProcessImpl::call()")?.call(args).and_then(|v| {
             log::trace!("【完了】ContainerProcessImpl({})::call()", self.identifier());
