@@ -1,13 +1,7 @@
-
-use std::collections::HashMap;
 use juiz_sdk::anyhow;
-
+use std::collections::HashMap;
 
 use crate::prelude::*;
-
-
-
-
 
 pub struct ObjectCollection<T, TF> {
     name: String,
@@ -17,11 +11,12 @@ pub struct ObjectCollection<T, TF> {
 }
 
 impl<T, TF> ObjectCollection<T, TF> {
-
     pub fn new(name: &str) -> Box<ObjectCollection<T, TF>> {
-        Box::new(ObjectCollection { name: name.to_string(), 
-            factories: HashMap::new(), 
-            objects: HashMap::new() })
+        Box::new(ObjectCollection {
+            name: name.to_string(),
+            factories: HashMap::new(),
+            objects: HashMap::new(),
+        })
     }
 
     pub fn clear(&mut self) -> JuizResult<()> {
@@ -39,9 +34,17 @@ impl<T, TF> ObjectCollection<T, TF> {
     }
 
     pub fn register_factory(&mut self, type_name: &str, pf: TF) -> JuizResult<()> {
-        log::trace!("ObjectCollection({})::registerfactory(Factory(type_name={:?})) called",self.name,type_name);
+        log::trace!(
+            "ObjectCollection({})::registerfactory(Factory(type_name={:?})) called",
+            self.name,
+            type_name
+        );
         if self.factories.contains_key(type_name) {
-            return Err(anyhow::Error::from(JuizError::FactoryOfSameTypeNameAlreadyExistsError{type_name: type_name.to_owned()}));
+            return Err(anyhow::Error::from(
+                JuizError::FactoryOfSameTypeNameAlreadyExistsError {
+                    type_name: type_name.to_owned(),
+                },
+            ));
         }
         let _opt_ref = self.factories.insert(type_name.to_owned(), pf);
         log::info!("【登録({})】ファクトリ(type_name={type_name})", self.name);
@@ -50,13 +53,21 @@ impl<T, TF> ObjectCollection<T, TF> {
 
     pub fn factory(&self, type_name: &str) -> JuizResult<&TF> {
         match self.factories.get(type_name) {
-            None => return Err(anyhow::Error::from(JuizError::FactoryCanNotFoundError{type_name: type_name.to_string()})),
-            Some(pf) => return Ok(pf)
+            None => {
+                return Err(anyhow::Error::from(JuizError::FactoryCanNotFoundError {
+                    type_name: type_name.to_string(),
+                }))
+            }
+            Some(pf) => return Ok(pf),
         }
     }
 
     pub fn register(&mut self, id: &Identifier, p: T) -> JuizResult<&T> {
-        log::trace!("ObjectCollection({})::register(Object(id={:?})) called", self.name, id);
+        log::trace!(
+            "ObjectCollection({})::register(Object(id={:?})) called",
+            self.name,
+            id
+        );
         self.objects.insert(id.clone(), p);
         log::info!("【登録({})】identifier={id}", self.name);
         self.get(&id)
@@ -68,12 +79,22 @@ impl<T, TF> ObjectCollection<T, TF> {
     // }
 
     pub fn deregister_by_id(&mut self, id: &Identifier) -> JuizResult<T> {
-        log::trace!("ObjectCollection({})::deregister_by_id(Object(id={:?})) called", self.name, id);
+        log::trace!(
+            "ObjectCollection({})::deregister_by_id(Object(id={:?})) called",
+            self.name,
+            id
+        );
         match self.objects.remove(id) {
             Some(p) => Ok(p),
-            None =>{
-                log::trace!("ObjectCollection({})::deregister_by_id(id={:}) failed. Not found.", self.name, id);
-                Err(anyhow::Error::from(JuizError::ObjectCanNotFoundByIdError { id: id.clone() }))
+            None => {
+                log::trace!(
+                    "ObjectCollection({})::deregister_by_id(id={:}) failed. Not found.",
+                    self.name,
+                    id
+                );
+                Err(anyhow::Error::from(JuizError::ObjectCanNotFoundByIdError {
+                    id: id.clone(),
+                }))
             }
         }
     }
@@ -83,7 +104,7 @@ impl<T, TF> ObjectCollection<T, TF> {
             Some(p) => {
                 // println!("Found: key: {id:?}");
                 Ok(p)
-            },
+            }
             None => {
                 log::trace!("ObjectCollection({})::get(id={:?}) failed.", self.name, id);
                 log::trace!(" - CoreStore includes processes[");
@@ -93,7 +114,9 @@ impl<T, TF> ObjectCollection<T, TF> {
                     // println!(" - {:?}", k);
                 }
                 log::trace!("]");
-                Err(anyhow::Error::from(JuizError::ObjectCanNotFoundByIdError{id: id.clone()}))
+                Err(anyhow::Error::from(JuizError::ObjectCanNotFoundByIdError {
+                    id: id.clone(),
+                }))
             }
         }
     }
@@ -103,7 +126,7 @@ impl<T, TF> ObjectCollection<T, TF> {
             Some(p) => {
                 // println!("Found: key: {id:?}");
                 Ok(p)
-            },
+            }
             None => {
                 log::error!("ObjectCollection({})::get(id={:?}) failed.", self.name, id);
                 log::debug!(" - ObjectCollection({}) includes processes[", self.name);
@@ -113,7 +136,9 @@ impl<T, TF> ObjectCollection<T, TF> {
                     // println!(" - {:?}", k);
                 }
                 log::debug!("]");
-                Err(anyhow::Error::from(JuizError::ObjectCanNotFoundByIdError{id: id.clone()}))
+                Err(anyhow::Error::from(JuizError::ObjectCanNotFoundByIdError {
+                    id: id.clone(),
+                }))
             }
         }
     }

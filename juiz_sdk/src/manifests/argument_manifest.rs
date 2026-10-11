@@ -1,46 +1,61 @@
-
 use std::fmt::Display;
 
-use crate::prelude::*;
+use super::argument_type::{type_check, ArgumentType};
 use super::manifest_description::Description;
+use crate::prelude::*;
 use serde::{Deserialize, Serialize};
-use super::argument_type::{ArgumentType, type_check};
 
-fn default_description() -> Description { Description{text: "".to_owned()} }
+fn default_description() -> Description {
+    Description {
+        text: "".to_owned(),
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ArgumentManifest {
     pub type_name: ArgumentType,
     pub name: String,
 
-    #[serde(default="default_description")]
+    #[serde(default = "default_description")]
     pub description: Description,
-    pub default: Value
+    pub default: Value,
 }
 
 impl Display for ArgumentManifest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("ArgumentManifest({}::{},default={})", self.name, self.type_name, self.default))
+        f.write_fmt(format_args!(
+            "ArgumentManifest({}::{},default={})",
+            self.name, self.type_name, self.default
+        ))
     }
 }
 
 impl ArgumentManifest {
-
-    pub fn new(type_name: ArgumentType, name: &str, description: Description, default: Value) -> Self {
+    pub fn new(
+        type_name: ArgumentType,
+        name: &str,
+        description: Description,
+        default: Value,
+    ) -> Self {
         ArgumentManifest {
             type_name,
             name: name.to_owned(),
             description,
-            default
+            default,
         }
     }
 
-    pub fn new_with_check(type_name: ArgumentType, name: &str, description: Description, default: Value) -> JuizResult<Self> {
+    pub fn new_with_check(
+        type_name: ArgumentType,
+        name: &str,
+        description: Description,
+        default: Value,
+    ) -> JuizResult<Self> {
         type_check(&type_name, &default)?;
         Ok(ArgumentManifest {
             type_name,
             name: name.to_owned(),
             description,
-            default
+            default,
         })
     }
 
@@ -76,7 +91,6 @@ impl ArgumentManifest {
     pub fn new_image(name: &str) -> Self {
         Self::new(ArgumentType::String, name, "".into(), jvalue!({}))
     }
-    
 }
 
 // impl Into<Value> for ArgumentManifest {
@@ -100,8 +114,8 @@ impl ArgumentManifest {
 // /   "default": 1
 // / });
 // / let arg: ArgumentManifest = arg_value.try_into()?;
-// / 
-// / 
+// /
+// /
 // / Ok(())}
 // / ```
 

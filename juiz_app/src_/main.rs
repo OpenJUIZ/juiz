@@ -1,11 +1,10 @@
 use juiz_sdk::prelude::*;
 use juiz_sdk::serde_json;
 
-
 #[juiz_process(
 description = "This is process document"
-arguments = { 
-    default = { 
+arguments = {
+    default = {
         arg1 = 1
         arg2 = "foo"
         arg3 = 3.4

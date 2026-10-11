@@ -4,16 +4,14 @@ use utoipa::OpenApi;
 
 use super::IdentifierQuery;
 
-use utoipa::ToSchema;
 use axum::extract::Query;
-
+use utoipa::ToSchema;
 
 #[allow(dead_code)]
 #[derive(Deserialize, ToSchema)]
 pub struct IdentifierManifest {
     // Identifier
     identifier: String,
-
     //type_name: String,
     //name: String,
 }
@@ -36,8 +34,7 @@ pub struct CreateConnectionRequest {
     request_body = CreateConnectionRequest,
     tag = "universal.connection",
 )]
-pub fn create_dummy() {
-}
+pub fn create_dummy() {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -51,9 +48,7 @@ pub fn create_dummy() {
     ),
     tag = "universal.connection",
 )]
-pub fn profile_handler_dummy(
-    _query: Query<IdentifierQuery>,) {
-}
+pub fn profile_handler_dummy(_query: Query<IdentifierQuery>) {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -64,19 +59,11 @@ pub fn profile_handler_dummy(
     ),
     tag = "universal.connection",
 )]
-pub fn list_dummy() {
-}
+pub fn list_dummy() {}
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(
-        create_dummy,
-        profile_handler_dummy,
-        list_dummy,
-    ),
-    components(schemas(
-        CreateConnectionRequest,
-        IdentifierManifest
-    ))
+    paths(create_dummy, profile_handler_dummy, list_dummy,),
+    components(schemas(CreateConnectionRequest, IdentifierManifest))
 )]
 pub struct ApiDoc;

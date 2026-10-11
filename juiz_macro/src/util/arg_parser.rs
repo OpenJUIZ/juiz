@@ -1,6 +1,3 @@
-
-
-
 use std::collections::HashMap;
 use syn::{ItemFn, Type, TypePath};
 
@@ -16,7 +13,13 @@ pub(crate) fn parse_arg_map(ast: &ItemFn) -> Vec<(TypePath, syn::Ident)> {
             };
             let _type_name = if let Type::Path(type_path) = pat_type.ty.as_ref() {
                 arg_map.push((type_path.clone(), arg_name));
-                type_path.path.segments.iter().map(|seg| {seg.ident.to_string()}).collect::<Vec<String>>().join("::")
+                type_path
+                    .path
+                    .segments
+                    .iter()
+                    .map(|seg| seg.ident.to_string())
+                    .collect::<Vec<String>>()
+                    .join("::")
             } else {
                 panic!("引数の型宣言が不正です。 ({pat_type:?})");
             };
@@ -24,7 +27,6 @@ pub(crate) fn parse_arg_map(ast: &ItemFn) -> Vec<(TypePath, syn::Ident)> {
     }
     arg_map
 }
-
 
 pub(crate) fn parse_arg_map_skip_first(ast: &ItemFn) -> HashMap<TypePath, syn::Ident> {
     let mut arg_map: HashMap<TypePath, syn::Ident> = HashMap::new();
@@ -40,7 +42,13 @@ pub(crate) fn parse_arg_map_skip_first(ast: &ItemFn) -> HashMap<TypePath, syn::I
             };
             let _type_name = if let Type::Path(type_path) = pat_type.ty.as_ref() {
                 arg_map.insert(type_path.clone(), arg_name);
-                type_path.path.segments.iter().map(|seg| {seg.ident.to_string()}).collect::<Vec<String>>().join("::")
+                type_path
+                    .path
+                    .segments
+                    .iter()
+                    .map(|seg| seg.ident.to_string())
+                    .collect::<Vec<String>>()
+                    .join("::")
             } else {
                 panic!("引数の型宣言が不正です。 ({pat_type:?})");
             };

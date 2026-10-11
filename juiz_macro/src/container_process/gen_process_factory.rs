@@ -1,4 +1,3 @@
-
 use quote::{format_ident, quote};
 
 pub(crate) fn factory_tokenstream(function_ident: syn::Ident) -> proc_macro::TokenStream {
@@ -12,10 +11,14 @@ pub(crate) fn factory_tokenstream(function_ident: syn::Ident) -> proc_macro::Tok
     }.into()
 }
 
-pub(crate) fn component_factory_tokenstream(function_ident: syn::Ident, factory_name: String) -> proc_macro::TokenStream {
+pub(crate) fn component_factory_tokenstream(
+    function_ident: syn::Ident,
+    factory_name: String,
+) -> proc_macro::TokenStream {
     let factory_name_ident = format_ident!("{}", factory_name);
-    let manifest_function_name_ident = format_ident!("{}", function_ident.to_string() + "_manifest");
-    
+    let manifest_function_name_ident =
+        format_ident!("{}", function_ident.to_string() + "_manifest");
+
     // まず土台となる関数定義
     quote!{
        #[no_mangle]
@@ -25,4 +28,3 @@ pub(crate) fn component_factory_tokenstream(function_ident: syn::Ident, factory_
         }
     }.into()
 }
-

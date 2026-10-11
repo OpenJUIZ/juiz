@@ -1,8 +1,10 @@
 use std::sync::{Arc, RwLock};
 
-use uuid::Uuid;
+use crate::{
+    connections::ConnectionFactoryImpl, core::SubSystemProxy, prelude::*, processes::ProcessImpl,
+};
 use juiz_sdk::anyhow::anyhow;
-use crate::{connections::ConnectionFactoryImpl, core::SubSystemProxy, prelude::*, processes::ProcessImpl};
+use uuid::Uuid;
 pub type TopicName = String;
 
 #[derive(Clone)]
@@ -14,16 +16,17 @@ pub struct Topic {
 
 #[allow(unused)]
 impl Topic {
-
     pub fn new(name: &str) -> Self {
-        Self{name: name.to_owned(), subsystem_proxies: Vec::new()}
+        Self {
+            name: name.to_owned(),
+            subsystem_proxies: Vec::new(),
+        }
     }
 
     pub fn name(&self) -> &str {
         self.name.as_str()
     }
 }
-
 
 #[derive(Clone)]
 #[allow(unused)]
@@ -33,7 +36,6 @@ pub struct TopicPtr {
     topic: Arc<RwLock<Topic>>,
     ptr: ProcessPtr,
 }
-
 
 // #[cfg(feature="opencv4")]
 // fn capsule_ptr_to_capsule(v: &CapsulePtr) -> JuizResult<Capsule> {
@@ -49,9 +51,11 @@ pub struct TopicPtr {
 // #[cfg(not(feature="opencv4"))]
 fn capsule_ptr_to_capsule(v: &CapsulePtr) -> JuizResult<Capsule> {
     if v.is_value()? {
-        v.lock_as_value(|v| -> Capsule { Capsule::from(v.clone()) } )
+        v.lock_as_value(|v| -> Capsule { Capsule::from(v.clone()) })
     } else {
-        Err(anyhow!(JuizError::ArgumentError { message: "CapsulePtr is not available for Topic".to_owned() }))
+        Err(anyhow!(JuizError::ArgumentError {
+            message: "CapsulePtr is not available for Topic".to_owned()
+        }))
     }
     /* else if v.is_image()? {
         v.lock_as_mat(|m| -> Capsule { Capsule::from(m.clone()) })
@@ -59,10 +63,11 @@ fn capsule_ptr_to_capsule(v: &CapsulePtr) -> JuizResult<Capsule> {
 }
 
 impl TopicPtr {
-
     pub fn new(name: &str, system_uuid: Uuid) -> Self {
         log::trace!("new(name={name}, uuid={system_uuid}) called");
-        let manifest = ProcessManifest::new("topic").name(name).use_memo(false)
+        let manifest = ProcessManifest::new("topic")
+            .name(name)
+            .use_memo(false)
             .add_object_arg("input", "", jvalue!({}));
 
         let topic = Arc::new(RwLock::new(Topic::new(name)));
@@ -80,7 +85,11 @@ impl TopicPtr {
                     log::trace!(" - my_topic.read() OK.");
                     for subsystem in t.subsystem_proxies.iter() {
                         log::trace!("- broker_proxy: subsystem={:?}", subsystem.uuid());
-                        match juiz_lock(&subsystem.broker_proxy())?.topic_push(my_topic_name.as_str(), v.clone(), Some(my_uuid)) {
+                        match juiz_lock(&subsystem.broker_proxy())?.topic_push(
+                            my_topic_name.as_str(),
+                            v.clone(),
+                            Some(my_uuid),
+                        ) {
                             Ok(_) => {
                                 log::trace!("SubsystemProxy.topic_push() success");
                                 Ok(())
@@ -91,23 +100,31 @@ impl TopicPtr {
                             }
                         }?;
                     }
-                },
+                }
                 Err(_) => {
                     log::error!("my_topic.read() failed.");
-                    return Err(anyhow!(JuizError::ObjectLockError { target: "Topic".to_owned() }))
+                    return Err(anyhow!(JuizError::ObjectLockError {
+                        target: "Topic".to_owned()
+                    }));
                 }
             }
             log::trace!("Topic ({my_topic_name}) / topic_func exit");
             result
         };
-        TopicPtr{
+        TopicPtr {
             name: name.to_owned(),
             system_uuid,
             topic,
             ptr: ProcessPtr::new(
                 //ProcessImpl::clousure_new_with_class_name(JuizObjectClass::Topic("Topic"), manifest, Box::new(topic_func)).unwrap()))
-                ProcessImpl::new_from_clousure_and_class_name(JuizObjectClass::Topic("Topic"), manifest, topic_func, Box::new(ConnectionFactoryImpl::new())).unwrap())
- 
+                ProcessImpl::new_from_clousure_and_class_name(
+                    JuizObjectClass::Topic("Topic"),
+                    manifest,
+                    topic_func,
+                    Box::new(ConnectionFactoryImpl::new()),
+                )
+                .unwrap(),
+            ),
         }
     }
 
@@ -115,7 +132,7 @@ impl TopicPtr {
         self.name.as_str()
     }
 
-    pub fn process_ptr(&self) ->ProcessPtr {
+    pub fn process_ptr(&self) -> ProcessPtr {
         self.ptr.clone()
     }
 
@@ -125,7 +142,11 @@ impl TopicPtr {
 
     pub fn push(&self, capsule: CapsulePtr, pushed_system_uuid: Option<Uuid>) -> JuizResult<()> {
         log::trace!("push(uuid={pushed_system_uuid:?}) called");
-        let r = self.ptr.lock()?.push_by("input", capsule).and_then(|_|{Ok(())});
+        let r = self
+            .ptr
+            .lock()?
+            .push_by("input", capsule)
+            .and_then(|_| Ok(()));
         log::trace!("push(uuid={pushed_system_uuid:?}) exit");
         r
     }
@@ -139,15 +160,19 @@ impl TopicPtr {
     }
 
     pub fn register_subscriber_subsystem(&self, subsystem_proxy: SubSystemProxy) -> JuizResult<()> {
-        log::trace!("register_subscriber_subsystem(name={}, subsystem_proxy={}) called", self.name(), subsystem_proxy.uuid());
+        log::trace!(
+            "register_subscriber_subsystem(name={}, subsystem_proxy={}) called",
+            self.name(),
+            subsystem_proxy.uuid()
+        );
         match self.topic.write() {
             Ok(mut t) => {
                 t.subsystem_proxies.push(subsystem_proxy);
                 Ok(())
-            },  
-            Err(_e) => {
-                Err(anyhow!(JuizError::ObjectLockError { target: "Topic".to_owned() }))
             }
+            Err(_e) => Err(anyhow!(JuizError::ObjectLockError {
+                target: "Topic".to_owned()
+            })),
         }
     }
 
@@ -163,7 +188,7 @@ impl TopicPtr {
                 }
                 t.subsystem_proxies.push(subsystem_proxy);
                 Ok(())
-            },  
+            },
             Err(_e) => {
                 Err(anyhow!(JuizError::ObjectLockError { target: "Topic".to_owned() }))
             }

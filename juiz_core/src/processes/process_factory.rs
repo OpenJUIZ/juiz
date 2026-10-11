@@ -1,8 +1,8 @@
-use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use juiz_sdk::anyhow::anyhow;
 use crate::prelude::*;
+use juiz_sdk::anyhow::anyhow;
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-pub trait ProcessFactory: JuizObject + 'static  {
+pub trait ProcessFactory: JuizObject + 'static {
     fn create_process(&self, manifest: &ProcessManifest) -> JuizResult<ProcessPtr>;
 }
 
@@ -14,13 +14,12 @@ pub struct ProcessFactoryPtr {
 }
 
 impl ProcessFactoryPtr {
-
     pub fn new(proc: impl ProcessFactory) -> Self {
         let identifier = proc.identifier().clone();
-        ProcessFactoryPtr{
+        ProcessFactoryPtr {
             identifier,
             type_name: proc.type_name().to_owned(),
-            ptr: Arc::new(RwLock::new(proc))
+            ptr: Arc::new(RwLock::new(proc)),
         }
     }
 
@@ -31,13 +30,20 @@ impl ProcessFactoryPtr {
     pub fn type_name(&self) -> &str {
         self.type_name.as_str()
     }
-    
+
     pub fn lock(&self) -> JuizResult<RwLockReadGuard<dyn ProcessFactory>> {
-        self.ptr.read().or_else(|_|{ Err(anyhow!(JuizError::ObjectLockError{target:"ProcessPtr".to_owned()})) })
+        self.ptr.read().or_else(|_| {
+            Err(anyhow!(JuizError::ObjectLockError {
+                target: "ProcessPtr".to_owned()
+            }))
+        })
     }
 
     pub fn lock_mut(&self) -> JuizResult<RwLockWriteGuard<dyn ProcessFactory>> {
-        self.ptr.write().or_else(|_|{ Err(anyhow!(JuizError::ObjectLockError{target:"ProcessPtr".to_owned()})) })
+        self.ptr.write().or_else(|_| {
+            Err(anyhow!(JuizError::ObjectLockError {
+                target: "ProcessPtr".to_owned()
+            }))
+        })
     }
-
 }

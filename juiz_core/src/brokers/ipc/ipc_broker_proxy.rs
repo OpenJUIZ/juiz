@@ -1,5 +1,10 @@
-use std::{cell::RefCell, io::BufReader, sync::{Arc, Mutex}, time::Duration};
 use std::io::prelude::*;
+use std::{
+    cell::RefCell,
+    io::BufReader,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use crate::prelude::*;
 use interprocess::local_socket::{prelude::*, GenericFilePath, Stream};
@@ -8,7 +13,9 @@ use crate::brokers::messenger_broker_proxy_factory::create_messenger_broker_prox
 
 //use super::ipc_broker::ProxySideSenderReceiverPair;
 
-use crate::brokers::{BrokerProxyFactory, MessengerBrokerProxyCore, MessengerBrokerProxyCoreFactory};
+use crate::brokers::{
+    BrokerProxyFactory, MessengerBrokerProxyCore, MessengerBrokerProxyCoreFactory,
+};
 
 // pub type IPCBrokerProxy = MessengerBrokerProxy;
 
@@ -46,7 +53,11 @@ impl MessengerBrokerProxyCoreFactory for IPCBrokerProxyCoreFactory {
         let name = format!("/tmp/{:}", object_name).to_fs_name::<GenericFilePath>()?;
         let buf_size: usize = 4096;
         let conn = Stream::connect(name)?;
-        Ok(Box::new(IPCBrokerProxyCore{name: object_name.to_owned(), buf_reader: RefCell::new(BufReader::new(conn)), buf_size}))
+        Ok(Box::new(IPCBrokerProxyCore {
+            name: object_name.to_owned(),
+            buf_reader: RefCell::new(BufReader::new(conn)),
+            buf_size,
+        }))
     }
 }
 
@@ -57,20 +68,30 @@ impl MessengerBrokerProxyCore for IPCBrokerProxyCore {
         let v: Value = value.into();
         let strv = v.to_string() + "\n";
         log::trace!(" - payload = {strv:}");
-        self.buf_reader.borrow_mut().get_mut().write_all(strv.as_bytes())?;
+        self.buf_reader
+            .borrow_mut()
+            .get_mut()
+            .write_all(strv.as_bytes())?;
 
         self.buf_reader.borrow_mut().read_line(&mut buffer)?;
         Ok(juiz_sdk::serde_json::from_str::<Value>(buffer.as_str())?.into())
         //Ok(Value::from(buffer).try_into()?)
     }
 
-    fn send_and_receive_output(&self, _v: CapsuleMap, _timeout: Duration) -> JuizResult<CapsulePtr> {
+    fn send_and_receive_output(
+        &self,
+        _v: CapsuleMap,
+        _timeout: Duration,
+    ) -> JuizResult<CapsulePtr> {
         todo!("Outputクラスをどう扱うか。")
     }
 }
 
-
 pub fn create_ipc_broker_proxy_factory() -> JuizResult<Arc<Mutex<dyn BrokerProxyFactory>>> {
     log::trace!("create_ipc_broker_factory called");
-    create_messenger_broker_proxy_factory("IPCBrokerProxyFactory", "ipc", IPCBrokerProxyCoreFactory::new()?)
+    create_messenger_broker_proxy_factory(
+        "IPCBrokerProxyFactory",
+        "ipc",
+        IPCBrokerProxyCoreFactory::new()?,
+    )
 }

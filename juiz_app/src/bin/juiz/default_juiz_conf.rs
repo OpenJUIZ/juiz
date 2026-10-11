@@ -1,9 +1,4 @@
-
-
-
-
 pub(crate) fn default_conf() -> &'static str {
-
     return r#"
 
 "name": "test_system"

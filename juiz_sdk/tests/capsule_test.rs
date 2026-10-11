@@ -47,11 +47,17 @@ fn capsule_from_primitives() {
     assert_eq!(Capsule::from(-3i64).as_value(), Some(&jvalue!(-3)));
     assert_eq!(Capsule::from(1.5f64).as_value(), Some(&jvalue!(1.5)));
     assert_eq!(Capsule::from("s").as_value(), Some(&jvalue!("s")));
-    assert_eq!(Capsule::from("s".to_owned()).as_value(), Some(&jvalue!("s")));
+    assert_eq!(
+        Capsule::from("s".to_owned()).as_value(),
+        Some(&jvalue!("s"))
+    );
     let mut map = serde_json::Map::new();
     map.insert("k".to_owned(), jvalue!(1));
     assert_eq!(Capsule::from(map).as_value(), Some(&jvalue!({"k": 1})));
-    assert_eq!(Capsule::from(vec![jvalue!(1), jvalue!(2)]).as_value(), Some(&jvalue!([1, 2])));
+    assert_eq!(
+        Capsule::from(vec![jvalue!(1), jvalue!(2)]).as_value(),
+        Some(&jvalue!([1, 2]))
+    );
 }
 
 #[test]
@@ -60,7 +66,10 @@ fn capsule_options_and_value_round_trip() -> JuizResult<()> {
     c.set_option("unit", "mm").set_option("frame", "base");
     c.set_function_name("measure");
     assert_eq!(c.get_option("unit").map(|s| s.as_str()), Some("mm"));
-    assert_eq!(c.get_option("function_name").map(|s| s.as_str()), Some("measure"));
+    assert_eq!(
+        c.get_option("function_name").map(|s| s.as_str()),
+        Some("measure")
+    );
     assert!(c.get_option("missing").is_none());
     assert_eq!(c.get_options().len(), 3);
     assert!(format!("{}", c).contains("unit:mm"));
@@ -120,8 +129,10 @@ fn capsule_ptr_basic_accessors() -> JuizResult<()> {
     assert_eq!(p.lock_as_map(|m| m.len())?, 1);
     assert!(p.lock_as_str(|_| ()).is_err());
     p.lock_modify_as_value(|v| v["a"] = jvalue!(5))?;
-    assert_eq!(p.lock_as_value_and_opt(|v, opt| (v["a"].clone(), opt.get("function_name").cloned()))?,
-        (jvalue!(5), Some("f".to_owned())));
+    assert_eq!(
+        p.lock_as_value_and_opt(|v, opt| (v["a"].clone(), opt.get("function_name").cloned()))?,
+        (jvalue!(5), Some("f".to_owned()))
+    );
 
     let s: CapsulePtr = jvalue!("text").into();
     assert_eq!(s.lock_as_str(|s| s.len())?, 4);

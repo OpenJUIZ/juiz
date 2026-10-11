@@ -1,7 +1,1 @@
-
-
-
-struct Image {
-
-}
-
+struct Image {}

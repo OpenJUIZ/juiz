@@ -24,10 +24,19 @@ fn argument_manifest_constructors_and_type_check() -> JuizResult<()> {
     assert_eq!(a.type_name, ArgumentType::Bool);
     assert_eq!(a.description.as_str(), "flag");
     assert_eq!(ArgumentManifest::new_int("i", 1).default, jvalue!(1));
-    assert_eq!(ArgumentManifest::new_float("f", 1.5).type_name, ArgumentType::Float);
+    assert_eq!(
+        ArgumentManifest::new_float("f", 1.5).type_name,
+        ArgumentType::Float
+    );
     assert_eq!(ArgumentManifest::new_string("s", "x").default, jvalue!("x"));
-    assert_eq!(ArgumentManifest::new_array("a", vec![jvalue!(1)]).default, jvalue!([1]));
-    assert_eq!(ArgumentManifest::new_object("o", jvalue!({"k": 1})).type_name, ArgumentType::Object);
+    assert_eq!(
+        ArgumentManifest::new_array("a", vec![jvalue!(1)]).default,
+        jvalue!([1])
+    );
+    assert_eq!(
+        ArgumentManifest::new_object("o", jvalue!({"k": 1})).type_name,
+        ArgumentType::Object
+    );
     assert_eq!(ArgumentManifest::new_image("img").default, jvalue!({}));
     assert!(format!("{}", ArgumentManifest::new_int("i", 1)).contains("i::Int"));
 
@@ -41,22 +50,33 @@ fn argument_manifest_constructors_and_type_check() -> JuizResult<()> {
         (ArgumentType::Image, Value::Null, jvalue!(1)),
     ];
     for (t, ok, ng) in cases {
-        assert!(ArgumentManifest::new_with_check(t.clone(), "a", "".into(), ok.clone()).is_ok(), "{t} should accept {ok}");
-        assert!(ArgumentManifest::new_with_check(t.clone(), "a", "".into(), ng.clone()).is_err(), "{t} should reject {ng}");
+        assert!(
+            ArgumentManifest::new_with_check(t.clone(), "a", "".into(), ok.clone()).is_ok(),
+            "{t} should accept {ok}"
+        );
+        assert!(
+            ArgumentManifest::new_with_check(t.clone(), "a", "".into(), ng.clone()).is_err(),
+            "{t} should reject {ng}"
+        );
         assert!(ArgumentProfile::new_with_check(t.clone(), "a", "".into(), ok).is_ok());
         assert!(ArgumentProfile::new_with_check(t, "a", "".into(), ng).is_err());
     }
     // Image は空オブジェクトも受け付ける
-    assert!(ArgumentManifest::new_with_check(ArgumentType::Image, "a", "".into(), jvalue!({})).is_ok());
+    assert!(
+        ArgumentManifest::new_with_check(ArgumentType::Image, "a", "".into(), jvalue!({})).is_ok()
+    );
     Ok(())
 }
 
 #[test]
 fn argument_manifest_deserializes_with_default_description() -> JuizResult<()> {
-    let a: ArgumentManifest = serde_json::from_value(jvalue!({"type_name": "Int", "name": "x", "default": 3}))?;
+    let a: ArgumentManifest =
+        serde_json::from_value(jvalue!({"type_name": "Int", "name": "x", "default": 3}))?;
     assert_eq!(a.description.as_str(), "");
     assert_eq!(a.default, jvalue!(3));
-    let a: ArgumentManifest = serde_json::from_value(jvalue!({"type_name": "Int", "name": "x", "default": 3, "description": "d"}))?;
+    let a: ArgumentManifest = serde_json::from_value(
+        jvalue!({"type_name": "Int", "name": "x", "default": 3, "description": "d"}),
+    )?;
     assert_eq!(a.description.as_str(), "d");
     Ok(())
 }
@@ -66,11 +86,20 @@ fn argument_profile_constructors() {
     let p: ArgumentProfile = ArgumentManifest::new_int("i", 2).description("int").into();
     assert_eq!(p.name, "i");
     assert_eq!(p.description.as_str(), "int");
-    assert_eq!(ArgumentProfile::new_bool("b", false).default, jvalue!(false));
-    assert_eq!(ArgumentProfile::new_float("f", 0.5).type_name, ArgumentType::Float);
+    assert_eq!(
+        ArgumentProfile::new_bool("b", false).default,
+        jvalue!(false)
+    );
+    assert_eq!(
+        ArgumentProfile::new_float("f", 0.5).type_name,
+        ArgumentType::Float
+    );
     assert_eq!(ArgumentProfile::new_string("s", "v").default, jvalue!("v"));
     assert_eq!(ArgumentProfile::new_array("a", vec![]).default, jvalue!([]));
-    assert_eq!(ArgumentProfile::new_object("o", jvalue!({})).default, jvalue!({}));
+    assert_eq!(
+        ArgumentProfile::new_object("o", jvalue!({})).default,
+        jvalue!({})
+    );
     assert_eq!(ArgumentProfile::new_image("img").name, "img");
     assert!(format!("{}", p).starts_with("ArgumentProfile(i::Int"));
 }
@@ -118,8 +147,17 @@ fn output_profile_variants() -> JuizResult<()> {
     assert_eq!(format!("{}", d), "OutputProfile(int=0)");
 
     let mut members = HashMap::new();
-    members.insert("x".to_owned(), OutputProfile::Primitive(PrimitiveProfile { type_name: "float".to_owned(), default_value: None }));
-    let s = OutputProfile::Struct(StructProfile { type_name: "Point".to_owned(), members });
+    members.insert(
+        "x".to_owned(),
+        OutputProfile::Primitive(PrimitiveProfile {
+            type_name: "float".to_owned(),
+            default_value: None,
+        }),
+    );
+    let s = OutputProfile::Struct(StructProfile {
+        type_name: "Point".to_owned(),
+        members,
+    });
     assert!(s.is_struct());
     assert!(s.as_primitive().is_none());
     assert_eq!(s.as_struct().unwrap().type_name, "Point");
@@ -183,9 +221,14 @@ fn process_manifest_container_settings() -> JuizResult<()> {
     assert_eq!(m.container_name.as_deref(), Some("counter0"));
     let id = m.identifier()?;
     assert_eq!(id.class_name, "container_process");
-    assert_eq!(id.to_string(), "core://core/container_process/get0::get:counter0");
+    assert_eq!(
+        id.to_string(),
+        "core://core/container_process/get0::get:counter0"
+    );
 
-    let m = ProcessManifest::new("get").container_type(Some("t".to_owned())).container_name(None);
+    let m = ProcessManifest::new("get")
+        .container_type(Some("t".to_owned()))
+        .container_name(None);
     assert_eq!(m.container_type.as_deref(), Some("t"));
     assert!(m.container_name.is_none());
     Ok(())
@@ -200,7 +243,9 @@ fn process_manifest_build_instance_manifest_overrides_defaults() -> JuizResult<(
         .add_int_arg("b", "second", 2)
         .set_outputs(Some(OutputProfile::default()));
     // インスタンス側は名前と一部の引数のデフォルト値だけ指定する
-    let partial = ProcessManifest::new("ignored").name("adder1").add_int_arg("b", "", 20);
+    let partial = ProcessManifest::new("ignored")
+        .name("adder1")
+        .add_int_arg("b", "", 20);
     let inst = factory_manifest.build_instance_manifest(partial)?;
     assert_eq!(inst.type_name, "adder");
     assert_eq!(inst.name.as_deref(), Some("adder1"));
@@ -229,7 +274,8 @@ fn process_manifest_from_value() -> JuizResult<()> {
         "publishes": ["p1", "p2"],
         "subscribes": {"a": "s1"},
         "outputs": {"enum_type": "Primitive", "type_name": "int", "default_value": null}
-    }).try_into()?;
+    })
+    .try_into()?;
     assert_eq!(m.type_name, "adder");
     assert_eq!(m.name.as_deref(), Some("adder0"));
     assert_eq!(m.description.as_str(), "adds");
@@ -273,7 +319,10 @@ fn process_profile_from_manifest() -> JuizResult<()> {
     assert_eq!(p.arguments.len(), 7);
     assert_eq!(p.publishes[0].name, "out_topic");
     assert_eq!(p.subscribes["a"].name, "in_topic");
-    assert_eq!(p.identifier().to_string(), "core://core/process/adder0::adder");
+    assert_eq!(
+        p.identifier().to_string(),
+        "core://core/process/adder0::adder"
+    );
     let s = format!("{}", p);
     assert!(s.starts_with("ProcessProfile(adder0::adder"));
     assert!(s.contains("outputs=OutputProfile(int=0)"));
@@ -309,7 +358,10 @@ fn process_profile_builder_and_instance_manifest() -> JuizResult<()> {
     assert_eq!(id.container_name.as_deref(), Some("cn"));
     assert!(format!("{}", p).contains("outputs=null"));
 
-    let p = p.container_type(None).container_name(None).set_outputs(Some(OutputProfile::default()));
+    let p = p
+        .container_type(None)
+        .container_name(None)
+        .set_outputs(Some(OutputProfile::default()));
     assert_eq!(p.identifier().class_name, "process");
     assert!(p.outputs().is_some());
 
@@ -318,8 +370,22 @@ fn process_profile_builder_and_instance_manifest() -> JuizResult<()> {
     assert_eq!(inst.type_name, "p");
     assert_eq!(inst.name, "inst");
     assert_eq!(inst.arguments.len(), 7);
-    assert_eq!(inst.arguments.iter().find(|a| a.name == "i").unwrap().default, jvalue!(100));
-    assert_eq!(inst.arguments.iter().find(|a| a.name == "s").unwrap().default, jvalue!("x"));
+    assert_eq!(
+        inst.arguments
+            .iter()
+            .find(|a| a.name == "i")
+            .unwrap()
+            .default,
+        jvalue!(100)
+    );
+    assert_eq!(
+        inst.arguments
+            .iter()
+            .find(|a| a.name == "s")
+            .unwrap()
+            .default,
+        jvalue!("x")
+    );
     Ok(())
 }
 
@@ -365,7 +431,9 @@ fn container_manifest_builder_and_processes() -> JuizResult<()> {
 
 #[test]
 fn container_profile_from_manifest() -> JuizResult<()> {
-    let c = ContainerManifest::new("counter").name("counter0").add_int_arg("init", "", 0)
+    let c = ContainerManifest::new("counter")
+        .name("counter0")
+        .add_int_arg("init", "", 0)
         .add_process(ProcessManifest::new("get").name("get0"));
     let p: ContainerProfile = c.try_into()?;
     assert_eq!(p.name, "counter0");
@@ -377,7 +445,9 @@ fn container_profile_from_manifest() -> JuizResult<()> {
     // 名前が無いとプロファイルにできない
     assert!(ContainerProfile::try_from(ContainerManifest::new("counter")).is_err());
     // プロセスに名前が無い場合もエラー
-    let c = ContainerManifest::new("counter").name("c0").add_process(ProcessManifest::new("get"));
+    let c = ContainerManifest::new("counter")
+        .name("c0")
+        .add_process(ProcessManifest::new("get"));
     assert!(ContainerProfile::try_from(c).is_err());
 
     let p2 = ContainerProfile::new("counter", "c2");
@@ -409,7 +479,10 @@ fn component_manifest_routes_processes_to_containers() {
 #[test]
 fn broker_manifest_conversions() -> JuizResult<()> {
     let b = BrokerManifest::new("http0", "http", "core", "core", "desc");
-    assert_eq!(format!("{}", b), "BrokerManifest(http://http0,desc=Description(\"desc\"))");
+    assert_eq!(
+        format!("{}", b),
+        "BrokerManifest(http://http0,desc=Description(\"desc\"))"
+    );
 
     let b: BrokerManifest = "core://core/http0::http".try_into()?;
     assert_eq!(b.name, "http0");
@@ -417,7 +490,8 @@ fn broker_manifest_conversions() -> JuizResult<()> {
     let b: BrokerManifest = "core://core/http0::http".to_owned().try_into()?;
     assert_eq!(b.broker_type_name, "core");
 
-    let b: BrokerManifest = (&jvalue!({"identifier": "core://core/http0::http", "description": "d"})).try_into()?;
+    let b: BrokerManifest =
+        (&jvalue!({"identifier": "core://core/http0::http", "description": "d"})).try_into()?;
     assert_eq!(b.description.as_str(), "d");
     let b: BrokerManifest = (&jvalue!("core://core/http0::http")).try_into()?;
     assert_eq!(b.description.as_str(), "");
@@ -438,14 +512,18 @@ fn broker_profile_conversions() -> JuizResult<()> {
     let id: Identifier = b.clone().into();
     assert_eq!(id, "core://core/http0::http");
     let v: Value = b.into();
-    assert_eq!(v, jvalue!({
-        "type_name": "http", "name": "http0", "broker_type_name": "core", "broker_name": "core", "description": "desc"
-    }));
+    assert_eq!(
+        v,
+        jvalue!({
+            "type_name": "http", "name": "http0", "broker_type_name": "core", "broker_name": "core", "description": "desc"
+        })
+    );
 
     let b: BrokerProfile = v.try_into()?;
     assert_eq!(b.name, "http0");
     assert_eq!(b.description.as_str(), "desc");
-    let b: BrokerProfile = jvalue!({"identifier": "core://core/http0::http", "description": "d"}).try_into()?;
+    let b: BrokerProfile =
+        jvalue!({"identifier": "core://core/http0::http", "description": "d"}).try_into()?;
     assert_eq!(b.description.as_str(), "d");
     let b: BrokerProfile = jvalue!("core://core/http0::http").try_into()?;
     assert_eq!(b.type_name, "http");
@@ -479,12 +557,15 @@ fn pid(name: &str) -> ProcessIdentifier {
 fn connection_manifest_conversions() -> JuizResult<()> {
     let m = ConnectionManifest::new(ConnectionType::Pull, pid("a"), "arg".to_owned(), pid("b"));
     let v: Value = m.clone().into();
-    assert_eq!(v, jvalue!({
-        "connection_type": "Pull",
-        "source_process_id": "core://core/process/a::t",
-        "destination_process_id": "core://core/process/b::t",
-        "arg_name": "arg"
-    }));
+    assert_eq!(
+        v,
+        jvalue!({
+            "connection_type": "Pull",
+            "source_process_id": "core://core/process/a::t",
+            "destination_process_id": "core://core/process/b::t",
+            "arg_name": "arg"
+        })
+    );
     // Value から戻せる
     let back: ConnectionManifest = v.try_into()?;
     assert_eq!(back.connection_type, ConnectionType::Pull);
@@ -496,14 +577,24 @@ fn connection_manifest_conversions() -> JuizResult<()> {
         "source_process_id": {"identifier": "core://core/process/a::t"},
         "destination_process_id": "core://core/process/b::t",
         "arg_name": "arg"
-    }).try_into()?;
+    })
+    .try_into()?;
     assert_eq!(m2.connection_type, ConnectionType::Push);
     assert_eq!(m2.source_process_id, pid("a"));
 
     assert!(ConnectionManifest::try_from(jvalue!({"source_process_id": "core://core/process/a::t", "destination_process_id": "core://core/process/b::t"})).is_err());
-    assert!(ConnectionManifest::try_from(jvalue!({"source_process_id": {}, "destination_process_id": "x", "arg_name": "a"})).is_err());
-    assert!(ConnectionManifest::try_from(jvalue!({"source_process_id": 1, "destination_process_id": "x", "arg_name": "a"})).is_err());
-    assert!(ConnectionManifest::try_from(jvalue!({"destination_process_id": "x", "arg_name": "a"})).is_err());
+    assert!(ConnectionManifest::try_from(
+        jvalue!({"source_process_id": {}, "destination_process_id": "x", "arg_name": "a"})
+    )
+    .is_err());
+    assert!(ConnectionManifest::try_from(
+        jvalue!({"source_process_id": 1, "destination_process_id": "x", "arg_name": "a"})
+    )
+    .is_err());
+    assert!(ConnectionManifest::try_from(
+        jvalue!({"destination_process_id": "x", "arg_name": "a"})
+    )
+    .is_err());
 
     let cid: ConnectionIdentifier = m.clone().into();
     assert_eq!(cid.arg_name, "arg");
@@ -516,9 +607,13 @@ fn connection_manifest_from_capsule_map() -> JuizResult<()> {
     let cm: CapsuleMap = vec![
         ("connection_type", jvalue!("push")),
         ("source_process_id", jvalue!("core://core/process/a::t")),
-        ("destination_process_id", jvalue!({"type_name": "t", "name": "b"})),
+        (
+            "destination_process_id",
+            jvalue!({"type_name": "t", "name": "b"}),
+        ),
         ("arg_name", jvalue!("arg")),
-    ].into();
+    ]
+    .into();
     let m: ConnectionManifest = cm.try_into()?;
     assert_eq!(m.connection_type, ConnectionType::Push);
     assert_eq!(m.source_process_id, pid("a"));
@@ -535,12 +630,15 @@ fn connection_profile_conversions() -> JuizResult<()> {
     let m = ConnectionManifest::new(ConnectionType::Push, pid("a"), "arg".to_owned(), pid("b"));
     let p: ConnectionProfile = m.into();
     let v: Value = p.clone().into();
-    assert_eq!(v, jvalue!({
-        "type": "Push",
-        "source": "core://core/process/a::t",
-        "destination": "core://core/process/b::t",
-        "arg_name": "arg"
-    }));
+    assert_eq!(
+        v,
+        jvalue!({
+            "type": "Push",
+            "source": "core://core/process/a::t",
+            "destination": "core://core/process/b::t",
+            "arg_name": "arg"
+        })
+    );
     let back: ConnectionProfile = v.try_into()?;
     assert_eq!(back.source_process_id, pid("a"));
     assert_eq!(back.connection_type, ConnectionType::Push);
@@ -549,19 +647,30 @@ fn connection_profile_conversions() -> JuizResult<()> {
         "source": {"identifier": "core://core/process/a::t"},
         "destination": "core://core/process/b::t",
         "arg_name": "arg"
-    }).try_into()?;
+    })
+    .try_into()?;
     assert_eq!(p2.connection_type, ConnectionType::Push);
-    assert!(ConnectionProfile::try_from(jvalue!({"source": {}, "destination": "x", "arg_name": "a"})).is_err());
-    assert!(ConnectionProfile::try_from(jvalue!({"source": 1, "destination": "x", "arg_name": "a"})).is_err());
+    assert!(ConnectionProfile::try_from(
+        jvalue!({"source": {}, "destination": "x", "arg_name": "a"})
+    )
+    .is_err());
+    assert!(ConnectionProfile::try_from(
+        jvalue!({"source": 1, "destination": "x", "arg_name": "a"})
+    )
+    .is_err());
     assert!(ConnectionProfile::try_from(jvalue!({"destination": "x", "arg_name": "a"})).is_err());
-    assert!(ConnectionProfile::try_from(jvalue!({"source": "core://core/process/a::t", "destination": "core://core/process/b::t"})).is_err());
+    assert!(ConnectionProfile::try_from(
+        jvalue!({"source": "core://core/process/a::t", "destination": "core://core/process/b::t"})
+    )
+    .is_err());
 
     let cm: CapsuleMap = vec![
         ("type", jvalue!("pull")),
         ("source", jvalue!("core://core/process/a::t")),
         ("destination", jvalue!("core://core/process/b::t")),
         ("arg_name", jvalue!("arg")),
-    ].into();
+    ]
+    .into();
     let p3: ConnectionProfile = cm.try_into()?;
     assert_eq!(p3.connection_type, ConnectionType::Pull);
 
@@ -580,14 +689,23 @@ fn object_core_and_class_names() -> JuizResult<()> {
         (JuizObjectClass::Container(""), "container"),
         (JuizObjectClass::ContainerFactory(""), "container_factory"),
         (JuizObjectClass::ContainerProcess(""), "container_process"),
-        (JuizObjectClass::ContainerProcessFactory(""), "container_process_factory"),
+        (
+            JuizObjectClass::ContainerProcessFactory(""),
+            "container_process_factory",
+        ),
         (JuizObjectClass::Connection(""), "connection"),
         (JuizObjectClass::ExecutionContext(""), "execution_context"),
-        (JuizObjectClass::ExecutionContextFactory(""), "execution_context_factory"),
+        (
+            JuizObjectClass::ExecutionContextFactory(""),
+            "execution_context_factory",
+        ),
         (JuizObjectClass::Broker(""), "broker"),
         (JuizObjectClass::BrokerFactory(""), "broker_factory"),
         (JuizObjectClass::BrokerProxy(""), "broker_proxy"),
-        (JuizObjectClass::BrokerProxyFactory(""), "broker_proxy_factory"),
+        (
+            JuizObjectClass::BrokerProxyFactory(""),
+            "broker_proxy_factory",
+        ),
         (JuizObjectClass::System(""), "system"),
         (JuizObjectClass::ProcessProxy(""), "process_proxy"),
         (JuizObjectClass::Topic(""), "topic"),
@@ -604,13 +722,22 @@ fn object_core_and_class_names() -> JuizResult<()> {
     let fcore = ObjectCore::create_factory(JuizObjectClass::ProcessFactory("F"), "inc");
     assert_eq!(fcore.identifier(), "core://core/process_factory/inc::inc");
 
-    let mut c2 = ObjectCore::new("id".to_owned(), JuizObjectClass::Topic("T"), "t", "n", "b", "bt");
+    let mut c2 = ObjectCore::new(
+        "id".to_owned(),
+        JuizObjectClass::Topic("T"),
+        "t",
+        "n",
+        "b",
+        "bt",
+    );
     c2.set_identifier("id2".to_owned());
     assert_eq!(c2.clone().identifier(), "id2");
 
     struct Obj(ObjectCore);
     impl JuizObjectCoreHolder for Obj {
-        fn core(&self) -> &ObjectCore { &self.0 }
+        fn core(&self) -> &ObjectCore {
+            &self.0
+        }
     }
     impl JuizObject for Obj {}
     let o = Obj(c2);

@@ -1,15 +1,12 @@
-
-
-use std::sync::{Arc, Mutex};
 use juiz_sdk::anyhow;
 use juiz_sdk::object::JuizObject;
 use juiz_sdk::process_identifier::ProcessIdentifier;
+use std::sync::{Arc, Mutex};
 
-use crate::prelude::*;
 use crate::brokers::BrokerProxy;
+use crate::prelude::*;
 
 use super::execution_context_function::ExecutionContextFunction;
-
 
 #[allow(unused)]
 pub struct ExecutionContextProxy {
@@ -20,17 +17,31 @@ pub struct ExecutionContextProxy {
 }
 
 impl ExecutionContextProxy {
-
-    pub fn new(class_name: JuizObjectClass, identifier: &Identifier, broker_proxy: Arc<Mutex<dyn BrokerProxy>>) -> JuizResult<Arc<Mutex<dyn ExecutionContextFunction>>> {
+    pub fn new(
+        class_name: JuizObjectClass,
+        identifier: &Identifier,
+        broker_proxy: Arc<Mutex<dyn BrokerProxy>>,
+    ) -> JuizResult<Arc<Mutex<dyn ExecutionContextFunction>>> {
         log::trace!("ECProxy::new({class_name:?}, {identifier}, broker_proxy) called");
         let id_struct = IdentifierStruct::try_from(identifier.clone())?;
         let class_name_str = match class_name {
             JuizObjectClass::ExecutionContext(_) => Ok("execution_context"),
-            _ => {Err(anyhow::Error::from(JuizError::ExecutionContextProxyCanNotAcceptClassError{class_name: class_name.as_str().to_string()}))}
+            _ => Err(anyhow::Error::from(
+                JuizError::ExecutionContextProxyCanNotAcceptClassError {
+                    class_name: class_name.as_str().to_string(),
+                },
+            )),
         }?;
         log::trace!("id_struct: {id_struct:?}");
-        Ok(Arc::new(Mutex::new(ExecutionContextProxy{
-            core: ObjectCore::new(identifier.clone(), class_name, id_struct.type_name.as_str(), id_struct.object_name.as_str(), id_struct.broker_name.as_str(), id_struct.broker_type_name.as_str()),
+        Ok(Arc::new(Mutex::new(ExecutionContextProxy {
+            core: ObjectCore::new(
+                identifier.clone(),
+                class_name,
+                id_struct.type_name.as_str(),
+                id_struct.object_name.as_str(),
+                id_struct.broker_name.as_str(),
+                id_struct.broker_type_name.as_str(),
+            ),
             broker_proxy,
             identifier: identifier.clone(),
             class_name_str: class_name_str.to_string(),
@@ -45,7 +56,6 @@ impl JuizObjectCoreHolder for ExecutionContextProxy {
 }
 
 impl JuizObject for ExecutionContextProxy {
-
     fn profile_full(&self) -> JuizResult<Value> {
         let id = self.identifier();
         log::trace!("ProcessProxy({id})::profile_full() called");
@@ -54,7 +64,6 @@ impl JuizObject for ExecutionContextProxy {
 }
 
 impl ExecutionContextFunction for ExecutionContextProxy {
-
     fn start(&mut self) -> JuizResult<Value> {
         let id = self.identifier();
         log::trace!("ExecutionContextProxy({id})::start() called");

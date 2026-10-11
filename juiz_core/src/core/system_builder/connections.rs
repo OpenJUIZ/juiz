@@ -1,5 +1,3 @@
-
-
 use juiz_sdk::anyhow;
 
 use crate::{connections::connection_builder::connection_builder, prelude::*};
@@ -37,12 +35,12 @@ pub(super) fn setup_connections(system: &System, manifest: &Value) -> JuizResult
             Ok(c) => {
                 log::info!("【setup_connections】【作成】接続");
                 Ok(c)
-            },
+            }
             Err(e) => {
                 log::error!("【setup_connections】接続作成失敗");
                 Err(e)
             }
         }?;
-    } 
+    }
     Ok(())
 }

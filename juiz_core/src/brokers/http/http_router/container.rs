@@ -1,8 +1,7 @@
 use utoipa::OpenApi;
 
-use super::{RecursiveQuery, IdentifierQuery};
+use super::{IdentifierQuery, RecursiveQuery};
 use axum::extract::Query;
-
 
 #[allow(unused)]
 #[utoipa::path(
@@ -16,10 +15,7 @@ use axum::extract::Query;
     ),
     tag = "universal.container",
 )]
-pub fn profile_handler_dummy(
-    _query: Query<IdentifierQuery>,) {
-}
-
+pub fn profile_handler_dummy(_query: Query<IdentifierQuery>) {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -33,9 +29,7 @@ pub fn profile_handler_dummy(
     ),
     tag = "universal.container",
 )]
-pub fn list_dummy(_query: Query<RecursiveQuery>,) {
-}
-
+pub fn list_dummy(_query: Query<RecursiveQuery>) {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -49,18 +43,11 @@ pub fn list_dummy(_query: Query<RecursiveQuery>,) {
     ),
     tag = "universal.container",
 )]
-pub fn delete_dummy(
-_query: Query<IdentifierQuery>) {
-}
+pub fn delete_dummy(_query: Query<IdentifierQuery>) {}
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(
-        profile_handler_dummy,
-        list_dummy,
-        delete_dummy,
-    ),
-    components(schemas(
-    ))
+    paths(profile_handler_dummy, list_dummy, delete_dummy,),
+    components(schemas())
 )]
 pub struct ApiDoc;

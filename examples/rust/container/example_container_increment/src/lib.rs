@@ -10,7 +10,10 @@ use juiz_sdk::prelude::*;
         }
     }
 )]
-fn example_container_increment(container: &mut ContainerImpl<ExampleContainer>, arg1: i64) -> JuizResult<Capsule> {
+fn example_container_increment(
+    container: &mut ContainerImpl<ExampleContainer>,
+    arg1: i64,
+) -> JuizResult<Capsule> {
     container.value = container.value + arg1;
     return Ok(jvalue!(container.value).into());
 }

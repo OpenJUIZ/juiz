@@ -1,7 +1,6 @@
-use juiz_core::{System, jvalue, JuizResult};
+use juiz_core::{jvalue, JuizResult, System};
 
-fn main() -> JuizResult<()>{
-
+fn main() -> JuizResult<()> {
     let manifest = jvalue!(
         {
 
@@ -35,7 +34,7 @@ fn main() -> JuizResult<()>{
                 {
                     "type_name": "http",
                     "name": "localhost:3000"
-                }  
+                }
             ],
             "processes": [
                 {
@@ -62,16 +61,23 @@ fn main() -> JuizResult<()>{
         }
     );
 
-    Ok(System::new(manifest)?.run_and_do(|system|{
-        println!("JuizSystem started!!");
-        let v = system.broker_proxy(&jvalue!({"type_name":"local"}))?.lock().unwrap().system_profile_full()?;
-        println!("System: {:#}", v);
+    Ok(System::new(manifest)?
+        .run_and_do(|system| {
+            println!("JuizSystem started!!");
+            let v = system
+                .broker_proxy(&jvalue!({"type_name":"local"}))?
+                .lock()
+                .unwrap()
+                .system_profile_full()?;
+            println!("System: {:#}", v);
 
-        let id = "http://localhost:3000/ContainerProcess/increment_a::example_container_increment";
-        let p1 = system.container_process_proxy(&id.to_string())?;
-        let prof = p1.read().unwrap().profile_full()?;
-        println!("Process: {:#}", prof);
+            let id =
+                "http://localhost:3000/ContainerProcess/increment_a::example_container_increment";
+            let p1 = system.container_process_proxy(&id.to_string())?;
+            let prof = p1.read().unwrap().profile_full()?;
+            println!("Process: {:#}", prof);
 
-        Ok(())
-    }).expect("Error in System::run_and_do()"))
+            Ok(())
+        })
+        .expect("Error in System::run_and_do()"))
 }

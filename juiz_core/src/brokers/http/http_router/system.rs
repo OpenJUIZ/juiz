@@ -1,8 +1,8 @@
 use juiz_sdk::value::jvalue;
 use utoipa::OpenApi;
 
-use axum::{extract::Query, response::IntoResponse, Json};
 use super::{FullQuery, IdentifierQuery, PathQuery, Value};
+use axum::{extract::Query, response::IntoResponse, Json};
 
 #[allow(unused)]
 #[utoipa::path(
@@ -13,9 +13,7 @@ use super::{FullQuery, IdentifierQuery, PathQuery, Value};
     ),
     tag = "universal.system",
 )]
-pub async fn profile_handler_dummy(){
-}
-
+pub async fn profile_handler_dummy() {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -26,9 +24,7 @@ pub async fn profile_handler_dummy(){
     ),
     tag = "universal.system",
 )]
-pub async fn uuid_dummy(){
-}
-
+pub async fn uuid_dummy() {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -42,10 +38,7 @@ pub async fn uuid_dummy(){
     ),
     tag = "universal.system",
 )]
-pub fn fslist_handler_dummy(
-    _query: Query<PathQuery>,
-){
-}
+pub fn fslist_handler_dummy(_query: Query<PathQuery>) {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -60,11 +53,7 @@ pub fn fslist_handler_dummy(
     ),
     tag = "universal.system",
 )]
-pub fn add_subsystem_dummy(
-_query: Query<IdentifierQuery>,
-Json(_body): Json<Value>) {
-}
-
+pub fn add_subsystem_dummy(_query: Query<IdentifierQuery>, Json(_body): Json<Value>) {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -79,10 +68,7 @@ Json(_body): Json<Value>) {
     ),
     tag = "universal.system",
 )]
-pub fn add_mastersystem_dummy(
-_query: Query<FullQuery>,
-Json(_body): Json<Value>) {
-}
+pub fn add_mastersystem_dummy(_query: Query<FullQuery>, Json(_body): Json<Value>) {}
 
 pub fn system_openapi_handler() -> Json<juiz_sdk::serde_json::Value> {
     Json(jvalue!({
@@ -134,7 +120,6 @@ pub fn system_openapi_handler() -> Json<juiz_sdk::serde_json::Value> {
     }))
 }
 
-
 #[derive(OpenApi)]
 #[openapi(
     paths(
@@ -144,7 +129,6 @@ pub fn system_openapi_handler() -> Json<juiz_sdk::serde_json::Value> {
         add_subsystem_dummy,
         add_mastersystem_dummy,
     ),
-    components(schemas(
-    ))
+    components(schemas())
 )]
 pub struct ApiDoc;

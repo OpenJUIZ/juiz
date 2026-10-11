@@ -1,10 +1,10 @@
-use std::sync::{Arc, Mutex};
-use crate::prelude::*;
 use super::execution_context::ExecutionContext;
 use super::execution_context_core::ExecutionContextCore;
+use crate::prelude::*;
+use std::sync::{Arc, Mutex};
 
 pub struct OneShotEC {
-    name: String
+    name: String,
 }
 
 impl OneShotEC {
@@ -16,7 +16,6 @@ impl OneShotEC {
 }
 
 impl ExecutionContext for OneShotEC {
-
     fn name(&self) -> &str {
         self.name.as_str()
     }

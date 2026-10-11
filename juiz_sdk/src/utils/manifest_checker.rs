@@ -1,20 +1,16 @@
-
-
 use crate::manifests::ArgumentProfile;
 use crate::manifests::ProcessProfile;
 use crate::prelude::*;
 use crate::value::*;
-
 
 // pub fn check_process_factory_manifest(manifest: Value) -> JuizResult<Value> {
 //     let _ = obj_get_str(&manifest, "type_name").context("check_process_factory_manifest failed.")?;
 //     Ok(manifest)
 // }
 
-
 pub fn check_corebroker_manifest(manifest: Value) -> Result<Value, JuizError> {
     return Ok(manifest);
-} 
+}
 
 // fn default_value_type_str(def_value: &Value) -> Result<&str, JuizError> {
 //     if def_value.is_i64() || def_value.is_u64(){
@@ -31,10 +27,8 @@ pub fn check_corebroker_manifest(manifest: Value) -> Result<Value, JuizError> {
 //     return Err(JuizError::ManifestArgumentDefaultValueIsNotAvailableValueTypeError{value: def_value.clone()});
 // }
 
-
 // fn check_process_manifest_argument(arg_manifest: &mut Value) -> JuizResult<()> {
-    
-    
+
 //     let def_value =get_value(arg_manifest, "default")?.clone();
 //     // デフォルトの型を表す文字列を取得
 //     let def_value_type = default_value_type_str(&def_value)?;
@@ -59,7 +53,7 @@ pub fn check_corebroker_manifest(manifest: Value) -> Result<Value, JuizError> {
 //         None => {}
 //     }
 //     Ok(())
-        
+
 // }
 
 // fn check_process_manifest_arguments(args_manifest: &mut Value) -> JuizResult<()> {
@@ -69,7 +63,6 @@ pub fn check_corebroker_manifest(manifest: Value) -> Result<Value, JuizError> {
 //     }
 //     Ok(())
 // }
-
 
 pub fn check_connection_manifest(connection_manifest: Value) -> Result<Value, JuizError> {
     Ok(connection_manifest)
@@ -89,18 +82,27 @@ fn check_arguments(args_manifest: &Vec<ArgumentProfile>, argument: &CapsuleMap) 
         match argument.get(arg_manifest.name.as_str()) {
             Err(_) => {
                 log::error!("プロセスのマニフェストチェック中にエラーが発生しました。引数のマニフェストは('{arg_manifest:?}')ですが、この引数が渡されたカプセルの中に見つかりません。渡された引数の名前が間違っているかもしれません。");
-                
-                return Err(
-                anyhow::Error::from(JuizError::ArgumentMissingWhenCallingError{
-                    process_manifest: args_manifest.iter().map(|a|{ serde_json::to_value(a) }).collect::<Result<Vec<Value>, serde_json::Error>>()?.into(), 
-                    missing_arg_name: arg_manifest.name.clone()}));
-                },
+
+                return Err(anyhow::Error::from(
+                    JuizError::ArgumentMissingWhenCallingError {
+                        process_manifest: args_manifest
+                            .iter()
+                            .map(|a| serde_json::to_value(a))
+                            .collect::<Result<Vec<Value>, serde_json::Error>>()?
+                            .into(),
+                        missing_arg_name: arg_manifest.name.clone(),
+                    },
+                ));
+            }
             Ok(_) => {}
         };
     }
     Ok(())
 }
 
-pub fn check_manifest_before_call(manifest: &ProcessProfile, argument: &CapsuleMap) -> JuizResult<()> {
+pub fn check_manifest_before_call(
+    manifest: &ProcessProfile,
+    argument: &CapsuleMap,
+) -> JuizResult<()> {
     check_arguments(&manifest.arguments, argument)
 }

@@ -1,13 +1,8 @@
-
 // use std::collections::HashMap;
 // use anyhow::anyhow;
 // use serde_json::Map;
 // use crate::{identifier::identifier_new, prelude::*, value::obj_get_str};
 // use super::{argument_manifest::{ArgumentManifest, ArgumentType}, manifest_description::Description, TopicManifest};
-
-
-
-
 
 // #[derive(Clone, Debug)]
 // pub struct ContainerProcessManifest {
@@ -24,7 +19,6 @@
 // }
 
 // impl ContainerProcessManifest {
-
 
 //     /// ```
 //     /// use juiz_core::prelude::*;
@@ -45,7 +39,7 @@
 //             name: None,
 //             container_manifest,
 //             type_name: type_name.to_owned(),
-//             description: "".into(), 
+//             description: "".into(),
 //             arguments: Vec::new(),
 //             use_memo: false,
 //             broker_name: "core".to_owned(),
@@ -144,19 +138,18 @@
 //         self.add_arg(ArgumentManifest::new_string(name, default).description(description))
 //     }
 
-
-//     pub fn identifier(&self) -> JuizResult<Identifier> { 
+//     pub fn identifier(&self) -> JuizResult<Identifier> {
 //         if let Some(name) = self.name.as_ref() {
 //             Ok(identifier_new(
-//                 self.broker_type_name.as_str(), 
-//                 self.broker_name.as_str(), 
-//                 "ContainerProcess", 
-//                 self.type_name.as_str(), 
+//                 self.broker_type_name.as_str(),
+//                 self.broker_name.as_str(),
+//                 "ContainerProcess",
+//                 self.type_name.as_str(),
 //                 name.as_str()))
 //         } else {
 //             Err(anyhow!(JuizError::ProcessManifestInvalidError{message:"ContainerProcessManifest::identifier() failed.".to_owned()}))
 //         }
-        
+
 //     }
 // }
 
@@ -174,7 +167,6 @@
 //         arg.into()
 //     }).collect()
 // }
-
 
 // /// ```
 // /// use juiz_core::prelude::*;
@@ -208,7 +200,7 @@
 // /// ```
 // /// use juiz_core::prelude::*;
 // /// fn main() -> JuizResult<()> {
-// /// 
+// ///
 // /// let manifest_value: Value = jvalue!({
 // ///   "type_name": "hoge_type",
 // ///   "description": "hoge manifest",
@@ -218,11 +210,11 @@
 // ///        "type": "int",
 // ///        "default": 1,
 // ///        "description": "int_arg"
-// ///     }, 
+// ///     },
 // ///   ]
 // /// });
 // /// let manifest: ProcessManifest = manifest_value.try_into()?;
-// /// 
+// ///
 // /// Ok(())}
 // /// ```
 // impl TryFrom<Value> for ContainerProcessManifest {
@@ -262,6 +254,6 @@
 //             Err(_) => {},
 //         }
 //         Ok(p)
-//     }    
+//     }
 //     type Error = anyhow::Error;
 // }

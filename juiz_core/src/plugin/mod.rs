@@ -1,11 +1,7 @@
-
-
-
+mod cpp;
 mod plugin;
 mod python;
-mod cpp;
 mod rust;
 
-
-pub use plugin::{Plugin, JuizObjectPlugin, concat_dirname, plugin_name_to_file_name};
+pub use plugin::{concat_dirname, plugin_name_to_file_name, JuizObjectPlugin, Plugin};
 pub(crate) use rust::RustPlugin;

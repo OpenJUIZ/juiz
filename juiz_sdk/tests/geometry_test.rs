@@ -1,7 +1,10 @@
 //! geometry (Vec3 / Quaternion / Transform3D) のテスト
 
 use approx::assert_relative_eq;
-use juiz_sdk::geometry::{euler_xyz_from_quaternion, quaternion_from_euler_xyz, Orientation3D, Point3D, Pose3D, Quaternion, Transform3D, Vec3};
+use juiz_sdk::geometry::{
+    euler_xyz_from_quaternion, quaternion_from_euler_xyz, Orientation3D, Point3D, Pose3D,
+    Quaternion, Transform3D, Vec3,
+};
 use nalgebra::{Point3, UnitQuaternion, Vector3, Vector4};
 use std::f64::consts::FRAC_PI_2;
 
@@ -68,7 +71,10 @@ fn transform_composition() {
 
     // Z 軸 90 度回転を後ろに掛けると、前の並進が回転される
     let a = Transform3D::new(Vec3::new(1.0, 0.0, 0.0), Quaternion::zero());
-    let b = Transform3D::new(Vec3::new(0.0, 0.0, 0.0), quaternion_from_euler_xyz(0.0, 0.0, FRAC_PI_2));
+    let b = Transform3D::new(
+        Vec3::new(0.0, 0.0, 0.0),
+        quaternion_from_euler_xyz(0.0, 0.0, FRAC_PI_2),
+    );
     let c = a * b;
     assert_relative_eq!(c.linear.x, 0.0, epsilon = 1e-12);
     assert_relative_eq!(c.linear.y, 1.0, epsilon = 1e-12);
@@ -77,7 +83,10 @@ fn transform_composition() {
 
 #[test]
 fn pose_serializes_to_json() {
-    let pose = Pose3D { position: Point3D::new(1.0f64, 2.0, 3.0), orientation: Orientation3D::zero() };
+    let pose = Pose3D {
+        position: Point3D::new(1.0f64, 2.0, 3.0),
+        orientation: Orientation3D::zero(),
+    };
     let v = juiz_sdk::serde_json::to_value(&pose).unwrap();
     assert_eq!(v["position"]["y"], 2.0);
     assert_eq!(v["orientation"]["w"], 1.0);

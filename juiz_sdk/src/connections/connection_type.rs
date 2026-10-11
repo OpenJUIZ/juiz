@@ -1,5 +1,3 @@
-
-
 use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
@@ -30,7 +28,7 @@ impl From<&str> for ConnectionType {
             "push" => ConnectionType::Push,
             "Push" => ConnectionType::Push,
             "PUSH" => ConnectionType::Push,
-            _ => ConnectionType::Unknown
+            _ => ConnectionType::Unknown,
         }
     }
 }
@@ -54,4 +52,3 @@ impl Display for ConnectionType {
 //         }
 //     }
 // }
-

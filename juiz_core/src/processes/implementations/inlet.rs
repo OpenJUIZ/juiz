@@ -2,9 +2,9 @@ use std::cell::RefCell;
 
 use crate::prelude::*;
 /// inlet.rs
-/// 
-/// 
-/// 
+///
+///
+///
 
 pub struct Inlet {
     name: String,
@@ -15,15 +15,18 @@ pub struct Inlet {
 
 impl std::fmt::Debug for Inlet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Inlet").field("name", &self.name).field("default_value", &self.default_value).field("buffer", &self.buffer).finish()
+        f.debug_struct("Inlet")
+            .field("name", &self.name)
+            .field("default_value", &self.default_value)
+            .field("buffer", &self.buffer)
+            .finish()
     }
 }
 
 impl Inlet {
-
     pub fn new(name: &str, default_value: Value) -> Inlet {
-        Inlet{ 
-            name: name.to_owned(), 
+        Inlet {
+            name: name.to_owned(),
             default_value: default_value.into(),
             source_connections: Vec::new(),
             buffer: RefCell::new(None),
@@ -44,7 +47,7 @@ impl Inlet {
     // }
 
     pub fn source_connections(&self) -> &Vec<Box<dyn SourceConnection>> {
-        return &self.source_connections
+        return &self.source_connections;
     }
 
     // pub fn source_connections_mut(&mut self) -> &mut Vec<Box<dyn SourceConnection>> {
@@ -57,7 +60,8 @@ impl Inlet {
             "source_connections": self.source_connections.iter().map(|sc| -> Value {
                 sc.profile().into()
             }).collect::<Vec<Value>>()
-        }).into())
+        })
+        .into())
     }
 
     pub fn is_updated(&self) -> JuizResult<bool> {
@@ -65,13 +69,13 @@ impl Inlet {
         for sc in self.source_connections.iter() {
             if sc.is_source_updated()? {
                 return Ok(true);
-            } 
+            }
         }
         Ok(false)
     }
-   
+
     /// データを収集。
-    /// 
+    ///
     /// まず全てのコネクションに対してpullでデータ収集を行う。
     /// 出力はself.bufferに保存されるため、あとからの接続が優先される。
     /// エラーはログは出すが無視する。
@@ -85,7 +89,7 @@ impl Inlet {
                 match sc.pull() {
                     Err(e) => {
                         log::error!("Pull data via Connection({}) in Inlet({})::collect_value() failed. Error: {:}", sc.identifier(), self.name(), e);
-                    },
+                    }
                     Ok(output) => {
                         self.buffer.replace(Some(output.clone()));
                         //return self.buffer.borrow().unwrap().clone();
@@ -108,7 +112,7 @@ impl Inlet {
         //self.buffer = value;
         if self.buffer.borrow().is_none() {
             self.buffer.replace(Some(value.clone()));
-        } 
+        }
         Ok(value)
     }
 }

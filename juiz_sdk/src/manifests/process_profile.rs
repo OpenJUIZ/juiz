@@ -1,9 +1,8 @@
-
-use std::{collections::HashMap, fmt::Display};
+use super::{manifest_description::Description, ArgumentProfile, TopicProfile};
+use crate::{manifests::OutputProfile, prelude::*, process_identifier::ProcessIdentifier};
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
-use crate::{manifests::OutputProfile, prelude::*, process_identifier::ProcessIdentifier};
-use super::{manifest_description::Description, ArgumentProfile, TopicProfile};
+use std::{collections::HashMap, fmt::Display};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProcessProfile {
@@ -28,20 +27,26 @@ impl TryFrom<ProcessManifest> for ProcessProfile {
 
     fn try_from(value: ProcessManifest) -> Result<Self, Self::Error> {
         if value.name.is_none() {
-            return Err(anyhow!(JuizError::InvalidArgumentError{message: format!("Invalid ProcessProfile passed. name is none.")}))
+            return Err(anyhow!(JuizError::InvalidArgumentError {
+                message: format!("Invalid ProcessProfile passed. name is none.")
+            }));
         }
-        Ok(Self{
+        Ok(Self {
             name: value.name.unwrap(),
             type_name: value.type_name,
             description: value.description,
-            arguments: value.arguments.into_iter().map(|a|{a.into()}).collect(),
+            arguments: value.arguments.into_iter().map(|a| a.into()).collect(),
             factory: value.factory,
             use_memo: value.use_memo,
             language: value.language,
             broker_type_name: value.broker_type_name,
             broker_name: value.broker_name,
-            publishes: value.publishes.into_iter().map(|t|{t.into()}).collect(),
-            subscribes: value.subscribes.into_iter().map(|(k, v)| { (k, v.into())}).collect(),
+            publishes: value.publishes.into_iter().map(|t| t.into()).collect(),
+            subscribes: value
+                .subscribes
+                .into_iter()
+                .map(|(k, v)| (k, v.into()))
+                .collect(),
             container_name: value.container_name,
             container_type: value.container_type,
             outputs: value.outputs,
@@ -53,20 +58,20 @@ impl TryFrom<ProcessManifest> for ProcessProfile {
 //     type Error = anyhow::Error;
 
 //     fn try_from(value: ProcessManifest) -> Result<Self, Self::Error> {
-//         Ok( Self { 
+//         Ok( Self {
 //             name: value.name.ok_or(anyhow!(JuizError::ProcessManifestInvalidError { message: format!("ProcessManifest does not include 'name' value.") }))?,
 //             type_name: value.type_name,
 //             description: value.description,
 //             arguments: value.arguments.into_iter().map(|a|{a.into()}).collect(),
-//             factory: value.factory, 
-//             use_memo: value.use_memo, 
-//             language: value.language, 
-//             broker_type_name: value.broker_type_name, 
+//             factory: value.factory,
+//             use_memo: value.use_memo,
+//             language: value.language,
+//             broker_type_name: value.broker_type_name,
 //             broker_name: value.broker_name,
-//             publishes: value.publishes.into_iter().map(|p| {p.into()}).collect(), 
+//             publishes: value.publishes.into_iter().map(|p| {p.into()}).collect(),
 //             subscribes: value.subscribes.into_iter().map(|(k, v)| { (k, v.into()) }).collect(),
-//             container_name: value.container_name, 
-//             container_type: value.container_type 
+//             container_name: value.container_name,
+//             container_type: value.container_type
 //         })
 //     }
 // }
@@ -79,7 +84,10 @@ impl Display for ProcessProfile {
         for a in self.arguments.iter() {
             f.write_fmt(format_args!("{}, ", a))?;
         }
-        f.write_fmt(format_args!("], language={}, use_memo={}, publishes=[", self.language, self.use_memo))?;
+        f.write_fmt(format_args!(
+            "], language={}, use_memo={}, publishes=[",
+            self.language, self.use_memo
+        ))?;
         for tm in self.publishes.iter() {
             f.write_fmt(format_args!("{}, ", tm))?;
         }
@@ -88,10 +96,12 @@ impl Display for ProcessProfile {
             f.write_fmt(format_args!("{}:{}, ", arg_name, tm))?;
         }
         if self.outputs.is_none() {
-
             f.write_fmt(format_args!("}}, outputs=null"))?;
         } else {
-            f.write_fmt(format_args!("}}, outputs={}", self.outputs.as_ref().unwrap()))?;
+            f.write_fmt(format_args!(
+                "}}, outputs={}",
+                self.outputs.as_ref().unwrap()
+            ))?;
         }
         f.write_str(")")?;
         Ok(())
@@ -99,16 +109,18 @@ impl Display for ProcessProfile {
 }
 
 impl ProcessProfile {
-
     /// FactoryにあるManifestとインスタンス用のマニフェストをマージして、完備なインスタンス用マニフェストを作ります。
-    /// 
-    /// 
-    pub fn build_instance_manifest(&self, mut partial_instance_manifest: ProcessProfile) -> JuizResult<Self> {
+    ///
+    ///
+    pub fn build_instance_manifest(
+        &self,
+        mut partial_instance_manifest: ProcessProfile,
+    ) -> JuizResult<Self> {
         partial_instance_manifest.type_name = self.type_name.clone();
         partial_instance_manifest = partial_instance_manifest
             .description(self.description.as_str())
             .use_memo(self.use_memo)
-            .container_type(self.container_type.as_ref().map(|v| { v.clone() }));
+            .container_type(self.container_type.as_ref().map(|v| v.clone()));
 
         let mut new_argument_manif: Vec<ArgumentProfile> = Vec::new();
         for arg_manif in self.arguments.iter() {
@@ -122,13 +134,18 @@ impl ProcessProfile {
                     default_value = instance_arg_manif.default.clone();
                 }
             }
-            new_argument_manif.push(ArgumentProfile::new(arg_type.clone(), arg_name.as_str(), description, default_value));
+            new_argument_manif.push(ArgumentProfile::new(
+                arg_type.clone(),
+                arg_name.as_str(),
+                description,
+                default_value,
+            ));
         }
         partial_instance_manifest.arguments.clear();
         partial_instance_manifest.arguments = new_argument_manif;
 
         Ok(partial_instance_manifest)
-    }   
+    }
 
     /// ```
     /// use juiz_sdk::prelude::*;
@@ -148,7 +165,7 @@ impl ProcessProfile {
         Self {
             name: name.to_owned(),
             type_name: type_name.to_owned(),
-            description: "".into(), 
+            description: "".into(),
             arguments: Vec::new(),
             use_memo: false,
             factory: "process_factory".to_owned(),
@@ -216,7 +233,7 @@ impl ProcessProfile {
         self.add_arg(ArgumentProfile::new_int(name, default).description(description))
     }
 
-        /// ```
+    /// ```
     /// use juiz_sdk::prelude::*;
     /// let manifest = ProcessProfile::new("hoge_type", "hoge01")
     ///   .description("hoge manifest")
@@ -288,30 +305,34 @@ impl ProcessProfile {
     ///   .subscribes("arg0", "topic1");
     /// assert_eq!(manifest.subscribes.get("arg0").unwrap().name, "topic1");
     /// ```
-    pub fn subscribes(mut self, arg_name:&str, topic_name: &str) -> Self {
-        self.subscribes.insert(arg_name.to_owned(), TopicProfile::new(topic_name));
+    pub fn subscribes(mut self, arg_name: &str, topic_name: &str) -> Self {
+        self.subscribes
+            .insert(arg_name.to_owned(), TopicProfile::new(topic_name));
         self
     }
 
-    pub fn identifier(&self) -> ProcessIdentifier { 
+    pub fn identifier(&self) -> ProcessIdentifier {
         // identifier_new(
-        //     self.broker_type_name.as_str(), 
-        //     self.broker_name.as_str(), 
-        //     "Process", 
-        //     self.type_name.as_str(), 
+        //     self.broker_type_name.as_str(),
+        //     self.broker_name.as_str(),
+        //     "Process",
+        //     self.type_name.as_str(),
         //     self.name.as_str())
-        ProcessIdentifier{
+        ProcessIdentifier {
             broker_name: self.broker_name.clone(),
             broker_type_name: self.broker_type_name.clone(),
             name: self.name.clone(),
             type_name: self.type_name.clone(),
-            class_name: if self.container_name.is_none() { "process".to_owned() } else { "container_process".to_owned() },
+            class_name: if self.container_name.is_none() {
+                "process".to_owned()
+            } else {
+                "container_process".to_owned()
+            },
             container_name: self.container_name.clone(),
         }
     }
 
-
-    pub fn outputs(&self) -> Option<OutputProfile> { 
+    pub fn outputs(&self) -> Option<OutputProfile> {
         self.outputs.clone()
     }
 
@@ -335,7 +356,6 @@ impl ProcessProfile {
 //         arg.into()
 //     }).collect()
 // }
-
 
 // / ```
 // / use juiz_core::prelude::*;
@@ -379,7 +399,7 @@ impl ProcessProfile {
 // / ```
 // / use juiz_core::prelude::*;
 // / fn main() -> JuizResult<()> {
-// / 
+// /
 // / let manifest_value: Value = jvalue!({
 // /   "type_name": "hoge_type",
 // /   "description": "hoge manifest",
@@ -389,11 +409,11 @@ impl ProcessProfile {
 // /        "type": "int",
 // /        "default": 1,
 // /        "description": "int_arg"
-// /     }, 
+// /     },
 // /   ]
 // / });
 // / let manifest: ProcessProfile = manifest_value.try_into()?;
-// / 
+// /
 // / Ok(())}
 // /// ```
 // impl TryFrom<Value> for ProcessProfile {
@@ -470,6 +490,6 @@ impl ProcessProfile {
 //             Err(_) => {},
 //         };
 //         Ok(p)
-//     }    
+//     }
 //     type Error = anyhow::Error;
 // }

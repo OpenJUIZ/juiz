@@ -92,11 +92,15 @@ pub const CONTAINERS: [(&str, &str, &str, &str); 3] = [
 ];
 
 pub fn find_process<'a>(ids: &'a [ProcessIdentifier], name: &str) -> &'a ProcessIdentifier {
-    ids.iter().find(|id| id.name == name).unwrap_or_else(|| panic!("process {name} not found in {ids:?}"))
+    ids.iter()
+        .find(|id| id.name == name)
+        .unwrap_or_else(|| panic!("process {name} not found in {ids:?}"))
 }
 
 pub fn int_of(c: JuizResult<CapsulePtr>) -> i64 {
-    c.expect("call failed").lock_as_value(|v| v.as_i64().expect("not an integer")).unwrap()
+    c.expect("call failed")
+        .lock_as_value(|v| v.as_i64().expect("not an integer"))
+        .unwrap()
 }
 
 /// get_output などでカプセルが Value でない場合も考えて、整数として取り出す

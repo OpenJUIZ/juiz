@@ -1,5 +1,7 @@
-
-use crate::{brokers::http::http_router::{RecursiveQuery, TopicNameAndUuidQuery}, prelude::*};
+use crate::{
+    brokers::http::http_router::{RecursiveQuery, TopicNameAndUuidQuery},
+    prelude::*,
+};
 use utoipa::OpenApi;
 
 use axum::{extract::Query, Json};
@@ -47,9 +49,7 @@ use axum::{extract::Query, Json};
     ),
     tag = "universal.topic",
 )]
-pub fn list_dummy(
-    _query: Query<RecursiveQuery>,) {
-}
+pub fn list_dummy(_query: Query<RecursiveQuery>) {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -64,10 +64,7 @@ pub fn list_dummy(
     ),
     tag = "universal.topic",
 )]
-pub fn push_dummy(
-_query: Query<TopicNameAndUuidQuery>,
-Json(_body): Json<Value>) {
-}
+pub fn push_dummy(_query: Query<TopicNameAndUuidQuery>, Json(_body): Json<Value>) {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -82,12 +79,7 @@ Json(_body): Json<Value>) {
     ),
     tag = "universal.topic",
 )]
-pub fn request_subscribe_dummy(
-_query: Query<TopicNameAndUuidQuery>,
-Json(_body): Json<Value>) {
-}
-
-
+pub fn request_subscribe_dummy(_query: Query<TopicNameAndUuidQuery>, Json(_body): Json<Value>) {}
 
 // #[allow(unused)]
 // #[utoipa::path(
@@ -123,15 +115,9 @@ Json(_body): Json<Value>) {
 // _query: Query<IdentifierQuery>) {
 // }
 
-
 #[derive(OpenApi)]
 #[openapi(
-    paths(
-        list_dummy,
-        push_dummy,
-        request_subscribe_dummy,
-    ),
-    components(schemas(
-    ))
+    paths(list_dummy, push_dummy, request_subscribe_dummy,),
+    components(schemas())
 )]
 pub struct ApiDoc;

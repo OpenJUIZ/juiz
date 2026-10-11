@@ -1,32 +1,33 @@
-
-
-
-use juiz_sdk::{connection_identifier::ConnectionIdentifier, connections::{ConnectionManifest, ConnectionProfile, ConnectionType}};
 use crate::prelude::*;
-
+use juiz_sdk::{
+    connection_identifier::ConnectionIdentifier,
+    connections::{ConnectionManifest, ConnectionProfile, ConnectionType},
+};
 
 use core::fmt::Debug;
 use std::clone::Clone;
 
-use juiz_sdk::connections::{DestinationConnection, Connection};
+use juiz_sdk::connections::{Connection, DestinationConnection};
 
 #[derive(Clone, Debug)]
-pub struct DestinationConnectionImpl{
+pub struct DestinationConnectionImpl {
     profile: ConnectionProfile,
-    destination_process: ProcessPtr
+    destination_process: ProcessPtr,
 }
 
 impl DestinationConnectionImpl {
-
-    pub fn new_from_manifest(connection_manifest: ConnectionManifest,  destination_process: ProcessPtr) -> Self {
-        DestinationConnectionImpl{
+    pub fn new_from_manifest(
+        connection_manifest: ConnectionManifest,
+        destination_process: ProcessPtr,
+    ) -> Self {
+        DestinationConnectionImpl {
             profile: connection_manifest.into(),
-            destination_process}
+            destination_process,
+        }
     }
 }
 
 impl Connection for DestinationConnectionImpl {
-
     fn identifier(&self) -> ConnectionIdentifier {
         self.profile.clone().into() //identifier.clone()
     }
@@ -34,14 +35,13 @@ impl Connection for DestinationConnectionImpl {
     fn connection_type(&self) -> ConnectionType {
         self.profile.connection_type.clone()
     }
-    
+
     fn profile(&self) -> ConnectionProfile {
-        self.profile.clone()        
+        self.profile.clone()
     }
 }
 
 impl DestinationConnection for DestinationConnectionImpl {
-
     fn execute_destination(&self) -> JuizResult<CapsulePtr> {
         log::trace!("DestinationConnectionImpl::execute_destination() called");
         self.destination_process.lock()?.execute()
@@ -50,7 +50,9 @@ impl DestinationConnection for DestinationConnectionImpl {
     fn push(&self, value: CapsulePtr) -> JuizResult<CapsulePtr> {
         log::trace!("DestinationConnectionImpl::push() called");
         if self.connection_type() == ConnectionType::Push {
-            self.destination_process.lock()?.push_by(self.profile.arg_name.as_str(), value)
+            self.destination_process
+                .lock()?
+                .push_by(self.profile.arg_name.as_str(), value)
         } else {
             Ok(value)
         }

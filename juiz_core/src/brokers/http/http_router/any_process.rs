@@ -16,9 +16,7 @@ use axum::extract::Query;
     ),
     tag = "any_process",
 )]
-pub fn profile_handler_dummy(
-   _query: Query<IdentifierQuery>,) {
-}
+pub fn profile_handler_dummy(_query: Query<IdentifierQuery>) {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -29,17 +27,9 @@ pub fn profile_handler_dummy(
     ),
     tag = "any_process",
 )]
-pub fn list_dummy() {
-}
+pub fn list_dummy() {}
 
 #[derive(OpenApi)]
-#[openapi(
-    paths(
-        profile_handler_dummy,
-        list_dummy,
-    ),
-    components(schemas(
-    ))
-)]
+#[openapi(paths(profile_handler_dummy, list_dummy,), components(schemas()))]
 #[allow(unused)]
 pub struct ApiDoc;

@@ -1,11 +1,8 @@
-
 use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
 
-
 use super::{ContainerManifest, Description, ProcessManifest};
-
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ComponentManifest {
@@ -16,11 +13,12 @@ pub struct ComponentManifest {
     pub processes: Vec<ProcessManifest>,
 }
 
-
 impl Display for ComponentManifest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-
-        f.write_fmt(format_args!("ComponentManifest(\"{}\", \"{}\", {}, containers=[", self.type_name, self.language, self.description))?;
+        f.write_fmt(format_args!(
+            "ComponentManifest(\"{}\", \"{}\", {}, containers=[",
+            self.type_name, self.language, self.description
+        ))?;
         for c in self.containers.iter() {
             f.write_fmt(format_args!("{},", c))?;
         }
@@ -35,9 +33,6 @@ impl Display for ComponentManifest {
 }
 
 impl ComponentManifest {
-
-
-
     pub fn new(type_name: &str) -> Self {
         Self {
             type_name: type_name.to_owned(),
@@ -58,7 +53,6 @@ impl ComponentManifest {
         self
     }
 
-
     pub fn add_container(mut self, container: ContainerManifest) -> Self {
         // println!("add_container({})", container);
         self.containers.push(container);
@@ -67,20 +61,23 @@ impl ComponentManifest {
 
     pub fn add_process(mut self, process: ProcessManifest) -> Self {
         if let Some(container_type) = process.container_type.as_ref() {
-            let m = self.containers.into_iter().map(|c| {
-                if c.type_name == container_type.as_str() {
-                    c.add_process(process.clone())
-                } else {
-                    c
-                }
-            }).collect::<Vec<ContainerManifest>>();
+            let m = self
+                .containers
+                .into_iter()
+                .map(|c| {
+                    if c.type_name == container_type.as_str() {
+                        c.add_process(process.clone())
+                    } else {
+                        c
+                    }
+                })
+                .collect::<Vec<ContainerManifest>>();
             self.containers = m;
             self
         } else {
             self.processes.push(process);
             self
         }
-        
     }
 }
 

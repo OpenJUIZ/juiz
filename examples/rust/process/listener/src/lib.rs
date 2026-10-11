@@ -1,6 +1,4 @@
-
 use juiz_sdk::prelude::*;
-
 
 #[juiz_process(
     description = "This is listener process."

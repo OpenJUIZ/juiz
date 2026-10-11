@@ -1,9 +1,8 @@
 use utoipa::OpenApi;
 
+use super::{IdentifierQuery, RecursiveQuery};
 use crate::prelude::*;
-use super::{RecursiveQuery, IdentifierQuery};
 use axum::{extract::Query, Json};
-
 
 #[allow(unused)]
 #[utoipa::path(
@@ -17,10 +16,7 @@ use axum::{extract::Query, Json};
     ),
     tag = "universal.container_process",
 )]
-pub fn profile_handler_dummy(
-    _query: Query<IdentifierQuery>,) {
-}
-
+pub fn profile_handler_dummy(_query: Query<IdentifierQuery>) {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -34,9 +30,7 @@ pub fn profile_handler_dummy(
     ),
     tag = "universal.container_process",
 )]
-pub fn openapi_spec_handler_dummy(
-    _query: Query<IdentifierQuery>,) {
-}
+pub fn openapi_spec_handler_dummy(_query: Query<IdentifierQuery>) {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -50,8 +44,7 @@ pub fn openapi_spec_handler_dummy(
     ),
     tag = "universal.container_process",
 )]
-pub fn list_dummy(_query: Query<RecursiveQuery>) {
-}
+pub fn list_dummy(_query: Query<RecursiveQuery>) {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -66,11 +59,7 @@ pub fn list_dummy(_query: Query<RecursiveQuery>) {
     ),
     tag = "universal.container_process",
 )]
-pub fn call_dummy(
-_query: Query<IdentifierQuery>,
-Json(_body): Json<Value>) {
-}
-
+pub fn call_dummy(_query: Query<IdentifierQuery>, Json(_body): Json<Value>) {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -85,10 +74,7 @@ Json(_body): Json<Value>) {
     ),
     tag = "universal.container_process",
 )]
-pub fn execute_dummy(
-_query: Query<IdentifierQuery>,
-Json(_body): Json<Value>) {
-}
+pub fn execute_dummy(_query: Query<IdentifierQuery>, Json(_body): Json<Value>) {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -103,10 +89,7 @@ Json(_body): Json<Value>) {
     ),
     tag = "universal.container_process",
 )]
-pub fn p_apply_dummy(
-_query: Query<IdentifierQuery>,
-Json(_body): Json<Value>) {
-}
+pub fn p_apply_dummy(_query: Query<IdentifierQuery>, Json(_body): Json<Value>) {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -120,9 +103,7 @@ Json(_body): Json<Value>) {
     ),
     tag = "universal.container_process",
 )]
-pub fn delete_dummy(
-_query: Query<IdentifierQuery>) {
-}
+pub fn delete_dummy(_query: Query<IdentifierQuery>) {}
 
 #[derive(OpenApi)]
 #[openapi(
@@ -135,7 +116,6 @@ _query: Query<IdentifierQuery>) {
         delete_dummy,
         p_apply_dummy,
     ),
-    components(schemas(
-    ))
+    components(schemas())
 )]
 pub struct ApiDoc;

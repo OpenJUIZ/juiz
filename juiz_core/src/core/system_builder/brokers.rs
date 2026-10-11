@@ -1,9 +1,12 @@
-
-
-use std::sync::{Arc, Mutex};
 use juiz_sdk::anyhow::Context;
+use std::sync::{Arc, Mutex};
 
-use crate::{brokers::broker_factories_wrapper::BrokerFactoriesWrapper, brokers::CoreBrokerPtr, plugin::{concat_dirname, plugin_name_to_file_name, RustPlugin}, prelude::*};
+use crate::{
+    brokers::broker_factories_wrapper::BrokerFactoriesWrapper,
+    brokers::CoreBrokerPtr,
+    plugin::{concat_dirname, plugin_name_to_file_name, RustPlugin},
+    prelude::*,
+};
 
 pub(super) fn setup_broker_factories(system: &mut System, manifest: &Value) -> JuizResult<()> {
     log::trace!("system_builder::setup_broker_factories() called");
@@ -15,30 +18,54 @@ pub(super) fn setup_broker_factories(system: &mut System, manifest: &Value) -> J
     Ok(())
 }
 
-
-fn setup_broker_factory(system: &mut System, manifest: &Value, name: &String, v: &Value) -> JuizResult<()> {
+fn setup_broker_factory(
+    system: &mut System,
+    manifest: &Value,
+    name: &String,
+    v: &Value,
+) -> JuizResult<()> {
     log::trace!("setup_broker_factory(name={name:}) called");
     let working_dir = None;
-    let plugin_filename = concat_dirname(v, plugin_name_to_file_name(&name.to_string()), working_dir)?;
+    let plugin_filename =
+        concat_dirname(v, plugin_name_to_file_name(&name.to_string()), working_dir)?;
     let bf;
     let bpf;
     unsafe {
         let plugin: RustPlugin = RustPlugin::load(plugin_filename)?;
         {
-            type BrokerFactorySymbolType<'a> = libloading::Symbol<'a, unsafe extern "Rust" fn(CoreBrokerPtr) -> JuizResult<Arc<Mutex<dyn BrokerFactory>>>>;
-            type BrokerProxyFactorySymbolType<'a> = libloading::Symbol<'a, unsafe extern "Rust" fn() -> JuizResult<Arc<Mutex<dyn BrokerProxyFactory>>>>;
+            type BrokerFactorySymbolType<'a> = libloading::Symbol<
+                'a,
+                unsafe extern "Rust" fn(CoreBrokerPtr) -> JuizResult<Arc<Mutex<dyn BrokerFactory>>>,
+            >;
+            type BrokerProxyFactorySymbolType<'a> = libloading::Symbol<
+                'a,
+                unsafe extern "Rust" fn() -> JuizResult<Arc<Mutex<dyn BrokerProxyFactory>>>,
+            >;
             let symbol_bf = plugin.load_symbol::<BrokerFactorySymbolType>(b"broker_factory")?;
-            bf = (symbol_bf)(system.core_broker().clone()).with_context(||format!("calling symbol 'broker_factory'. arg is {manifest:}"))?;
-            log::trace!("BrokerFactory (type_name={:?}) created.", juiz_lock(&bf)?.type_name());
-            let symbol_bpf = plugin.load_symbol::<BrokerProxyFactorySymbolType>(b"broker_proxy_factory")?;
-            bpf = (symbol_bpf)().with_context(||format!("calling symbol 'broker_proxy_factory'. arg is {manifest:}"))?;
-            log::trace!("BrokerProxyFactory (type_name={:?}) created.", juiz_lock(&bpf)?.type_name());
+            bf = (symbol_bf)(system.core_broker().clone())
+                .with_context(|| format!("calling symbol 'broker_factory'. arg is {manifest:}"))?;
+            log::trace!(
+                "BrokerFactory (type_name={:?}) created.",
+                juiz_lock(&bf)?.type_name()
+            );
+            let symbol_bpf =
+                plugin.load_symbol::<BrokerProxyFactorySymbolType>(b"broker_proxy_factory")?;
+            bpf = (symbol_bpf)().with_context(|| {
+                format!("calling symbol 'broker_proxy_factory'. arg is {manifest:}")
+            })?;
+            log::trace!(
+                "BrokerProxyFactory (type_name={:?}) created.",
+                juiz_lock(&bpf)?.type_name()
+            );
         }
-        system.register_broker_factories_wrapper(BrokerFactoriesWrapper::new(Some(plugin), bf, bpf)?)?;
+        system.register_broker_factories_wrapper(BrokerFactoriesWrapper::new(
+            Some(plugin),
+            bf,
+            bpf,
+        )?)?;
     }
     Ok(())
 }
-
 
 pub fn setup_brokers(system: &mut System, manifest: &Value) -> JuizResult<()> {
     log::trace!("system_builder::setup_brokers() called");
@@ -62,15 +89,12 @@ pub fn setup_broker_proxies(system: &mut System, manifest: &Value) -> JuizResult
     Ok(())
 }
 
-
-
-
-
 pub fn cleanup_brokers(system: &mut System) -> JuizResult<()> {
     log::trace!("system_builder::cleanup_brokers() called");
-    let r = system.core_broker().lock_mut().and_then(|mut cb|{
-        cb.worker_mut().store_mut().clear()
-    });
+    let r = system
+        .core_broker()
+        .lock_mut()
+        .and_then(|mut cb| cb.worker_mut().store_mut().clear());
     system.cleanup_brokers()?;
     log::trace!("system_builder::cleanup_brokers() exit");
     r

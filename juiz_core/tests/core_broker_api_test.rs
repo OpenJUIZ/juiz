@@ -17,7 +17,9 @@ fn check_system(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     assert_eq!(obj_get_str(&profile, "name")?, "core");
     assert!(profile.get("core_store").is_some());
     assert!(bp.system_uuid()?.as_str().is_some());
-    assert!(bp.system_filesystem_list(std::path::PathBuf::from("."))?.is_array());
+    assert!(bp
+        .system_filesystem_list(std::path::PathBuf::from("."))?
+        .is_array());
 
     assert_eq!(bp.process_list(false, None)?.len(), 3);
     assert_eq!(bp.container_list(false, None)?.len(), 3);
@@ -33,7 +35,9 @@ fn check_system(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
         let p = bp.broker_profile_full(b)?;
         assert!(!p.name.is_empty());
     }
-    assert!(bp.broker_profile_full(&"core://core/broker/none::none".to_owned()).is_err());
+    assert!(bp
+        .broker_profile_full(&"core://core/broker/none::none".to_owned())
+        .is_err());
     Ok(())
 }
 
@@ -42,18 +46,31 @@ fn check_processes(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     for (name, type_name) in PROCESSES {
         let id = find_process(&ids, name);
         let profile = bp.process_profile_full(id)?;
-        assert_eq!((profile.name.as_str(), profile.type_name.as_str()), (name, type_name));
+        assert_eq!(
+            (profile.name.as_str(), profile.type_name.as_str()),
+            (name, type_name)
+        );
         assert_eq!(bp.any_process_profile_full(id)?.name, name);
 
         assert_eq!(int_of(bp.process_call(id, args("arg1", 10))), 11, "{name}");
-        assert_eq!(int_of(bp.any_process_call(id, args("arg1", 20))), 21, "{name}");
+        assert_eq!(
+            int_of(bp.any_process_call(id, args("arg1", 20))),
+            21,
+            "{name}"
+        );
         // push_by は引数を設定して実行する
-        assert_eq!(int_of(bp.process_push_by(id, "arg1".to_owned(), jvalue!(7).into())), 8, "{name}");
+        assert_eq!(
+            int_of(bp.process_push_by(id, "arg1".to_owned(), jvalue!(7).into())),
+            8,
+            "{name}"
+        );
         // p_apply で引数を設定できる。execute はメモがあればそれを返すので値は問わない
         bp.process_p_apply(id, "arg1", jvalue!(30).into())?;
         assert!(try_int_of(&bp.process_execute(id)?).is_some(), "{name}");
         // 存在しない引数は設定できない
-        assert!(bp.process_p_apply(id, "no_such_arg", jvalue!(1).into()).is_err());
+        assert!(bp
+            .process_p_apply(id, "no_such_arg", jvalue!(1).into())
+            .is_err());
     }
 
     let unknown: ProcessIdentifier = "core://core/process/none::increment_process".try_into()?;
@@ -72,13 +89,29 @@ fn check_containers(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
         assert_eq!(bp.any_process_profile_full(get)?.name, get_name);
 
         let before = int_of(bp.container_process_call(get, CapsuleMap::new()));
-        assert_eq!(int_of(bp.container_process_call(add, args(arg_name, 3))), before + 3, "{container_name}");
-        assert_eq!(int_of(bp.any_process_call(get, CapsuleMap::new())), before + 3, "{container_name}");
+        assert_eq!(
+            int_of(bp.container_process_call(add, args(arg_name, 3))),
+            before + 3,
+            "{container_name}"
+        );
+        assert_eq!(
+            int_of(bp.any_process_call(get, CapsuleMap::new())),
+            before + 3,
+            "{container_name}"
+        );
         bp.container_process_p_apply(add, arg_name, jvalue!(2).into())?;
-        assert!(try_int_of(&bp.container_process_execute(add)?).is_some(), "{container_name}");
-        assert!(try_int_of(&bp.container_process_execute(get)?).is_some(), "{container_name}");
+        assert!(
+            try_int_of(&bp.container_process_execute(add)?).is_some(),
+            "{container_name}"
+        );
+        assert!(
+            try_int_of(&bp.container_process_execute(get)?).is_some(),
+            "{container_name}"
+        );
         // get には引数がない
-        assert!(bp.container_process_p_apply(get, arg_name, jvalue!(1).into()).is_err());
+        assert!(bp
+            .container_process_p_apply(get, arg_name, jvalue!(1).into())
+            .is_err());
     }
 
     let mut names = vec![];
@@ -113,11 +146,16 @@ fn check_ec(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     bp.ec_stop(&id)?;
     assert!(wait_ec_state(bp, &id, "STOPPED")?);
 
-    let created = bp.ec_create(&jvalue!({"type_name": "TimerEC", "name": "timer1", "rate": 0.01}))?;
+    let created =
+        bp.ec_create(&jvalue!({"type_name": "TimerEC", "name": "timer1", "rate": 0.01}))?;
     assert_eq!(obj_get_str(&created, "name")?, "timer1");
     assert_eq!(bp.ec_list(false)?.as_array().unwrap().len(), 2);
-    assert!(bp.ec_create(&jvalue!({"type_name": "NoSuchEC", "name": "x"})).is_err());
-    assert!(bp.ec_get_state(&"core://core/execution_context/none::TimerEC".to_owned()).is_err());
+    assert!(bp
+        .ec_create(&jvalue!({"type_name": "NoSuchEC", "name": "x"}))
+        .is_err());
+    assert!(bp
+        .ec_get_state(&"core://core/execution_context/none::TimerEC".to_owned())
+        .is_err());
     Ok(())
 }
 
@@ -128,11 +166,18 @@ fn check_create_connect_destroy(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     let dst = created.identifier();
     assert_eq!(bp.process_list(false, None)?.len(), 4);
     assert_eq!(int_of(bp.process_call(&dst, args("arg1", 1))), 2);
-    assert!(bp.process_create(&ProcessManifest::new("no_such_type").name("x")).is_err());
+    assert!(bp
+        .process_create(&ProcessManifest::new("no_such_type").name("x"))
+        .is_err());
 
     // inc0 の出力を inc_new の arg1 に Pull で繋ぐ
     let src = find_process(&bp.process_list(false, None)?, "inc0").clone();
-    let cm = ConnectionManifest::new(ConnectionType::Pull, src.clone(), "arg1".to_owned(), dst.clone());
+    let cm = ConnectionManifest::new(
+        ConnectionType::Pull,
+        src.clone(),
+        "arg1".to_owned(),
+        dst.clone(),
+    );
     let con: ConnectionIdentifier = bp.connection_create(&cm)?.into();
     let cons = bp.connection_list(false)?;
     assert_eq!(cons.len(), 1);
@@ -156,21 +201,35 @@ fn check_create_connect_destroy(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     let cid = cprofile.identifier();
     assert_eq!(bp.container_list(false, None)?.len(), 4);
     assert_eq!(bp.container_profile_full(&cid)?.name, "c_new");
-    let pprofile = bp.container_process_create(&cid, &ProcessManifest::new("example_container_get").name("c_new_get"))?;
+    let pprofile = bp.container_process_create(
+        &cid,
+        &ProcessManifest::new("example_container_get").name("c_new_get"),
+    )?;
     assert_eq!(pprofile.name, "c_new_get");
     let cprocs = bp.container_process_list(false, None)?;
     assert_eq!(cprocs.len(), 7);
     let pid = find_process(&cprocs, "c_new_get").clone();
-    assert_eq!(int_of(bp.container_process_call(&pid, CapsuleMap::new())), 5);
-    assert!(bp.container_process_create(&cid, &ProcessManifest::new("no_such_type").name("x")).is_err());
+    assert_eq!(
+        int_of(bp.container_process_call(&pid, CapsuleMap::new())),
+        5
+    );
+    assert!(bp
+        .container_process_create(&cid, &ProcessManifest::new("no_such_type").name("x"))
+        .is_err());
     Ok(())
 }
 
 fn check_topics(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     let uuid = Some(uuid::Uuid::new_v4());
     // ローカルにサブスクライバもパブリッシャもいないので購読・配信は要求されない
-    assert_eq!(bp.topic_request_subscribe("topic0", uuid)?, jvalue!({"subscribe": false}));
-    assert_eq!(bp.topic_request_publish("topic0", uuid)?, jvalue!({"publish": false}));
+    assert_eq!(
+        bp.topic_request_subscribe("topic0", uuid)?,
+        jvalue!({"subscribe": false})
+    );
+    assert_eq!(
+        bp.topic_request_publish("topic0", uuid)?,
+        jvalue!({"publish": false})
+    );
     // 存在しないトピックには push できない
     assert!(bp.topic_push("topic0", jvalue!(1).into(), None).is_err());
     Ok(())

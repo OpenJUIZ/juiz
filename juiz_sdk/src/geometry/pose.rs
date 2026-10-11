@@ -4,8 +4,11 @@ use quaternion_core::{RotationSequence, RotationType};
 
 use std::ops::{Add, Mul};
 
+use nalgebra::{
+    base::{Vector3, Vector4},
+    RealField, UnitQuaternion,
+};
 use serde::{Deserialize, Serialize};
-use nalgebra::{base::{Vector3, Vector4}, RealField, UnitQuaternion};
 
 #[derive(Serialize, Deserialize)]
 pub struct Vec3<T: Float> {
@@ -16,13 +19,16 @@ pub struct Vec3<T: Float> {
 
 #[allow(unused)]
 impl<T: Float> Vec3<T> {
-
     pub fn zero() -> Self {
-        Self{x: T::zero(), y: T::zero(), z: T::zero()}
+        Self {
+            x: T::zero(),
+            y: T::zero(),
+            z: T::zero(),
+        }
     }
 
     pub fn new(x: T, y: T, z: T) -> Self {
-        Self{x, y, z}
+        Self { x, y, z }
     }
 }
 
@@ -30,7 +36,7 @@ impl<T: Float> Add for Vec3<T> {
     type Output = Vec3<T>;
 
     fn add(self, rhs: Self) -> Self::Output {
-        Self::new(self.x+rhs.x, self.y+rhs.y, self.z+rhs.z)
+        Self::new(self.x + rhs.x, self.y + rhs.y, self.z + rhs.z)
     }
 }
 
@@ -47,7 +53,7 @@ pub type Point3D<T> = Vec3<T>;
 /// ```
 impl<T: Float> From<Vector3<T>> for Point3D<T> {
     fn from(value: Vector3<T>) -> Self {
-        Point3D{
+        Point3D {
             x: value.data.0[0][0],
             y: value.data.0[0][1],
             z: value.data.0[0][2],
@@ -61,13 +67,12 @@ impl<T: Float> Into<Vector3<T>> for Point3D<T> {
     }
 }
 
-
 impl<T: 'static + Float + std::fmt::Debug> From<nalgebra::geometry::Point3<T>> for Vec3<T> {
     fn from(value: nalgebra::geometry::Point3<T>) -> Self {
         Self {
             x: value.x,
             y: value.y,
-            z: value.z
+            z: value.z,
         }
     }
 }
@@ -88,13 +93,17 @@ pub struct Vec4<T: Float> {
 
 #[allow(unused)]
 impl<T: Float> Vec4<T> {
-
     pub fn zero() -> Self {
-        Self{x:T::zero(), y:T::zero(), z:T::zero(), w:T::one()}
+        Self {
+            x: T::zero(),
+            y: T::zero(),
+            z: T::zero(),
+            w: T::one(),
+        }
     }
 
-    pub fn new(x:T, y:T, z:T, w:T) -> Self {
-        Self{x, y, z, w}
+    pub fn new(x: T, y: T, z: T, w: T) -> Self {
+        Self { x, y, z, w }
     }
 }
 
@@ -128,19 +137,21 @@ impl<T: Float> Into<Vector4<T>> for Orientation3D<T> {
     }
 }
 
-impl<T: Float+RealField> Into<UnitQuaternion<T>> for Quaternion<T> {
+impl<T: Float + RealField> Into<UnitQuaternion<T>> for Quaternion<T> {
     fn into(self) -> UnitQuaternion<T> {
-        UnitQuaternion::from_quaternion(nalgebra::Quaternion::<T>::new(self.w, self.x, self.y, self.z))
+        UnitQuaternion::from_quaternion(nalgebra::Quaternion::<T>::new(
+            self.w, self.x, self.y, self.z,
+        ))
     }
 }
 
-impl<T: Float+RealField> From<UnitQuaternion<T>> for Quaternion<T> {
+impl<T: Float + RealField> From<UnitQuaternion<T>> for Quaternion<T> {
     fn from(value: UnitQuaternion<T>) -> Self {
-        Quaternion::<T>{
+        Quaternion::<T> {
             x: value.i,
             y: value.j,
             z: value.k,
-            w: value.w
+            w: value.w,
         }
     }
 }
@@ -159,32 +170,41 @@ pub struct Transform3D<T: Float> {
 
 #[allow(unused)]
 impl<T: Float> Transform3D<T> {
-
     pub fn zero() -> Self {
-        Self{linear:Vec3::<T>::zero(), angular: Quaternion::<T>::zero()}
+        Self {
+            linear: Vec3::<T>::zero(),
+            angular: Quaternion::<T>::zero(),
+        }
     }
 
     pub fn new(linear: Vec3<T>, angular: Quaternion<T>) -> Self {
-        Self{linear, angular}
+        Self { linear, angular }
     }
 }
 
-
 #[allow(unused)]
-pub fn quaternion_from_euler_xyz<F>(roll:F, pitch: F, yaw: F) -> Quaternion<F> where F: RealField + Float {
+pub fn quaternion_from_euler_xyz<F>(roll: F, pitch: F, yaw: F) -> Quaternion<F>
+where
+    F: RealField + Float,
+{
     let q = UnitQuaternion::from_euler_angles(roll, pitch, yaw);
     Quaternion::<F>::new(q.i, q.j, q.k, q.w)
 }
 
 #[allow(unused)]
-pub fn euler_xyz_from_quaternion<F>(q: Quaternion<F>) -> Vec3<F> where F: FloatConst + Float {
+pub fn euler_xyz_from_quaternion<F>(q: Quaternion<F>) -> Vec3<F>
+where
+    F: FloatConst + Float,
+{
     //let qq : UnitQuaternion<F> = q.into();
     //let (roll, pitch, yaw) = qq.euler_angles();
-    let e = quaternion_core::to_euler_angles(RotationType::Intrinsic, RotationSequence::XYZ,  (q.w, [q.x, q.y, q.z]));
+    let e = quaternion_core::to_euler_angles(
+        RotationType::Intrinsic,
+        RotationSequence::XYZ,
+        (q.w, [q.x, q.y, q.z]),
+    );
     Vec3::<F>::new(e[0], e[1], e[2])
 }
-
-
 
 #[allow(unused)]
 pub use quaternion_from_euler_xyz as q_from_e;
@@ -199,7 +219,7 @@ pub use quaternion_from_euler_xyz as q_from_e;
 /// assert_eq!(vec3.linear.x, 0.2);
 /// assert_eq!(vec3.linear.y, 0.4);
 /// assert_eq!(vec3.linear.z, 0.6);
-/// 
+///
 /// let vec4 = Transform3D::<f32>::new(Vec3::<f32>::new(0.1, 0., 0.), quaternion_from_euler_xyz(0., std::f32::consts::FRAC_PI_2, 0.));
 /// let vec5 = Transform3D::<f32>::new(Vec3::<f32>::new(0.1, 0., 0.), Quaternion::<f32>::zero());
 /// let vec6 = vec5 * vec4;
@@ -210,7 +230,7 @@ pub use quaternion_from_euler_xyz as q_from_e;
 /// assert_relative_eq!(euler.x, 0.0);
 /// assert_relative_eq!(euler.y, std::f32::consts::FRAC_PI_2, epsilon = f32::EPSILON);
 /// assert_relative_eq!(euler.z, 0.0);
-/// 
+///
 /// let vec7 = Transform3D::<f32>::new(Vec3::<f32>::new(0.1, 0., 0.), quaternion_from_euler_xyz(0., std::f32::consts::FRAC_PI_2, 0.));
 /// let vec8 = Transform3D::<f32>::new(Vec3::<f32>::new(0.1, 0., 0.), quaternion_from_euler_xyz(0., 0., std::f32::consts::FRAC_PI_2));
 /// let vec9 = Transform3D::<f32>::new(Vec3::<f32>::new(0.1, 0., 0.), Quaternion::<f32>::zero());
@@ -223,7 +243,7 @@ pub use quaternion_from_euler_xyz as q_from_e;
 /// assert_relative_eq!(euler2.y, std::f32::consts::FRAC_PI_2, epsilon = f32::EPSILON);
 /// assert_relative_eq!(euler2.z, 0., epsilon = f32::EPSILON);
 /// ```
-impl<T: Float+RealField> Mul for Transform3D<T> {
+impl<T: Float + RealField> Mul for Transform3D<T> {
     type Output = Transform3D<T>;
 
     fn mul(self, rhs: Self) -> Self::Output {

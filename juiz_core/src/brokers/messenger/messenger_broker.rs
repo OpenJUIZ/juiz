@@ -1,12 +1,15 @@
-use std::{sync::{atomic::AtomicBool, Arc, Mutex}, time::Duration};
+use std::{
+    sync::{atomic::AtomicBool, Arc, Mutex},
+    time::Duration,
+};
 
 use tokio::runtime;
 
 use juiz_sdk::anyhow;
 
 use super::super::core_broker::CoreBrokerPtr;
-use crate::{prelude::*};
 use crate::brokers::Broker;
+use crate::prelude::*;
 use std::sync::atomic::Ordering::SeqCst;
 
 use super::super::crud_broker::CRUDBroker;
@@ -14,16 +17,20 @@ use super::super::crud_broker::CRUDBroker;
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct MessengerBroker {
-    core: ObjectCore, 
+    core: ObjectCore,
     thread_handle: Option<tokio::task::JoinHandle<()>>,
     end_flag: Arc<Mutex<AtomicBool>>,
-    crud_broker: Arc<Mutex<CRUDBroker>>, 
+    crud_broker: Arc<Mutex<CRUDBroker>>,
     messenger_core: Arc<Mutex<dyn MessengerBrokerCore>>,
     tokio_runtime: Option<runtime::Runtime>,
 }
 
-pub trait MessengerBrokerCore : Send + std::fmt::Debug {
-    fn receive_and_send(&self, timeout: Duration, func: Arc<Mutex<dyn Fn(CapsuleMap)->JuizResult<CapsulePtr >>>) -> JuizResult<Capsule>;
+pub trait MessengerBrokerCore: Send + std::fmt::Debug {
+    fn receive_and_send(
+        &self,
+        timeout: Duration,
+        func: Arc<Mutex<dyn Fn(CapsuleMap) -> JuizResult<CapsulePtr>>>,
+    ) -> JuizResult<Capsule>;
 }
 
 pub trait MessengerBrokerCoreFactory {
@@ -31,56 +38,102 @@ pub trait MessengerBrokerCoreFactory {
 }
 
 impl MessengerBroker {
-
-    pub fn new<'a>(impl_class_name: &'static str, type_name: &'a str, object_name: &'a str, core_broker: CoreBrokerPtr, messenger: Arc<Mutex<dyn MessengerBrokerCore>> ) -> JuizResult<Self>{
+    pub fn new<'a>(
+        impl_class_name: &'static str,
+        type_name: &'a str,
+        object_name: &'a str,
+        core_broker: CoreBrokerPtr,
+        messenger: Arc<Mutex<dyn MessengerBrokerCore>>,
+    ) -> JuizResult<Self> {
         let manifest = jvalue!({
             "class_name": impl_class_name.to_string(),
             "type_name": type_name,
             "name": object_name
         });
-        Ok(MessengerBroker{
-                core: ObjectCore::create(JuizObjectClass::Broker(impl_class_name), type_name, object_name),
-                thread_handle: None,
-                messenger_core: messenger,
-                crud_broker: Arc::new(Mutex::new(CRUDBroker::new(core_broker.clone(), manifest)?)),
-                end_flag: Arc::new(Mutex::new(AtomicBool::from(false))),
-                //tokio_runtime: Some(runtime::Builder::new_multi_thread().enable_all().build().unwrap()),
-                tokio_runtime: Some(tokio::runtime::Builder::new_multi_thread().thread_name("messenger_broker").worker_threads(4).enable_all().build().unwrap()), 
-           })
+        Ok(MessengerBroker {
+            core: ObjectCore::create(
+                JuizObjectClass::Broker(impl_class_name),
+                type_name,
+                object_name,
+            ),
+            thread_handle: None,
+            messenger_core: messenger,
+            crud_broker: Arc::new(Mutex::new(CRUDBroker::new(core_broker.clone(), manifest)?)),
+            end_flag: Arc::new(Mutex::new(AtomicBool::from(false))),
+            //tokio_runtime: Some(runtime::Builder::new_multi_thread().enable_all().build().unwrap()),
+            tokio_runtime: Some(
+                tokio::runtime::Builder::new_multi_thread()
+                    .thread_name("messenger_broker")
+                    .worker_threads(4)
+                    .enable_all()
+                    .build()
+                    .unwrap(),
+            ),
+        })
     }
 }
 
-fn extract_method_name(args: & CapsuleMap) -> JuizResult<&String> {
-    let err = |name: &str | anyhow::Error::from(JuizError::CapsuleDoesNotIncludeParamError{ name: name.to_owned() });
-    Ok(args.get_param("method_name").ok_or_else( || err("method_name") )?)
+fn extract_method_name(args: &CapsuleMap) -> JuizResult<&String> {
+    let err = |name: &str| {
+        anyhow::Error::from(JuizError::CapsuleDoesNotIncludeParamError {
+            name: name.to_owned(),
+        })
+    };
+    Ok(args
+        .get_param("method_name")
+        .ok_or_else(|| err("method_name"))?)
 }
 
 fn extract_class_name<'a>(args: &'a CapsuleMap) -> JuizResult<String> {
     // method_name, class_name, function_name, params
-    let err = |name: &str | anyhow::Error::from(JuizError::CapsuleDoesNotIncludeParamError{ name: name.to_owned() });
-    let class_name = args.get_param("class_name").ok_or_else( || err("class_name") )?;
+    let err = |name: &str| {
+        anyhow::Error::from(JuizError::CapsuleDoesNotIncludeParamError {
+            name: name.to_owned(),
+        })
+    };
+    let class_name = args
+        .get_param("class_name")
+        .ok_or_else(|| err("class_name"))?;
     Ok(class_name.to_owned())
 }
 fn extract_function_name<'a>(args: &'a CapsuleMap) -> JuizResult<&'a String> {
-    let err = |name: &str | anyhow::Error::from(JuizError::CapsuleDoesNotIncludeParamError{ name: name.to_owned() });
-    let function_name = args.get_param("function_name").ok_or_else( || err("function_name") )?;
+    let err = |name: &str| {
+        anyhow::Error::from(JuizError::CapsuleDoesNotIncludeParamError {
+            name: name.to_owned(),
+        })
+    };
+    let function_name = args
+        .get_param("function_name")
+        .ok_or_else(|| err("function_name"))?;
     Ok(function_name)
 }
 
-
-fn handle_function(crud_broker: Arc<Mutex<CRUDBroker>>, args: CapsuleMap) -> JuizResult<CapsulePtr> {
+fn handle_function(
+    crud_broker: Arc<Mutex<CRUDBroker>>,
+    args: CapsuleMap,
+) -> JuizResult<CapsulePtr> {
     log::info!("MessengerBroker::handle_function() called");
     let class_name = extract_class_name(&args)?;
     let function_name = extract_function_name(&args)?.to_owned();
 
     match extract_method_name(&args)?.as_str() {
-        "CREATE" => juiz_lock(&crud_broker)?.create_class(class_name.as_str(), function_name.as_str(), args),
-        "READ" =>  juiz_lock(&crud_broker)?.read_class(class_name.as_str(), function_name.as_str(), args),
-        "UPDATE" =>  juiz_lock(&crud_broker)?.update_class(class_name.as_str(), function_name.as_str(), args),
-        "DELETE" => juiz_lock(&crud_broker)?.delete_class(class_name.as_str(), function_name.as_str(), args),
-        _ => {
-            Err(anyhow::Error::from(JuizError::CRUDBRokerCanNotFindMethodError{method_name: "".to_owned()}))
+        "CREATE" => {
+            juiz_lock(&crud_broker)?.create_class(class_name.as_str(), function_name.as_str(), args)
         }
+        "READ" => {
+            juiz_lock(&crud_broker)?.read_class(class_name.as_str(), function_name.as_str(), args)
+        }
+        "UPDATE" => {
+            juiz_lock(&crud_broker)?.update_class(class_name.as_str(), function_name.as_str(), args)
+        }
+        "DELETE" => {
+            juiz_lock(&crud_broker)?.delete_class(class_name.as_str(), function_name.as_str(), args)
+        }
+        _ => Err(anyhow::Error::from(
+            JuizError::CRUDBRokerCanNotFindMethodError {
+                method_name: "".to_owned(),
+            },
+        )),
     }
 }
 
@@ -90,11 +143,9 @@ impl JuizObjectCoreHolder for MessengerBroker {
     }
 }
 
-impl JuizObject for MessengerBroker {
-}
+impl JuizObject for MessengerBroker {}
 
 impl Broker for MessengerBroker {
-
     fn start(&mut self) -> JuizResult<()> {
         let end_flag = Arc::clone(&self.end_flag);
         log::trace!("LocalBroker::start() called");
@@ -107,11 +158,11 @@ impl Broker for MessengerBroker {
 
                 loop {
                     let crud = cb.clone();
-                    let func: Arc<Mutex<dyn Fn(CapsuleMap)->JuizResult<CapsulePtr>>> = 
+                    let func: Arc<Mutex<dyn Fn(CapsuleMap)->JuizResult<CapsulePtr>>> =
                         Arc::new(Mutex::new(move |value:CapsuleMap| -> JuizResult<CapsulePtr> {
-                            handle_function(Arc::clone(&crud), value) 
+                            handle_function(Arc::clone(&crud), value)
                         }));
-                        
+
                     std::thread::sleep(Duration::new(0, 10 * 1000));
                     match end_flag.lock() {
                         Err(e) => {
@@ -151,9 +202,7 @@ impl Broker for MessengerBroker {
     fn stop(&mut self) -> JuizResult<()> {
         log::debug!("LocalBroker::stop() called");
         match self.end_flag.lock() {
-            Err(_) => {
-
-            },
+            Err(_) => {}
             Ok(f) => {
                 f.swap(true, SeqCst);
             }
@@ -166,12 +215,12 @@ impl Broker for MessengerBroker {
     fn wait_until_started(&mut self, _timeout: Duration) -> JuizResult<()> {
         Ok(())
     }
-    
+
     fn identifier(&self) -> BrokerIdentifier {
         self.core.identifier().try_into().unwrap()
     }
-    
+
     fn profile(&self) -> BrokerProfile {
-        self.core.profile_full().unwrap().try_into().unwrap()  
+        self.core.profile_full().unwrap().try_into().unwrap()
     }
 }

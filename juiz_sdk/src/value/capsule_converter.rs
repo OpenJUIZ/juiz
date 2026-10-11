@@ -1,108 +1,124 @@
+use std::{
+    ffi::CStr,
+    sync::{Arc, Mutex},
+};
 
-use std::{sync::{Arc, Mutex}, ffi::CStr};
-
-use crate::prelude::*;
 use super::converter_error::*;
-
-
+use crate::prelude::*;
 
 #[no_mangle]
 pub unsafe extern "C" fn arc_capsule_is_value(capsule: *mut Arc<Mutex<Capsule>>) -> bool {
     let c = capsule.as_ref().unwrap();
-    let is_value = c.lock().and_then(|cap| {Ok(cap.is_value())} );
+    let is_value = c.lock().and_then(|cap| Ok(cap.is_value()));
     is_value.unwrap()
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn arc_capsule_is_int(capsule: *mut Arc<Mutex<Capsule>>) -> bool {
     if arc_capsule_is_value(capsule) {
-        let c = capsule.as_ref().unwrap();    
-        return c.lock().and_then(|cap| {
-            let v = cap.as_value().unwrap();
-            Ok(v.is_i64())
-        }).unwrap();
+        let c = capsule.as_ref().unwrap();
+        return c
+            .lock()
+            .and_then(|cap| {
+                let v = cap.as_value().unwrap();
+                Ok(v.is_i64())
+            })
+            .unwrap();
     }
-    false    
+    false
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn arc_capsule_is_float(capsule: *mut Arc<Mutex<Capsule>>) -> bool {
     if arc_capsule_is_value(capsule) {
-        let c = capsule.as_ref().unwrap();    
-        return c.lock().and_then(|cap| {
-            let v = cap.as_value().unwrap();
-            Ok(v.is_f64())
-        }).unwrap();
+        let c = capsule.as_ref().unwrap();
+        return c
+            .lock()
+            .and_then(|cap| {
+                let v = cap.as_value().unwrap();
+                Ok(v.is_f64())
+            })
+            .unwrap();
     }
-    false    
+    false
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn arc_capsule_is_bool(capsule: *mut Arc<Mutex<Capsule>>) -> bool {
     if arc_capsule_is_value(capsule) {
-        let c = capsule.as_ref().unwrap();    
-        return c.lock().and_then(|cap| {
-            let v = cap.as_value().unwrap();
-            Ok(v.is_boolean())
-        }).unwrap();
+        let c = capsule.as_ref().unwrap();
+        return c
+            .lock()
+            .and_then(|cap| {
+                let v = cap.as_value().unwrap();
+                Ok(v.is_boolean())
+            })
+            .unwrap();
     }
-    false    
+    false
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn arc_capsule_is_array(capsule: *mut Arc<Mutex<Capsule>>) -> bool {
     if arc_capsule_is_value(capsule) {
-        let c = capsule.as_ref().unwrap();    
-        return c.lock().and_then(|cap| {
-            let v = cap.as_value().unwrap();
-            Ok(v.is_array())
-        }).unwrap();
+        let c = capsule.as_ref().unwrap();
+        return c
+            .lock()
+            .and_then(|cap| {
+                let v = cap.as_value().unwrap();
+                Ok(v.is_array())
+            })
+            .unwrap();
     }
-    false    
+    false
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn arc_capsule_is_object(capsule: *mut Arc<Mutex<Capsule>>) -> bool {
     if arc_capsule_is_value(capsule) {
-        let c = capsule.as_ref().unwrap();    
-        return c.lock().and_then(|cap| {
-            Ok(cap.as_value().unwrap().is_object())
-        }).unwrap();
+        let c = capsule.as_ref().unwrap();
+        return c
+            .lock()
+            .and_then(|cap| Ok(cap.as_value().unwrap().is_object()))
+            .unwrap();
     }
-    false    
+    false
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn arc_capsule_is_string(capsule: *mut Arc<Mutex<Capsule>>) -> bool {
     if arc_capsule_is_value(capsule) {
-        let c = capsule.as_ref().unwrap();    
-        return c.lock().and_then(|cap| {
-            Ok(cap.as_value().unwrap().is_string())
-        }).unwrap();
+        let c = capsule.as_ref().unwrap();
+        return c
+            .lock()
+            .and_then(|cap| Ok(cap.as_value().unwrap().is_string()))
+            .unwrap();
     }
-    false    
+    false
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn arc_capsule_is_null(capsule: *mut Arc<Mutex<Capsule>>) -> bool {
     if arc_capsule_is_value(capsule) {
-        let c = capsule.as_ref().unwrap();    
-        return c.lock().and_then(|cap| {
-            Ok(cap.as_value().unwrap().is_null())
-        }).unwrap();
+        let c = capsule.as_ref().unwrap();
+        return c
+            .lock()
+            .and_then(|cap| Ok(cap.as_value().unwrap().is_null()))
+            .unwrap();
     }
-    false    
+    false
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn arc_capsule_is_uint(capsule: *mut Arc<Mutex<Capsule>>) -> bool {
     if arc_capsule_is_value(capsule) {
-        let c = capsule.as_ref().unwrap();    
-        return c.lock().and_then(|cap| {
-            Ok(cap.as_value().unwrap().is_u64())
-        }).unwrap();
+        let c = capsule.as_ref().unwrap();
+        return c
+            .lock()
+            .and_then(|cap| Ok(cap.as_value().unwrap().is_u64()))
+            .unwrap();
     }
-    false    
+    false
 }
 
 #[no_mangle]
@@ -143,8 +159,6 @@ pub unsafe extern "C" fn capsule_set_int(capsule: *mut Capsule, v: i64) -> i64 {
     JUIZ_OK
 }
 
-
-
 #[no_mangle]
 pub unsafe extern "C" fn capsule_is_uint(capsule: *mut Capsule) -> bool {
     if capsule_is_value(capsule) {
@@ -176,8 +190,6 @@ pub unsafe extern "C" fn capsule_set_uint(capsule: *mut Capsule, v: u64) -> i64 
     cap.replace_value(jvalue!(v).into());
     JUIZ_OK
 }
-
-
 
 #[no_mangle]
 pub unsafe extern "C" fn capsule_is_float(capsule: *mut Capsule) -> bool {
@@ -211,8 +223,6 @@ pub unsafe extern "C" fn capsule_set_float(capsule: *mut Capsule, v: f64) -> i64
     JUIZ_OK
 }
 
-
-
 #[no_mangle]
 pub unsafe extern "C" fn capsule_is_bool(capsule: *mut Capsule) -> bool {
     if capsule_is_value(capsule) {
@@ -241,11 +251,9 @@ pub unsafe extern "C" fn capsule_get_bool(capsule: *mut Capsule, v: *mut i64) ->
 #[no_mangle]
 pub unsafe extern "C" fn capsule_set_bool(capsule: *mut Capsule, v: i64) -> i64 {
     let cap = capsule.as_mut().unwrap();
-    cap.replace_value(jvalue!(if v != 0 { true } else { false } ).into());
+    cap.replace_value(jvalue!(if v != 0 { true } else { false }).into());
     JUIZ_OK
 }
-
-
 
 #[no_mangle]
 pub unsafe extern "C" fn capsule_is_string(capsule: *mut Capsule) -> bool {
@@ -273,7 +281,10 @@ pub unsafe extern "C" fn capsule_get_string(capsule: *mut Capsule, v: *mut *cons
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn capsule_set_string(capsule: *mut Capsule, v: *const std::os::raw::c_char) -> i64 {
+pub unsafe extern "C" fn capsule_set_string(
+    capsule: *mut Capsule,
+    v: *const std::os::raw::c_char,
+) -> i64 {
     let cap = capsule.as_mut().unwrap();
     cap.replace_value(jvalue!(CStr::from_ptr(v).to_str().unwrap()).into());
     JUIZ_OK
