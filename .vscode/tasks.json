@@ -1,0 +1,57 @@
+{
+  // CI(.github/workflows/test.yml)と同じ手順でビルド・テストするタスク。
+  // devcontainer の外でも動くように PYO3_PYTHON と PYTHONPATH を設定している。
+  "version": "2.0.0",
+  "options": {
+    "env": {
+      "PYO3_PYTHON": "python3",
+      "PYTHONPATH": "${workspaceFolder}/bindings/pyjuiz",
+      "RUST_BACKTRACE": "1"
+    }
+  },
+  "tasks": [
+    {
+      "label": "cargo build",
+      "type": "shell",
+      "command": "cargo build",
+      "problemMatcher": ["$rustc"],
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "cmake build (C++ examples)",
+      "type": "shell",
+      "command": "cmake -S examples/cpp -B examples/cpp/build -DCMAKE_BUILD_TYPE=Debug && cmake --build examples/cpp/build --parallel",
+      "problemMatcher": ["$gcc"],
+      "group": "build"
+    },
+    {
+      "label": "build all",
+      "dependsOn": ["cargo build", "cmake build (C++ examples)"],
+      "dependsOrder": "sequence",
+      "problemMatcher": [],
+      "group": "build"
+    },
+    {
+      // system_test はビルド済みの例を読み込むので先に build all を実行する。
+      // ブローカーのポートや埋め込み Python を使うためテストは直列に実行する。
+      "label": "cargo test",
+      "type": "shell",
+      "command": "cargo test -- --test-threads=1",
+      "dependsOn": ["build all"],
+      "problemMatcher": ["$rustc"],
+      "group": { "kind": "test", "isDefault": true }
+    },
+    {
+      "label": "cargo clippy",
+      "type": "shell",
+      "command": "cargo clippy --all-targets",
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "cargo fmt",
+      "type": "shell",
+      "command": "cargo fmt --all",
+      "problemMatcher": []
+    }
+  ]
+}

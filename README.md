@@ -70,6 +70,13 @@ cargo test -- --test-threads=1
 
 HTTP ブローカーの 8000 番ポートはホストに転送されるので、ホストのブラウザから http://localhost:8000/docs を開けます。
 
+`.vscode/` には、コンテナの内外どちらでも使える VS Code の設定があります。
+
+- `extensions.json`: 推奨拡張機能(rust-analyzer、CodeLLDB など。devcontainer と同じもの)
+- `settings.json`: 保存時の clippy チェック、rust-analyzer のビルド先の分離(`target/rust-analyzer`)など
+- `tasks.json`: CI と同じ手順のビルド・テスト(「Tasks: Run Build Task」「Tasks: Run Test Task」)
+- `launch.json`: CodeLLDB で `juiz` コマンドや juiz_core の単体テストをデバッグ実行する設定
+
 ## クイックスタート
 
 設定ファイル（YAML 形式の .conf ファイル）を `-f` オプションで指定して `juiz` コマンドを起動します。
