@@ -1,0 +1,13 @@
+{
+  // .devcontainer/devcontainer.json の extensions と揃えている。
+  // ローカルで開いたときも同じ拡張機能が推奨される。
+  "recommendations": [
+    "rust-lang.rust-analyzer",
+    "vadimcn.vscode-lldb",
+    "tamasfe.even-better-toml",
+    "ms-python.python",
+    "ms-vscode.cmake-tools",
+    "ms-vscode.cpptools",
+    "ms-vscode-remote.remote-containers"
+  ]
+}

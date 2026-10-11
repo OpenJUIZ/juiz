@@ -1,0 +1,64 @@
+{
+  // CodeLLDB(vadimcn.vscode-lldb)でのデバッグ設定。
+  // Cargo.toml の [profile.dev] は debug = "line-tables-only" なので、
+  // 変数を見たい場合は一時的に debug = true に変更してからビルドする。
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "juiz: example_container.conf",
+      "cargo": {
+        "env": { "PYO3_PYTHON": "python3" },
+        "args": ["build", "--bin=juiz", "--package=juiz_app"],
+        "filter": { "name": "juiz", "kind": "bin" }
+      },
+      "args": ["-f", "examples/rust/container/example_container.conf", "-d"],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/bindings/pyjuiz",
+        "RUST_BACKTRACE": "1"
+      }
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "juiz: 任意の .conf を指定",
+      "cargo": {
+        "env": { "PYO3_PYTHON": "python3" },
+        "args": ["build", "--bin=juiz", "--package=juiz_app"],
+        "filter": { "name": "juiz", "kind": "bin" }
+      },
+      "args": ["-f", "${input:confFile}", "-d"],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/bindings/pyjuiz",
+        "RUST_BACKTRACE": "1"
+      }
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "juiz_core: 単体テスト",
+      "cargo": {
+        "env": { "PYO3_PYTHON": "python3" },
+        "args": ["test", "--no-run", "--lib", "--package=juiz_core"],
+        "filter": { "name": "juiz_core", "kind": "lib" }
+      },
+      "args": ["--test-threads=1"],
+      "cwd": "${workspaceFolder}/juiz_core",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/bindings/pyjuiz",
+        "RUST_BACKTRACE": "1"
+      }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "confFile",
+      "type": "promptString",
+      "description": "juiz に渡す設定ファイルのパス",
+      "default": "juiz.conf"
+    }
+  ]
+}

@@ -11,3 +11,4 @@ Cargo.lock
 /bindings/pyjuiz/dist/
 /bindings/pyjuiz/*.egg-info/
 !.devcontainer/
+!.vscode/

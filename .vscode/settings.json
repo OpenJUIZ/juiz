@@ -1,0 +1,44 @@
+{
+  // ---- Rust ----
+  // 既存コードは rustfmt 未適用なので、保存時の自動整形は無効にしておく
+  // (有効にすると保存するたびにファイル全体が整形され、差分が大きくなる)
+  "[rust]": {
+    "editor.defaultFormatter": "rust-lang.rust-analyzer",
+    "editor.formatOnSave": false
+  },
+  // 保存時のチェックを clippy で行う
+  "rust-analyzer.check.command": "clippy",
+  // rust-analyzer のビルドを target/rust-analyzer に分け、
+  // ターミナルの cargo build / cargo test とロックを取り合わないようにする
+  "rust-analyzer.cargo.targetDir": true,
+  // pyo3 が埋め込む Python をシステムの python3 に固定する(CI・devcontainer と同じ)
+  "rust-analyzer.cargo.extraEnv": {
+    "PYO3_PYTHON": "python3"
+  },
+
+  // ---- Python(pyjuiz と Python の例)----
+  "python.analysis.extraPaths": ["${workspaceFolder}/bindings/pyjuiz"],
+
+  // ---- C++ の例(CMake)----
+  "cmake.sourceDirectory": "${workspaceFolder}/examples/cpp",
+  "cmake.buildDirectory": "${workspaceFolder}/examples/cpp/build",
+  "cmake.configureOnOpen": false,
+
+  // ---- 設定ファイル ----
+  // juiz の .conf は YAML 形式
+  "files.associations": {
+    "*.conf": "yaml"
+  },
+
+  // ---- エディタ全般 ----
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+  "files.watcherExclude": {
+    "**/target/**": true,
+    "**/examples/cpp/build/**": true
+  },
+  "search.exclude": {
+    "**/target": true,
+    "**/examples/cpp/build": true
+  }
+}
