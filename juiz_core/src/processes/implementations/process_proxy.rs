@@ -75,11 +75,11 @@ impl Process for ProcessProxy {
         juiz_lock(&self.broker_proxy)?.any_process_profile_full(&self.identifier())
     }
 
-    fn invoke<'b>(&self) -> JuizResult<CapsulePtr> {
+    fn invoke<'b>(&self) -> JuizResult<ResponsePtr> {
         todo!()
     }
 
-    fn execute(&self) -> JuizResult<CapsulePtr> {
+    fn execute(&self) -> JuizResult<ResponsePtr> {
         todo!()
     }
 
@@ -94,7 +94,7 @@ impl Process for ProcessProxy {
         })
     }
 
-    fn get_output(&self) -> CapsulePtr {
+    fn get_output(&self) -> ResponsePtr {
         todo!()
     }
 

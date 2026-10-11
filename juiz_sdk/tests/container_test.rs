@@ -38,10 +38,10 @@ impl Process for DummyProcess {
     fn is_updated(&self) -> JuizResult<bool> { Ok(false) }
     fn identifier(&self) -> ProcessIdentifier { self.id.clone() }
     fn profile(&self) -> JuizResult<ProcessProfile> { Ok(ProcessProfile::new(&self.id.name, "get")) }
-    fn invoke<'b>(&self) -> JuizResult<CapsulePtr> { unimplemented!() }
-    fn execute(&self) -> JuizResult<CapsulePtr> { unimplemented!() }
+    fn invoke<'b>(&self) -> JuizResult<ResponsePtr> { unimplemented!() }
+    fn execute(&self) -> JuizResult<ResponsePtr> { unimplemented!() }
     fn push_by(&self, _arg_name: &str, _value: CapsulePtr) -> JuizResult<CapsulePtr> { unimplemented!() }
-    fn get_output(&self) -> CapsulePtr { CapsulePtr::new() }
+    fn get_output(&self) -> ResponsePtr { CapsulePtr::new() }
     fn notify_connected_from<'b>(&'b mut self, _source: ProcessPtr, _m: &ConnectionManifest) -> JuizResult<ConnectionProfile> { unimplemented!() }
     fn try_connect_to(&mut self, _target: ProcessPtr, _m: &ConnectionManifest) -> JuizResult<ConnectionManifest> { unimplemented!() }
     fn source_connections(&self) -> JuizResult<Vec<&Box<dyn SourceConnection>>> { Ok(vec![]) }

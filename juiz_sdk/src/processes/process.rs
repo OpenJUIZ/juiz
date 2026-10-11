@@ -29,7 +29,7 @@ pub trait Process: Send + Sync + mopa::Any + std::fmt::Debug + 'static {
      * この方法は配下すべてに問い合わせが波及するので、updateされたかどうかをconnectionにpushする仕組みが必要
      * TODO:
      */
-    fn invoke<'b>(&self) -> JuizResult<CapsulePtr>;
+    fn invoke<'b>(&self) -> JuizResult<ResponsePtr>;
 
     //fn invoke_exclude<'b>(&self, arg_name: &str, value: CapsulePtr) -> JuizResult<CapsulePtr>;
 
@@ -40,11 +40,11 @@ pub trait Process: Send + Sync + mopa::Any + std::fmt::Debug + 'static {
      *
      * 自分の配下はinvokeによってinvokeされるが、配下の枝分かれ先はexecuteされない
      */
-    fn execute(&self) -> JuizResult<CapsulePtr>;
+    fn execute(&self) -> JuizResult<ResponsePtr>;
 
     fn push_by(&self, arg_name: &str, value: CapsulePtr) -> JuizResult<CapsulePtr>;
 
-    fn get_output(&self) -> CapsulePtr;
+    fn get_output(&self) -> ResponsePtr;
 
     fn notify_connected_from<'b>(
         &'b mut self,
