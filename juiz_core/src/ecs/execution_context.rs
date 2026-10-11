@@ -1,5 +1,4 @@
-use std::sync::{Mutex, Arc};
-
+use std::sync::{Arc, Mutex};
 
 use crate::prelude::*;
 
@@ -9,8 +8,7 @@ use super::execution_context_core::ExecutionContextCore;
 
 // }
 
-pub trait ExecutionContext : Send + Sync {
-
+pub trait ExecutionContext: Send + Sync {
     fn name(&self) -> &str;
 
     fn type_name(&self) -> &str;
@@ -30,9 +28,8 @@ pub trait ExecutionContext : Send + Sync {
 
     ///
     /// Systemにロードされた時に呼ばれるコールバック。
-    /// 
-    fn on_load(&mut self, _system: &mut System, _core: Arc<Mutex<ExecutionContextCore>>) -> () {
-    }
+    ///
+    fn on_load(&mut self, _system: &mut System, _core: Arc<Mutex<ExecutionContextCore>>) -> () {}
 
     fn is_periodic(&self) -> bool {
         return true;

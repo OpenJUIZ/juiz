@@ -1,26 +1,24 @@
-
-
-mod video_capture;
-mod video_capture_read;
-mod video_capture_get;
-mod video_capture_readandget;
 mod cv_cvt_color;
-mod window;
-mod window_show;
 mod filesystem;
 mod filesystem_imwrite;
+mod video_capture;
+mod video_capture_get;
+mod video_capture_read;
+mod video_capture_readandget;
+mod window;
+mod window_show;
 
 pub use juiz_sdk::prelude::*;
 
+use cv_cvt_color::*;
+use filesystem::*;
+use filesystem_imwrite::*;
 use video_capture::*;
-use video_capture_read::*;
 use video_capture_get::*;
+use video_capture_read::*;
 use video_capture_readandget::*;
 use window::*;
 use window_show::*;
-use filesystem::*;
-use filesystem_imwrite::*;
-use cv_cvt_color::*;
 
 juiz_component_manifest!(
     component_name = "juiz_opencv"

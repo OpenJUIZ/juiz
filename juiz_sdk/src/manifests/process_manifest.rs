@@ -1,34 +1,56 @@
-
-use std::{collections::HashMap, fmt::Display};
+use super::{
+    argument_manifest::ArgumentManifest, manifest_description::Description,
+    topic_manifest::TopicManifest,
+};
+use crate::{
+    manifests::{OutputProfile, PrimitiveProfile},
+    prelude::*,
+    process_identifier::ProcessIdentifier,
+};
 use image::Primitive;
-use serde::{Serialize, Deserialize};
-use crate::{manifests::{OutputProfile, PrimitiveProfile}, prelude::*, process_identifier::ProcessIdentifier};
-use super::{argument_manifest::ArgumentManifest, manifest_description::Description, topic_manifest::TopicManifest};
+use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, fmt::Display};
 
-fn default_output_profile() -> Option<OutputProfile> { None } //OutputProfile::Primitive(PrimitiveProfile{type_name: "int".to_owned(), default_value: Some("0".to_owned())}) } 
-fn default_description() -> Description { Description{text: "".to_owned()} }
-fn default_broker_type_name() -> String { "core".to_owned() }
-fn default_broker_name() -> String { "core".to_owned() }
-fn default_factory() -> String { "process_factory".to_owned() }
-fn default_use_memo() -> bool { false }
-fn default_language() -> String { "rust".to_owned() }
+fn default_output_profile() -> Option<OutputProfile> {
+    None
+} //OutputProfile::Primitive(PrimitiveProfile{type_name: "int".to_owned(), default_value: Some("0".to_owned())}) }
+fn default_description() -> Description {
+    Description {
+        text: "".to_owned(),
+    }
+}
+fn default_broker_type_name() -> String {
+    "core".to_owned()
+}
+fn default_broker_name() -> String {
+    "core".to_owned()
+}
+fn default_factory() -> String {
+    "process_factory".to_owned()
+}
+fn default_use_memo() -> bool {
+    false
+}
+fn default_language() -> String {
+    "rust".to_owned()
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProcessManifest {
     pub name: Option<String>,
     pub type_name: String,
-    #[serde(default="default_description")]
+    #[serde(default = "default_description")]
     pub description: Description,
     #[serde(default)]
     pub arguments: Vec<ArgumentManifest>,
-    #[serde(default="default_factory")]
+    #[serde(default = "default_factory")]
     pub factory: String,
-    #[serde(default="default_use_memo")]
+    #[serde(default = "default_use_memo")]
     pub use_memo: bool,
-    #[serde(default="default_language")]
+    #[serde(default = "default_language")]
     pub language: String,
-    #[serde(default="default_broker_type_name")]
+    #[serde(default = "default_broker_type_name")]
     pub broker_type_name: String,
-    #[serde(default="default_broker_name")]
+    #[serde(default = "default_broker_name")]
     pub broker_name: String,
     #[serde(default)]
     pub publishes: Vec<TopicManifest>,
@@ -38,8 +60,8 @@ pub struct ProcessManifest {
     pub container_name: Option<String>,
     #[serde(default)]
     pub container_type: Option<String>,
-    #[serde(default="default_output_profile")]
-    pub outputs: Option<OutputProfile>
+    #[serde(default = "default_output_profile")]
+    pub outputs: Option<OutputProfile>,
 }
 
 impl Display for ProcessManifest {
@@ -54,7 +76,10 @@ impl Display for ProcessManifest {
         for a in self.arguments.iter() {
             f.write_fmt(format_args!("{}, ", a))?;
         }
-        f.write_fmt(format_args!("], language={}, use_memo={}, publishes=[", self.language, self.use_memo))?;
+        f.write_fmt(format_args!(
+            "], language={}, use_memo={}, publishes=[",
+            self.language, self.use_memo
+        ))?;
         for tm in self.publishes.iter() {
             f.write_fmt(format_args!("{}, ", tm))?;
         }
@@ -68,16 +93,18 @@ impl Display for ProcessManifest {
 }
 
 impl ProcessManifest {
-
     /// FactoryにあるManifestとインスタンス用のマニフェストをマージして、完備なインスタンス用マニフェストを作ります。
-    /// 
-    /// 
-    pub fn build_instance_manifest(&self, mut partial_instance_manifest: ProcessManifest) -> JuizResult<Self> {
+    ///
+    ///
+    pub fn build_instance_manifest(
+        &self,
+        mut partial_instance_manifest: ProcessManifest,
+    ) -> JuizResult<Self> {
         partial_instance_manifest.type_name = self.type_name.clone();
         partial_instance_manifest = partial_instance_manifest
             .description(self.description.as_str())
             .use_memo(self.use_memo)
-            .container_type(self.container_type.as_ref().map(|v| { v.clone() }));
+            .container_type(self.container_type.as_ref().map(|v| v.clone()));
 
         let mut new_argument_manif: Vec<ArgumentManifest> = Vec::new();
         for arg_manif in self.arguments.iter() {
@@ -91,14 +118,22 @@ impl ProcessManifest {
                     default_value = instance_arg_manif.default.clone();
                 }
             }
-            new_argument_manif.push(ArgumentManifest::new(arg_type.clone(), arg_name.as_str(), description, default_value));
+            new_argument_manif.push(ArgumentManifest::new(
+                arg_type.clone(),
+                arg_name.as_str(),
+                description,
+                default_value,
+            ));
         }
         partial_instance_manifest.arguments.clear();
         partial_instance_manifest.arguments = new_argument_manif;
-        log::warn!("partial_instance_manifest = {:?}", partial_instance_manifest);
+        log::warn!(
+            "partial_instance_manifest = {:?}",
+            partial_instance_manifest
+        );
         partial_instance_manifest.outputs = self.outputs.clone();
         Ok(partial_instance_manifest)
-    }   
+    }
 
     /// ```
     /// use juiz_sdk::prelude::*;
@@ -118,7 +153,7 @@ impl ProcessManifest {
         Self {
             name: None,
             type_name: type_name.to_owned(),
-            description: "".into(), 
+            description: "".into(),
             arguments: Vec::new(),
             use_memo: false,
             factory: "process_factory".to_owned(),
@@ -186,7 +221,7 @@ impl ProcessManifest {
         self.add_arg(ArgumentManifest::new_int(name, default).description(description))
     }
 
-        /// ```
+    /// ```
     /// use juiz_sdk::prelude::*;
     /// let manifest = ProcessManifest::new("hoge_type")
     ///   .description("hoge manifest")
@@ -258,37 +293,42 @@ impl ProcessManifest {
     ///   .subscribes("arg0", "topic1");
     /// assert_eq!(manifest.subscribes.get("arg0").unwrap().name, "topic1");
     /// ```
-    pub fn subscribes(mut self, arg_name:&str, topic_name: &str) -> Self {
-        self.subscribes.insert(arg_name.to_owned(), TopicManifest::new(topic_name));
+    pub fn subscribes(mut self, arg_name: &str, topic_name: &str) -> Self {
+        self.subscribes
+            .insert(arg_name.to_owned(), TopicManifest::new(topic_name));
         self
     }
 
-    pub fn identifier(&self) -> JuizResult<ProcessIdentifier> { 
+    pub fn identifier(&self) -> JuizResult<ProcessIdentifier> {
         // if let Some(name) = self.name.as_ref() {
         //     Ok(identifier_new(
-        //         self.broker_type_name.as_str(), 
-        //         self.broker_name.as_str(), 
-        //         "Process", 
-        //         self.type_name.as_str(), 
+        //         self.broker_type_name.as_str(),
+        //         self.broker_name.as_str(),
+        //         "Process",
+        //         self.type_name.as_str(),
         //         name.as_str()))
         // } else {
         //     Err(anyhow!(JuizError::ProcessManifestInvalidError{message:"ProcessManifest::identifier() failed.".to_owned()}))
         // }
         if self.container_name.is_some() {
-            Ok(ProcessIdentifier::new_container_process_id(self.broker_name.clone(),
-            self.broker_type_name.clone(), 
-            self.type_name.clone(), 
-            self.container_name.clone().unwrap(),
-            self.name.as_ref().unwrap().clone()))
+            Ok(ProcessIdentifier::new_container_process_id(
+                self.broker_name.clone(),
+                self.broker_type_name.clone(),
+                self.type_name.clone(),
+                self.container_name.clone().unwrap(),
+                self.name.as_ref().unwrap().clone(),
+            ))
         } else {
-            Ok(ProcessIdentifier::new_process_id(self.broker_name.clone(),
-            self.broker_type_name.clone(), 
-            self.type_name.clone(), 
-            self.name.as_ref().unwrap().clone()))
+            Ok(ProcessIdentifier::new_process_id(
+                self.broker_name.clone(),
+                self.broker_type_name.clone(),
+                self.type_name.clone(),
+                self.name.as_ref().unwrap().clone(),
+            ))
         }
     }
 
-    pub fn outputs(&self) -> Option<OutputProfile> { 
+    pub fn outputs(&self) -> Option<OutputProfile> {
         self.outputs.clone()
     }
 
@@ -312,7 +352,6 @@ impl ProcessManifest {
 //         arg.into()
 //     }).collect()
 // }
-
 
 // /// ```
 // /// use juiz_core::prelude::*;
@@ -351,7 +390,7 @@ impl ProcessManifest {
 //         if let Some(name) = self.name {
 //             map.insert("name".to_owned(), name.into());
 //         }
-        
+
 //         v
 //     }
 // }
@@ -359,7 +398,7 @@ impl ProcessManifest {
 /// ```
 /// use juiz_sdk::prelude::*;
 /// fn main() -> JuizResult<()> {
-/// 
+///
 /// let manifest_value: Value = jvalue!({
 ///   "type_name": "hoge_type",
 ///   "description": "hoge manifest",
@@ -369,11 +408,11 @@ impl ProcessManifest {
 ///        "type_name": "Int",
 ///        "default": 1,
 ///        "description": "int_arg"
-///     }, 
+///     },
 ///   ]
 /// });
 /// let manifest: ProcessManifest = manifest_value.try_into()?;
-/// 
+///
 /// Ok(())}
 /// ```
 impl TryFrom<Value> for ProcessManifest {
@@ -381,28 +420,27 @@ impl TryFrom<Value> for ProcessManifest {
         // println!("try_from({value:?})");
         let desc = match obj_get_str(&value, "description") {
             Ok(v) => v,
-            Err(_) => ""
+            Err(_) => "",
         };
-        let mut p = ProcessManifest::new(obj_get_str(&value, "type_name")?)
-            .description(desc);
+        let mut p = ProcessManifest::new(obj_get_str(&value, "type_name")?).description(desc);
         match obj_get_array(&value, "arguments") {
             Ok(arg_manifest_values) => {
                 for arg_manifest_value in arg_manifest_values.iter() {
                     p = p.add_arg(serde_json::from_value(arg_manifest_value.clone())?);
                 }
             }
-            Err(_) => {},
+            Err(_) => {}
         }
         match obj_get_str(&value, "name") {
             Ok(name) => {
                 p = p.name(name);
-            },
+            }
             Err(_) => {}
         }
         match obj_get_str(&value, "language") {
             Ok(language) => {
                 p = p.name(language);
-            },
+            }
             Err(_) => {
                 p = p.language("rust");
             }
@@ -410,7 +448,7 @@ impl TryFrom<Value> for ProcessManifest {
         match obj_get_str(&value, "factory") {
             Ok(factory) => {
                 p = p.factory(factory);
-            },
+            }
             Err(_) => {
                 p = p.factory("process_factory");
             }
@@ -418,19 +456,19 @@ impl TryFrom<Value> for ProcessManifest {
         match obj_get_bool(&value, "use_memo") {
             Ok(flag) => {
                 p = p.use_memo(flag);
-            },
+            }
             Err(_) => {}
         }
         match obj_get_str(&value, "container_type") {
             Ok(container_type) => {
                 p = p.container_type(Some(container_type.to_owned()));
-            },
+            }
             Err(_) => {}
         }
         match obj_get_str(&value, "container_name") {
             Ok(container_name) => {
                 p = p.container_name(Some(container_name.to_owned()));
-            },
+            }
             Err(_) => {}
         }
         match obj_get_array(&value, "publishes") {
@@ -439,7 +477,7 @@ impl TryFrom<Value> for ProcessManifest {
                     p = p.publishes(arg_obj.as_str().unwrap());
                 }
             }
-            Err(_) => {},
+            Err(_) => {}
         };
         match obj_get_obj(&value, "subscribes") {
             Ok(value_map) => {
@@ -447,15 +485,15 @@ impl TryFrom<Value> for ProcessManifest {
                     p = p.subscribes(arg_name.as_str(), arg_obj.as_str().unwrap());
                 }
             }
-            Err(_) => {},
+            Err(_) => {}
         };
         match obj_get(&value, "outputs") {
             Ok(value) => {
                 p = p.set_outputs(serde_json::from_value(value.clone())?);
             }
-            Err(_) => {},
+            Err(_) => {}
         };
         Ok(p)
-    }    
+    }
     type Error = anyhow::Error;
 }

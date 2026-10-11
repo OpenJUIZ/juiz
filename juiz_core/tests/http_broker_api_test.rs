@@ -23,7 +23,10 @@ fn check_system(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     let procs = bp.process_list(false, None)?;
     assert_eq!(procs.len(), 3);
     // HTTP 経由で得た識別子は HTTP ブローカーを指す
-    assert!(procs.iter().all(|id| id.broker_type_name == "http"), "{procs:?}");
+    assert!(
+        procs.iter().all(|id| id.broker_type_name == "http"),
+        "{procs:?}"
+    );
     assert_eq!(bp.container_list(false, None)?.len(), 3);
     assert_eq!(bp.container_process_list(false, None)?.len(), 6);
     assert_eq!(bp.any_process_list(false, None)?.len(), 9);
@@ -35,8 +38,16 @@ fn check_processes(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     for (name, _type_name) in PROCESSES {
         let id = find_process(&ids, name);
         assert_eq!(int_of(bp.process_call(id, args("arg1", 10))), 11, "{name}");
-        assert_eq!(int_of(bp.any_process_call(id, args("arg1", 20))), 21, "{name}");
-        assert_eq!(int_of(bp.process_push_by(id, "arg1".to_owned(), jvalue!(7).into())), 8, "{name}");
+        assert_eq!(
+            int_of(bp.any_process_call(id, args("arg1", 20))),
+            21,
+            "{name}"
+        );
+        assert_eq!(
+            int_of(bp.process_push_by(id, "arg1".to_owned(), jvalue!(7).into())),
+            8,
+            "{name}"
+        );
         bp.process_p_apply(id, "arg1", jvalue!(1).into())?;
         assert!(try_int_of(&bp.process_execute(id)?).is_some(), "{name}");
     }
@@ -49,21 +60,46 @@ fn check_containers(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
         let add = find_process(&ids, add_name);
         let get = find_process(&ids, get_name);
         let before = int_of(bp.container_process_call(get, CapsuleMap::new()));
-        assert_eq!(int_of(bp.container_process_call(add, args(arg_name, 4))), before + 4, "{container_name}");
-        assert_eq!(int_of(bp.any_process_call(get, CapsuleMap::new())), before + 4, "{container_name}");
+        assert_eq!(
+            int_of(bp.container_process_call(add, args(arg_name, 4))),
+            before + 4,
+            "{container_name}"
+        );
+        assert_eq!(
+            int_of(bp.any_process_call(get, CapsuleMap::new())),
+            before + 4,
+            "{container_name}"
+        );
         bp.container_process_p_apply(add, arg_name, jvalue!(1).into())?;
-        assert!(try_int_of(&bp.container_process_execute(add)?).is_some(), "{container_name}");
+        assert!(
+            try_int_of(&bp.container_process_execute(add)?).is_some(),
+            "{container_name}"
+        );
     }
     Ok(())
 }
 
 fn check_ec(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     let ecs = bp.ec_list(false)?;
-    let ids: Vec<String> = ecs.as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect();
-    let id = ids.iter().find(|id| id.contains("timer0")).expect("timer0 not listed").clone();
-    let state = |bp: &mut dyn BrokerProxy| -> JuizResult<Value> { Ok(bp.ec_get_state(&id)?["__value__"].clone()) };
+    let ids: Vec<String> = ecs
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_owned())
+        .collect();
+    let id = ids
+        .iter()
+        .find(|id| id.contains("timer0"))
+        .expect("timer0 not listed")
+        .clone();
+    let state = |bp: &mut dyn BrokerProxy| -> JuizResult<Value> {
+        Ok(bp.ec_get_state(&id)?["__value__"].clone())
+    };
 
-    assert_eq!(bp.ec_profile_full(&id)?["__value__"]["name"], jvalue!("timer0"));
+    assert_eq!(
+        bp.ec_profile_full(&id)?["__value__"]["name"],
+        jvalue!("timer0")
+    );
     assert_eq!(state(bp)?, jvalue!("STOPPED"));
     bp.ec_start(&id)?;
     let mut started = false;
@@ -81,8 +117,14 @@ fn check_ec(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
 
 fn check_topics(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     let uuid = Some(uuid::Uuid::new_v4());
-    assert_eq!(bp.topic_request_subscribe("topic0", uuid)?, jvalue!({"subscribe": false}));
-    assert_eq!(bp.topic_request_publish("topic0", uuid)?, jvalue!({"publish": false}));
+    assert_eq!(
+        bp.topic_request_subscribe("topic0", uuid)?,
+        jvalue!({"subscribe": false})
+    );
+    assert_eq!(
+        bp.topic_request_publish("topic0", uuid)?,
+        jvalue!({"publish": false})
+    );
     Ok(())
 }
 
@@ -92,11 +134,11 @@ fn http_broker_api_with_rust_python_cpp_plugins() -> JuizResult<()> {
     System::new(system_manifest("http_broker_api_test", PORT))?
         .setup()?
         .run_and_do_once(|system| {
-            let proxy = system
-                .core_broker()
-                .lock()?
-                .worker()
-                .broker_proxy("http", format!("localhost:{PORT}").as_str(), true)?;
+            let proxy = system.core_broker().lock()?.worker().broker_proxy(
+                "http",
+                format!("localhost:{PORT}").as_str(),
+                true,
+            )?;
             let mut bp = juiz_lock(&proxy)?;
             check_system(&mut *bp)?;
             check_processes(&mut *bp)?;

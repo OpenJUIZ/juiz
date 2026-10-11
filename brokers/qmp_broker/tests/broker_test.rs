@@ -1,11 +1,10 @@
 use std::sync::{Arc, Mutex};
 
-
+use juiz_core::{futures, prelude::*, tokio, CRUDBroker};
 use juiz_core::{prelude::*, SystemStore, SystemStorePtr};
-use juiz_core::{CRUDBroker, futures, prelude::*, tokio};
 
-extern crate qmp_broker;
 extern crate juiz_core;
+extern crate qmp_broker;
 #[test]
 fn broker_test() {
     let system_store = SystemStorePtr::new(SystemStore::new());
@@ -17,7 +16,7 @@ fn broker_test() {
         "port": 5001
     });
     let crud = Arc::new(Mutex::new(CRUDBroker::new(core, manifest).unwrap()));
-    
+
     //let result = futures::executor::block_on(qmp_broker::on_start(manifest, crud));
 
     assert_eq!(true, true);

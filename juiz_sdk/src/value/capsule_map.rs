@@ -1,6 +1,6 @@
+use serde_json::Map;
 use std::collections::HashMap;
 use std::fmt::Display;
-use serde_json::Map;
 
 use crate::prelude::*;
 use crate::utils::get_hashmap;
@@ -14,15 +14,19 @@ pub struct CapsuleMap {
 
 impl Display for CapsuleMap {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("(map: {:?}, param: {:?})", self.map, self.param))
+        f.write_fmt(format_args!(
+            "(map: {:?}, param: {:?})",
+            self.map, self.param
+        ))
     }
 }
 
-
 impl CapsuleMap {
-
     pub fn new() -> Self {
-        CapsuleMap { map: HashMap::new(), param: HashMap::new() }
+        CapsuleMap {
+            map: HashMap::new(),
+            param: HashMap::new(),
+        }
     }
 
     pub fn set_param(&mut self, key: &str, value: &str) -> &mut Self {
@@ -37,7 +41,11 @@ impl CapsuleMap {
     pub fn get(&self, key: &str) -> JuizResult<CapsulePtr> {
         match self.map.get(key) {
             Some(v) => Ok(v.clone()),
-            None => Err(anyhow::Error::from(JuizError::CapsuleMapDoesNotContainValueError{key: key.to_owned()}))
+            None => Err(anyhow::Error::from(
+                JuizError::CapsuleMapDoesNotContainValueError {
+                    key: key.to_owned(),
+                },
+            )),
         }
     }
 
@@ -53,19 +61,22 @@ impl CapsuleMap {
     pub(crate) fn get_mutref(&mut self, key: &str) -> JuizResult<&mut CapsulePtr> {
         match self.map.get_mut(key) {
             Some(v) => Ok(v),
-            None => Err(anyhow::Error::from(JuizError::CapsuleMapDoesNotContainValueError{key: key.to_owned()}))
+            None => Err(anyhow::Error::from(
+                JuizError::CapsuleMapDoesNotContainValueError {
+                    key: key.to_owned(),
+                },
+            )),
         }
     }
 
     pub fn get_map<'a>(&'a self) -> &'a HashMap<String, CapsulePtr> {
         &self.map
     }
-    
 
     pub fn get_params<'a>(&'a self) -> &'a HashMap<String, String> {
         &self.param
     }
-    
+
     pub fn insert(&mut self, key: String, value: CapsulePtr) -> &Self {
         self.map.insert(key, value);
         self
@@ -76,27 +87,35 @@ impl CapsuleMap {
     }
 
     pub fn get_int(&self, key: &str) -> JuizResult<i64> {
-        Ok(self.get(key)?.lock_as_value(|value| { value.as_i64().unwrap() })?)
+        Ok(self
+            .get(key)?
+            .lock_as_value(|value| value.as_i64().unwrap())?)
     }
 
     pub fn get_str(&self, key: &str) -> JuizResult<String> {
-        Ok(self.get(key)?.lock_as_value(|value| { value.as_str().unwrap().to_owned() })?)
+        Ok(self
+            .get(key)?
+            .lock_as_value(|value| value.as_str().unwrap().to_owned())?)
     }
 
-    pub fn get_str_then<T, F>(&self, key: &str, f: F) -> JuizResult<T> where F: Fn(&str) -> T {
-        Ok(self.get(key)?.lock_as_str(|value| { f(value) })?)
+    pub fn get_str_then<T, F>(&self, key: &str, f: F) -> JuizResult<T>
+    where
+        F: Fn(&str) -> T,
+    {
+        Ok(self.get(key)?.lock_as_str(|value| f(value))?)
     }
 
-    pub fn get_map_then<T, F>(&self, key: &str, f: F) -> JuizResult<T> where F: Fn(&Map<String, Value>) -> T {
-        Ok(self.get(key)?.lock_as_map(|value| { f(value) })?)
+    pub fn get_map_then<T, F>(&self, key: &str, f: F) -> JuizResult<T>
+    where
+        F: Fn(&Map<String, Value>) -> T,
+    {
+        Ok(self.get(key)?.lock_as_map(|value| f(value))?)
     }
 
     pub fn put(&mut self, key: &str, value: CapsulePtr) -> Option<CapsulePtr> {
         self.map.insert(key.to_owned(), value)
     }
-
 }
-
 
 impl TryFrom<Value> for CapsuleMap {
     type Error = anyhow::Error;
@@ -117,7 +136,7 @@ impl TryFrom<Value> for CapsuleMap {
             }
         } else {
             for (k, v) in get_hashmap(&value)?.iter() {
-                c.insert(k.to_owned(), v.clone().into());                
+                c.insert(k.to_owned(), v.clone().into());
             }
         }
         Ok(c)
@@ -130,8 +149,8 @@ impl From<CapsuleMap> for Value {
         // let mut v1 = jvalue!({});
         // let map = v1.as_object_mut().unwrap();
         // for (key, value) in capsule_map.map.iter() {
-        //     let _ = value.lock_as_value(|vv| -> () { 
-        //         map.insert(key.clone(), vv.clone()); 
+        //     let _ = value.lock_as_value(|vv| -> () {
+        //         map.insert(key.clone(), vv.clone());
         //     });
         //     //map.insert(k, Value::try_from(v.lock().unwrap().clone()).unwrap());
         // }
@@ -141,17 +160,18 @@ impl From<CapsuleMap> for Value {
         //     param.insert(key.clone(), jvalue!(value));
         // }
 
-        let map_map = capsule_map.map.into_iter().map(|(k,v)| -> (String,Value) {
-            (k, v.extract_value().unwrap())
-        }).collect::<Map<String,Value>>();
-        
+        let map_map = capsule_map
+            .map
+            .into_iter()
+            .map(|(k, v)| -> (String, Value) { (k, v.extract_value().unwrap()) })
+            .collect::<Map<String, Value>>();
+
         return jvalue!({
             "__map__": map_map,
             "__param___": capsule_map.param,
-        })
+        });
     }
 }
-
 
 impl From<Vec<(std::string::String, CapsulePtr)>> for CapsuleMap {
     fn from(value: Vec<(std::string::String, CapsulePtr)>) -> Self {
@@ -159,10 +179,9 @@ impl From<Vec<(std::string::String, CapsulePtr)>> for CapsuleMap {
         for v in value {
             map.insert(v.0, v.1);
         }
-        return map
+        return map;
     }
 }
-
 
 impl From<Vec<(&str, Value)>> for CapsuleMap {
     fn from(value: Vec<(&str, Value)>) -> Self {
@@ -173,7 +192,6 @@ impl From<Vec<(&str, Value)>> for CapsuleMap {
         c
     }
 }
-
 
 impl From<&[(&str, Value)]> for CapsuleMap {
     fn from(value: &[(&str, Value)]) -> Self {

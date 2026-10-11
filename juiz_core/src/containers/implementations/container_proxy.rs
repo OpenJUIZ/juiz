@@ -1,5 +1,3 @@
-
-
 use std::fmt::Display;
 use std::sync::{Arc, Mutex};
 
@@ -17,16 +15,23 @@ pub struct ContainerProxy {
 
 impl std::fmt::Debug for ContainerProxy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ContainerProxy").field("broker_proxy", &"dyn BrokerProxy".to_owned()).field("identifier", &self.identifier).field("class_name_str", &self.class_name_str).finish()
+        f.debug_struct("ContainerProxy")
+            .field("broker_proxy", &"dyn BrokerProxy".to_owned())
+            .field("identifier", &self.identifier)
+            .field("class_name_str", &self.class_name_str)
+            .finish()
     }
 }
 
 impl ContainerProxy {
-
-    pub fn new(class_name: JuizObjectClass, identifier: ContainerIdentifier, broker_proxy: Arc<Mutex<dyn BrokerProxy>>) -> JuizResult<Self> {
+    pub fn new(
+        class_name: JuizObjectClass,
+        identifier: ContainerIdentifier,
+        broker_proxy: Arc<Mutex<dyn BrokerProxy>>,
+    ) -> JuizResult<Self> {
         log::trace!("ContainerProxy::new({class_name:?}, {identifier}, broker_proxy) called");
         let class_name_str = "container";
-        Ok(ContainerProxy{
+        Ok(ContainerProxy {
             //core: ObjectCore::new(identifier.to_string(), class_name, identifier.type_name.as_str(), identifier.name.as_str(), identifier.broker_name.as_str(), identifier.broker_type_name.as_str()),
             broker_proxy,
             identifier,
@@ -57,11 +62,10 @@ impl Display for ContainerProxy {
 }
 
 impl Container for ContainerProxy {
-
     // fn manifest(&self) -> ContainerManifest {
     //     todo!()
     // }
-    
+
     fn process(&self, _name_or_id: &String) -> Option<ProcessPtr> {
         todo!()
     }
@@ -73,11 +77,11 @@ impl Container for ContainerProxy {
     fn clear(&mut self) -> JuizResult<()> {
         todo!()
     }
-    
+
     fn processes(&self) -> Vec<ProcessPtr> {
         todo!()
     }
-    
+
     fn register_process(&mut self, _p: ProcessPtr) -> JuizResult<ProcessPtr> {
         todo!()
     }

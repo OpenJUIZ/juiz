@@ -1,4 +1,3 @@
-
 use crate::{brokers::http::http_router::RecursiveQuery, prelude::*};
 use utoipa::OpenApi;
 
@@ -15,10 +14,7 @@ use axum::{extract::Query, Json};
     ),
     tag = "universal.process",
 )]
-pub fn create_dummy(
-_query: Query<IdentifierQuery>,
-Json(_body): Json<Value>) {
-}
+pub fn create_dummy(_query: Query<IdentifierQuery>, Json(_body): Json<Value>) {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -32,9 +28,7 @@ Json(_body): Json<Value>) {
     ),
     tag = "universal.process",
 )]
-pub fn profile_handler_dummy(
-    _query: Query<IdentifierQuery>,) {
-}
+pub fn profile_handler_dummy(_query: Query<IdentifierQuery>) {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -48,9 +42,7 @@ pub fn profile_handler_dummy(
     ),
     tag = "universal.process",
 )]
-pub fn openapi_spec_handler_dummy(
-    _query: Query<IdentifierQuery>,) {
-}
+pub fn openapi_spec_handler_dummy(_query: Query<IdentifierQuery>) {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -64,9 +56,7 @@ pub fn openapi_spec_handler_dummy(
     ),
     tag = "universal.process",
 )]
-pub fn list_dummy(
-    _query: Query<RecursiveQuery>,) {
-}
+pub fn list_dummy(_query: Query<RecursiveQuery>) {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -81,11 +71,7 @@ pub fn list_dummy(
     ),
     tag = "universal.process",
 )]
-pub fn call_dummy(
-_query: Query<IdentifierQuery>,
-Json(_body): Json<Value>) {
-}
-
+pub fn call_dummy(_query: Query<IdentifierQuery>, Json(_body): Json<Value>) {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -100,11 +86,7 @@ Json(_body): Json<Value>) {
     ),
     tag = "universal.process",
 )]
-pub fn execute_dummy(
-_query: Query<IdentifierQuery>,
-Json(_body): Json<Value>) {
-}
-
+pub fn execute_dummy(_query: Query<IdentifierQuery>, Json(_body): Json<Value>) {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -119,10 +101,7 @@ Json(_body): Json<Value>) {
     ),
     tag = "universal.process",
 )]
-pub fn p_apply_dummy(
-_query: Query<IdentifierQuery>,
-Json(_body): Json<Value>) {
-}
+pub fn p_apply_dummy(_query: Query<IdentifierQuery>, Json(_body): Json<Value>) {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -136,10 +115,7 @@ Json(_body): Json<Value>) {
     ),
     tag = "universal.process",
 )]
-pub fn delete_dummy(
-_query: Query<IdentifierQuery>) {
-}
-
+pub fn delete_dummy(_query: Query<IdentifierQuery>) {}
 
 #[derive(OpenApi)]
 #[openapi(
@@ -153,7 +129,6 @@ _query: Query<IdentifierQuery>) {
         create_dummy,
         p_apply_dummy,
     ),
-    components(schemas(
-    ))
+    components(schemas())
 )]
 pub struct ApiDoc;

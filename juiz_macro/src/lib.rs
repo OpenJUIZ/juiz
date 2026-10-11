@@ -1,11 +1,11 @@
 //! juizの機能要素開発のためのヘルパーマクロの定義のためのパッケージ
-//! 
+//!
 //! このパッケージはjuiz_sdkから使われる、機能要素定義用のマクロのパッケージです。
-//! 
-//! 
+//!
+//!
 //! # 使い方
 //! プロセス、コンテナ、コンテナプロセスおよびコンポーネントの実体の関数定義に宣言型マクロとして使います。
-//! 
+//!
 //! ## プロセスの例
 //! ```ignore
 //! #[juiz_process(
@@ -26,14 +26,14 @@
 //! }
 //! ```
 //! ## コンテナの例
-//! 
+//!
 //! ```ignore
 //! use juiz_sdk::prelude::*;
 //! #[repr(Rust)]
 //! pub struct ExampleContainer {
 //!     pub value: i64
 //! }
-//! 
+//!
 //! #[juiz_container(
 //!     description = "This is description for container."
 //!     arguments = {
@@ -49,9 +49,9 @@
 //!     Ok(Box::new(ExampleContainer{value:initial_value}))
 //! }
 //! ```
-//! 
+//!
 //! ## コンテナプロセスの例
-//! 
+//!
 //! コンテナプロセス定義のためのマクロ
 //!
 //! # Examples
@@ -59,7 +59,7 @@
 //! ```ignore
 //! use example_container::ExampleContainer;
 //! use juiz_sdk::prelude::*;
-//! 
+//!
 //! #[juiz_container_process(
 //!     container_type = "example_container"
 //!     description = "Container Process for example_container. This process will add given value to container."
@@ -73,11 +73,11 @@
 //!     container.value = container.value + arg1;
 //!     return Ok(jvalue!(container.value).into());
 //! }
-//! 
+//!
 //! ```
-//! 
+//!
 //! ## コンポーネントの例
-//! 
+//!
 //! ```ignore
 //! use juiz_sdk::prelude::*;
 //! #[juiz_component_process]
@@ -90,27 +90,27 @@
 //! pub struct ExampleComponentContainer {
 //!     pub value: i64
 //! }
-//! 
+//!
 //! #[juiz_component_container]
 //! fn example_component_container(initial_value: i64) -> JuizResult<Box<ExampleComponentContainer>> {
 //!     println!("example_component_container({initial_value}) called");
 //!     Ok(Box::new(ExampleComponentContainer{value: initial_value}))
 //! }
-//! 
+//!
 //! #[juiz_component_container_process( container_type = "example_component_container" )]
 //! fn example_component_container_get(container: &mut ContainerImpl<ExampleComponentContainer>) -> JuizResult<Capsule> {
 //!     println!("example_component_container_get()");
 //!     Ok(jvalue!(container.value).into())
 //! }
-//! 
+//!
 //! #[juiz_component_container_process( container_type = "example_component_container" )]
 //! fn example_component_container_increment(container: &mut ContainerImpl<ExampleComponentContainer>) -> JuizResult<Capsule> {
 //!     println!("example_component_container_increment()");
 //!     container.value = container.value + 1;
 //!     Ok(jvalue!(container.value).into())
 //! }   
-//! 
-//! #[juiz_component_container_process( container_type = "example_component_container" 
+//!
+//! #[juiz_component_container_process( container_type = "example_component_container"
 //!    arguments = {
 //!       default = {
 //!         arg1 = 1
@@ -122,7 +122,7 @@
 //!     container.value = container.value + arg1;
 //!     Ok(jvalue!(container.value).into())
 //! }
-//! 
+//!
 //! juiz_component_manifest!(
 //!     component_name = "example_component"
 //!     containers = {
@@ -136,28 +136,25 @@
 //!         example_component_increment
 //!     ]
 //! );
-//! 
+//!
 //! ```
-//! 
-//! 
-
-
+//!
+//!
 
 extern crate proc_macro;
 
-mod util;
-mod process;
+mod component;
 mod container;
 mod container_process;
-mod component;
+mod process;
+mod util;
 
 use crate::proc_macro::TokenStream;
 
-
 /// プロセス定義のためのマクロ
-/// 
+///
 /// マクロの引数は省略可能です。
-/// 
+///
 /// # Examples
 ///
 /// ```ignore
@@ -183,9 +180,8 @@ pub fn juiz_process(attr: TokenStream, item: TokenStream) -> TokenStream {
     process::juiz_process_inner(attr, item)
 }
 
-
 /// コンテナ定義のためのマクロ
-/// 
+///
 /// マクロの引数は省略できます。
 ///
 /// # Examples
@@ -196,7 +192,7 @@ pub fn juiz_process(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// pub struct ExampleContainer {
 ///     pub value: i64
 /// }
-/// 
+///
 /// #[juiz_container(
 ///     description = "This is description for container."
 ///     arguments = {
@@ -224,7 +220,7 @@ pub fn juiz_container(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// ```ignore
 /// use example_container::ExampleContainer;
 /// use juiz_sdk::prelude::*;
-/// 
+///
 /// #[juiz_container_process(
 ///     container_type = "example_container"
 ///     description = "Container Process for example_container. This process will add given value to container."
@@ -238,7 +234,7 @@ pub fn juiz_container(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///     container.value = container.value + arg1;
 ///     return Ok(jvalue!(container.value).into());
 /// }
-/// 
+///
 /// ```
 #[proc_macro_attribute]
 pub fn juiz_container_process(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -298,7 +294,7 @@ pub fn juiz_component_process(attr: TokenStream, item: TokenStream) -> TokenStre
 /// pub struct ExampleComponentContainer {
 ///     pub value: i64
 /// }
-/// 
+///
 /// #[juiz_component_container]
 /// fn example_component_container(initial_value: i64) -> JuizResult<Box<ExampleComponentContainer>> {
 ///     println!("example_component_container({initial_value}) called");
@@ -315,7 +311,7 @@ pub fn juiz_component_container(attr: TokenStream, item: TokenStream) -> TokenSt
 /// # Examples
 ///
 /// ```ignore
-/// #[juiz_component_container_process( container_type = "example_component_container" 
+/// #[juiz_component_container_process( container_type = "example_component_container"
 ///    arguments = {
 ///     default = {
 ///       arg1 = 1

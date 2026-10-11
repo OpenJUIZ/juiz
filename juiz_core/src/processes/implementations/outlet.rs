@@ -2,10 +2,8 @@ use std::collections::HashMap;
 
 use crate::prelude::*;
 
-
-
 pub struct Outlet {
-    name: String, 
+    name: String,
     destination_connections: HashMap<String, Box<dyn DestinationConnection>>,
     output_memo: CapsulePtr,
     use_memo: bool,
@@ -13,15 +11,18 @@ pub struct Outlet {
 
 impl std::fmt::Debug for Outlet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Outlet").field("name", &self.name).field("output_memo", &self.output_memo).field("use_memo", &self.use_memo).finish()
+        f.debug_struct("Outlet")
+            .field("name", &self.name)
+            .field("output_memo", &self.output_memo)
+            .field("use_memo", &self.use_memo)
+            .finish()
     }
 }
 
 impl Outlet {
-
     pub fn new(name: &str, use_memo: bool) -> Outlet {
         log::trace!("Outlet()::new(use_memo='{}') called", use_memo);
-        Outlet{
+        Outlet {
             name: name.to_owned(),
             destination_connections: HashMap::new(),
             output_memo: Capsule::empty().into(),
@@ -39,11 +40,17 @@ impl Outlet {
         }).into())
     }
 
-    pub(crate) fn insert(&mut self, name: String, con: Box<dyn DestinationConnection + 'static>) -> () {
+    pub(crate) fn insert(
+        &mut self,
+        name: String,
+        con: Box<dyn DestinationConnection + 'static>,
+    ) -> () {
         self.destination_connections.insert(name, con);
     }
 
-    pub(crate) fn destination_connections(&self) -> JuizResult<Vec<&Box<dyn DestinationConnection>>> {
+    pub(crate) fn destination_connections(
+        &self,
+    ) -> JuizResult<Vec<&Box<dyn DestinationConnection>>> {
         let mut v: Vec<&Box<dyn DestinationConnection>> = Vec::new();
         for c in self.destination_connections.values() {
             v.push(c);
@@ -52,12 +59,12 @@ impl Outlet {
     }
 
     pub(crate) fn memo(&self) -> CapsulePtr {
-        self.output_memo.clone()//.borrow()
+        self.output_memo.clone() //.borrow()
     }
 
     #[allow(dead_code)]
     pub(crate) fn memo_mut(&self) -> CapsulePtr {
-        self.output_memo.clone()//borrow_mut()
+        self.output_memo.clone() //borrow_mut()
     }
     /*
     pub(crate) fn is_buffer_empty(&self) -> JuizResult<bool> {
@@ -87,7 +94,7 @@ impl Outlet {
     }
 
     /// 出力を出力接続 (DestinationConnection) に投げる
-    /// 
+    ///
     pub fn push(&self, output: CapsulePtr) -> JuizResult<CapsulePtr> {
         log::trace!("Outlet({})::push()が呼ばれました。", self.name);
         for (_name, dc) in self.destination_connections.iter() {
@@ -98,5 +105,4 @@ impl Outlet {
         log::trace!("【push】が成功しました。");
         return Ok(output);
     }
-
 }

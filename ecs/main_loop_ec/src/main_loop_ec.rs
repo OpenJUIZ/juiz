@@ -2,10 +2,12 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use juiz_core::prelude::*;
-use juiz_core::{ExecutionContext, ExecutionContextCore, ExecutionContextFactory, ExecutionContextState};
+use juiz_core::{
+    ExecutionContext, ExecutionContextCore, ExecutionContextFactory, ExecutionContextState,
+};
 
-use juiz_core::log;
 use juiz_core::env_logger;
+use juiz_core::log;
 
 pub struct MainLoopEC {
     name: String,
@@ -14,7 +16,7 @@ pub struct MainLoopEC {
 
 impl MainLoopEC {
     pub fn new(name: &str, rate: f64) -> Arc<RwLock<Self>> {
-        Arc::new(RwLock::new(Self{
+        Arc::new(RwLock::new(Self {
             name: name.to_owned(),
             rate,
         }))
@@ -22,8 +24,6 @@ impl MainLoopEC {
 }
 
 impl ExecutionContext for MainLoopEC {
-    
-
     fn name(&self) -> &str {
         self.name.as_str()
     }
@@ -47,16 +47,13 @@ impl ExecutionContext for MainLoopEC {
         log::debug!("MainLoopEC({:}).on_load() called", self.name);
         let c = core.clone();
         let func: Box<dyn Fn() -> JuizResult<()>> = Box::new(move || -> JuizResult<()> {
-            
             log::trace!("MainLoopEC().execute_func() called");
             match juiz_lock(&c) {
                 Err(e) => return Err(e),
-                Ok(cc) => {
-                    match cc.get_state() {
-                        ExecutionContextState::STARTED => cc.svc().and(Ok(())),
-                        _ => Ok(())
-                    }
-                }
+                Ok(cc) => match cc.get_state() {
+                    ExecutionContextState::STARTED => cc.svc().and(Ok(())),
+                    _ => Ok(()),
+                },
             }
         });
         system.set_spin_callback(func);
@@ -68,10 +65,7 @@ impl ExecutionContext for MainLoopEC {
     }
 }
 
-
-struct MainLoopECFactory {
-
-}
+struct MainLoopECFactory {}
 
 impl ExecutionContextFactory for MainLoopECFactory {
     fn type_name(&self) -> &str {
@@ -81,13 +75,13 @@ impl ExecutionContextFactory for MainLoopECFactory {
     fn create(&self, manifest: Value) -> JuizResult<Arc<RwLock<dyn ExecutionContext>>> {
         let name = obj_get_str(&manifest, "name")?;
         let rate = obj_get_f64(&manifest, "rate")?;
-        Ok(MainLoopEC::new(name, rate)
-        )
+        Ok(MainLoopEC::new(name, rate))
     }
 }
 
 #[no_mangle]
-pub unsafe extern "Rust" fn execution_context_factory() -> JuizResult<Arc<Mutex<dyn ExecutionContextFactory>>> {
+pub unsafe extern "Rust" fn execution_context_factory(
+) -> JuizResult<Arc<Mutex<dyn ExecutionContextFactory>>> {
     let _ = env_logger::try_init();
-    Ok(Arc::new(Mutex::new(MainLoopECFactory{})))
+    Ok(Arc::new(Mutex::new(MainLoopECFactory {})))
 }

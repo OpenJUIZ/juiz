@@ -3,8 +3,6 @@ use utoipa::OpenApi;
 use super::IdentifierQuery;
 use axum::extract::Query;
 
-
-
 #[allow(unused)]
 #[utoipa::path(
     get,
@@ -17,9 +15,7 @@ use axum::extract::Query;
     ),
     tag = "universal.broker",
 )]
-pub fn profile_handler_dummy(
-    _query: Query<IdentifierQuery>,) {
-}
+pub fn profile_handler_dummy(_query: Query<IdentifierQuery>) {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -30,16 +26,8 @@ pub fn profile_handler_dummy(
     ),
     tag = "universal.broker",
 )]
-pub fn list_dummy() {
-}
+pub fn list_dummy() {}
 
 #[derive(OpenApi)]
-#[openapi(
-    paths(
-        profile_handler_dummy,
-        list_dummy,
-    ),
-    components(schemas(
-    ))
-)]
+#[openapi(paths(profile_handler_dummy, list_dummy,), components(schemas()))]
 pub struct ApiDoc;

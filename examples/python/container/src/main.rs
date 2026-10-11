@@ -3,8 +3,7 @@ use std::collections::HashMap;
 use pyo3::{prelude::*, types::IntoPyDict};
 
 fn main() -> PyResult<()> {
-
-    let m = HashMap::from([("key0", "value0"), ("key1",  "value1")]);
+    let m = HashMap::from([("key0", "value0"), ("key1", "value1")]);
     let py_foo = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/python_app/utils/foo.py"

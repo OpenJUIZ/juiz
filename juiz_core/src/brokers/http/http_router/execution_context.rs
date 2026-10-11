@@ -20,10 +20,7 @@ use crate::prelude::*;
     ),
     tag = "universal.execution_context",
 )]
-pub fn start_dummy(
-    _query: Query<IdentifierQuery>,
-    Json(_body): Json<Value>) {
-}
+pub fn start_dummy(_query: Query<IdentifierQuery>, Json(_body): Json<Value>) {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -37,11 +34,7 @@ pub fn start_dummy(
     ),
     tag = "universal.execution_context",
 )]
-pub fn stop_dummy(
-    _query: Query<IdentifierQuery>,
-    Json(_body): Json<Value>) {
-}
-
+pub fn stop_dummy(_query: Query<IdentifierQuery>, Json(_body): Json<Value>) {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -55,10 +48,7 @@ pub fn stop_dummy(
     ),
     tag = "universal.execution_context",
 )]
-pub fn profile_handler_dummy(
-    _query: Query<IdentifierQuery>,) {
-}
-
+pub fn profile_handler_dummy(_query: Query<IdentifierQuery>) {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -72,9 +62,7 @@ pub fn profile_handler_dummy(
     ),
     tag = "universal.execution_context",
 )]
-pub fn get_state_dummy(
-    _query: Query<IdentifierQuery>,) {
-}
+pub fn get_state_dummy(_query: Query<IdentifierQuery>) {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -88,8 +76,7 @@ pub fn get_state_dummy(
     ),
     tag = "universal.execution_context",
 )]
-pub fn list_dummy(_query: Query<RecursiveQuery>) {
-}
+pub fn list_dummy(_query: Query<RecursiveQuery>) {}
 
 #[derive(OpenApi)]
 #[openapi(
@@ -100,7 +87,6 @@ pub fn list_dummy(_query: Query<RecursiveQuery>) {
         start_dummy,
         stop_dummy,
     ),
-    components(schemas(
-    ))
+    components(schemas())
 )]
 pub struct ApiDoc;

@@ -1,20 +1,17 @@
-
-
 use std::fmt::Display;
 
 use anyhow::anyhow;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
-use crate::{prelude::*};
 use super::{manifest_description::Description, ArgumentProfile, ProcessProfile};
-
+use crate::prelude::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContainerProfile {
     pub name: String,
     pub language: String,
     pub type_name: String,
-    pub factory: String, 
+    pub factory: String,
     pub arguments: Vec<ArgumentProfile>,
     pub description: Description,
     pub parent_type_name: Option<String>,
@@ -25,7 +22,10 @@ pub struct ContainerProfile {
 
 impl Display for ContainerProfile {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("ContainerProfile(\"{}\", \"{}\", processes=[", self.type_name, self.language, ))?;
+        f.write_fmt(format_args!(
+            "ContainerProfile(\"{}\", \"{}\", processes=[",
+            self.type_name, self.language,
+        ))?;
         for p in self.processes.iter() {
             f.write_fmt(format_args!("{}, ", p))?;
         }
@@ -36,18 +36,25 @@ impl Display for ContainerProfile {
 }
 
 impl TryFrom<ContainerManifest> for ContainerProfile {
-    
     fn try_from(value: ContainerManifest) -> Result<Self, Self::Error> {
         Ok(Self {
-            name: value.name.ok_or(anyhow!(JuizError::ContainerManifestInvalidError{message: format!("ContainerManifest does not include 'name' value.") }))?,
+            name: value
+                .name
+                .ok_or(anyhow!(JuizError::ContainerManifestInvalidError {
+                    message: format!("ContainerManifest does not include 'name' value.")
+                }))?,
             language: value.language,
             type_name: value.type_name,
             factory: value.factory,
-            arguments: value.arguments.into_iter().map(|a| { a.into() }).collect(),
+            arguments: value.arguments.into_iter().map(|a| a.into()).collect(),
             description: value.description,
             parent_type_name: value.parent_type_name,
             parent_name: value.parent_name,
-            processes: value.processes.into_iter().map(|p| -> JuizResult<ProcessProfile> { p.try_into() }).collect::<JuizResult<Vec<ProcessProfile>>>()?,
+            processes: value
+                .processes
+                .into_iter()
+                .map(|p| -> JuizResult<ProcessProfile> { p.try_into() })
+                .collect::<JuizResult<Vec<ProcessProfile>>>()?,
             args: value.args,
         })
     }
@@ -56,12 +63,12 @@ impl TryFrom<ContainerManifest> for ContainerProfile {
 }
 
 impl ContainerProfile {
-
-    pub fn build_instance_manifest(&self, mut partial_instance_manifest: ContainerProfile) -> JuizResult<Self> {
+    pub fn build_instance_manifest(
+        &self,
+        mut partial_instance_manifest: ContainerProfile,
+    ) -> JuizResult<Self> {
         partial_instance_manifest.type_name = self.type_name.clone();
-        Ok(partial_instance_manifest
-            .description(self.description.as_str())
-        )
+        Ok(partial_instance_manifest.description(self.description.as_str()))
     }
 
     pub fn new(type_name: &str, name: &str) -> Self {
@@ -70,7 +77,7 @@ impl ContainerProfile {
             language: "rust".to_owned(),
             type_name: type_name.to_owned(),
             factory: "container_factory".to_owned(),
-            description: "".into(), 
+            description: "".into(),
             parent_type_name: None,
             parent_name: None,
             processes: Vec::new(),
@@ -123,10 +130,10 @@ impl ContainerProfile {
 
     pub fn add_process(mut self, process_profile: ProcessProfile) -> Self {
         // println!("add_process({})", process_manifest);
-        self.processes.push( 
+        self.processes.push(
             process_profile
                 .container_name(Some(self.name.clone()))
-                .container_type(Some(self.type_name.clone()))
+                .container_type(Some(self.type_name.clone())),
         );
         // println!("cm: {}", self);
         self
@@ -136,7 +143,7 @@ impl ContainerProfile {
         self.factory = factory.to_owned();
         self
     }
-    
+
     pub fn add_arg(mut self, arg: ArgumentProfile) -> Self {
         self.arguments.push(arg);
         self
@@ -154,7 +161,7 @@ impl ContainerProfile {
         self.add_arg(ArgumentProfile::new_int(name, default).description(description))
     }
 
-        /// ```
+    /// ```
     /// use juiz_sdk::prelude::*;
     /// let manifest = ProcessProfile::new("hoge01", "hoge_type")
     ///   .description("hoge manifest")
@@ -179,7 +186,11 @@ impl ContainerProfile {
     }
 
     pub fn identifier(&self) -> ContainerIdentifier {
-        ContainerIdentifier::new( format!("core"), format!("core"), self.type_name.clone(), self.name.clone())
+        ContainerIdentifier::new(
+            format!("core"),
+            format!("core"),
+            self.type_name.clone(),
+            self.name.clone(),
+        )
     }
-
 }

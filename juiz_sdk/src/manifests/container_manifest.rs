@@ -1,29 +1,39 @@
-
-
 use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{prelude::*};
 use super::manifest_description::Description;
+use crate::prelude::*;
 
 #[allow(unused)]
-fn default_description() -> Description { Description::new("") }
-fn default_broker_type_name() -> String { "core".to_owned() }
-fn default_broker_name() -> String { "core".to_owned() }
-fn default_factory() -> String { "container_factory".to_owned() }
+fn default_description() -> Description {
+    Description::new("")
+}
+fn default_broker_type_name() -> String {
+    "core".to_owned()
+}
+fn default_broker_name() -> String {
+    "core".to_owned()
+}
+fn default_factory() -> String {
+    "container_factory".to_owned()
+}
 
 #[allow(unused)]
-fn default_use_memo() -> bool { false }
-fn default_language() -> String { "rust".to_owned() }
+fn default_use_memo() -> bool {
+    false
+}
+fn default_language() -> String {
+    "rust".to_owned()
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContainerManifest {
     pub name: Option<String>,
     pub type_name: String,
-    #[serde(default="default_language")]
+    #[serde(default = "default_language")]
     pub language: String,
-    #[serde(default="default_factory")]
-    pub factory: String, 
+    #[serde(default = "default_factory")]
+    pub factory: String,
     #[serde(default)]
     pub arguments: Vec<ArgumentManifest>,
     #[serde(default)]
@@ -35,15 +45,18 @@ pub struct ContainerManifest {
 
     #[serde(default)]
     pub args: Value,
-    #[serde(default="default_broker_type_name")]
+    #[serde(default = "default_broker_type_name")]
     pub broker_type_name: String,
-    #[serde(default="default_broker_name")]
+    #[serde(default = "default_broker_name")]
     pub broker_name: String,
 }
 
 impl Display for ContainerManifest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("ContainerManifest(\"{}\", \"{}\", processes=[", self.type_name, self.language, ))?;
+        f.write_fmt(format_args!(
+            "ContainerManifest(\"{}\", \"{}\", processes=[",
+            self.type_name, self.language,
+        ))?;
         for p in self.processes.iter() {
             f.write_fmt(format_args!("{}, ", p))?;
         }
@@ -53,14 +66,13 @@ impl Display for ContainerManifest {
     }
 }
 
-
 impl ContainerManifest {
-
-    pub fn build_instance_manifest(&self, mut partial_instance_manifest: ContainerManifest) -> JuizResult<Self> {
+    pub fn build_instance_manifest(
+        &self,
+        mut partial_instance_manifest: ContainerManifest,
+    ) -> JuizResult<Self> {
         partial_instance_manifest.type_name = self.type_name.clone();
-        Ok(partial_instance_manifest
-            .description(self.description.as_str())
-        )
+        Ok(partial_instance_manifest.description(self.description.as_str()))
     }
 
     pub fn new(type_name: &str) -> Self {
@@ -69,7 +81,7 @@ impl ContainerManifest {
             language: "rust".to_owned(),
             type_name: type_name.to_owned(),
             factory: "container_factory".to_owned(),
-            description: "".into(), 
+            description: "".into(),
             parent_type_name: None,
             parent_name: None,
             processes: Vec::new(),
@@ -124,10 +136,10 @@ impl ContainerManifest {
 
     pub fn add_process(mut self, process_manifest: ProcessManifest) -> Self {
         // println!("add_process({})", process_manifest);
-        self.processes.push( 
+        self.processes.push(
             process_manifest
-                .container_name(self.name.as_ref().map(|s|{s.clone()}))
-                .container_type(Some(self.type_name.clone()))
+                .container_name(self.name.as_ref().map(|s| s.clone()))
+                .container_type(Some(self.type_name.clone())),
         );
         // println!("cm: {}", self);
         self
@@ -137,7 +149,7 @@ impl ContainerManifest {
         self.factory = factory.to_owned();
         self
     }
-    
+
     pub fn add_arg(mut self, arg: ArgumentManifest) -> Self {
         self.arguments.push(arg);
         self
@@ -155,7 +167,7 @@ impl ContainerManifest {
         self.add_arg(ArgumentManifest::new_int(name, default).description(description))
     }
 
-        /// ```
+    /// ```
     /// use juiz_sdk::prelude::*;
     /// let manifest = ProcessManifest::new("hoge_type")
     ///   .description("hoge manifest")
@@ -183,18 +195,30 @@ impl ContainerManifest {
         self.add_arg(ArgumentManifest::new_image(name).description(description))
     }
 
-    pub fn identifier(&self) -> JuizResult<ContainerIdentifier> { 
-        Ok(ContainerIdentifier::new(self.broker_name.clone(),
-            self.broker_type_name.clone(), 
-            self.type_name.clone(), 
-            self.name.as_ref().ok_or_else(|| anyhow::anyhow!(JuizError::ContainerManifestInvalidError{message: format!("ContainerManifest does not include 'name' value.") }))?.clone()))
+    pub fn identifier(&self) -> JuizResult<ContainerIdentifier> {
+        Ok(ContainerIdentifier::new(
+            self.broker_name.clone(),
+            self.broker_type_name.clone(),
+            self.type_name.clone(),
+            self.name
+                .as_ref()
+                .ok_or_else(|| {
+                    anyhow::anyhow!(JuizError::ContainerManifestInvalidError {
+                        message: format!("ContainerManifest does not include 'name' value.")
+                    })
+                })?
+                .clone(),
+        ))
     }
 
-    pub fn add_array_arg(self, name: &str, description: &str, default: Vec<serde_json::Value>) -> ContainerManifest {
+    pub fn add_array_arg(
+        self,
+        name: &str,
+        description: &str,
+        default: Vec<serde_json::Value>,
+    ) -> ContainerManifest {
         self.add_arg(ArgumentManifest::new_array(name, default).description(description))
     }
-
-
 }
 
 // impl TryFrom<Value> for ContainerManifest {
@@ -260,7 +284,6 @@ impl ContainerManifest {
 //     }
 // }
 
-
 // fn arguments_to_array(args: Vec<ArgumentManifest>) -> Value {
 //     args.into_iter().map(|arg| -> Value {
 //         arg.into()
@@ -287,7 +310,6 @@ impl ContainerManifest {
 //             obj.insert("parent_name".to_owned(), parent_name.into());
 //         }
 
-
-//         v   
+//         v
 //     }
 // }

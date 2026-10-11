@@ -1,12 +1,10 @@
-
-
-use std::path::Path;
+use juiz_core::log;
 use juiz_core::prelude::juiz_lock;
 use juiz_core::utils::yaml_conf_load;
-use juiz_core::log;
+use std::path::Path;
 
-use juiz_core::prelude::*;
 use clap::Subcommand;
+use juiz_core::prelude::*;
 
 use crate::Args;
 
@@ -15,7 +13,11 @@ pub(crate) enum EcSubCommands {
     /// get logs
     #[clap(arg_required_else_help = false)]
     List {
-        #[arg(short = 'f', default_value = "./juiz.conf", help = "Input system definition file path")]
+        #[arg(
+            short = 'f',
+            default_value = "./juiz.conf",
+            help = "Input system definition file path"
+        )]
         filepath: String,
     },
 
@@ -24,24 +26,36 @@ pub(crate) enum EcSubCommands {
         #[arg(help = "ID of Execution context")]
         identifier: String,
 
-        #[arg(short = 'f', default_value = "./juiz.conf", help = "Input system definition file path")]
+        #[arg(
+            short = 'f',
+            default_value = "./juiz.conf",
+            help = "Input system definition file path"
+        )]
         filepath: String,
     },
 }
 
-
-
-pub(crate) fn on_execution_context(manifest: Value, working_dir: &Path, subcommand: EcSubCommands, args: Args) -> JuizResult<()> {
+pub(crate) fn on_execution_context(
+    manifest: Value,
+    working_dir: &Path,
+    subcommand: EcSubCommands,
+    args: Args,
+) -> JuizResult<()> {
     match on_ec_inner(manifest, working_dir, subcommand, args) {
-         Ok(_) => return Ok(()),
-         Err(e) => println!("Error: {e:?}")
-     };
+        Ok(_) => return Ok(()),
+        Err(e) => println!("Error: {e:?}"),
+    };
     Ok(())
 }
 
-pub(crate) fn on_ec_inner(_manifest: Value, working_dir: &Path, subcommand: EcSubCommands, args: Args) -> JuizResult<()> {
+pub(crate) fn on_ec_inner(
+    _manifest: Value,
+    working_dir: &Path,
+    subcommand: EcSubCommands,
+    args: Args,
+) -> JuizResult<()> {
     match subcommand {
-        EcSubCommands::List {filepath} => {
+        EcSubCommands::List { filepath } => {
             log::trace!("ec list command is selected.");
             let manifest2 = yaml_conf_load(filepath.clone())?;
             let server = args.server;
@@ -51,14 +65,13 @@ pub(crate) fn on_ec_inner(_manifest: Value, working_dir: &Path, subcommand: EcSu
                 .start_http_broker(args.start_http_broker)
                 .setup()?
                 .add_systemproxy_by_id(Some(server.clone()))?
-                .run_and_do_once( |system| { 
-                
-                    on_ec_list(system, Some(server), recursive)
-                
-            }) 
-        },
+                .run_and_do_once(|system| on_ec_list(system, Some(server), recursive))
+        }
 
-        EcSubCommands::Start { identifier, filepath} => {
+        EcSubCommands::Start {
+            identifier,
+            filepath,
+        } => {
             log::trace!("ec start command is selected.");
             let manifest2 = yaml_conf_load(filepath.clone())?;
             let server = args.server;
@@ -67,15 +80,10 @@ pub(crate) fn on_ec_inner(_manifest: Value, working_dir: &Path, subcommand: EcSu
                 .start_http_broker(args.start_http_broker)
                 .setup()?
                 .add_systemproxy_by_id(Some(server.clone()))?
-                .run_and_do_once( |system| { 
-                
-                    on_ec_start(system, Some(server), identifier)
-                
-            }) 
-        },
+                .run_and_do_once(|system| on_ec_start(system, Some(server), identifier))
+        }
     }
 }
-
 
 fn on_ec_list(system: &mut System, _server: Option<String>, recursive: bool) -> JuizResult<()> {
     log::info!("on_ec_list() called");
@@ -90,11 +98,15 @@ fn on_ec_list(system: &mut System, _server: Option<String>, recursive: bool) -> 
 
 fn on_ec_start(system: &mut System, _server: Option<String>, id: String) -> JuizResult<()> {
     //println!("processes:");
-    let e = system.core_broker().lock_mut()?.worker_mut().ec_from_id(&id);
+    let e = system
+        .core_broker()
+        .lock_mut()?
+        .worker_mut()
+        .ec_from_id(&id);
     match e {
         Ok(ec) => {
             juiz_lock(&ec)?.start()?;
-        },
+        }
         Err(e) => println!("Error: {e:?}"),
     }
     Ok(())

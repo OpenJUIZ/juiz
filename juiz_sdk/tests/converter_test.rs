@@ -88,11 +88,14 @@ fn value_object_setters_build_nested_values() {
         let nested = value_object_set_empty_object(&mut obj, cstr("nested").as_ptr());
         value_object_set_bool(nested, cstr("flag").as_ptr(), 0);
 
-        assert_eq!(obj, jvalue!({
-            "i": -1, "u": 1, "f": 1.5, "s": "str", "b": true,
-            "arr": [-2, 2, 2.5, false, "x", {"k": 9}, [10]],
-            "nested": {"flag": false}
-        }));
+        assert_eq!(
+            obj,
+            jvalue!({
+                "i": -1, "u": 1, "f": 1.5, "s": "str", "b": true,
+                "arr": [-2, 2, 2.5, false, "x", {"k": 9}, [10]],
+                "nested": {"flag": false}
+            })
+        );
 
         let got = value_object_get_value(&mut obj, cstr("s").as_ptr());
         assert_eq!(*got, jvalue!("str"));
@@ -126,7 +129,11 @@ fn value_foreach_callbacks() {
 
         let mut obj = jvalue!({"a": 1, "b": 2});
         let mut keys: Vec<String> = Vec::new();
-        value_object_foreach(&mut obj, collect_keys, &mut keys as *mut Vec<String> as *mut c_void);
+        value_object_foreach(
+            &mut obj,
+            collect_keys,
+            &mut keys as *mut Vec<String> as *mut c_void,
+        );
         keys.sort();
         assert_eq!(keys, vec!["a".to_owned(), "b".to_owned()]);
     }
@@ -214,14 +221,38 @@ fn arc_capsule_type_predicates() {
                 arc_capsule_is_null(&mut a),
             ]
         };
-        assert_eq!(check(jvalue!(-1)), [true, false, false, false, false, false, false, false]);
-        assert_eq!(check(jvalue!(1)), [true, true, false, false, false, false, false, false]);
-        assert_eq!(check(jvalue!(1.5)), [false, false, true, false, false, false, false, false]);
-        assert_eq!(check(jvalue!(true)), [false, false, false, true, false, false, false, false]);
-        assert_eq!(check(jvalue!("s")), [false, false, false, false, true, false, false, false]);
-        assert_eq!(check(jvalue!([])), [false, false, false, false, false, true, false, false]);
-        assert_eq!(check(jvalue!({})), [false, false, false, false, false, false, true, false]);
-        assert_eq!(check(Value::Null), [false, false, false, false, false, false, false, true]);
+        assert_eq!(
+            check(jvalue!(-1)),
+            [true, false, false, false, false, false, false, false]
+        );
+        assert_eq!(
+            check(jvalue!(1)),
+            [true, true, false, false, false, false, false, false]
+        );
+        assert_eq!(
+            check(jvalue!(1.5)),
+            [false, false, true, false, false, false, false, false]
+        );
+        assert_eq!(
+            check(jvalue!(true)),
+            [false, false, false, true, false, false, false, false]
+        );
+        assert_eq!(
+            check(jvalue!("s")),
+            [false, false, false, false, true, false, false, false]
+        );
+        assert_eq!(
+            check(jvalue!([])),
+            [false, false, false, false, false, true, false, false]
+        );
+        assert_eq!(
+            check(jvalue!({})),
+            [false, false, false, false, false, false, true, false]
+        );
+        assert_eq!(
+            check(Value::Null),
+            [false, false, false, false, false, false, false, true]
+        );
 
         let mut empty = Arc::new(Mutex::new(Capsule::empty()));
         assert!(!arc_capsule_is_value(&mut empty));
@@ -247,7 +278,10 @@ fn capsule_ptr_converters_get_and_set() {
         let mut s: *const u8 = std::ptr::null();
 
         // 値が入っていないときはロックエラー扱い
-        assert_eq!(capsule_ptr_get_int(&mut p, &mut i), JUIZ_CAPSULEPTR_LOCK_ERROR);
+        assert_eq!(
+            capsule_ptr_get_int(&mut p, &mut i),
+            JUIZ_CAPSULEPTR_LOCK_ERROR
+        );
 
         assert_eq!(capsule_ptr_set_int(&mut p, -3), JUIZ_OK);
         assert_eq!(capsule_ptr_get_int(&mut p, &mut i), JUIZ_OK);
@@ -271,7 +305,10 @@ fn capsule_ptr_converters_get_and_set() {
         assert_eq!(capsule_ptr_get_bool(&mut p, &mut b), JUIZ_OK);
         assert_eq!(b, 0);
         assert_eq!(capsule_ptr_get_float(&mut p, &mut f), JUIZ_VALUE_TYPE_ERROR);
-        assert_eq!(capsule_ptr_get_string(&mut p, &mut s), JUIZ_VALUE_TYPE_ERROR);
+        assert_eq!(
+            capsule_ptr_get_string(&mut p, &mut s),
+            JUIZ_VALUE_TYPE_ERROR
+        );
 
         assert_eq!(capsule_ptr_set_string(&mut p, cstr("ok").as_ptr()), JUIZ_OK);
         assert_eq!(capsule_ptr_get_string(&mut p, &mut s), JUIZ_OK);
@@ -288,7 +325,9 @@ fn capsule_ptr_converters_get_and_set() {
 }
 
 extern "C" fn set_to_100(v: *mut Value) {
-    unsafe { *v = jvalue!(100); }
+    unsafe {
+        *v = jvalue!(100);
+    }
 }
 
 extern "C" fn add_arg(arg: *mut c_void, v: *mut Value) -> i64 {
@@ -306,7 +345,14 @@ fn capsule_ptr_lock_callbacks() {
         capsule_ptr_lock_as_value(&mut p, set_to_100);
         assert_eq!(p.lock_as_value(|v| v.clone()).unwrap(), jvalue!(100));
         let mut add = 5i64;
-        assert_eq!(capsule_ptr_lock_as_value_with_arg(&mut p, add_arg, &mut add as *mut i64 as *mut c_void), JUIZ_OK);
+        assert_eq!(
+            capsule_ptr_lock_as_value_with_arg(
+                &mut p,
+                add_arg,
+                &mut add as *mut i64 as *mut c_void
+            ),
+            JUIZ_OK
+        );
         assert_eq!(p.lock_as_value(|v| v.clone()).unwrap(), jvalue!(105));
     }
 }
@@ -316,13 +362,19 @@ fn capsule_map_get_capsule_by_name() {
     unsafe {
         let mut m: CapsuleMap = vec![("a", jvalue!(1))].into();
         let mut ptr: *mut CapsulePtr = std::ptr::null_mut();
-        assert_eq!(capsule_map_get_capsule(&mut m, cstr("a").as_ptr(), &mut ptr), JUIZ_OK);
+        assert_eq!(
+            capsule_map_get_capsule(&mut m, cstr("a").as_ptr(), &mut ptr),
+            JUIZ_OK
+        );
         assert!(!ptr.is_null());
         let mut i = 0i64;
         assert_eq!(capsule_ptr_get_int(ptr, &mut i), JUIZ_OK);
         assert_eq!(i, 1);
 
-        assert_eq!(capsule_map_get_capsule(&mut m, cstr("missing").as_ptr(), &mut ptr), JUIZ_CAPSULEMAP_NO_VALUE);
+        assert_eq!(
+            capsule_map_get_capsule(&mut m, cstr("missing").as_ptr(), &mut ptr),
+            JUIZ_CAPSULEMAP_NO_VALUE
+        );
         assert!(ptr.is_null());
     }
 }

@@ -1,32 +1,35 @@
-
-
+use juiz_core::anyhow::Context;
+use juiz_core::{
+    anyhow::{self, anyhow},
+    prelude::*,
+    tokio, CRUDBroker,
+};
 use std::sync::Mutex;
 use std::time::Duration;
 use std::{net::SocketAddr, sync::Arc};
-use juiz_core::anyhow::Context;
-use juiz_core::{prelude::*, tokio, anyhow::{self, anyhow}, CRUDBroker};
 
-use quinn::{Connection, Endpoint, Incoming};
-use rustls::pki_types::CertificateDer;
-use rustls::crypto::ring::default_provider;
 use quinn::ServerConfig;
+use quinn::{Connection, Endpoint, Incoming};
+use rustls::crypto::ring::default_provider;
+use rustls::pki_types::CertificateDer;
 use rustls::pki_types::PrivatePkcs8KeyDer;
 
 use crate::{value_to_vecu8, vecu8_to_value};
 
-
 #[allow(unused)]
 pub fn make_server_endpoint(
     bind_addr: SocketAddr,
-    idle_timeout: Option<u64>
-) -> anyhow::Result<(Endpoint, CertificateDer<'static>)> { // Result<(Endpoint, CertificateDer<'static>), Box<dyn Error + Send + Sync + 'static>> {
+    idle_timeout: Option<u64>,
+) -> anyhow::Result<(Endpoint, CertificateDer<'static>)> {
+    // Result<(Endpoint, CertificateDer<'static>), Box<dyn Error + Send + Sync + 'static>> {
     let (server_config, server_cert) = match configure_server(idle_timeout) {
         Ok(v) => Ok(v),
         Err(e) => {
             log::error!("configure_server() in make_server_endpoint failed. Error({e:?})");
             Err(anyhow!(e))
-        },
-    }.context("configure_server() failed")?;
+        }
+    }
+    .context("configure_server() failed")?;
     let endpoint = match Endpoint::server(server_config.clone(), bind_addr) {
         Ok(v) => Ok(v),
         Err(e) => {
@@ -37,10 +40,11 @@ pub fn make_server_endpoint(
     Ok((endpoint, server_cert))
 }
 
-
 /// Returns default server configuration along with its certificate.
-fn configure_server(timeout: Option<u64>,
-) -> anyhow::Result<(ServerConfig, CertificateDer<'static>)> {//Result<(ServerConfig, CertificateDer<'static>), Box<dyn Error + Send + Sync + 'static>> {
+fn configure_server(
+    timeout: Option<u64>,
+) -> anyhow::Result<(ServerConfig, CertificateDer<'static>)> {
+    //Result<(ServerConfig, CertificateDer<'static>), Box<dyn Error + Send + Sync + 'static>> {
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
     let cert_der = CertificateDer::from(cert.cert);
     let priv_key = PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der());
@@ -62,8 +66,6 @@ pub const ALPN_QUIC_HTTP: &[&[u8]] = &[b"hq-29"];
 
 //type CallbackType = Arc<Mutex<dyn Fn(Vec<u8>)-> anyhow::Result<Vec<u8>>  + Send + Sync >> ;
 
-
-
 // fn on_update(crud_broker: Arc<Mutex<CRUDBroker>>, class_name:&str, function_name:&str, cp: CapsuleMap, remote_addr: SocketAddr) -> JuizResult<CapsulePtr>{
 //     log::trace!("on_update({cp:?}) called");
 //     //let class_name = cp.get_param("class_name").unwrap().clone();
@@ -80,7 +82,7 @@ pub const ALPN_QUIC_HTTP: &[&[u8]] = &[b"hq-29"];
 //                             let port_str = broker_tokens.get(1).unwrap();
 //                             let remote_tokens = remote_addr_str.split(":").collect::<Vec<&str>>();
 //                             let addr_str = (*remote_tokens.get(0).unwrap()).to_owned();
-                            
+
 //                             let new_broker_name = addr_str + ":" + port_str;
 //                             obj.insert("broker_name".to_owned(), jvalue!(new_broker_name));
 //                         }
@@ -97,9 +99,13 @@ pub const ALPN_QUIC_HTTP: &[&[u8]] = &[b"hq-29"];
 //     return retval;
 // }
 
-fn callback(request: Vec<u8>, crud_broker: Arc<Mutex<CRUDBroker>>, remote_addr: SocketAddr) -> anyhow::Result<Vec<u8>> {
+fn callback(
+    request: Vec<u8>,
+    crud_broker: Arc<Mutex<CRUDBroker>>,
+    remote_addr: SocketAddr,
+) -> anyhow::Result<Vec<u8>> {
     let val = vecu8_to_value(request)?;
-    let capsule_ptr= juiz_lock(&crud_broker)?.on_value_request(val, Some(remote_addr))?;
+    let capsule_ptr = juiz_lock(&crud_broker)?.on_value_request(val, Some(remote_addr))?;
     // let cp = to_request(val)?;
     // let class_name = cp.get_param("class_name").unwrap().clone();
     // let method_name = cp.get_param("method_name").unwrap().clone();
@@ -117,9 +123,7 @@ fn callback(request: Vec<u8>, crud_broker: Arc<Mutex<CRUDBroker>>, remote_addr: 
     //     }
     // }?;
     if capsule_ptr.is_value()? {
-        capsule_ptr.lock_as_value(|v| {
-            value_to_vecu8(v)
-        })?
+        capsule_ptr.lock_as_value(|v| value_to_vecu8(v))?
     } else if capsule_ptr.is_empty()? {
         Ok(value_to_vecu8(&jvalue!({}))?)
     // } else if capsule_ptr.is_mat()? {
@@ -134,45 +138,62 @@ pub async fn on_start(broker_manifest: Value, crud_broker: Arc<Mutex<CRUDBroker>
     //envlogger::init();
     log::info!("qmp_broker::on_start(broker_manifest='{broker_manifest:}') called");
     let _ = default_provider().install_default();
-    
-    let host = obj_get_str(&broker_manifest, "host").or::<&str>(Ok("0.0.0.0") ).unwrap();
-    let port  = obj_get_i64(&broker_manifest, "port").or::<i64>( Ok(8080)).unwrap();
-    let idle_timeout = obj_get_i64( &broker_manifest, "idle_timeout").and_then(|v|{ Ok(Some(v as u64)) }).or::<Option<u64>>(Ok(None)).unwrap();
+
+    let host = obj_get_str(&broker_manifest, "host")
+        .or::<&str>(Ok("0.0.0.0"))
+        .unwrap();
+    let port = obj_get_i64(&broker_manifest, "port")
+        .or::<i64>(Ok(8080))
+        .unwrap();
+    let idle_timeout = obj_get_i64(&broker_manifest, "idle_timeout")
+        .and_then(|v| Ok(Some(v as u64)))
+        .or::<Option<u64>>(Ok(None))
+        .unwrap();
     let address = format!("{:}:{:}", host, port);
-    run_server(address.parse().unwrap(), idle_timeout,  Arc::new(move |req, conn: &Connection| {callback(req, crud_broker.clone(), conn.remote_address())} )).await;
+    run_server(
+        address.parse().unwrap(),
+        idle_timeout,
+        Arc::new(move |req, conn: &Connection| {
+            callback(req, crud_broker.clone(), conn.remote_address())
+        }),
+    )
+    .await;
 }
-   
 
 /// Runs a QUIC server bound to given address.
-async fn run_server<F>(addr: SocketAddr, idle_timeout: Option<u64>, callback: Arc<F>) where F: Fn(Vec<u8>, &Connection)-> anyhow::Result<Vec<u8>>  + Send + Sync + 'static {
+async fn run_server<F>(addr: SocketAddr, idle_timeout: Option<u64>, callback: Arc<F>)
+where
+    F: Fn(Vec<u8>, &Connection) -> anyhow::Result<Vec<u8>> + Send + Sync + 'static,
+{
     let (endpoint, _server_cert) = match make_server_endpoint(addr, idle_timeout) {
-        Ok(v) => Ok(v), 
+        Ok(v) => Ok(v),
         Err(e) => {
             println!("calling make_server_endpoint failed. Error {e:?}");
             Err(e)
         }
-    }.unwrap();
+    }
+    .unwrap();
     //let cb = Arc::new(callback);
     loop {
         log::trace!("endpoint.accept in run_server()");
         match endpoint.accept().await {
             Some(incoming_conn) => {
-                tokio::spawn(  handle_incoming(incoming_conn, callback.clone()) );
-            },
+                tokio::spawn(handle_incoming(incoming_conn, callback.clone()));
+            }
             None => {
                 log::error!("endpoint.accept returns None");
-            },
+            }
         }
     }
 }
 
-
-async fn handle_incoming<F>(incoming: Incoming, callback: Arc<F>) -> anyhow::Result<()> where F: Fn(Vec<u8>, &Connection)-> anyhow::Result<Vec<u8>>  + Send + Sync {
+async fn handle_incoming<F>(incoming: Incoming, callback: Arc<F>) -> anyhow::Result<()>
+where
+    F: Fn(Vec<u8>, &Connection) -> anyhow::Result<Vec<u8>> + Send + Sync,
+{
     log::trace!("handle_incoming() called");
     match incoming.await {
-        Ok(connecting) => {
-            handle_connection(connecting, callback).await
-        },
+        Ok(connecting) => handle_connection(connecting, callback).await,
         Err(e) => {
             log::error!("Incoming.accept() failed. Error {e:?}");
             Err(anyhow!(e))
@@ -180,52 +201,61 @@ async fn handle_incoming<F>(incoming: Incoming, callback: Arc<F>) -> anyhow::Res
     }
 }
 
-
-async fn handle_connection<F>(conn: Connection, callback: Arc<F>) -> anyhow::Result<()>  where F: Fn(Vec<u8>, &Connection)-> anyhow::Result<Vec<u8>>  + Send + Sync {
+async fn handle_connection<F>(conn: Connection, callback: Arc<F>) -> anyhow::Result<()>
+where
+    F: Fn(Vec<u8>, &Connection) -> anyhow::Result<Vec<u8>> + Send + Sync,
+{
     log::trace!("handle_connection(from:{})", conn.remote_address());
     //async {
-        loop {
-            match conn.accept_bi().await {
-                Err(quinn::ConnectionError::ApplicationClosed { .. }) => {
-                    log::info!("Connection Closed.");
-                    return Ok(());
-                }
-                Err(e) => {
-                    log::error!("Connection::accept_bi() error. {e:?}");
-                    return Err(anyhow!(e))
-                }
-                Ok(mut s) => {
-                    let  (send, recv) = &mut s;
-                    match handle_stream(send, recv, callback.clone(), &conn).await {
-                        Ok(_) => {},
-                        Err(e) => {
-                            return Err(anyhow!(e));
-                        }
+    loop {
+        match conn.accept_bi().await {
+            Err(quinn::ConnectionError::ApplicationClosed { .. }) => {
+                log::info!("Connection Closed.");
+                return Ok(());
+            }
+            Err(e) => {
+                log::error!("Connection::accept_bi() error. {e:?}");
+                return Err(anyhow!(e));
+            }
+            Ok(mut s) => {
+                let (send, recv) = &mut s;
+                match handle_stream(send, recv, callback.clone(), &conn).await {
+                    Ok(_) => {}
+                    Err(e) => {
+                        return Err(anyhow!(e));
                     }
-                 }
+                }
             }
         }
+    }
     //}.instrument(make_span(&conn)).await
 }
 
-
-async fn handle_stream<F>(send: &mut quinn::SendStream, recv: &mut quinn::RecvStream, callback: Arc<F>, connection: &Connection) -> anyhow::Result<()> where F: Fn(Vec<u8>, &Connection)-> anyhow::Result<Vec<u8>>  + Send + Sync{
+async fn handle_stream<F>(
+    send: &mut quinn::SendStream,
+    recv: &mut quinn::RecvStream,
+    callback: Arc<F>,
+    connection: &Connection,
+) -> anyhow::Result<()>
+where
+    F: Fn(Vec<u8>, &Connection) -> anyhow::Result<Vec<u8>> + Send + Sync,
+{
     let mut req = recv.read_to_end(64 * 1024).await.or_else(|e| {
         log::error!("RecvStream::read_to_end() failed. {e:?}");
-        return Err(anyhow!(e))
+        return Err(anyhow!(e));
     })?;
 
-    let req_msg = rmp_serde::from_slice::<serde_json::Value>(&mut &req.as_mut_slice()[..] )?;
+    let req_msg = rmp_serde::from_slice::<serde_json::Value>(&mut &req.as_mut_slice()[..])?;
 
     log::trace!("request : {:?}", req_msg);
-    
+
     let response = callback(req, connection)?;
 
-    send.write_all(&response).await.or_else(|e| { 
+    send.write_all(&response).await.or_else(|e| {
         log::error!("write error. {e:?}");
-        Err(anyhow!(e))}
-    )?;
-    send.finish().or_else(|e| { 
+        Err(anyhow!(e))
+    })?;
+    send.finish().or_else(|e| {
         log::error!("finish error. {e:?}");
         Err(anyhow!(e))
     })

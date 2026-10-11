@@ -1,14 +1,16 @@
-///
-/// 
-/// 
-
-use std::{collections::HashMap, fmt::Display, ops::{Deref, DerefMut}};
 use crate::{manifests::ContainerProfile, prelude::*, processes::ProcessPtr};
-
+///
+///
+///
+use std::{
+    collections::HashMap,
+    fmt::Display,
+    ops::{Deref, DerefMut},
+};
 
 #[allow(unused)]
 pub struct ContainerImpl<S: 'static> {
-   // core: ObjectCore,
+    // core: ObjectCore,
     profile: ContainerProfile,
     identifier: ContainerIdentifier,
     pub t: Box<S>,
@@ -18,36 +20,46 @@ pub struct ContainerImpl<S: 'static> {
 
 impl<S: 'static> std::fmt::Debug for ContainerImpl<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ContainerImpl").field("profile", &self.profile).field("identifier", &self.identifier).field("t", &"User object.".to_owned()).field("processes", &self.processes).field("parent_container", &self.parent_container).finish()
+        f.debug_struct("ContainerImpl")
+            .field("profile", &self.profile)
+            .field("identifier", &self.identifier)
+            .field("t", &"User object.".to_owned())
+            .field("processes", &self.processes)
+            .field("parent_container", &self.parent_container)
+            .finish()
     }
 }
 
 fn _identifier_from_manifest(manifest: &Value) -> Identifier {
     match obj_get_str(manifest, "identifier") {
         Err(_) => obj_get_str(manifest, "name").unwrap().to_string(),
-        Ok(id) => id.to_string()
+        Ok(id) => id.to_string(),
     }
 }
 
 impl<S: 'static> ContainerImpl<S> {
     pub fn new(manifest: ContainerManifest, t: Box<S>) -> JuizResult<Self> {
         //println!("new(manifest:{manifest:?}");
-        Ok(ContainerImpl{
+        Ok(ContainerImpl {
             // core: ObjectCore::create(JuizObjectClass::Container("ContainerImpl"), manifest.type_name.to_owned(), manifest.name.as_ref().unwrap().to_owned()),
             identifier: manifest.identifier()?,
-            profile: manifest.try_into()?, 
+            profile: manifest.try_into()?,
             t,
             processes: HashMap::new(),
             parent_container: None,
         })
     }
 
-    pub fn new_with_parent(manifest: ContainerManifest, t: Box<S>, parent_container: ContainerPtr) -> JuizResult<Self> {
+    pub fn new_with_parent(
+        manifest: ContainerManifest,
+        t: Box<S>,
+        parent_container: ContainerPtr,
+    ) -> JuizResult<Self> {
         //let type_name = obj_get_str(&manifest, "type_name")?;
         //let object_name = obj_get_str(&manifest, "name")?;
-        Ok(ContainerImpl{
+        Ok(ContainerImpl {
             identifier: manifest.identifier()?,
-            profile: manifest.try_into()?, 
+            profile: manifest.try_into()?,
             t,
             processes: HashMap::new(),
             parent_container: Some(parent_container),
@@ -63,13 +75,11 @@ impl<S: 'static> Deref for ContainerImpl<S> {
     }
 }
 
-
 impl<S: 'static> DerefMut for ContainerImpl<S> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.t
     }
 }
-
 
 // impl<S: 'static> JuizObjectCoreHolder for ContainerImpl<S> {
 //     fn core(&self) -> &ObjectCore {
@@ -87,7 +97,6 @@ impl<S: 'static> DerefMut for ContainerImpl<S> {
 // }
 
 impl<S: 'static> Container for ContainerImpl<S> {
-
     fn identifier(&self) -> ContainerIdentifier {
         self.identifier.clone()
     }
@@ -97,7 +106,11 @@ impl<S: 'static> Container for ContainerImpl<S> {
     }
 
     fn process(&self, name_or_id: &String) -> Option<ProcessPtr> {
-        log::trace!("ContainerImpl({}):process({}) called", self.identifier(), name_or_id);
+        log::trace!(
+            "ContainerImpl({}):process({}) called",
+            self.identifier(),
+            name_or_id
+        );
         for (k, p) in self.processes.iter() {
             if k == name_or_id {
                 return Some(p.clone());
@@ -105,17 +118,20 @@ impl<S: 'static> Container for ContainerImpl<S> {
             match IdentifierStruct::try_from(name_or_id.clone()) {
                 Ok(s) => {
                     if &s.object_name == name_or_id {
-                        return Some(p.clone())
+                        return Some(p.clone());
                     }
                 }
-                Err(_) => {},
+                Err(_) => {}
             }
         }
         None
     }
 
     fn processes(&self) -> Vec<ProcessPtr> {
-        self.processes.iter().map(|(_k, p)|{p.clone()}).collect::<Vec<ProcessPtr>>()
+        self.processes
+            .iter()
+            .map(|(_k, p)| p.clone())
+            .collect::<Vec<ProcessPtr>>()
     }
 
     fn register_process(&mut self, p: ProcessPtr) -> JuizResult<ProcessPtr> {
@@ -125,7 +141,11 @@ impl<S: 'static> Container for ContainerImpl<S> {
     }
 
     fn purge_process(&mut self, name_or_id: &String) -> JuizResult<()> {
-        log::trace!("ContainerImpl({})::purge_process({}) called", self.identifier(), name_or_id);
+        log::trace!(
+            "ContainerImpl({})::purge_process({}) called",
+            self.identifier(),
+            name_or_id
+        );
 
         match self.process(name_or_id) {
             Some(p) => {
@@ -133,11 +153,13 @@ impl<S: 'static> Container for ContainerImpl<S> {
                 let _res = self.processes.remove(&p.identifier().to_string());
                 //log::trace!("ContainerImpl::purge_process({}) result: {:?}", name_or_id, res.is_some());
                 Ok(())
-            },
+            }
             None => {
                 log::error!("purge_process({}) failed. Process is None.", name_or_id);
-                Err(anyhow::Error::from(JuizError::ObjectCanNotFoundByIdError { id: name_or_id.clone() }))
-            },
+                Err(anyhow::Error::from(JuizError::ObjectCanNotFoundByIdError {
+                    id: name_or_id.clone(),
+                }))
+            }
         }
     }
 
@@ -149,8 +171,6 @@ impl<S: 'static> Container for ContainerImpl<S> {
         self.processes.clear();
         Ok(())
     }
-    
-    
 }
 
 impl<S: 'static> Display for ContainerImpl<S> {

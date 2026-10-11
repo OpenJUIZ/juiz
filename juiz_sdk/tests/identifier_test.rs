@@ -19,7 +19,10 @@ fn connection_identifier_round_trip() -> JuizResult<()> {
     let src = "core://core/process/a0::a".to_owned();
     let dst = "core://core/process/b0::b".to_owned();
     let cid = connection_identifier_new(&src, &dst, "arg1");
-    assert_eq!(cid, "connection://core://core/process/a0::a|arg1|core://core/process/b0::b");
+    assert_eq!(
+        cid,
+        "connection://core://core/process/a0::a|arg1|core://core/process/b0::b"
+    );
     let (s, d, a) = connection_identifier_split(cid)?;
     assert_eq!(s, src);
     assert_eq!(d, dst);
@@ -36,25 +39,38 @@ fn connection_identifier_split_rejects_wrong_token_count() {
 #[test]
 fn identifier_from_manifest_prefers_identifier_key() -> JuizResult<()> {
     let m = jvalue!({"identifier": "core://core/process/x::y", "name": "ignored", "type_name": "ignored"});
-    assert_eq!(identifier_from_manifest("core", "core", "Process", &m)?, "core://core/process/x::y");
+    assert_eq!(
+        identifier_from_manifest("core", "core", "Process", &m)?,
+        "core://core/process/x::y"
+    );
     Ok(())
 }
 
 #[test]
 fn identifier_from_manifest_uses_defaults_and_overrides() -> JuizResult<()> {
     let m = jvalue!({"name": "p0", "type_name": "p"});
-    assert_eq!(identifier_from_manifest("core", "core", "Process", &m)?, "core://core/process/p0::p");
+    assert_eq!(
+        identifier_from_manifest("core", "core", "Process", &m)?,
+        "core://core/process/p0::p"
+    );
 
     let m = jvalue!({"name": "p0", "type_name": "p", "broker_name": "remote:8000", "broker_type_name": "http"});
-    assert_eq!(identifier_from_manifest("core", "core", "Process", &m)?, "http://remote:8000/process/p0::p");
+    assert_eq!(
+        identifier_from_manifest("core", "core", "Process", &m)?,
+        "http://remote:8000/process/p0::p"
+    );
     Ok(())
 }
 
 #[test]
 fn identifier_from_manifest_requires_name_and_type_name() {
     assert!(identifier_from_manifest("core", "core", "Process", &jvalue!({"name": "p0"})).is_err());
-    assert!(identifier_from_manifest("core", "core", "Process", &jvalue!({"type_name": "p"})).is_err());
-    assert!(identifier_from_manifest("core", "core", "Process", &jvalue!("not an object")).is_err());
+    assert!(
+        identifier_from_manifest("core", "core", "Process", &jvalue!({"type_name": "p"})).is_err()
+    );
+    assert!(
+        identifier_from_manifest("core", "core", "Process", &jvalue!("not an object")).is_err()
+    );
 }
 
 #[test]
@@ -68,13 +84,19 @@ fn identifier_struct_parses_and_rebuilds() -> JuizResult<()> {
     assert_eq!(s.type_name, "increment");
     assert_eq!(s.to_identifier(), id);
 
-    assert_eq!(s.to_manifest(), jvalue!({
-        "broker_type_name": "http",
-        "broker_name": "localhost:8000",
-        "type_name": "increment",
-        "name": "inc0"
-    }));
-    assert_eq!(s.to_broker_manifest(), jvalue!({"type_name": "http", "name": "localhost:8000"}));
+    assert_eq!(
+        s.to_manifest(),
+        jvalue!({
+            "broker_type_name": "http",
+            "broker_name": "localhost:8000",
+            "type_name": "increment",
+            "name": "inc0"
+        })
+    );
+    assert_eq!(
+        s.to_broker_manifest(),
+        jvalue!({"type_name": "http", "name": "localhost:8000"})
+    );
 
     let back: Identifier = s.into();
     assert_eq!(back, id);
@@ -108,7 +130,9 @@ fn identifier_struct_broker_constructors() -> JuizResult<()> {
     assert_eq!(b, b2);
     assert!(IdentifierStruct::new_broker_id("no-scheme".to_owned()).is_err());
 
-    let b3 = IdentifierStruct::from_broker_identifier(&"core://core/broker/localhost:8000::http".to_owned())?;
+    let b3 = IdentifierStruct::from_broker_identifier(
+        &"core://core/broker/localhost:8000::http".to_owned(),
+    )?;
     assert_eq!(b3.class_name, "broker");
     assert_eq!(b3.broker_type_name, "http");
     assert_eq!(b3.broker_name, "localhost:8000");
@@ -120,18 +144,47 @@ fn identifier_struct_broker_constructors() -> JuizResult<()> {
 
 #[test]
 fn process_identifier_constructors() {
-    let p = ProcessIdentifier::new("core".into(), "core".into(), "inc".into(), None, "inc0".into());
+    let p = ProcessIdentifier::new(
+        "core".into(),
+        "core".into(),
+        "inc".into(),
+        None,
+        "inc0".into(),
+    );
     assert_eq!(p.class_name, "process");
-    assert_eq!(p, ProcessIdentifier::new_process_id("core".into(), "core".into(), "inc".into(), "inc0".into()));
+    assert_eq!(
+        p,
+        ProcessIdentifier::new_process_id(
+            "core".into(),
+            "core".into(),
+            "inc".into(),
+            "inc0".into()
+        )
+    );
     assert_eq!(p.to_string(), "core://core/process/inc0::inc");
 
-    let cp = ProcessIdentifier::new_container_process_id("core".into(), "core".into(), "get".into(), "cont0".into(), "get0".into());
+    let cp = ProcessIdentifier::new_container_process_id(
+        "core".into(),
+        "core".into(),
+        "get".into(),
+        "cont0".into(),
+        "get0".into(),
+    );
     assert_eq!(cp.class_name, "container_process");
     assert_eq!(cp.type_name, "get:cont0");
     assert_eq!(cp.container_name.as_deref(), Some("cont0"));
-    assert_eq!(cp.to_string(), "core://core/container_process/get0::get:cont0");
+    assert_eq!(
+        cp.to_string(),
+        "core://core/container_process/get0::get:cont0"
+    );
 
-    let with_container = ProcessIdentifier::new("core".into(), "core".into(), "get".into(), Some("cont0".into()), "get0".into());
+    let with_container = ProcessIdentifier::new(
+        "core".into(),
+        "core".into(),
+        "get".into(),
+        Some("cont0".into()),
+        "get0".into(),
+    );
     assert_eq!(with_container.class_name, "container_process");
     assert!(format!("{}", p).contains("core://core/process/inc0::inc"));
 }
@@ -147,7 +200,9 @@ fn process_identifier_string_round_trip() -> JuizResult<()> {
     let s: String = p.clone().into();
     assert_eq!(s, "http://localhost:8000/process/inc0::inc");
 
-    let cp: ProcessIdentifier = "core://core/container_process/get0::get:cont0".to_owned().try_into()?;
+    let cp: ProcessIdentifier = "core://core/container_process/get0::get:cont0"
+        .to_owned()
+        .try_into()?;
     assert_eq!(cp.type_name, "get:cont0");
     assert_eq!(cp.container_name.as_deref(), Some("cont0"));
     let s: String = cp.into();
@@ -170,7 +225,8 @@ fn process_identifier_from_value() -> JuizResult<()> {
     let p = ProcessIdentifier::from_value(&jvalue!("core://core/process/inc0::inc"))?;
     assert_eq!(p.name, "inc0");
 
-    let p = ProcessIdentifier::from_value(&jvalue!({"identifier": "core://core/process/inc0::inc"}))?;
+    let p =
+        ProcessIdentifier::from_value(&jvalue!({"identifier": "core://core/process/inc0::inc"}))?;
     assert_eq!(p.name, "inc0");
 
     // 名前を省略すると type_name + "0" になり、ブローカーは core になる
@@ -207,10 +263,15 @@ fn connection_identifier_from_string_and_value() -> JuizResult<()> {
         "source_identifier": "core://core/process/a0::a",
         "destination_identifier": "core://core/process/b0::b",
         "arg_name": "arg1"
-    }).try_into()?;
+    })
+    .try_into()?;
     assert_eq!(c, c3);
 
-    let c4 = ConnectionIdentifier::new(c.source_identifier.clone(), "arg1", c.destination_identifier.clone());
+    let c4 = ConnectionIdentifier::new(
+        c.source_identifier.clone(),
+        "arg1",
+        c.destination_identifier.clone(),
+    );
     assert_eq!(c, c4);
     assert!(format!("{}", c4).contains("arg=arg1"));
     Ok(())

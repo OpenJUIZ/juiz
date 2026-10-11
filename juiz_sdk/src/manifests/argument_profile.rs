@@ -1,24 +1,25 @@
-
 use std::fmt::Display;
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
-use crate::prelude::*;
+use super::argument_type::{type_check, ArgumentType};
 use super::manifest_description::Description;
-use super::argument_type::{ArgumentType, type_check};
-
+use crate::prelude::*;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ArgumentProfile {
     pub type_name: ArgumentType,
     pub name: String,
     pub description: Description,
-    pub default: Value
+    pub default: Value,
 }
 
 impl Display for ArgumentProfile {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("ArgumentProfile({}::{},default={})", self.name, self.type_name, self.default))
+        f.write_fmt(format_args!(
+            "ArgumentProfile({}::{},default={})",
+            self.name, self.type_name, self.default
+        ))
     }
 }
 
@@ -33,23 +34,32 @@ impl From<ArgumentManifest> for ArgumentProfile {
     }
 }
 impl ArgumentProfile {
-
-    pub fn new(type_name: ArgumentType, name: &str, description: Description, default: Value) -> Self {
+    pub fn new(
+        type_name: ArgumentType,
+        name: &str,
+        description: Description,
+        default: Value,
+    ) -> Self {
         ArgumentProfile {
             type_name,
             name: name.to_owned(),
             description,
-            default
+            default,
         }
     }
 
-    pub fn new_with_check(type_name: ArgumentType, name: &str, description: Description, default: Value) -> JuizResult<Self> {
+    pub fn new_with_check(
+        type_name: ArgumentType,
+        name: &str,
+        description: Description,
+        default: Value,
+    ) -> JuizResult<Self> {
         type_check(&type_name, &default)?;
         Ok(ArgumentProfile {
             type_name,
             name: name.to_owned(),
             description,
-            default
+            default,
         })
     }
 
@@ -85,7 +95,6 @@ impl ArgumentProfile {
     pub fn new_image(name: &str) -> Self {
         Self::new(ArgumentType::String, name, "".into(), jvalue!({}))
     }
-    
 }
 
 // impl Into<Value> for ArgumentProfile {
@@ -109,8 +118,8 @@ impl ArgumentProfile {
 // ///   "default": 1
 // /// });
 // /// let arg: ArgumentProfile = arg_value.try_into()?;
-// /// 
-// /// 
+// ///
+// ///
 // /// Ok(())}
 // /// ```
 // impl TryFrom<Value> for ArgumentProfile {

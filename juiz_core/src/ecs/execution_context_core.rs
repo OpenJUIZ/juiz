@@ -1,13 +1,8 @@
-
-
-use std::sync::{Mutex, Arc, atomic::AtomicI64};
-
-
+use std::sync::{atomic::AtomicI64, Arc, Mutex};
 
 use juiz_sdk::process_identifier::ProcessIdentifier;
 
 use crate::prelude::*;
-
 
 pub enum ExecutionContextState {
     STARTED = 1,
@@ -16,12 +11,11 @@ pub enum ExecutionContextState {
 }
 
 impl ExecutionContextState {
-
     pub fn to_i64(&self) -> i64 {
         match *self {
-            ExecutionContextState::STARTED => {1},
-            ExecutionContextState::STOPPED => {2},
-            ExecutionContextState::UNKNOWN => {99}
+            ExecutionContextState::STARTED => 1,
+            ExecutionContextState::STOPPED => 2,
+            ExecutionContextState::UNKNOWN => 99,
         }
     }
 
@@ -37,9 +31,9 @@ impl ExecutionContextState {
 impl ToString for ExecutionContextState {
     fn to_string(&self) -> String {
         match *self {
-            ExecutionContextState::STARTED => {"STARTED".to_owned()},
-            ExecutionContextState::STOPPED => {"STOPPED".to_owned()},
-            ExecutionContextState::UNKNOWN => {"UNKNOWN".to_owned()}
+            ExecutionContextState::STARTED => "STARTED".to_owned(),
+            ExecutionContextState::STOPPED => "STOPPED".to_owned(),
+            ExecutionContextState::UNKNOWN => "UNKNOWN".to_owned(),
         }
     }
 }
@@ -50,9 +44,8 @@ pub struct ExecutionContextCore {
 }
 
 impl ExecutionContextCore {
-
     pub fn new() -> Arc<Mutex<ExecutionContextCore>> {
-        Arc::new(Mutex::new(ExecutionContextCore{
+        Arc::new(Mutex::new(ExecutionContextCore {
             target_processes: Vec::new(),
             state: AtomicI64::new(ExecutionContextState::STOPPED.to_i64()),
         }))
@@ -76,7 +69,6 @@ impl ExecutionContextCore {
         Ok(())
     }
 
-
     pub fn get_state(&self) -> ExecutionContextState {
         ExecutionContextState::from(self.state.load(std::sync::atomic::Ordering::SeqCst))
     }
@@ -97,4 +89,3 @@ impl ExecutionContextCore {
         }))
     }
 }
-

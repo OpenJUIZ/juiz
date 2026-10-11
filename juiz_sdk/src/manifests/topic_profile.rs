@@ -5,23 +5,22 @@ use crate::prelude::*;
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TopicProfile {
-    pub name: String
+    pub name: String,
 }
 
 impl TopicProfile {
     pub fn new(name: &str) -> Self {
-        TopicProfile{name: name.to_owned()}
+        TopicProfile {
+            name: name.to_owned(),
+        }
     }
 }
 
 impl From<TopicManifest> for TopicProfile {
     fn from(value: TopicManifest) -> Self {
-        Self {
-            name: value.name
-        }
+        Self { name: value.name }
     }
 }
 
@@ -34,13 +33,15 @@ impl Display for TopicProfile {
 impl TryFrom<Value> for TopicProfile {
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value.as_str() {
-            Some(v_str) => {
-                Ok(TopicProfile{name: v_str.to_owned()})
-            },
-            None => Err(anyhow!(JuizError::TopicManifestInvalidError{message: "Topic manifest can not convert to Value.".to_owned()})),
+            Some(v_str) => Ok(TopicProfile {
+                name: v_str.to_owned(),
+            }),
+            None => Err(anyhow!(JuizError::TopicManifestInvalidError {
+                message: "Topic manifest can not convert to Value.".to_owned()
+            })),
         }
     }
-    
+
     type Error = anyhow::Error;
 }
 

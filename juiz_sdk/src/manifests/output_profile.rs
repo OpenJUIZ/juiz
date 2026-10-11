@@ -1,4 +1,3 @@
-
 use std::{collections::HashMap, fmt::Display, iter::Map, process::Output};
 
 use serde::{Deserialize, Serialize};
@@ -7,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 pub struct StructProfile {
     pub type_name: String,
-    pub members: HashMap<String, OutputProfile>
+    pub members: HashMap<String, OutputProfile>,
 }
 
 impl Display for StructProfile {
@@ -17,7 +16,7 @@ impl Display for StructProfile {
             match value {
                 OutputProfile::Struct(struct_profile) => {
                     f.write_fmt(format_args!("{}::{}", key, struct_profile))?;
-                },
+                }
                 OutputProfile::Primitive(primitive_profile) => {
                     f.write_fmt(format_args!("{}::{}", key, primitive_profile))?;
                 }
@@ -30,13 +29,17 @@ impl Display for StructProfile {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PrimitiveProfile {
     pub type_name: String,
-    pub default_value: Option<String>
+    pub default_value: Option<String>,
 }
 
 impl Display for PrimitiveProfile {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.default_value.is_some() {
-            f.write_fmt(format_args!("{}={}", self.type_name, self.default_value.as_ref().unwrap()))
+            f.write_fmt(format_args!(
+                "{}={}",
+                self.type_name,
+                self.default_value.as_ref().unwrap()
+            ))
         } else {
             f.write_fmt(format_args!("{}", self.type_name))
         }
@@ -44,12 +47,11 @@ impl Display for PrimitiveProfile {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag="enum_type")]
+#[serde(tag = "enum_type")]
 pub enum OutputProfile {
     Struct(StructProfile),
     Primitive(PrimitiveProfile),
 }
-
 
 impl Display for OutputProfile {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -67,9 +69,11 @@ impl Display for OutputProfile {
 }
 
 impl OutputProfile {
-
     pub fn default() -> Self {
-        OutputProfile::Primitive(PrimitiveProfile{type_name: "int".to_owned(), default_value: Some("0".to_owned())})
+        OutputProfile::Primitive(PrimitiveProfile {
+            type_name: "int".to_owned(),
+            default_value: Some("0".to_owned()),
+        })
     }
 
     pub fn is_struct(&self) -> bool {
@@ -89,14 +93,14 @@ impl OutputProfile {
     pub fn as_struct(&self) -> Option<&StructProfile> {
         match self {
             OutputProfile::Struct(s) => Some(s),
-            OutputProfile::Primitive(p) => None
+            OutputProfile::Primitive(p) => None,
         }
     }
 
     pub fn as_primitive(&self) -> Option<&PrimitiveProfile> {
         match self {
             OutputProfile::Struct(s) => None,
-            OutputProfile::Primitive(p) => Some(p)
+            OutputProfile::Primitive(p) => Some(p),
         }
     }
 }
