@@ -55,6 +55,21 @@ cmake -S examples/cpp -B examples/cpp/build
 cmake --build examples/cpp/build
 ```
 
+### VS Code + Dev Containers で開発する
+
+`.devcontainer/` に、CI と同じ環境(Ubuntu 24.04、Rust stable、CMake、Clang、Python 3 と pyjuiz の依存パッケージ)のコンテナ設定があります。
+Docker と VS Code の Dev Containers 拡張機能を入れた状態でリポジトリを開き、コマンドパレットから「Dev Containers: Reopen in Container」を選ぶとコンテナ内で開発できます。
+`PYO3_PYTHON` と `PYTHONPATH` は設定済みなので、コンテナ内のターミナルで CI と同じ手順でビルドとテストができます。
+
+```terminal
+cargo build
+cmake -S examples/cpp -B examples/cpp/build -DCMAKE_BUILD_TYPE=Debug
+cmake --build examples/cpp/build --parallel
+cargo test -- --test-threads=1
+```
+
+HTTP ブローカーの 8000 番ポートはホストに転送されるので、ホストのブラウザから http://localhost:8000/docs を開けます。
+
 ## クイックスタート
 
 設定ファイル（YAML 形式の .conf ファイル）を `-f` オプションで指定して `juiz` コマンドを起動します。
