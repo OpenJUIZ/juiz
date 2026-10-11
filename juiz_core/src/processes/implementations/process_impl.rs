@@ -141,7 +141,7 @@ impl Process for ProcessImpl {
         Ok(self.profile.clone())
     }
 
-    fn call(&self, args: CapsuleMap) -> JuizResult<CapsulePtr> {
+    fn call(&self, args: RequestMap) -> JuizResult<ResponsePtr> {
         log::trace!("【呼出】ProcessImpl({:})::call({args})", self.identifier());
         check_manifest_before_call(&(self.profile), &args)?;
         (self.function)(args).and_then(|v| {
@@ -172,7 +172,7 @@ impl Process for ProcessImpl {
     /// invokeする
     /// 
     /// inletから入力を受け取ってcallをして、出力を得る。無事に出力が得られたらmemoに書き込む。
-    fn invoke<'b>(&'b self) -> JuizResult<CapsulePtr> {
+    fn invoke<'b>(&'b self) -> JuizResult<ResponsePtr> {
         log::trace!("【呼出】Processimpl({})::invoke()", self.identifier());
         if self.outlet.memo().is_empty()? || self.is_updated()? {
             log::debug!("【invoke】memoが空か、updatedフラグが立ったので、コネクタからデータ収集します。");
@@ -200,7 +200,7 @@ impl Process for ProcessImpl {
     //    return Ok(self.outlet.set_value(self.call(self.collect_values_exclude(arg_name, value))?));
     //}
 
-    fn execute(&self) -> JuizResult<CapsulePtr> {
+    fn execute(&self) -> JuizResult<ResponsePtr> {
         log::trace!("【呼出】Processimpl({})::execute()", self.identifier());
         self.outlet.push(self.invoke().and_then(|v|{
             log::trace!("【完了】Processimpl({})::execute()", self.identifier());
@@ -217,7 +217,7 @@ impl Process for ProcessImpl {
         self.outlet.push(v)
     }
     
-    fn get_output(&self) -> CapsulePtr {
+    fn get_output(&self) -> ResponsePtr {
         self.outlet.memo().clone()
     }
 

@@ -56,7 +56,7 @@ impl std::fmt::Debug for ProcessProxy {
 
 impl Process for ProcessProxy {
     
-    fn call(&self, args: CapsuleMap) -> JuizResult<CapsulePtr> {
+    fn call(&self, args: RequestMap) -> JuizResult<ResponsePtr> {
         log::trace!("ProcessProxy({})::call() called", self.identifier());
         juiz_lock(&self.broker_proxy)?.any_process_call(&self.identifier(), args).and_then(|v| {
             log::trace!("【完了】ProcessProxy({})::call()", self.identifier());
@@ -75,11 +75,11 @@ impl Process for ProcessProxy {
         juiz_lock(&self.broker_proxy)?.any_process_profile_full(&self.identifier())
     }
 
-    fn invoke<'b>(&self) -> JuizResult<CapsulePtr> {
+    fn invoke<'b>(&self) -> JuizResult<ResponsePtr> {
         todo!()
     }
 
-    fn execute(&self) -> JuizResult<CapsulePtr> {
+    fn execute(&self) -> JuizResult<ResponsePtr> {
         todo!()
     }
 
@@ -94,7 +94,7 @@ impl Process for ProcessProxy {
         })
     }
 
-    fn get_output(&self) -> CapsulePtr {
+    fn get_output(&self) -> ResponsePtr {
         todo!()
     }
 
