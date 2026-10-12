@@ -1,8 +1,8 @@
 # juiz - the robot middleware
 
-[![Test](https://github.com/sugarsweetrobotics/juiz/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/sugarsweetrobotics/juiz/actions/workflows/test.yml)
-[![Python](https://github.com/sugarsweetrobotics/juiz/actions/workflows/python.yml/badge.svg?branch=main)](https://github.com/sugarsweetrobotics/juiz/actions/workflows/python.yml)
-[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/sugarsweetrobotics/juiz/badges/coverage.json)](https://github.com/sugarsweetrobotics/juiz/actions/workflows/test.yml)
+[![Test](https://github.com/OpenJUIZ/juiz/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/OpenJUIZ/juiz/actions/workflows/test.yml)
+[![Python](https://github.com/OpenJUIZ/juiz/actions/workflows/python.yml/badge.svg?branch=main)](https://github.com/OpenJUIZ/juiz/actions/workflows/python.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/OpenJUIZ/juiz/badges/coverage.json)](https://github.com/OpenJUIZ/juiz/actions/workflows/test.yml)
 
 JUIZ (ジュイス) は、ロボットやIoT機器をネットワーク分散システムとして開発するためのミドルウェアおよびソフトウェアプラットフォームです。
 カメラやロボット、モータやセンサなどのロボット要素を動かすソフトウェアを、複数の言語で簡単に開発し、それらを結合して一つのソフトウェアサービスのように動作させることができます。
@@ -30,7 +30,7 @@ juiz を作った動機と設計思想については [MOTIVATION.md](MOTIVATION
 ## ビルドとインストール
 
 ```terminal
-git clone https://github.com/sugarsweetrobotics/juiz.git
+git clone https://github.com/OpenJUIZ/juiz.git
 cd juiz
 cargo build
 ```
