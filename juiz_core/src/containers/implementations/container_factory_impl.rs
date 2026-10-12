@@ -94,6 +94,11 @@ impl ContainerFactory for ContainerFactoryImpl {
         let name_str = name_cap
             .lock_as_value(|v| -> JuizResult<String> { Ok(v.as_str().unwrap().to_owned()) })??;
         manifest = manifest.name(name_str.as_str());
+        // ファクトリのマニフェストの processes は、この Container 型で使える ContainerProcess の
+        // 型の宣言 (Component のマニフェストでは name を持たない) で、インスタンスではない。
+        // ContainerProcess のインスタンスは Container を作った後に別途作って登録するので、
+        // 作成する Container のマニフェストには引き継がない。
+        manifest.processes.clear();
         (self.binded_container_constructor)(manifest, args)
     }
 
@@ -101,5 +106,38 @@ impl ContainerFactory for ContainerFactoryImpl {
         // todo!()
         log::trace!("ContainerFractoryImpl::destroy_container() called");
         c.lock()?.profile()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Component から読み込んだ Container のマニフェストのように、processes に名前の無い
+    /// ContainerProcess の宣言を持つファクトリでも、Container を作れる (issue #29)
+    #[test]
+    fn create_container_with_unnamed_process_declarations() -> JuizResult<()> {
+        let manifest = ContainerManifest::new("counter")
+            .add_int_arg("initial", "", 0)
+            .add_process(ProcessManifest::new("counter_get"))
+            .add_process(ProcessManifest::new("counter_increment"));
+        let factory = ContainerFactoryImpl::new(
+            manifest,
+            Arc::new(
+                |cm: ContainerManifest, args: CapsuleMap| -> JuizResult<ContainerPtr> {
+                    let value = args.get_int("initial")?;
+                    Ok(ContainerPtr::new(ContainerImpl::new(cm, Box::new(value))?))
+                },
+            ),
+        )?;
+        let mut worker = CoreWorker::new(uuid::Uuid::new_v4(), jvalue!({}));
+        let args: CapsuleMap = jvalue!({"name": "counter0", "initial": 100}).try_into()?;
+        let container = factory.create_container(&mut worker, "counter0".to_owned(), args)?;
+        let profile = container.lock()?.profile()?;
+        assert_eq!(profile.name, "counter0");
+        assert_eq!(profile.type_name, "counter");
+        // ContainerProcess の宣言はインスタンスのプロファイルには入らない
+        assert!(profile.processes.is_empty());
+        Ok(())
     }
 }

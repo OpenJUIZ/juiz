@@ -448,7 +448,11 @@ fn container_profile_from_manifest() -> JuizResult<()> {
     let c = ContainerManifest::new("counter")
         .name("c0")
         .add_process(ProcessManifest::new("get"));
-    assert!(ContainerProfile::try_from(c).is_err());
+    let err = ContainerProfile::try_from(c).unwrap_err();
+    // エラーの原因にコンテナとプロセスの型名が含まれる
+    let msg = format!("{:#}", err);
+    assert!(msg.contains("type_name=counter, name=c0"), "{msg}");
+    assert!(msg.contains("type_name=get"), "{msg}");
 
     let p2 = ContainerProfile::new("counter", "c2");
     let inst = p.build_instance_manifest(p2)?;
