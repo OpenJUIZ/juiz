@@ -47,20 +47,24 @@ impl<'de> Deserialize<'de> for Description {
                 Ok(Description { text: value })
             }
 
-            fn visit_map<V>(self, mut _map: V) -> Result<Description, V::Error>
+            /// Serialize した形 ({"text": "..."}) からも読み戻せるようにする (issue #19)
+            fn visit_map<V>(self, mut map: V) -> Result<Description, V::Error>
             where
                 V: MapAccess<'de>,
             {
-                println!("visit_map is called!!!");
-
-                Ok(Description {
-                    text: "".to_owned(),
-                })
+                let mut text = String::new();
+                while let Some(key) = map.next_key::<String>()? {
+                    if key == "text" {
+                        text = map.next_value::<String>()?;
+                    } else {
+                        map.next_value::<serde::de::IgnoredAny>()?;
+                    }
+                }
+                Ok(Description { text })
             }
         }
 
-        // deserializer.deserialize_any(DescriptionVisitor)
-        deserializer.deserialize_string(DescriptionVisitor)
+        deserializer.deserialize_any(DescriptionVisitor)
     }
 }
 

@@ -425,7 +425,7 @@ fn container_manifest_builder_and_processes() -> JuizResult<()> {
     assert_eq!(inst.name.as_deref(), Some("counter1"));
     assert_eq!(inst.description.as_str(), "counts");
 
-    assert_eq!(c.identifier()?.class_name, "Container");
+    assert_eq!(c.identifier()?.class_name, "container");
     Ok(())
 }
 
@@ -774,5 +774,32 @@ fn connection_identifier_string_round_trip() -> JuizResult<()> {
     assert_eq!(back, c);
     let from_value: ConnectionIdentifier = jvalue!(s).try_into()?;
     assert_eq!(from_value, c);
+    Ok(())
+}
+
+#[test]
+fn container_identifier_has_name_then_type_name() -> JuizResult<()> {
+    // issue #15: name と type_name が入れ替わらない
+    let id = ContainerManifest::new("counter")
+        .name("counter0")
+        .identifier()?;
+    assert_eq!(id.name, "counter0");
+    assert_eq!(id.type_name, "counter");
+    assert_eq!(id.to_string(), "core://core/container/counter0::counter");
+    let parsed: ContainerIdentifier = id.to_string().try_into()?;
+    assert_eq!(parsed, id);
+    Ok(())
+}
+
+#[test]
+fn description_deserializes_from_serialized_form() -> JuizResult<()> {
+    // issue #19: Serialize した {"text": ...} の形からも読み戻せる
+    let d = Description::new("hello");
+    let v = serde_json::to_value(&d)?;
+    assert_eq!(v, jvalue!({"text": "hello"}));
+    let back: Description = serde_json::from_value(v)?;
+    assert_eq!(back.text, "hello");
+    let from_str: Description = serde_json::from_value(jvalue!("plain"))?;
+    assert_eq!(from_str.text, "plain");
     Ok(())
 }

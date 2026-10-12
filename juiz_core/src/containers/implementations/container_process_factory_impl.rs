@@ -1,5 +1,5 @@
 use crate::connections::ConnectionFactoryImpl;
-use crate::containers::{ContainerImpl, ContainerProcessImpl};
+use crate::containers::ContainerImpl;
 use crate::prelude::*;
 use crate::processes::ProcessImpl;
 use juiz_sdk::anyhow::anyhow;
@@ -153,14 +153,13 @@ impl ContainerProcessFactory for ContainerProcessFactoryImpl {
             "ContainerProcessFactoryImpl({})::destroy_container_process() called",
             self.type_name()
         );
-        proc.downcast_mut_and_then(|p: &mut ContainerProcessImpl| {
-            let prof = p.profile()?;
-            p.container.take();
-            log::trace!(
-                "ContainerFactoryImpl({})::destroy_container_process() exit",
-                self.type_name()
-            );
-            Ok(prof)
-        })?
+        // ContainerProcess は ProcessImpl として作っているので、ここではダウンキャストしない。
+        // Container への参照はプロセスのクロージャが持っていて、プロセスが破棄されると解放される。
+        let prof = proc.lock()?.profile()?;
+        log::trace!(
+            "ContainerFactoryImpl({})::destroy_container_process() exit",
+            self.type_name()
+        );
+        Ok(prof)
     }
 }

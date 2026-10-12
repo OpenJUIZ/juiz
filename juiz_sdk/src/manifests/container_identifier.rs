@@ -26,7 +26,7 @@ impl ContainerIdentifier {
             broker_type_name,
             name,
             type_name,
-            class_name: "Container".to_owned(),
+            class_name: "container".to_owned(),
         }
     }
 
@@ -38,7 +38,7 @@ impl ContainerIdentifier {
 impl Display for ContainerIdentifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!(
-            "ContainerIdentifier({}://{}/{}/{}::{}",
+            "ContainerIdentifier({}://{}/{}/{}::{})",
             self.broker_type_name, self.broker_name, self.class_name, self.name, self.type_name
         ))
     }

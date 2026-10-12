@@ -5,6 +5,7 @@ use std::{
 };
 
 use juiz_sdk::anyhow;
+use juiz_sdk::connection_identifier::ConnectionIdentifier;
 
 use crate::brokers::{create_broker_proxy_factory_impl, BrokerProxy, BrokerProxyFactory};
 use crate::{core::CoreWorker, prelude::*};
@@ -64,7 +65,23 @@ impl HTTPBrokerProxy {
 }
 
 fn construct_param(key: &String, value: &String) -> String {
-    if key == "identifier" {
+    if key == "identifier" && value.starts_with("connection://") {
+        // コネクションの識別子は両端のプロセスの識別子をそれぞれ書き換える (issue #19)
+        match ConnectionIdentifier::try_from(value.clone()) {
+            Ok(mut con_id) => {
+                for id in [
+                    &mut con_id.source_identifier,
+                    &mut con_id.destination_identifier,
+                ] {
+                    id.broker_type_name = "core".to_owned();
+                    id.broker_name = "core".to_owned();
+                }
+                let new_id: String = con_id.into();
+                key.clone() + "=" + new_id.as_str()
+            }
+            Err(_) => key.clone() + "=" + value.as_str(),
+        }
+    } else if key == "identifier" {
         let mut id_struct = IdentifierStruct::try_from(value.clone()).unwrap();
         id_struct.broker_type_name = "core".to_owned();
         id_struct.broker_name = "core".to_owned();
@@ -111,9 +128,13 @@ impl CRUDBrokerProxy for HTTPBrokerProxy {
         {
             Err(e) => Err(anyhow::Error::from(e)),
             Ok(response) => {
-                log::error!("response: {:?}", response);
-                if response.status() != 200 {
-                    return Err(anyhow::Error::from(HTTPBrokerError::GeneralError {}));
+                let status_code = response.status();
+                if status_code != 200 {
+                    log::error!("HTTPBrokerProxy.create() failed. Response is {response:?}");
+                    return Err(anyhow::Error::from(HTTPBrokerError::HTTPStatusError {
+                        status_code,
+                        message: response.text().unwrap_or_default(),
+                    }));
                 }
                 Ok(response
                     .json::<Value>()

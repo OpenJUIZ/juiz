@@ -10,9 +10,7 @@ pub use container_factory::{ContainerFactory, ContainerFactoryPtr};
 pub use container_process_factory::{ContainerProcessFactory, ContainerProcessFactoryPtr};
 
 use implementations::{BindedContainerFunctionType, ContainerProcessFactoryImpl};
-pub(crate) use implementations::{
-    ContainerFactoryWrapper, ContainerProcessFactoryWrapper, ContainerProcessImpl,
-};
+pub(crate) use implementations::{ContainerFactoryWrapper, ContainerProcessFactoryWrapper};
 
 pub use implementations::{ContainerImpl, ContainerProxy};
 

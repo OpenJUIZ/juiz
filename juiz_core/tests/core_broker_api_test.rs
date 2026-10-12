@@ -64,9 +64,12 @@ fn check_processes(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
             8,
             "{name}"
         );
-        // p_apply で引数を設定できる。execute はメモがあればそれを返すので値は問わない
+        // p_apply で設定した引数は、メモがあっても次の execute に反映される (issue #18)
         bp.process_p_apply(id, "arg1", jvalue!(30).into())?;
-        assert!(try_int_of(&bp.process_execute(id)?).is_some(), "{name}");
+        assert_eq!(int_of(bp.process_execute(id)), 31, "{name}");
+        // 2回目以降の p_apply も反映される
+        bp.process_p_apply(id, "arg1", jvalue!(40).into())?;
+        assert_eq!(int_of(bp.process_execute(id)), 41, "{name}");
         // 存在しない引数は設定できない
         assert!(bp
             .process_p_apply(id, "no_such_arg", jvalue!(1).into())
@@ -117,6 +120,14 @@ fn check_containers(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     let mut names = vec![];
     for id in bp.container_list(false, None)? {
         let profile = bp.container_profile_full(&id)?;
+        // 識別子は <name>::<type_name> の順に並ぶ (issue #15)
+        assert_eq!(
+            id.to_string(),
+            format!(
+                "core://core/container/{}::{}",
+                profile.name, profile.type_name
+            )
+        );
         names.push(profile.name);
     }
     names.sort();
@@ -216,6 +227,24 @@ fn check_create_connect_destroy(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     assert!(bp
         .container_process_create(&cid, &ProcessManifest::new("no_such_type").name("x"))
         .is_err());
+
+    // コンテナプロセスを削除できる (issue #17)
+    let destroyed = bp.container_process_destroy(&pid)?;
+    assert_eq!(destroyed.name, "c_new_get");
+    assert_eq!(bp.container_process_list(false, None)?.len(), 6);
+    assert!(bp.container_process_call(&pid, CapsuleMap::new()).is_err());
+
+    // コンテナプロセスを持つコンテナも削除できる (issue #15, #17)
+    bp.container_process_create(
+        &cid,
+        &ProcessManifest::new("example_container_get").name("c_new_get2"),
+    )?;
+    assert_eq!(bp.container_process_list(false, None)?.len(), 7);
+    let destroyed = bp.container_destroy(&cid)?;
+    assert_eq!(destroyed.name, "c_new");
+    assert_eq!(bp.container_list(false, None)?.len(), 3);
+    assert_eq!(bp.container_process_list(false, None)?.len(), 6);
+    assert!(bp.container_profile_full(&cid).is_err());
     Ok(())
 }
 
