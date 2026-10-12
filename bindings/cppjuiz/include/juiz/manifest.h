@@ -30,7 +30,7 @@ extern "C" {
     JUIZ_API int64_t process_entry_point(capsule_map* cm, capsule* cp);
     JUIZ_API int64_t (*process_factory_entry_point())(capsule_map*,capsule*);
 
-    JUIZ_API int64_t (*container_factory_entry_point())(value*, void**);
+    JUIZ_API int64_t (*container_factory_entry_point())(capsule_map*, void**);
     JUIZ_API int64_t (*container_process_factory_entry_point())(void*, capsule_map*,capsule*);
 
 }
@@ -127,9 +127,9 @@ JUIZ_API int64_t manifest_entry_point(capsule_ptr* ptr) { \
     auto v = manifest_function().into_value(); \
     return capsule_ptr_set_value(ptr, v); \
 }\
-JUIZ_API int64_t container_create_entry_point(value* v, void** container_obj) {\
+JUIZ_API int64_t container_create_entry_point(capsule_map* cm, void** container_obj) {\
     try {\
-        *container_obj = construct_function(juiz::into_value(v));\
+        *container_obj = construct_function(juiz::CapsuleMap(cm));\
         return JUIZ_OK;\
     } catch (juiz::ValueNotFoundError &e) {\
         return JUIZ_VALUE_NOT_FOUND_ERROR;\
@@ -138,7 +138,7 @@ JUIZ_API int64_t container_create_entry_point(value* v, void** container_obj) {\
     }\
 }\
 \
-extern "C" { JUIZ_API int64_t (*container_factory_entry_point())(value*, void**) {\
+extern "C" { JUIZ_API int64_t (*container_factory_entry_point())(capsule_map*, void**) {\
     return container_create_entry_point;\
 } }
 
@@ -237,9 +237,9 @@ JUIZ_API int64_t construct_function##_manifest_entry_point(capsule_ptr* ptr) { \
     auto v = construct_function##_manifest().into_value(); \
     return capsule_ptr_set_value(ptr, v); \
 }\
-JUIZ_API int64_t construct_function##_entry_point(value* v, void** container_obj) {\
+JUIZ_API int64_t construct_function##_entry_point(capsule_map* cm, void** container_obj) {\
     try {\
-        *container_obj = construct_function(juiz::into_value(v));\
+        *container_obj = construct_function(juiz::CapsuleMap(cm));\
         return JUIZ_OK;\
     } catch (juiz::ValueNotFoundError &e) {\
         return JUIZ_VALUE_NOT_FOUND_ERROR;\
@@ -248,7 +248,7 @@ JUIZ_API int64_t construct_function##_entry_point(value* v, void** container_obj
     }\
 }\
 \
-JUIZ_API int64_t (* construct_function##_factory_entry_point())(value*, void**) {\
+JUIZ_API int64_t (* construct_function##_factory_entry_point())(capsule_map*, void**) {\
     return construct_function##_entry_point;\
 }\
 }

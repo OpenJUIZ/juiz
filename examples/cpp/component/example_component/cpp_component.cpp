@@ -10,15 +10,10 @@ public:
 
 // example cpp container
 static auto example_cpp_container_manif = ContainerManifest ("example_cpp_container");
-CppContainer* example_cpp_container(juiz::Value value) {
+CppContainer* example_cpp_container(juiz::CapsuleMap args) {
     int64_t int_value = 0;
-    if (value.isObjectValue()) {
-        if (value.hasKey("value")) {
-            auto v = value["value"];
-            if (v.isIntValue()) {
-                int_value = v.intValue();
-            }
-        }
+    if (args.has("value")) {
+        int_value = args.get_int("value");
     }
     return new CppContainer(int_value);
 }
