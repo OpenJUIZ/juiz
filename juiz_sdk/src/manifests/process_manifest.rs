@@ -439,7 +439,7 @@ impl TryFrom<Value> for ProcessManifest {
         }
         match obj_get_str(&value, "language") {
             Ok(language) => {
-                p = p.name(language);
+                p = p.language(language);
             }
             Err(_) => {
                 p = p.language("rust");

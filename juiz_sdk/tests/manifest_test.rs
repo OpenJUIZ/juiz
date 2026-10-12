@@ -750,3 +750,25 @@ fn object_core_and_class_names() -> JuizResult<()> {
     assert_eq!(o.profile_full()?["broker_type_name"], jvalue!("bt"));
     Ok(())
 }
+
+#[test]
+fn process_manifest_language_from_value() -> JuizResult<()> {
+    let m: ProcessManifest =
+        jvalue!({"type_name": "t", "name": "t0", "language": "python"}).try_into()?;
+    assert_eq!(m.name, Some("t0".to_owned()));
+    assert_eq!(m.language, "python");
+    Ok(())
+}
+
+#[test]
+fn connection_identifier_string_round_trip() -> JuizResult<()> {
+    let s = "connection://core://core/process/a0::a|arg|core://core/process/b0::b".to_owned();
+    let c: ConnectionIdentifier = s.clone().try_into()?;
+    let out: String = c.clone().into();
+    assert_eq!(out, s);
+    let back: ConnectionIdentifier = out.try_into()?;
+    assert_eq!(back, c);
+    let from_value: ConnectionIdentifier = jvalue!(s).try_into()?;
+    assert_eq!(from_value, c);
+    Ok(())
+}

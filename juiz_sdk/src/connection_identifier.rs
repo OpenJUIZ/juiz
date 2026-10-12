@@ -103,7 +103,9 @@ impl Into<String> for ConnectionIdentifier {
     fn into(self) -> String {
         format!(
             "connection://{}|{}|{}",
-            self.source_identifier, self.arg_name, self.destination_identifier
+            self.source_identifier.to_string(),
+            self.arg_name,
+            self.destination_identifier.to_string()
         )
     }
 }

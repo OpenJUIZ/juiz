@@ -128,6 +128,23 @@ fn check_topics(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     Ok(())
 }
 
+fn check_connections(system: &System, bp: &mut dyn BrokerProxy) -> JuizResult<()> {
+    // CoreBroker で inc0 の出力を pyinc0 の arg1 に Pull で繋ぎ、HTTP 経由で一覧を読み戻す
+    // (HTTP サーバも CoreBroker を使うので、ロックは接続を作ったら手放す)
+    {
+        let mut cb = system.core_broker().lock_mut()?;
+        let ids = cb.process_list(false, None)?;
+        let src = find_process(&ids, "inc0").clone();
+        let dst = find_process(&ids, "pyinc0").clone();
+        let cm = ConnectionManifest::new(ConnectionType::Pull, src, "arg1".to_owned(), dst);
+        cb.connection_create(&cm)?;
+    }
+    let cons = bp.connection_list(false)?;
+    assert_eq!(cons.len(), 1, "{cons:?}");
+    assert_eq!(cons[0].arg_name, "arg1");
+    Ok(())
+}
+
 #[test]
 fn http_broker_api_with_rust_python_cpp_plugins() -> JuizResult<()> {
     let _ = env_logger::try_init();
@@ -145,6 +162,7 @@ fn http_broker_api_with_rust_python_cpp_plugins() -> JuizResult<()> {
             check_containers(&mut *bp)?;
             check_ec(&mut *bp)?;
             check_topics(&mut *bp)?;
+            check_connections(system, &mut *bp)?;
             Ok(())
         })
 }
