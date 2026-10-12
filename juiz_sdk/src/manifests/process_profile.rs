@@ -28,7 +28,10 @@ impl TryFrom<ProcessManifest> for ProcessProfile {
     fn try_from(value: ProcessManifest) -> Result<Self, Self::Error> {
         if value.name.is_none() {
             return Err(anyhow!(JuizError::InvalidArgumentError {
-                message: format!("Invalid ProcessProfile passed. name is none.")
+                message: format!(
+                    "Invalid ProcessProfile passed. name is none (type_name={}).",
+                    value.type_name
+                )
             }));
         }
         Ok(Self {

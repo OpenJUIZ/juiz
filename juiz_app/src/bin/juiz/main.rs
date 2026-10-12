@@ -575,7 +575,10 @@ fn main() -> () {
     let _ = env_logger::try_init();
     match do_once() {
         Ok(_) => (),
-        Err(e) => println!("Error:{:?}", e),
+        Err(e) => {
+            println!("Error:{:?}", e);
+            std::process::exit(1);
+        }
     }
 }
 

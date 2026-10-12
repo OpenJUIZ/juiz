@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use serde::{Deserialize, Serialize};
 
 use super::{manifest_description::Description, ArgumentProfile, ProcessProfile};
@@ -37,12 +37,27 @@ impl Display for ContainerProfile {
 
 impl TryFrom<ContainerManifest> for ContainerProfile {
     fn try_from(value: ContainerManifest) -> Result<Self, Self::Error> {
+        let name = value
+            .name
+            .ok_or(anyhow!(JuizError::ContainerManifestInvalidError {
+                message: format!(
+                    "ContainerManifest (type_name={}) does not include 'name' value.",
+                    value.type_name
+                )
+            }))?;
+        let processes = value
+            .processes
+            .into_iter()
+            .map(|p| -> JuizResult<ProcessProfile> { p.try_into() })
+            .collect::<JuizResult<Vec<ProcessProfile>>>()
+            .with_context(|| {
+                format!(
+                    "ContainerProfile::try_from(ContainerManifest(type_name={}, name={})) failed. Each process in 'processes' must have a name.",
+                    value.type_name, name
+                )
+            })?;
         Ok(Self {
-            name: value
-                .name
-                .ok_or(anyhow!(JuizError::ContainerManifestInvalidError {
-                    message: format!("ContainerManifest does not include 'name' value.")
-                }))?,
+            name,
             language: value.language,
             type_name: value.type_name,
             factory: value.factory,
@@ -50,11 +65,7 @@ impl TryFrom<ContainerManifest> for ContainerProfile {
             description: value.description,
             parent_type_name: value.parent_type_name,
             parent_name: value.parent_name,
-            processes: value
-                .processes
-                .into_iter()
-                .map(|p| -> JuizResult<ProcessProfile> { p.try_into() })
-                .collect::<JuizResult<Vec<ProcessProfile>>>()?,
+            processes,
             args: value.args,
         })
     }
