@@ -47,7 +47,8 @@ pub async fn object_post_handler(
             class_name.as_str(),
             function_name.as_str(),
             construct_capsule_map(
-                CapsuleMap::new(),
+                // リクエストのボディ (マニフェストなど) を引数として渡す (issue #19)
+                body_to_capsule_map(body, &headers)?,
                 "CREATE",
                 class_name.as_str(),
                 function_name.as_str(),
@@ -330,7 +331,7 @@ pub async fn object_delete_handler(
     let map = full_query_to_map(&query);
     log::trace!("HTTPBroker/object_delete_handler({class_name}, {map:?}) called");
     let v = tokio::task::spawn_blocking(move || {
-        juiz_lock(&crud_broker).unwrap().read_class(
+        juiz_lock(&crud_broker).unwrap().delete_class(
             class_name.as_str(),
             function_name.as_str(),
             construct_capsule_map(

@@ -18,7 +18,7 @@ use uuid::Uuid;
 
 use crate::{
     connections::connection_builder::connection_builder,
-    containers::{ContainerProcessImpl, ContainerProxy},
+    containers::ContainerProxy,
     core::system_builder::register_component,
     ecs::{
         execution_context_function::ExecutionContextFunction,
@@ -388,16 +388,31 @@ impl CoreWorker {
             .store_mut()
             .container_processes
             .deregister_by_id(&identifier.to_string())?;
-        let c = process.downcast_and_then(|cp: &ContainerProcessImpl| {
-            self.store().containers.get(&cp.identifier().to_string())
-        })??;
-        //let c = self.store().containers.get(con_id)?;
-        c.lock_mut()?.purge_process(&identifier.to_string())?;
+        // ContainerProcess は ProcessImpl として作られるので、所属する Container は
+        // そのプロセスを登録している Container をストアから探して求める (issue #17)
+        let id_str = identifier.to_string();
+        let container = self
+            .store()
+            .containers
+            .objects()
+            .values()
+            .find(|c| {
+                c.lock()
+                    .map(|c| c.process(&id_str).is_some())
+                    .unwrap_or(false)
+            })
+            .cloned();
+        if let Some(c) = container {
+            c.lock_mut()?.purge_process(&id_str)?;
+        }
+        // 識別子の type_name は "<type_name>:<container_name>" の形なので、
+        // ファクトリの検索にはプロファイルの type_name を使う
+        let type_name = process.lock()?.profile()?.type_name;
         process.lock_mut()?.purge()?;
         let f = self
             .store()
             .container_processes
-            .factory(process.identifier().type_name.as_str())?;
+            .factory(type_name.as_str())?;
         let v = f.lock_mut()?.destroy_container_process(process);
         log::trace!("destroy_container_process_ref({}) exit", identifier);
         v

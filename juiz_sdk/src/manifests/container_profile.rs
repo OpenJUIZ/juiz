@@ -200,8 +200,8 @@ impl ContainerProfile {
         ContainerIdentifier::new(
             format!("core"),
             format!("core"),
-            self.type_name.clone(),
             self.name.clone(),
+            self.type_name.clone(),
         )
     }
 }

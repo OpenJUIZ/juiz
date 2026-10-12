@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 use crate::prelude::*;
 /// inlet.rs
@@ -11,6 +11,8 @@ pub struct Inlet {
     source_connections: Vec<Box<dyn SourceConnection>>,
     default_value: CapsulePtr,
     buffer: RefCell<Option<CapsulePtr>>,
+    /// bind (p_apply) で値が設定されてから、まだ collect_value で読まれていないとき true
+    updated: Cell<bool>,
 }
 
 impl std::fmt::Debug for Inlet {
@@ -30,6 +32,7 @@ impl Inlet {
             default_value: default_value.into(),
             source_connections: Vec::new(),
             buffer: RefCell::new(None),
+            updated: Cell::new(false),
         }
     }
 
@@ -65,6 +68,9 @@ impl Inlet {
     }
 
     pub fn is_updated(&self) -> JuizResult<bool> {
+        if self.updated.get() {
+            return Ok(true);
+        }
         //self.source_connections.iter().find_map(|sc| { if sc.is_source_updated() })
         for sc in self.source_connections.iter() {
             if sc.is_source_updated()? {
@@ -84,6 +90,7 @@ impl Inlet {
     /// bufferにデータが残っていればそれを返す。
     pub fn collect_value(&self) -> CapsulePtr {
         log::trace!("Inlet({})::collect_value() called", self.name());
+        self.updated.set(false);
         for sc in self.source_connections.iter() {
             if sc.connection_type() == ConnectionType::Pull {
                 match sc.pull() {
@@ -109,10 +116,9 @@ impl Inlet {
     }
 
     pub fn bind(&mut self, value: CapsulePtr) -> JuizResult<CapsulePtr> {
-        //self.buffer = value;
-        if self.buffer.borrow().is_none() {
-            self.buffer.replace(Some(value.clone()));
-        }
+        // 後から設定した値で上書きし、次の invoke でメモを使わずに再計算させる (issue #18)
+        self.buffer.replace(Some(value.clone()));
+        self.updated.set(true);
         Ok(value)
     }
 }

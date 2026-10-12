@@ -199,7 +199,6 @@ impl ContainerManifest {
         Ok(ContainerIdentifier::new(
             self.broker_name.clone(),
             self.broker_type_name.clone(),
-            self.type_name.clone(),
             self.name
                 .as_ref()
                 .ok_or_else(|| {
@@ -208,6 +207,7 @@ impl ContainerManifest {
                     })
                 })?
                 .clone(),
+            self.type_name.clone(),
         ))
     }
 
