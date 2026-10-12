@@ -6,17 +6,10 @@ auto manifest() {
     return ContainerManifest("example_container_cpp");
 }
 
-CppContainer* create_container(juiz::Value value) {
+CppContainer* create_container(juiz::CapsuleMap args) {
     int64_t int_value = 0;
-    
-    if (value.isObjectValue()) {
-        if (value.hasKey("value")) {
-            auto objv = value.objectValue();
-            auto v = objv["value"];
-            if (v.isIntValue()) {
-               int_value = v.intValue();
-            }
-        }   
+    if (args.has("value")) {
+        int_value = args.get_int("value");
     }
     return new CppContainer(int_value);
 }

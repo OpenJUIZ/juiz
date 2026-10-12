@@ -26,6 +26,11 @@ namespace juiz {
 
     public:
 
+        bool has(const std::string& name) const {
+            capsule_ptr* ptr = NULL;
+            return capsule_map_get_capsule(this->_pmap, name.c_str(), &ptr) == JUIZ_OK;
+        }
+
 
         int64_t get_int(const std::string& name) const {
             capsule_ptr* ptr = NULL;
