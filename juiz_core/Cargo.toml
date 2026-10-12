@@ -1,6 +1,6 @@
 [package]
 name = "juiz_core"
-version = "0.0.10"
+version = "0.0.11"
 edition = "2021"
 description = "Core library for JUIZ application. This package is not required if you want to build juiz functional module."
 license = "WTFPL"
