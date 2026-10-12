@@ -867,8 +867,8 @@ impl ConnectionBrokerProxy for CRUDBrokerProxyHolder {
                 ),
             })?
             .into_iter()
-            .map(|v| serde_json::from_value(v.clone()))
-            .collect::<serde_json::Result<Vec<ConnectionIdentifier>>>()?)
+            .map(|v| ConnectionIdentifier::try_from(v.clone()))
+            .collect::<JuizResult<Vec<ConnectionIdentifier>>>()?)
 
         // let id_vec = get_array(&connection_list_value)?.into_iter().map(|v| {
         //     let id_str = v.as_str().ok_or(JuizError::ValueIsNotStringError {  })?.to_owned();

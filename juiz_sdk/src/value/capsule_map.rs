@@ -168,7 +168,7 @@ impl From<CapsuleMap> for Value {
 
         return jvalue!({
             "__map__": map_map,
-            "__param___": capsule_map.param,
+            "__param__": capsule_map.param,
         });
     }
 }

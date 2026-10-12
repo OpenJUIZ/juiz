@@ -304,3 +304,14 @@ fn capsule_map_from_vectors_and_slices() -> JuizResult<()> {
     assert_eq!(m.get_int("b")?, 2);
     Ok(())
 }
+
+#[test]
+fn capsule_map_param_value_round_trip() -> JuizResult<()> {
+    let mut m = CapsuleMap::new();
+    m.insert("a".into(), jvalue!(1).into());
+    m.set_param("p", "q");
+    let v: Value = m.into();
+    let back: CapsuleMap = v.try_into()?;
+    assert_eq!(back.get_param("p"), Some(&"q".to_owned()));
+    Ok(())
+}
