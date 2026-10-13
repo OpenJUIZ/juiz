@@ -128,21 +128,29 @@ fn check_topics(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     Ok(())
 }
 
-fn check_connections(system: &System, bp: &mut dyn BrokerProxy) -> JuizResult<()> {
-    // CoreBroker で inc0 の出力を pyinc0 の arg1 に Pull で繋ぎ、HTTP 経由で一覧を読み戻す
-    // (HTTP サーバも CoreBroker を使うので、ロックは接続を作ったら手放す)
-    {
-        let mut cb = system.core_broker().lock_mut()?;
-        let ids = cb.process_list(false, None)?;
-        let src = find_process(&ids, "inc0").clone();
-        let dst = find_process(&ids, "pyinc0").clone();
-        let cm = ConnectionManifest::new(ConnectionType::Pull, src, "arg1".to_owned(), dst);
-        cb.connection_create(&cm)?;
-    }
+fn check_connections(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
+    // HTTP 経由で inc0 の出力を pyinc0 の arg1 に Pull で繋ぎ、一覧を読み戻す (issue #31)
+    let ids = bp.process_list(false, None)?;
+    let src = find_process(&ids, "inc0").clone();
+    let dst = find_process(&ids, "pyinc0").clone();
+    let cm = ConnectionManifest::new(ConnectionType::Pull, src, "arg1".to_owned(), dst.clone());
+    assert_eq!(bp.connection_create(&cm)?.arg_name, "arg1");
     let cons = bp.connection_list(false)?;
     assert_eq!(cons.len(), 1, "{cons:?}");
     assert_eq!(cons[0].arg_name, "arg1");
     assert_eq!(bp.connection_profile_full(&cons[0])?.arg_name, "arg1");
+
+    // pyinc0 を実行すると inc0 の出力を pull して使う
+    let src_out = int_of(bp.process_execute(find_process(&ids, "inc0")));
+    assert_eq!(int_of(bp.process_execute(&dst)), src_out + 1);
+
+    // HTTP 経由でコネクションを削除できる (issue #34)
+    assert_eq!(bp.connection_destroy(&cons[0])?.arg_name, "arg1");
+    assert!(bp.connection_list(false)?.is_empty());
+    assert!(bp.connection_destroy(&cons[0]).is_err());
+
+    // 削除のエラーで HTTP サーバが止まらず、その後も API を呼べる
+    assert_eq!(bp.process_list(false, None)?.len(), 3);
     Ok(())
 }
 
@@ -226,6 +234,18 @@ fn check_create_destroy(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
         bp.ec_create(&jvalue!({"type_name": "TimerEC", "name": "timer1", "rate": 0.01}))?;
     assert_eq!(created["__value__"]["name"], jvalue!("timer1"));
     assert_eq!(bp.ec_list(false)?.as_array().unwrap().len(), 2);
+
+    // EC の削除 (issue #34)
+    let timer1 = created["__value__"]["identifier"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(
+        bp.ec_destroy(&timer1)?["__value__"]["name"],
+        jvalue!("timer1")
+    );
+    assert_eq!(bp.ec_list(false)?.as_array().unwrap().len(), 1);
+    assert!(bp.ec_destroy(&timer1).is_err());
     Ok(())
 }
 
@@ -246,7 +266,7 @@ fn http_broker_api_with_rust_python_cpp_plugins() -> JuizResult<()> {
             check_containers(&mut *bp)?;
             check_ec(&mut *bp)?;
             check_topics(&mut *bp)?;
-            check_connections(system, &mut *bp)?;
+            check_connections(&mut *bp)?;
             check_lists_and_profiles(&mut *bp)?;
             check_create_destroy(&mut *bp)?;
             Ok(())

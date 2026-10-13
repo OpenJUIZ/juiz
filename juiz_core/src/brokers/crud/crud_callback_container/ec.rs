@@ -69,3 +69,17 @@ pub(crate) fn create_update_callbacks() -> CallbackContainerType {
     });
     ec_cbs
 }
+
+pub(crate) fn create_delete_callbacks() -> CallbackContainerType {
+    let mut ec_cbs = CallbackContainerType::new();
+    ec_cbs.insert("destroy", |_crud, cb, args| {
+        log::debug!("[DELETE] ec/destroy called");
+        let id = args.get_param("identifier").ok_or_else(|| {
+            anyhow!(JuizError::CRUDBrokerCanNotParameterFunctionError {
+                key_name: "identifier".to_owned()
+            })
+        })?;
+        Ok(value_to_capsule(cb.lock_mut()?.ec_destroy(id)?))
+    });
+    ec_cbs
+}

@@ -1217,8 +1217,21 @@ impl ExecutionContextBrokerProxy for CoreBroker {
         juiz_lock(&ec.clone())?.profile_full()
     }
 
-    fn ec_destroy(&mut self, _identifier: &Identifier) -> JuizResult<Value> {
-        todo!()
+    fn ec_destroy(&mut self, identifier: &Identifier) -> JuizResult<Value> {
+        log::trace!("【呼出】ec_destroy({identifier})");
+        let ec = self.worker().store().ecs.get(identifier)?;
+        let profile = {
+            let mut ec = juiz_lock(&ec).with_context(|| {
+                format!("locking ec(id={identifier:}) in CoreBroker::ec_destroy() function")
+            })?;
+            ec.stop()?;
+            ec.profile_full()?
+        };
+        self.worker_mut()
+            .store_mut()
+            .ecs
+            .deregister_by_id(identifier)?;
+        Ok(profile)
     }
 }
 

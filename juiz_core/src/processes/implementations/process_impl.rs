@@ -1,4 +1,5 @@
 use juiz_sdk::anyhow;
+use juiz_sdk::connection_identifier::ConnectionIdentifier;
 use juiz_sdk::manifests::ProcessProfile;
 use juiz_sdk::process_identifier::ProcessIdentifier;
 use std::sync::Arc;
@@ -384,6 +385,23 @@ impl Process for ProcessImpl {
 
     fn destination_connections(&self) -> JuizResult<Vec<&Box<dyn DestinationConnection>>> {
         self.outlet.destination_connections()
+    }
+
+    fn disconnect(
+        &mut self,
+        connection_identifier: &ConnectionIdentifier,
+    ) -> JuizResult<Option<ConnectionProfile>> {
+        log::trace!(
+            "【呼出】ProcessImpl({})::disconnect({connection_identifier})",
+            self.identifier()
+        );
+        // 自分自身に繋いだコネクションは入力側と出力側の両方にあるので、両方から外す
+        let from_inlet = self
+            .inlets
+            .iter_mut()
+            .find_map(|inlet| inlet.remove(connection_identifier));
+        let from_outlet = self.outlet.remove(connection_identifier);
+        Ok(from_inlet.or(from_outlet))
     }
 
     fn p_apply(&mut self, arg_name: &str, value: CapsulePtr) -> JuizResult<CapsulePtr> {

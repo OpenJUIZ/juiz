@@ -1,6 +1,7 @@
 use std::cell::{Cell, RefCell};
 
 use crate::prelude::*;
+use juiz_sdk::{connection_identifier::ConnectionIdentifier, connections::ConnectionProfile};
 /// inlet.rs
 ///
 ///
@@ -113,6 +114,15 @@ impl Inlet {
 
     pub(crate) fn insert(&mut self, con: Box<dyn SourceConnection + 'static>) {
         self.source_connections.push(con);
+    }
+
+    /// コネクションを外し、外したもののプロファイルを返す
+    pub(crate) fn remove(&mut self, id: &ConnectionIdentifier) -> Option<ConnectionProfile> {
+        let index = self
+            .source_connections
+            .iter()
+            .position(|c| c.identifier().is_same_connection(id))?;
+        Some(self.source_connections.remove(index).profile())
     }
 
     pub fn bind(&mut self, value: CapsulePtr) -> JuizResult<CapsulePtr> {

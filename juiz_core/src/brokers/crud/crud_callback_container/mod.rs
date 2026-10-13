@@ -118,5 +118,11 @@ pub(crate) fn delete_callback_container() -> ClassCallbackContainerType {
 
     delete_cb_container.insert("container", container::create_delete_callbacks());
 
+    // EC関連
+    delete_cb_container.insert("execution_context", ec::create_delete_callbacks());
+
+    // コネクション関連
+    delete_cb_container.insert("connection", connection::create_delete_callbacks());
+
     delete_cb_container
 }
