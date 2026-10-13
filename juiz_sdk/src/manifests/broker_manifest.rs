@@ -1,3 +1,4 @@
+use super::broker_identifier::parse_broker_identifier;
 use super::manifest_description::Description;
 use crate::prelude::*;
 use anyhow::anyhow;
@@ -140,7 +141,7 @@ impl TryFrom<&Value> for BrokerManifest {
 /// ```
 /// use juiz_sdk::prelude::*;
 /// fn main() -> JuizResult<()> {
-///   let bi_str = "http://http0/broker0::qmp";
+///   let bi_str = "http://http0/broker/broker0::qmp";
 ///   let bi : BrokerManifest = bi_str.try_into()?;
 ///   assert_eq!(bi.type_name, "qmp", "broker's type_name");
 ///   assert_eq!(bi.name, "broker0", "broker's name");
@@ -155,31 +156,21 @@ impl TryFrom<&str> for BrokerManifest {
     type Error = anyhow::Error;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match regex::Regex::new(r"^(.+?)://(.+?)/(.+?)::(.+?)$") {
-            Ok(re) => match re.captures(value) {
-                Some(caps) => Ok(Self::new(
-                    caps[3].as_ref(),
-                    caps[4].as_ref(),
-                    caps[1].as_ref(),
-                    caps[2].as_ref(),
-                    "",
-                )),
-                None => {
-                    log::error!("TryFrom<String> for ProcessIdentifier error. Invalid Identifier ({value}).");
-                    Err(anyhow!(JuizError::InvalidIdentifierError {
-                        message: value.to_owned()
-                    }))
-                }
-            },
-            Err(e) => Err(anyhow!(e)),
-        }
+        let (name, type_name, broker_type_name, broker_name) = parse_broker_identifier(value)?;
+        Ok(Self::new(
+            name,
+            type_name,
+            broker_type_name,
+            broker_name,
+            "",
+        ))
     }
 }
 
 /// ```
 /// use juiz_sdk::prelude::*;
 /// fn main() -> JuizResult<()> {
-///   let bi_str = "http://http0/broker0::qmp".to_owned();
+///   let bi_str = "http://http0/broker/broker0::qmp".to_owned();
 ///   let bi : BrokerManifest = bi_str.try_into()?;
 ///   assert_eq!(bi.type_name, "qmp", "broker's type_name");
 ///   assert_eq!(bi.name, "broker0", "broker's name");

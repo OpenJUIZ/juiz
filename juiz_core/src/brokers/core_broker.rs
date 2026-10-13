@@ -979,19 +979,19 @@ impl ContainerProcessBrokerProxy for CoreBroker {
 
 impl BrokerBrokerProxy for CoreBroker {
     fn broker_list(&self, recursive: bool) -> JuizResult<Vec<String>> {
-        println!("【broker_list】ローカルなStoreにあるBrokerを調べます。");
+        log::trace!("【broker_list】ローカルなStoreにあるBrokerを調べます。");
         let mut ids = self.worker().store().brokers_list_ids()?;
         if recursive {
-            println!("【broker_list】サブシステムのBrokerも調べます。");
+            log::trace!("【broker_list】サブシステムのBrokerも調べます。");
             for ssp in self.subsystem_proxies.iter() {
                 let proxy = ssp.broker_proxy();
                 let mut plist = juiz_lock(&proxy)?.broker_list(recursive)?;
                 ids.append(&mut plist);
             }
         } else {
-            println!("【broker_list】サブシステムのBrokerは調べません。");
+            log::trace!("【broker_list】サブシステムのBrokerは調べません。");
         }
-        println!("【broker_list】Brokerのリストを返します。ids: {ids:?}");
+        log::trace!("【broker_list】Brokerのリストを返します。ids: {ids:?}");
         Ok(ids)
     }
 

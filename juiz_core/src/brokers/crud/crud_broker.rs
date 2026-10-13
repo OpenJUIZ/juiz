@@ -52,16 +52,18 @@ impl CRUDBroker {
             .unwrap()
             .as_str()
             .unwrap();
+        // ブローカー自身も core に属するオブジェクトなので、他のオブジェクトと同じく
+        // core://core/broker/{name}::{type_name} で識別する (issue #35)
         let profile = BrokerProfile {
             type_name: broker_type.to_owned(),
             name: broker_name.to_owned(),
-            broker_type_name: broker_type.to_owned(),
-            broker_name: broker_name.to_owned(),
+            broker_type_name: "core".to_owned(),
+            broker_name: "core".to_owned(),
             description: Description {
                 text: "".to_string(),
             },
         };
-        let id = format!("core://core/Broker/{broker_name}::{broker_type}").try_into()?;
+        let id = BrokerIdentifier::new(broker_name, broker_type, "core", "core");
         Ok(CRUDBroker {
             core_broker,
             identifier: id,
@@ -132,7 +134,7 @@ impl CRUDBroker {
             .unwrap()
             .as_str()
             .unwrap();
-        self.identifier = format!("core://core/Broker/{broker_name}::{broker_type}").try_into()?;
+        self.identifier = BrokerIdentifier::new(broker_name, broker_type, "core", "core");
         Ok(())
     }
 

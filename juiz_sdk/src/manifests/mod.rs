@@ -25,7 +25,7 @@ mod topic_profile;
 pub use argument_manifest::ArgumentManifest;
 pub use argument_profile::ArgumentProfile;
 pub use argument_type::ArgumentType;
-pub use broker_identifier::BrokerIdentifier;
+pub use broker_identifier::{parse_broker_identifier, BrokerIdentifier};
 pub use broker_manifest::BrokerManifest;
 pub use broker_profile::BrokerProfile;
 pub use component_manifest::ComponentManifest;

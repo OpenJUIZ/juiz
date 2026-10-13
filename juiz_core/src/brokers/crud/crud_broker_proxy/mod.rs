@@ -69,11 +69,7 @@ fn capsule_value(capsule: CapsulePtr) -> JuizResult<Value> {
 fn param(param_map: &[(&str, &str)]) -> HashMap<String, String> {
     let mut map: HashMap<String, String> = HashMap::new();
     for (k, v) in param_map.iter() {
-        if *k == "identifier" {
-            map.insert((*k).to_owned(), modify_id(*v));
-        } else {
-            map.insert((*k).to_owned(), (*v).to_owned());
-        }
+        map.insert((*k).to_owned(), (*v).to_owned());
     }
     map
 }
@@ -84,13 +80,6 @@ fn topic_param(param_map: &[(&str, &str)]) -> HashMap<String, String> {
         map.insert((*k).to_owned(), (*v).to_owned());
     }
     map
-}
-
-fn modify_id(id: &str) -> String {
-    let mut id_struct = IdentifierStruct::try_from(id.to_owned()).unwrap();
-    id_struct.broker_name = "core".to_owned();
-    id_struct.broker_type_name = "core".to_owned();
-    id.into()
 }
 
 impl CRUDBrokerProxyHolder {
@@ -163,20 +152,27 @@ impl CRUDBrokerProxyHolder {
         Ok(jvalue!(ids))
     }
 
-    fn modify_profile(&self, capsule: CapsulePtr) -> CapsulePtr {
-        let key_id = "identifier".to_owned();
-        let _ = capsule.lock_modify_as_value(|v| {
-            let map = get_hashmap_mut(v).unwrap();
-            if map.contains_key(&key_id) {
-                let id = map.get(&key_id).unwrap().as_str().unwrap().to_owned();
-                let mut id_struct = IdentifierStruct::try_from(id).unwrap();
+    /// 応答のプロファイルの identifier を、このブローカープロキシを指す識別子に書き換える。
+    ///
+    /// 識別子を解析できないときは panic せずにエラーを返す (issue #35)
+    fn modify_profile(&self, capsule: CapsulePtr) -> JuizResult<CapsulePtr> {
+        let key_id = "identifier";
+        capsule.lock_modify_as_value(|v| -> JuizResult<()> {
+            let map = get_hashmap_mut(v)?;
+            if let Some(id_value) = map.get(key_id) {
+                let id = id_value
+                    .as_str()
+                    .ok_or(anyhow!(JuizError::ValueIsNotStringError {}))?
+                    .to_owned();
+                let mut id_struct = IdentifierStruct::try_from(id)?;
                 id_struct.broker_name = self.name().to_owned();
                 id_struct.broker_type_name = self.type_name().to_owned();
                 let new_id: Identifier = id_struct.into();
-                map.insert(key_id, jvalue!(new_id));
+                map.insert(key_id.to_owned(), jvalue!(new_id));
             }
-        });
-        capsule
+            Ok(())
+        })??;
+        Ok(capsule)
     }
 }
 
@@ -206,7 +202,7 @@ impl ContainerProcessBrokerProxy for CRUDBrokerProxyHolder {
             "container_process",
             "profile_full",
             param(&[("identifier", Into::<String>::into(id.clone()).as_str())]),
-        )?));
+        )?)?);
         log::trace!("CRUDBrokerProxy.container_process_profile_full({id}) = {result:?}");
         Ok(serde_json::from_value(result?)?)
     }
@@ -337,7 +333,7 @@ impl ContainerBrokerProxy for CRUDBrokerProxyHolder {
             "container",
             "profile_full",
             param(&[("identifier", id.to_string().as_str())]),
-        )?))?;
+        )?)?)?;
         Ok(serde_json::from_value(value)?)
     }
 
@@ -405,7 +401,7 @@ impl ProcessBrokerProxy for CRUDBrokerProxyHolder {
             "process",
             "profile_full",
             param(&[("identifier", id_str.as_str())]),
-        )?))?;
+        )?)?)?;
         log::trace!("CRUDBrokerProxy.process_profile_full({id}) = {result_value:?}");
         Ok(serde_json::from_value(result_value)?)
     }
@@ -576,7 +572,7 @@ impl SystemBrokerProxy for CRUDBrokerProxyHolder {
             "system",
             "profile_full",
             HashMap::new(),
-        )?))
+        )?)?)
     }
 
     fn system_filesystem_list(&self, path_buf: std::path::PathBuf) -> JuizResult<Value> {
@@ -696,8 +692,9 @@ impl BrokerBrokerProxy for CRUDBrokerProxyHolder {
     ) -> Result<Vec<std::string::String>, juiz_sdk::anyhow::Error> {
         let mut param: HashMap<String, String> = HashMap::new();
         param.insert("recursive".to_owned(), recursive.to_string());
+        // 他のオブジェクトと同じく、core の識別子をこのブローカーを指す識別子に書き換える (issue #35)
         let v = capsule_value(self.broker.read("broker", "list", param)?)?;
-        Ok(serde_json::from_value(v)?)
+        Ok(serde_json::from_value(self._convert_identifier_names(&v)?)?)
     }
 
     fn broker_profile_full(&self, id: &Identifier) -> JuizResult<BrokerProfile> {
@@ -705,7 +702,7 @@ impl BrokerBrokerProxy for CRUDBrokerProxyHolder {
             "broker",
             "profile_full",
             param(&[("identifier", id)]),
-        )?))?
+        )?)?)?
         .try_into()
     }
 }
@@ -733,7 +730,7 @@ impl ExecutionContextBrokerProxy for CRUDBrokerProxyHolder {
             "execution_context",
             "profile_full",
             param(&[("identifier", id)]),
-        )?))
+        )?)?)
     }
 
     fn ec_get_state(&self, id: &Identifier) -> JuizResult<Value> {

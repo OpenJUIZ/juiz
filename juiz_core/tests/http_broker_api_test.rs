@@ -156,6 +156,31 @@ fn check_connections(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
 
 fn check_lists_and_profiles(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     // HTTP の応答をそのまま型に読み込めること (issue #19)
+    // ブローカーの識別子も他と同じく .../broker/{name}::{type_name} の形で、
+    // HTTP 経由で得たものは HTTP ブローカーを指す (issue #35)
+    let broker_ids = bp.broker_list(false)?;
+    assert!(!broker_ids.is_empty());
+    for id in broker_ids.iter() {
+        let id_struct = IdentifierStruct::try_from(id.clone())?;
+        assert_eq!(id_struct.class_name, "broker", "{id}");
+        assert_eq!(id_struct.broker_type_name, "http", "{id}");
+        let profile = bp.broker_profile_full(id)?;
+        assert_eq!(Into::<Identifier>::into(profile.clone()), *id);
+        assert_eq!(profile.name, id_struct.object_name);
+        assert_eq!(profile.type_name, id_struct.type_name);
+    }
+    assert!(broker_ids
+        .iter()
+        .any(|id| id.ends_with(&format!("/broker/0.0.0.0:{PORT}::http"))));
+    assert!(broker_ids
+        .iter()
+        .any(|id| id.ends_with("/broker/local::local")));
+
+    // 解析できない識別子はエラーになり、HTTP サーバは止まらない
+    assert!(bp.broker_profile_full(&"invalid".to_owned()).is_err());
+    assert!(bp
+        .broker_profile_full(&format!("http://localhost:{PORT}/broker/nothing::http"))
+        .is_err());
     assert!(!bp.broker_list(false)?.is_empty());
     assert!(bp.topic_list()?.is_empty());
 

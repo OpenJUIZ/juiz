@@ -114,7 +114,7 @@ impl TryFrom<&Value> for BrokerIdentifier {
 /// ```
 /// use juiz_sdk::prelude::*;
 /// fn main() -> JuizResult<()> {
-///   let bi_str = "http://http0/broker0::qmp";
+///   let bi_str = "http://http0/broker/broker0::qmp";
 ///   let bi : BrokerIdentifier = bi_str.try_into()?;
 ///   assert_eq!(bi.type_name, "qmp", "broker's type_name");
 ///   assert_eq!(bi.name, "broker0", "broker's name");
@@ -129,22 +129,42 @@ impl TryFrom<&str> for BrokerIdentifier {
     type Error = anyhow::Error;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match regex::Regex::new(r"^(.+?)://(.+?)/(.+?)::(.+?)$") {
-            Ok(re) => match re.captures(value) {
-                Some(caps) => Ok(Self::new(
-                    caps[3].as_ref(),
-                    caps[4].as_ref(),
-                    caps[1].as_ref(),
-                    caps[2].as_ref(),
-                )),
-                None => {
-                    log::error!("TryFrom<String> for ProcessIdentifier error. Invalid Identifier ({value}).");
-                    Err(anyhow!(JuizError::InvalidIdentifierError {
-                        message: value.to_owned()
-                    }))
-                }
-            },
-            Err(e) => Err(anyhow!(e)),
+        let (name, type_name, broker_type_name, broker_name) = parse_broker_identifier(value)?;
+        Ok(Self::new(name, type_name, broker_type_name, broker_name))
+    }
+}
+
+/// ブローカーの識別子を (name, type_name, broker_type_name, broker_name) に分解する。
+///
+/// 識別子は他のオブジェクトと同じく `{broker_type_name}://{broker_name}/broker/{name}::{type_name}` の形。
+/// クラス名の無い旧形式 `{broker_type_name}://{broker_name}/{name}::{type_name}` も読み込める (issue #35)。
+/// ```
+/// use juiz_sdk::manifests::parse_broker_identifier;
+/// fn main() -> juiz_sdk::prelude::JuizResult<()> {
+///   assert_eq!(
+///     parse_broker_identifier("http://localhost:8000/broker/0.0.0.0:8000::http")?,
+///     ("0.0.0.0:8000", "http", "http", "localhost:8000"));
+///   assert_eq!(
+///     parse_broker_identifier("core://core/local::local")?,
+///     ("local", "local", "core", "core"));
+///   assert!(parse_broker_identifier("core://core/process/inc0::increment").is_err());
+///   Ok(())
+/// }
+/// ```
+pub fn parse_broker_identifier(value: &str) -> JuizResult<(&str, &str, &str, &str)> {
+    let re = regex::Regex::new(r"^([^:/]+)://([^/]+)/(?:[Bb]roker/)?([^/]+?)::([^/]+)$")?;
+    match re.captures(value) {
+        Some(caps) => Ok((
+            caps.get(3).unwrap().as_str(),
+            caps.get(4).unwrap().as_str(),
+            caps.get(1).unwrap().as_str(),
+            caps.get(2).unwrap().as_str(),
+        )),
+        None => {
+            log::error!("parse_broker_identifier error. Invalid Identifier ({value}).");
+            Err(anyhow!(JuizError::InvalidIdentifierError {
+                message: value.to_owned()
+            }))
         }
     }
 }
@@ -152,7 +172,7 @@ impl TryFrom<&str> for BrokerIdentifier {
 /// ```
 /// use juiz_sdk::prelude::*;
 /// fn main() -> JuizResult<()> {
-///   let bi_str = "http://http0/broker0::qmp".to_owned();
+///   let bi_str = "http://http0/broker/broker0::qmp".to_owned();
 ///   let bi : BrokerIdentifier = bi_str.try_into()?;
 ///   assert_eq!(bi.type_name, "qmp", "broker's type_name");
 ///   assert_eq!(bi.name, "broker0", "broker's name");
@@ -180,7 +200,7 @@ impl TryFrom<String> for BrokerIdentifier {
 ///   assert_eq!(bi.broker_type_name, "http");
 ///   assert_eq!(bi.broker_name, "http0");
 ///   let bi_str: String = bi.into();
-///   assert_eq!(bi_str, "http://http0/broker0::qmp");
+///   assert_eq!(bi_str, "http://http0/broker/broker0::qmp");
 ///   Ok(())
 /// }
 ///
@@ -188,7 +208,7 @@ impl TryFrom<String> for BrokerIdentifier {
 impl Into<String> for BrokerIdentifier {
     fn into(self) -> String {
         format!(
-            "{}://{}/{}::{}",
+            "{}://{}/broker/{}::{}",
             self.broker_type_name, self.broker_name, self.name, self.type_name
         )
     }
