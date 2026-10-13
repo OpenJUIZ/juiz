@@ -64,9 +64,14 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
                 .into_iter()
                 .map(|id| {
                     let mut mut_id = id.clone();
-                    if id.broker_name == "core" && id.broker_type_name == "core" {
-                        mut_id.broker_name = accessed_broker_name.unwrap().clone();
-                        mut_id.broker_type_name = accessed_broker_type.unwrap().clone();
+                    // HTTP 以外 (メッセンジャー系ブローカーなど) では accessed_broker_* が無いので書き換えない (issue #36)
+                    if let (Some(name), Some(type_name)) =
+                        (accessed_broker_name, accessed_broker_type)
+                    {
+                        if id.broker_name == "core" && id.broker_type_name == "core" {
+                            mut_id.broker_name = name.clone();
+                            mut_id.broker_type_name = type_name.clone();
+                        }
                     }
                     serde_json::to_value(mut_id)
                 })

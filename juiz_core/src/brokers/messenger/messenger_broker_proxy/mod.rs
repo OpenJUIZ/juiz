@@ -21,6 +21,14 @@ use juiz_sdk::{
 };
 use uuid::Uuid;
 
+/// 応答のカプセルから値をそのまま取り出す。
+///
+/// capsule_to_value は値を `{"__value__": ..., "__option__": ...}` で包むので、
+/// プロファイルなどの型にデシリアライズする値にはこちらを使う (issue #36, CRUDBrokerProxy の #19 と同じ)
+fn capsule_value(capsule: CapsulePtr) -> JuizResult<Value> {
+    capsule.extract_value()
+}
+
 pub struct MessengerBrokerProxy {
     core: ObjectCore,
     messenger: Box<dyn MessengerBrokerProxyCore>,
@@ -363,7 +371,7 @@ impl SystemBrokerProxy for MessengerBrokerProxy {
     }
 
     fn system_uuid(&self) -> JuizResult<Value> {
-        capsule_to_value(self.read("system", "uuid")?)
+        capsule_value(self.read("system", "uuid")?)
     }
 
     fn system_add_mastersystem(&mut self, profile: Value) -> JuizResult<Value> {
@@ -429,7 +437,7 @@ impl SystemBrokerProxy for MessengerBrokerProxy {
             "language".to_owned(),
             CapsulePtr::from(Value::from(language)),
         );
-        Ok(serde_json::from_value(capsule_to_value(self.update(
+        Ok(serde_json::from_value(capsule_value(self.update(
             "system",
             "load_component",
             cp,
@@ -448,9 +456,11 @@ impl ProcessBrokerProxy for MessengerBrokerProxy {
     }
 
     fn process_profile_full(&self, id: &ProcessIdentifier) -> JuizResult<ProcessProfile> {
-        Ok(serde_json::from_value(capsule_to_value(
-            self.read_by_id("process", "profile_full", &id.to_string())?,
-        )?)?)
+        Ok(serde_json::from_value(capsule_value(self.read_by_id(
+            "process",
+            "profile_full",
+            &id.to_string(),
+        )?)?)?)
     }
 
     fn process_list(
@@ -466,8 +476,6 @@ impl ProcessBrokerProxy for MessengerBrokerProxy {
             )?
             .extract_value()?,
         )?)
-        //todo!("ここで__value__, __option___を使ってた弊害出てるぞ");
-        //capsule_to_value(self.read("process", "list")?)
     }
 
     fn process_push_by(
@@ -481,7 +489,7 @@ impl ProcessBrokerProxy for MessengerBrokerProxy {
         cm.insert("value".to_owned(), value);
         let cap = CapsulePtr::from(Into::<Value>::into(arg_name));
         cm.insert("arg_name".to_owned(), cap);
-        self.send_recv_and("UPDATE", "process", "push_by", cm, &[], |value| Ok(value))
+        self.update_by_id("process", "push_by", cm, &id.to_string())
     }
 
     fn process_try_connect_to(
@@ -504,7 +512,7 @@ impl ProcessBrokerProxy for MessengerBrokerProxy {
             &[],
             |value| Ok(value),
         )?;
-        Ok(serde_json::from_value(capsule_to_value(capsule)?)?)
+        Ok(serde_json::from_value(capsule_value(capsule)?)?)
     }
 
     fn process_notify_connected_from(
@@ -527,7 +535,7 @@ impl ProcessBrokerProxy for MessengerBrokerProxy {
             &[],
             |value| Ok(value),
         )?;
-        Ok(serde_json::from_value(capsule_to_value(value)?)?)
+        Ok(serde_json::from_value(capsule_value(value)?)?)
     }
 
     fn process_p_apply(
@@ -536,11 +544,11 @@ impl ProcessBrokerProxy for MessengerBrokerProxy {
         arg_name: &str,
         value: CapsulePtr,
     ) -> JuizResult<CapsulePtr> {
-        let arg = vec![
-            ("arg_name", jvalue!(arg_name)),
-            ("value", capsule_to_value(value)?),
-        ];
-        self.update_by_id("process", "p_apply", arg.into(), &id.to_string())
+        // 値は __value__ で包まずにカプセルのまま送る (issue #36)
+        let mut arg = CapsuleMap::new();
+        arg.insert("arg_name".to_owned(), jvalue!(arg_name).into());
+        arg.insert("value".to_owned(), value);
+        self.update_by_id("process", "p_apply", arg, &id.to_string())
     }
 
     fn process_create(
@@ -552,7 +560,7 @@ impl ProcessBrokerProxy for MessengerBrokerProxy {
             "__manifest__".to_owned(),
             serde_json::to_value(manifest.clone())?.into(),
         );
-        Ok(serde_json::from_value(capsule_to_value(
+        Ok(serde_json::from_value(capsule_value(
             self.create("process", "create", cm)?,
         )?)?)
     }
@@ -561,9 +569,11 @@ impl ProcessBrokerProxy for MessengerBrokerProxy {
         &mut self,
         identifier: &ProcessIdentifier,
     ) -> Result<ProcessProfile, juiz_sdk::anyhow::Error> {
-        Ok(serde_json::from_value(capsule_to_value(
-            self.delete_by_id("process", "destroy", &identifier.to_string())?,
-        )?)?)
+        Ok(serde_json::from_value(capsule_value(self.delete_by_id(
+            "process",
+            "destroy",
+            &identifier.to_string(),
+        )?)?)?)
     }
 
     fn process_openapi_spec(&self, id: &ProcessIdentifier) -> JuizResult<Value> {
@@ -592,7 +602,7 @@ impl ContainerBrokerProxy for MessengerBrokerProxy {
             "__manifest__".to_owned(),
             serde_json::to_value(manifest)?.into(),
         );
-        Ok(serde_json::from_value(capsule_to_value(self.create(
+        Ok(serde_json::from_value(capsule_value(self.create(
             "container",
             "create",
             args,
@@ -601,7 +611,7 @@ impl ContainerBrokerProxy for MessengerBrokerProxy {
 
     fn container_profile_full(&self, id: &ContainerIdentifier) -> JuizResult<ContainerProfile> {
         let capsule = self.read_by_id("container", "profile_full", &id.to_string())?;
-        Ok(serde_json::from_value(capsule_to_value(capsule)?)?)
+        Ok(serde_json::from_value(capsule_value(capsule)?)?)
     }
 
     fn container_list(
@@ -609,7 +619,7 @@ impl ContainerBrokerProxy for MessengerBrokerProxy {
         recursive: bool,
         _caller_broker_profile: Option<Value>,
     ) -> Result<Vec<ContainerIdentifier>, juiz_sdk::anyhow::Error> {
-        Ok(serde_json::from_value(capsule_to_value(
+        Ok(serde_json::from_value(capsule_value(
             self.read_with_param(
                 "container",
                 "list",
@@ -622,11 +632,8 @@ impl ContainerBrokerProxy for MessengerBrokerProxy {
         &mut self,
         identifier: &ContainerIdentifier,
     ) -> Result<ContainerProfile, juiz_sdk::anyhow::Error> {
-        let value = capsule_to_value(self.delete_by_id(
-            "container",
-            "destroy",
-            &identifier.to_string(),
-        )?)?;
+        let value =
+            capsule_value(self.delete_by_id("container", "destroy", &identifier.to_string())?)?;
         Ok(serde_json::from_value(value)?)
     }
 }
@@ -636,7 +643,7 @@ impl ContainerProcessBrokerProxy for MessengerBrokerProxy {
         &self,
         id: &ProcessIdentifier,
     ) -> Result<ProcessProfile, juiz_sdk::anyhow::Error> {
-        let value = capsule_to_value(self.read_by_id(
+        let value = capsule_value(self.read_by_id(
             "container_process",
             "profile_full",
             &id.to_string(),
@@ -649,7 +656,7 @@ impl ContainerProcessBrokerProxy for MessengerBrokerProxy {
         recursive: bool,
         _caller_broker_profile: Option<Value>,
     ) -> Result<Vec<ProcessIdentifier>, juiz_sdk::anyhow::Error> {
-        let value = capsule_to_value(self.read_with_param(
+        let value = capsule_value(self.read_with_param(
             "container_process",
             "list",
             &[("recursive".to_owned(), recursive.to_string())],
@@ -684,7 +691,7 @@ impl ContainerProcessBrokerProxy for MessengerBrokerProxy {
             "__manifest__".to_owned(),
             serde_json::to_value(manifest)?.into(),
         );
-        let value = capsule_to_value(self.create_by_id(
+        let value = capsule_value(self.create_by_id(
             "container_process",
             "create",
             cm,
@@ -697,7 +704,7 @@ impl ContainerProcessBrokerProxy for MessengerBrokerProxy {
         &mut self,
         identifier: &ProcessIdentifier,
     ) -> Result<ProcessProfile, juiz_sdk::anyhow::Error> {
-        let v = capsule_to_value(self.delete_by_id(
+        let v = capsule_value(self.delete_by_id(
             "container_process",
             "destroy",
             &identifier.to_string(),
@@ -711,11 +718,11 @@ impl ContainerProcessBrokerProxy for MessengerBrokerProxy {
         arg_name: &str,
         value: CapsulePtr,
     ) -> JuizResult<CapsulePtr> {
-        let arg = vec![
-            ("arg_name", jvalue!(arg_name)),
-            ("value", capsule_to_value(value)?),
-        ];
-        self.update_by_id("container_process", "p_apply", arg.into(), &id.to_string())
+        // 値は __value__ で包まずにカプセルのまま送る (issue #36)
+        let mut arg = CapsuleMap::new();
+        arg.insert("arg_name".to_owned(), jvalue!(arg_name).into());
+        arg.insert("value".to_owned(), value);
+        self.update_by_id("container_process", "p_apply", arg, &id.to_string())
     }
 
     fn container_process_openapi_spec(&self, id: &ProcessIdentifier) -> JuizResult<Value> {
@@ -760,11 +767,10 @@ impl ExecutionContextBrokerProxy for MessengerBrokerProxy {
     }
 
     fn ec_create(&mut self, manifest: &Value) -> JuizResult<Value> {
-        capsule_to_value(self.create(
-            "execution_context",
-            "create",
-            manifest.clone().try_into()?,
-        )?)
+        // CRUDBrokerProxy と同じく、マニフェストは __manifest__ で送る
+        let mut cm = CapsuleMap::new();
+        cm.insert("__manifest__".to_owned(), manifest.clone().into());
+        capsule_to_value(self.create("execution_context", "create", cm)?)
     }
 
     fn ec_destroy(&mut self, identifier: &Identifier) -> JuizResult<Value> {
@@ -774,7 +780,7 @@ impl ExecutionContextBrokerProxy for MessengerBrokerProxy {
 
 impl BrokerBrokerProxy for MessengerBrokerProxy {
     fn broker_list(&self, recursive: bool) -> JuizResult<Vec<String>> {
-        let vs = capsule_to_value(self.read_with_param(
+        let vs = capsule_value(self.read_with_param(
             "broker",
             "list",
             &[("recursive".to_owned(), recursive.to_string())],
@@ -797,13 +803,13 @@ impl BrokerBrokerProxy for MessengerBrokerProxy {
     }
 
     fn broker_profile_full(&self, id: &Identifier) -> JuizResult<BrokerProfile> {
-        capsule_to_value(self.read_by_id("broker", "profile_full", id)?)?.try_into()
+        capsule_value(self.read_by_id("broker", "profile_full", id)?)?.try_into()
     }
 }
 
 impl TopicBrokerProxy for MessengerBrokerProxy {
     fn topic_list(&self) -> Result<Vec<TopicIdentifier>, juiz_sdk::anyhow::Error> {
-        let v = capsule_to_value(self.read_with_param(
+        let v = capsule_value(self.read_with_param(
             "topic",
             "list",
             &[("recursive".to_owned(), true.to_string())],
@@ -851,7 +857,7 @@ impl TopicBrokerProxy for MessengerBrokerProxy {
             ("topic_name".to_owned(), name.to_owned()),
             ("system_uuid".to_owned(), system_uuid.unwrap().to_string()),
         ];
-        capsule_to_value(self.update("topic", "request_subscribe", CapsuleMap::new(), param)?)
+        capsule_value(self.update("topic", "request_subscribe", CapsuleMap::new(), param)?)
     }
 
     fn topic_request_publish(
@@ -863,13 +869,13 @@ impl TopicBrokerProxy for MessengerBrokerProxy {
             ("topic_name".to_owned(), name.to_owned()),
             ("system_uuid".to_owned(), system_uuid.unwrap().to_string()),
         ];
-        capsule_to_value(self.update("topic", "request_publish", CapsuleMap::new(), param)?)
+        capsule_value(self.update("topic", "request_publish", CapsuleMap::new(), param)?)
     }
 }
 
 impl ConnectionBrokerProxy for MessengerBrokerProxy {
     fn connection_list(&self, recursive: bool) -> JuizResult<Vec<ConnectionIdentifier>> {
-        let val = capsule_to_value(self.read_with_param(
+        let val = capsule_value(self.read_with_param(
             "connection",
             "list",
             &[("recursive".to_owned(), recursive.to_string())],
@@ -881,24 +887,39 @@ impl ConnectionBrokerProxy for MessengerBrokerProxy {
     }
 
     fn connection_profile_full(&self, id: &ConnectionIdentifier) -> JuizResult<ConnectionProfile> {
-        capsule_to_value(self.read_by_id("connection", "profile_full", &id.to_string())?)?
-            .try_into()
+        // 識別子は Display の形ではなく文字列形式 (connection://...) で送る
+        let id_str: String = id.clone().into();
+        Ok(serde_json::from_value(capsule_value(self.read_by_id(
+            "connection",
+            "profile_full",
+            &id_str,
+        )?)?)?)
     }
 
     fn connection_create(
         &mut self,
         manifest: &ConnectionManifest,
     ) -> JuizResult<ConnectionProfile> {
-        capsule_to_value(self.create(
+        // CRUDBrokerProxy と同じく、マニフェストは __manifest__ で送る
+        let mut cm = CapsuleMap::new();
+        cm.insert(
+            "__manifest__".to_owned(),
+            serde_json::to_value(manifest)?.into(),
+        );
+        Ok(serde_json::from_value(capsule_value(self.create(
             "connection",
             "create",
-            Into::<Value>::into(manifest.clone()).try_into()?,
-        )?)?
-        .try_into()
+            cm,
+        )?)?)?)
     }
 
     fn connection_destroy(&mut self, id: &ConnectionIdentifier) -> JuizResult<ConnectionProfile> {
-        capsule_to_value(self.delete_by_id("connection", "destroy", &id.to_string())?)?.try_into()
+        let id_str: String = id.clone().into();
+        Ok(serde_json::from_value(capsule_value(self.delete_by_id(
+            "connection",
+            "destroy",
+            &id_str,
+        )?)?)?)
     }
 }
 
