@@ -69,13 +69,18 @@ impl ContainerFactory for ContainerFactoryImpl {
     fn create_container(
         &self,
         _core_worker: &mut CoreWorker,
-        _name: String,
+        name: String,
         mut args: CapsuleMap,
     ) -> JuizResult<ContainerPtr> {
         log::trace!(
             "ContainerFactoryImpl::create_container(manifest={:?}) called",
             args
         );
+        // 引数に name が無いとき (CLI の --container 起動など) は、
+        // 呼び出し側が決めたインスタンス名を使う (issue #46)
+        if args.get("name").is_err() {
+            args.insert("name".to_owned(), jvalue!(name).into());
+        }
         //println!("create_container");
         // ここでデフォルトを与えていく
         // println!("manifest========{:?}", self.manifest);
@@ -138,6 +143,29 @@ mod tests {
         assert_eq!(profile.type_name, "counter");
         // ContainerProcess の宣言はインスタンスのプロファイルには入らない
         assert!(profile.processes.is_empty());
+        Ok(())
+    }
+
+    /// CLI の `--container` 起動のように引数に name を含めずに呼んでも、
+    /// 渡された名前で Container を作れる (issue #46)
+    #[test]
+    fn create_container_without_name_in_args() -> JuizResult<()> {
+        let manifest = ContainerManifest::new("counter").add_int_arg("initial", "", 0);
+        let factory = ContainerFactoryImpl::new(
+            manifest,
+            Arc::new(
+                |cm: ContainerManifest, args: CapsuleMap| -> JuizResult<ContainerPtr> {
+                    let value = args.get_int("initial")?;
+                    Ok(ContainerPtr::new(ContainerImpl::new(cm, Box::new(value))?))
+                },
+            ),
+        )?;
+        let mut worker = CoreWorker::new(uuid::Uuid::new_v4(), jvalue!({}));
+        let container =
+            factory.create_container(&mut worker, "counter0".to_owned(), CapsuleMap::new())?;
+        let profile = container.lock()?.profile()?;
+        assert_eq!(profile.name, "counter0");
+        assert_eq!(profile.type_name, "counter");
         Ok(())
     }
 }
