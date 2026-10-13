@@ -305,7 +305,7 @@ fn broker_identifier_from_value_defaults() -> JuizResult<()> {
     assert_eq!(b.name, "http0");
     assert_eq!(b.broker_type_name, "core");
     assert_eq!(b.broker_name, "core");
-    assert_eq!(b.to_string(), "core://core/http0::http");
+    assert_eq!(b.to_string(), "core://core/broker/http0::http");
 
     let b: BrokerIdentifier = (&jvalue!("core://core/http0::http")).try_into()?;
     assert_eq!(b.name, "http0");

@@ -143,7 +143,7 @@ impl CoreStore {
     }
 
     pub fn brokers_list_ids(&self) -> JuizResult<Vec<String>> {
-        println!("CoreStore::brokers_list_ids() called");
+        log::trace!("CoreStore::brokers_list_ids() called");
         self.brokers_manifests
             .iter()
             .map(|pv| Ok(pv.clone().into()))

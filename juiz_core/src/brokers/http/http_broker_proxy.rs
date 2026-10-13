@@ -82,11 +82,16 @@ fn construct_param(key: &String, value: &String) -> String {
             Err(_) => key.clone() + "=" + value.as_str(),
         }
     } else if key == "identifier" {
-        let mut id_struct = IdentifierStruct::try_from(value.clone()).unwrap();
-        id_struct.broker_type_name = "core".to_owned();
-        id_struct.broker_name = "core".to_owned();
-        let new_id: String = id_struct.into();
-        key.clone() + "=" + new_id.as_str()
+        // 解析できない識別子はそのまま送り、サーバ側でエラーにする (issue #35)
+        match IdentifierStruct::try_from(value.clone()) {
+            Ok(mut id_struct) => {
+                id_struct.broker_type_name = "core".to_owned();
+                id_struct.broker_name = "core".to_owned();
+                let new_id: String = id_struct.into();
+                key.clone() + "=" + new_id.as_str()
+            }
+            Err(_) => key.clone() + "=" + value.as_str(),
+        }
     } else {
         (key).clone() + "=" + (value).as_str()
     }

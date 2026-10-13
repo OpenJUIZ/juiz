@@ -514,11 +514,12 @@ fn broker_profile_conversions() -> JuizResult<()> {
     let b = BrokerProfile::new("http0", "http", "core", "core", "desc");
     assert!(format!("{}", b).starts_with("BrokerProfile(http://http0"));
     let id: Identifier = b.clone().into();
-    assert_eq!(id, "core://core/http0::http");
+    assert_eq!(id, "core://core/broker/http0::http");
     let v: Value = b.into();
     assert_eq!(
         v,
         jvalue!({
+            "identifier": "core://core/broker/http0::http",
             "type_name": "http", "name": "http0", "broker_type_name": "core", "broker_name": "core", "description": "desc"
         })
     );
