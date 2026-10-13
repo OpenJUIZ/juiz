@@ -67,6 +67,49 @@ fn body_to_capsule_map(body: Value, _headers: &HeaderMap) -> Result<CapsuleMap, 
     body.try_into()
 }
 
+/// 自分自身の HTTP ブローカーを指す識別子 (http://<host>:<port>/...) を core://core/... に書き換える。
+///
+/// process/list などは core のオブジェクトを http://<Host ヘッダ>/... の形で返すので、
+/// それをそのまま同じサーバーに渡されたときは、自分宛てに HTTP で再リクエストせず
+/// ローカルのオブジェクトとして扱う。そうしないと処理中のリクエストが持つロックを
+/// 2 本目のリクエストが待ち続けてタイムアウトする (issue #43)。
+fn localize_identifier(identifier: &str, host: Option<&str>) -> String {
+    let Some(host) = host else {
+        return identifier.to_owned();
+    };
+    let Some(rest) = identifier.strip_prefix("http://") else {
+        return identifier.to_owned();
+    };
+    let Some((broker_name, path)) = rest.split_once('/') else {
+        return identifier.to_owned();
+    };
+    if is_same_broker(broker_name, host) {
+        format!("core://core/{path}")
+    } else {
+        identifier.to_owned()
+    }
+}
+
+/// broker_name (host:port) が、Host ヘッダ (host[:port]) で受けたこのサーバー自身を指すか。
+/// localhost / 127.0.0.1 / 0.0.0.0 / ::1 はポートが同じなら同一とみなす。
+fn is_same_broker(broker_name: &str, host: &str) -> bool {
+    if broker_name == host {
+        return true;
+    }
+    fn split_host_port(s: &str) -> (&str, &str) {
+        match s.rsplit_once(':') {
+            Some((h, p)) if !p.contains(']') => (h, p),
+            _ => (s, "80"),
+        }
+    }
+    fn is_loopback(h: &str) -> bool {
+        matches!(h, "localhost" | "127.0.0.1" | "0.0.0.0" | "[::1]" | "[::]")
+    }
+    let (b_host, b_port) = split_host_port(broker_name);
+    let (h_host, h_port) = split_host_port(host);
+    b_port == h_port && (b_host == h_host || (is_loopback(b_host) && is_loopback(h_host)))
+}
+
 fn construct_capsule_map(
     mut capsule_map: CapsuleMap,
     method_name: &str,
@@ -82,7 +125,8 @@ fn construct_capsule_map(
     match query.identifier.clone() {
         None => {}
         Some(v) => {
-            capsule_map.set_param("identifier", v.as_str());
+            let host = headers.get("host").and_then(|h| h.to_str().ok());
+            capsule_map.set_param("identifier", localize_identifier(v.as_str(), host).as_str());
         }
     }
     match query.path.clone() {
@@ -376,3 +420,46 @@ pub fn object_router(crud_broker: Arc<Mutex<CRUDBroker>>) -> Router {
 )]
 #[allow(unused)]
 pub struct ApiDoc;
+
+#[cfg(test)]
+mod tests {
+    use super::localize_identifier;
+
+    #[test]
+    fn localize_identifier_rewrites_own_http_identifier() {
+        let id = "http://127.0.0.1:8000/process/inc0::inc";
+        assert_eq!(
+            localize_identifier(id, Some("127.0.0.1:8000")),
+            "core://core/process/inc0::inc"
+        );
+        assert_eq!(
+            localize_identifier(id, Some("localhost:8000")),
+            "core://core/process/inc0::inc"
+        );
+        assert_eq!(
+            localize_identifier(
+                "http://192.168.0.10:8000/container_process/get0::get:counter0",
+                Some("192.168.0.10:8000")
+            ),
+            "core://core/container_process/get0::get:counter0"
+        );
+    }
+
+    #[test]
+    fn localize_identifier_keeps_other_identifiers() {
+        let other_port = "http://127.0.0.1:8001/process/inc0::inc";
+        assert_eq!(
+            localize_identifier(other_port, Some("127.0.0.1:8000")),
+            other_port
+        );
+        let other_host = "http://192.168.0.11:8000/process/inc0::inc";
+        assert_eq!(
+            localize_identifier(other_host, Some("192.168.0.10:8000")),
+            other_host
+        );
+        let core = "core://core/process/inc0::inc";
+        assert_eq!(localize_identifier(core, Some("127.0.0.1:8000")), core);
+        let id = "http://127.0.0.1:8000/process/inc0::inc";
+        assert_eq!(localize_identifier(id, None), id);
+    }
+}

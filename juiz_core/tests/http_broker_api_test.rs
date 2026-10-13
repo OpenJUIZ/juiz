@@ -274,6 +274,29 @@ fn check_create_destroy(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     Ok(())
 }
 
+/// process/list が返す http:// 形式の識別子をそのまま同じサーバーの
+/// /api/process/call に渡しても、自分宛てに再リクエストせずに呼べる (issue #43)
+fn check_call_with_own_http_identifier(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
+    let ids = bp.process_list(false, None)?;
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()?;
+    for host in [format!("localhost:{PORT}"), format!("127.0.0.1:{PORT}")] {
+        for (name, _type_name) in PROCESSES {
+            let id = find_process(&ids, name).to_string();
+            assert!(id.starts_with("http://"), "{id}");
+            let res = client
+                .patch(format!("http://{host}/api/process/call"))
+                .query(&[("identifier", id.as_str())])
+                .json(&jvalue!({"arg1": 10}))
+                .send()?;
+            assert!(res.status().is_success(), "{host} {id}: {:?}", res.text());
+            assert_eq!(res.json::<Value>()?, jvalue!(11), "{host} {id}");
+        }
+    }
+    Ok(())
+}
+
 #[test]
 fn http_broker_api_with_rust_python_cpp_plugins() -> JuizResult<()> {
     let _ = env_logger::try_init();
@@ -288,6 +311,7 @@ fn http_broker_api_with_rust_python_cpp_plugins() -> JuizResult<()> {
             let mut bp = juiz_lock(&proxy)?;
             check_system(&mut *bp)?;
             check_processes(&mut *bp)?;
+            check_call_with_own_http_identifier(&mut *bp)?;
             check_containers(&mut *bp)?;
             check_ec(&mut *bp)?;
             check_topics(&mut *bp)?;
