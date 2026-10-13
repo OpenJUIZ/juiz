@@ -234,6 +234,13 @@ fn check_create_connect_destroy(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
         &ProcessManifest::new("example_container_get").name("c_new_get"),
     )?;
     assert_eq!(pprofile.name, "c_new_get");
+    // マニフェストに Container を書かなくても、結びつけた Container が ID に入り、
+    // 返ってきたプロファイルの ID でそのまま呼び出せる (issue #46)
+    assert_eq!(pprofile.container_name.as_deref(), Some("c_new"));
+    assert_eq!(
+        int_of(bp.container_process_call(&pprofile.identifier(), CapsuleMap::new())),
+        5
+    );
     let cprocs = bp.container_process_list(false, None)?;
     assert_eq!(cprocs.len(), 7);
     let pid = find_process(&cprocs, "c_new_get").clone();

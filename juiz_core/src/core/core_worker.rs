@@ -363,6 +363,14 @@ impl CoreWorker {
                 Err(e)
             }
         }?;
+        // マニフェストに結びつけ先の Container が書かれていないとき (CLI の --container_process 起動など) は、
+        // 渡された Container から補う。補わないと ContainerProcess の ID が Process の形になり、
+        // ID で呼び出せなくなる (issue #46)
+        let cid = container.identifier();
+        let manifest = &manifest
+            .clone()
+            .container_name(manifest.container_name.clone().or(Some(cid.name)))
+            .container_type(manifest.container_type.clone().or(Some(cid.type_name)));
         let p = arc_pf
             .lock()?
             .create_container_process(container.clone(), manifest)?;
