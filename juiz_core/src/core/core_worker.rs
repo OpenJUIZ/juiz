@@ -851,9 +851,28 @@ impl CoreWorker {
 
     pub fn destroy_connection(
         &mut self,
-        _connection_identifier: &ConnectionIdentifier,
+        connection_identifier: &ConnectionIdentifier,
     ) -> JuizResult<ConnectionProfile> {
-        todo!()
+        log::trace!("【呼出】destroy_connection({connection_identifier})");
+        // 入力側 (destination) と出力側 (source) のプロセスの両方からコネクションを外す
+        let mut removed: Option<ConnectionProfile> = None;
+        for process_id in [
+            &connection_identifier.destination_identifier,
+            &connection_identifier.source_identifier,
+        ] {
+            let Ok(process) = self.any_process_from_identifier(process_id, false) else {
+                continue;
+            };
+            let profile = process.lock_mut()?.disconnect(connection_identifier)?;
+            if let Some(profile) = profile {
+                removed.get_or_insert(profile);
+            }
+        }
+        removed.ok_or_else(|| {
+            anyhow!(JuizError::ConnectionCanNotBeFoundError {
+                identifier: connection_identifier.to_string()
+            })
+        })
     }
 
     pub fn connection_profile(

@@ -1,3 +1,4 @@
+use crate::connection_identifier::ConnectionIdentifier;
 use crate::connections::{
     ConnectionManifest, ConnectionProfile, DestinationConnection, SourceConnection,
 };
@@ -61,6 +62,14 @@ pub trait Process: Send + Sync + mopa::Any + std::fmt::Debug + 'static {
     fn source_connections(&self) -> JuizResult<Vec<&Box<dyn SourceConnection>>>;
 
     fn destination_connections(&self) -> JuizResult<Vec<&Box<dyn DestinationConnection>>>;
+
+    /// コネクションを外す。外したコネクションのプロファイルを返し、見つからなければ None を返す。
+    fn disconnect(
+        &mut self,
+        _connection_identifier: &ConnectionIdentifier,
+    ) -> JuizResult<Option<ConnectionProfile>> {
+        Ok(None)
+    }
 
     fn p_apply(&mut self, arg_name: &str, value: CapsulePtr) -> JuizResult<CapsulePtr>;
 

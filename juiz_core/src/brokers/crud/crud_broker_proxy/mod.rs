@@ -915,6 +915,17 @@ impl ConnectionBrokerProxy for CRUDBrokerProxyHolder {
         &mut self,
         manifest: &ConnectionManifest,
     ) -> JuizResult<ConnectionProfile> {
+        // このブローカーの先にあるプロセスは、サーバ側では core のプロセスとして探させる (issue #31)
+        let mut manifest = manifest.clone();
+        for id in [
+            &mut manifest.source_process_id,
+            &mut manifest.destination_process_id,
+        ] {
+            if id.broker_type_name == self.type_name() && id.broker_name == self.name() {
+                id.broker_type_name = "core".to_owned();
+                id.broker_name = "core".to_owned();
+            }
+        }
         Ok(serde_json::from_value(capsule_value(
             self.broker.create(
                 "connection",

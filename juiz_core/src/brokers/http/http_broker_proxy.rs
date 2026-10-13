@@ -165,10 +165,20 @@ impl CRUDBrokerProxy for HTTPBrokerProxy {
             .send()
         {
             Err(e) => Err(anyhow::Error::from(e)),
-            Ok(response) => Ok(response
-                .json::<Value>()
-                .map_err(|e| anyhow::Error::from(e))?
-                .into()),
+            Ok(response) => {
+                let status_code = response.status();
+                if status_code != 200 {
+                    log::error!("HTTPBrokerProxy.delete() failed. Response is {response:?}");
+                    return Err(anyhow::Error::from(HTTPBrokerError::HTTPStatusError {
+                        status_code,
+                        message: response.text().unwrap_or_default(),
+                    }));
+                }
+                Ok(response
+                    .json::<Value>()
+                    .map_err(|e| anyhow::Error::from(e))?
+                    .into())
+            }
         }
     }
 

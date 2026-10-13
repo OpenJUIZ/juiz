@@ -167,6 +167,15 @@ fn check_ec(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     assert!(bp
         .ec_get_state(&"core://core/execution_context/none::TimerEC".to_owned())
         .is_err());
+
+    // 動いている EC も削除できる (issue #34)
+    let timer1 = obj_get_str(&created, "identifier")?.to_owned();
+    bp.ec_start(&timer1)?;
+    assert!(wait_ec_state(bp, &timer1, "STARTED")?);
+    assert_eq!(obj_get_str(&bp.ec_destroy(&timer1)?, "name")?, "timer1");
+    assert_eq!(bp.ec_list(false)?.as_array().unwrap().len(), 1);
+    assert!(bp.ec_get_state(&timer1).is_err());
+    assert!(bp.ec_destroy(&timer1).is_err());
     Ok(())
 }
 
@@ -197,6 +206,14 @@ fn check_create_connect_destroy(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     // inc_new を実行すると inc0 の出力を pull して使う
     let src_out = int_of(bp.process_execute(&src));
     assert_eq!(int_of(bp.process_execute(&dst)), src_out + 1);
+
+    // コネクションを削除すると、inc_new は pull せずに引数の既定値を使う (issue #34)
+    assert_eq!(bp.connection_destroy(&con)?.arg_name, "arg1");
+    assert!(bp.connection_list(false)?.is_empty());
+    assert!(bp.connection_profile_full(&con).is_err());
+    assert!(bp.connection_destroy(&con).is_err());
+    bp.process_p_apply(&dst, "arg1", jvalue!(100).into())?;
+    assert_eq!(int_of(bp.process_execute(&dst)), 101);
 
     let destroyed = bp.process_destroy(&dst)?;
     assert_eq!(destroyed.name, "inc_new");

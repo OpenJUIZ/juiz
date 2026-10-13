@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::prelude::*;
+use juiz_sdk::{connection_identifier::ConnectionIdentifier, connections::ConnectionProfile};
 
 pub struct Outlet {
     name: String,
@@ -46,6 +47,19 @@ impl Outlet {
         con: Box<dyn DestinationConnection + 'static>,
     ) -> () {
         self.destination_connections.insert(name, con);
+    }
+
+    /// コネクションを外し、外したもののプロファイルを返す
+    pub(crate) fn remove(&mut self, id: &ConnectionIdentifier) -> Option<ConnectionProfile> {
+        let key = self
+            .destination_connections
+            .iter()
+            .find(|(_name, c)| c.identifier().is_same_connection(id))?
+            .0
+            .clone();
+        self.destination_connections
+            .remove(&key)
+            .map(|c| c.profile())
     }
 
     pub(crate) fn destination_connections(

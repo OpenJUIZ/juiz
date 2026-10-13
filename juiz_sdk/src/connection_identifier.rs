@@ -33,6 +33,18 @@ impl ConnectionIdentifier {
             destination_identifier,
         }
     }
+
+    /// 両端のプロセスと引数名が同じなら同じコネクションとみなす。
+    ///
+    /// ブローカー (core / http など) とクラス名は経路によって変わるので比べない。
+    pub fn is_same_connection(&self, other: &ConnectionIdentifier) -> bool {
+        fn same_process(a: &ProcessIdentifier, b: &ProcessIdentifier) -> bool {
+            a.type_name == b.type_name && a.name == b.name && a.container_name == b.container_name
+        }
+        self.arg_name == other.arg_name
+            && same_process(&self.source_identifier, &other.source_identifier)
+            && same_process(&self.destination_identifier, &other.destination_identifier)
+    }
 }
 
 impl TryFrom<Value> for ConnectionIdentifier {
