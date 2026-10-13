@@ -321,17 +321,21 @@ impl ProcessProfile {
         //     "Process",
         //     self.type_name.as_str(),
         //     self.name.as_str())
-        ProcessIdentifier {
-            broker_name: self.broker_name.clone(),
-            broker_type_name: self.broker_type_name.clone(),
-            name: self.name.clone(),
-            type_name: self.type_name.clone(),
-            class_name: if self.container_name.is_none() {
-                "process".to_owned()
-            } else {
-                "container_process".to_owned()
-            },
-            container_name: self.container_name.clone(),
+        // ContainerProcess の ID は型名の後ろに「:Container 名」が付く (issue #46)
+        match &self.container_name {
+            Some(container_name) => ProcessIdentifier::new_container_process_id(
+                self.broker_name.clone(),
+                self.broker_type_name.clone(),
+                self.type_name.clone(),
+                container_name.clone(),
+                self.name.clone(),
+            ),
+            None => ProcessIdentifier::new_process_id(
+                self.broker_name.clone(),
+                self.broker_type_name.clone(),
+                self.type_name.clone(),
+                self.name.clone(),
+            ),
         }
     }
 
