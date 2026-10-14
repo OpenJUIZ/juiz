@@ -73,18 +73,33 @@ pub unsafe extern "C" fn value_is_string(value: *mut Value) -> bool {
     value.as_ref().unwrap().is_string()
 }
 
+/// 文字列の先頭ポインタを返す。返す文字列は NUL 終端されていないので、
+/// 長さも受け取れる value_get_string_with_len を使うこと。
+/// 古いプラグインとのバイナリ互換のためだけに残している。
 #[no_mangle]
 pub unsafe extern "C" fn value_get_string(value: *mut Value, output: *mut *const u8) -> i64 {
-    value
-        .as_ref()
-        .unwrap()
-        .as_str()
-        .and_then(|v| {
-            *output = v.as_ptr();
-            Some(0)
-        })
-        .or(Some(-1))
-        .unwrap()
+    let mut len: usize = 0;
+    match value_get_string_with_len(value, output, &mut len) {
+        JUIZ_OK => 0,
+        _ => -1,
+    }
+}
+
+/// 文字列の先頭ポインタ (NUL 終端ではない) とバイト長を返す。
+#[no_mangle]
+pub unsafe extern "C" fn value_get_string_with_len(
+    value: *mut Value,
+    output: *mut *const u8,
+    len: *mut usize,
+) -> i64 {
+    match value.as_ref().unwrap().as_str() {
+        Some(s) => {
+            *output = s.as_ptr();
+            *len = s.len();
+            JUIZ_OK
+        }
+        None => JUIZ_VALUE_TYPE_ERROR,
+    }
 }
 
 #[no_mangle]
@@ -152,7 +167,11 @@ pub unsafe extern "C" fn value_object_set_string(
 ) -> *mut Value {
     let obj = value.as_mut().unwrap().as_object_mut().unwrap();
     let keystr = CStr::from_ptr(key).to_str().unwrap().to_owned();
-    obj.insert(keystr.clone(), jvalue!(CStr::from_ptr(v).to_str().unwrap()));
+    // 値が UTF-8 でなくても panic しないよう、不正なバイトは置換文字にする
+    obj.insert(
+        keystr.clone(),
+        jvalue!(CStr::from_ptr(v).to_string_lossy().as_ref()),
+    );
     obj.get_mut(&keystr).unwrap()
 }
 
@@ -254,7 +273,8 @@ pub unsafe extern "C" fn value_array_push_string(
     v: *const std::os::raw::c_char,
 ) -> *mut Value {
     let obj = value.as_mut().unwrap().as_array_mut().unwrap();
-    obj.push(jvalue!(CStr::from_ptr(v).to_str().unwrap()));
+    // 値が UTF-8 でなくても panic しないよう、不正なバイトは置換文字にする
+    obj.push(jvalue!(CStr::from_ptr(v).to_string_lossy().as_ref()));
     obj.last_mut().unwrap()
 }
 

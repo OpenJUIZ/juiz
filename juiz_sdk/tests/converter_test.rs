@@ -51,6 +51,12 @@ fn value_type_predicates_and_getters() {
         assert!(value_is_string(&mut s));
         assert_eq!(value_get_string(&mut s, &mut out_s), 0);
         assert_eq!(read_c_str(out_s, 3), "abc");
+        let mut out_len: usize = 0;
+        assert_eq!(
+            value_get_string_with_len(&mut s, &mut out_s, &mut out_len),
+            JUIZ_OK
+        );
+        assert_eq!(read_c_str(out_s, out_len), "abc");
 
         // 型が違う場合はエラーコードを返す
         assert_eq!(value_get_int(&mut s, &mut out_i), JUIZ_VALUE_TYPE_ERROR);
@@ -181,6 +187,12 @@ fn capsule_converters_get_and_set() {
         assert!(capsule_is_string(&mut c));
         assert_eq!(capsule_get_string(&mut c, &mut s), JUIZ_OK);
         assert_eq!(read_c_str(s, 3), "hey");
+        let mut len: usize = 0;
+        assert_eq!(
+            capsule_get_string_with_len(&mut c, &mut s, &mut len),
+            JUIZ_OK
+        );
+        assert_eq!(read_c_str(s, len), "hey");
         assert_eq!(capsule_get_bool(&mut c, &mut b), JUIZ_CAPSULE_TYPE_ERROR);
 
         assert_eq!(capsule_set_empty_object(&mut c), JUIZ_OK);
@@ -313,6 +325,12 @@ fn capsule_ptr_converters_get_and_set() {
         assert_eq!(capsule_ptr_set_string(&mut p, cstr("ok").as_ptr()), JUIZ_OK);
         assert_eq!(capsule_ptr_get_string(&mut p, &mut s), JUIZ_OK);
         assert_eq!(read_c_str(s, 2), "ok");
+        let mut len: usize = 0;
+        assert_eq!(
+            capsule_ptr_get_string_with_len(&mut p, &mut s, &mut len),
+            JUIZ_OK
+        );
+        assert_eq!(read_c_str(s, len), "ok");
 
         assert_eq!(capsule_ptr_set_empty_object(&mut p), JUIZ_OK);
         assert!(p.lock_as_map(|m| m.is_empty()).unwrap());
@@ -376,5 +394,54 @@ fn capsule_map_get_capsule_by_name() {
             JUIZ_CAPSULEMAP_NO_VALUE
         );
         assert!(ptr.is_null());
+    }
+}
+
+/// issue #56: 不正な UTF-8 や NULL を渡しても panic せずエラーコードを返す
+#[test]
+fn set_string_rejects_invalid_utf8_without_panic() {
+    unsafe {
+        let invalid = CString::new(vec![b'H', b'i', 0xff, 0xfe]).unwrap();
+
+        let mut c = Capsule::from(jvalue!("before"));
+        assert_eq!(
+            capsule_set_string(&mut c, invalid.as_ptr()),
+            JUIZ_VALUE_CONVERTER_ERROR
+        );
+        assert_eq!(
+            capsule_set_string(&mut c, std::ptr::null()),
+            JUIZ_VALUE_CONVERTER_ERROR
+        );
+        assert_eq!(c.as_value(), Some(&jvalue!("before")));
+
+        let mut p = CapsulePtr::from(jvalue!("before"));
+        assert_eq!(
+            capsule_ptr_set_string(&mut p, invalid.as_ptr()),
+            JUIZ_VALUE_CONVERTER_ERROR
+        );
+        assert_eq!(p.lock_as_value(|v| v.clone()).unwrap(), jvalue!("before"));
+    }
+}
+
+/// issue #56: 取り出した文字列は長さ付きで読めば後ろのメモリを読まない
+#[test]
+fn get_string_with_len_returns_exact_length() {
+    unsafe {
+        let mut c = Capsule::from(jvalue!("Hi"));
+        let mut s: *const u8 = std::ptr::null();
+        let mut len: usize = usize::MAX;
+        assert_eq!(
+            capsule_get_string_with_len(&mut c, &mut s, &mut len),
+            JUIZ_OK
+        );
+        assert_eq!(len, 2);
+        assert_eq!(read_c_str(s, len), "Hi");
+
+        let mut e = Capsule::from(jvalue!(""));
+        assert_eq!(
+            capsule_get_string_with_len(&mut e, &mut s, &mut len),
+            JUIZ_OK
+        );
+        assert_eq!(len, 0);
     }
 }

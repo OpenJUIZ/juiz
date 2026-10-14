@@ -37,11 +37,13 @@ void print_value(value* value) {
         }
         printf("float(%lf)", i);
     } else if (value_is_string(value)) {
-        char* i;
-        if (value_get_string(value, &i) != JUIZ_OK) {
+        char* i = NULL;
+        size_t len = 0;
+        if (value_get_string_with_len(value, &i, &len) != JUIZ_OK) {
             printf("\"value get_string error\"");
+        } else {
+            printf("\"%.*s\"", (int)len, i);
         }
-        printf("\"%s\"", i);
     } 
 }
 
