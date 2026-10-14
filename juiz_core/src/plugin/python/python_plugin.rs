@@ -368,7 +368,9 @@ if not "{path_str:}" in sys.path:
                         //println!("manual_manifest: {manual_manifest_dic:}");
                         Ok(manual_manifest_dic)
                     } else {
-                        todo!("Listじゃないのはまずい。")
+                        Err(anyhow!(
+                            "Pythonモジュール({fullpath:?})の属性一覧がリストではないため、コンポーネントのマニフェストを作れません。"
+                        ))
                     }
                     //todo!("ここでcomponent_manifestを自動生成したい")
                 }
@@ -603,9 +605,12 @@ if not "{path_str:}" in sys.path:
         log::trace!("【呼出】load_component_manifest()");
         match self.get_component_manifest_with_name(working_dir, "component_manifest") {
             Ok(manif) => serde_json::from_value(manif).or_else(|e| Err(anyhow!(e))),
-            Err(_e) => {
-                // 自動でコンポーネントのマニフェストを生成できるかどうかやってみる場合
-                todo!("自動でコンポーネントのマニフェストを生成できるかどうかやってみる場合")
+            Err(e) => {
+                log::error!("【PythonPlugin::load_component_manifest】Pythonコンポーネント({:?})の読み込みに失敗しました。{e:}", self.path);
+                Err(anyhow!(
+                    "Pythonコンポーネント({:?})の読み込みに失敗しました。{e:}",
+                    self.path
+                ))
             }
         }
     }

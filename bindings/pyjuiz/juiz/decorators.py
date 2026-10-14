@@ -67,12 +67,34 @@ def allow_no_arg_decorator(decorator_function):
             return _wrapper
     return wrapper
 
+class PyJuizMissingTypeAnnotationError(TypeError):
+    """Process / ContainerProcess / Container の引数や戻り値に型注釈がない場合のエラー"""
+    def __init__(self, function_name, arg_name=None):
+        self.function_name = function_name
+        self.arg_name = arg_name
+        if arg_name is None:
+            msg = "【エラー】{} の戻り値に型注釈がありません。(例: def {}(...) -> int:)".format(function_name, function_name)
+        else:
+            msg = "【エラー】{} の引数 {} に型注釈がありません。(例: {}: int)".format(function_name, arg_name, arg_name)
+        super().__init__(msg)
+
+
+def _require_arg_annotation(function_name, param):
+    if param.annotation is inspect.Parameter.empty:
+        raise PyJuizMissingTypeAnnotationError(function_name, param.name)
+
+
+def _require_return_annotation(function_name, signature):
+    if signature.return_annotation is inspect.Signature.empty:
+        raise PyJuizMissingTypeAnnotationError(function_name)
+
+
 def _type_inspect(annotation_obj, default_obj):
-    if annotation_obj is inspect._empty and default_obj is inspect._empty:
-        raise PyJuizUnknownTypeButNoClueError()
-    if annotation_obj is inspect._empty:
-        return __type_inspect_from_default(default_obj)
-    elif default_obj is inspect._empty:
+    """ 
+    型注釈(必須)と既定値から (タイプオブジェクト、dataclassかどうかのフラグ、デフォルト値) を返す。
+    型注釈がない場合は呼び出し側で PyJuizMissingTypeAnnotationError を出しておくこと。
+    """
+    if default_obj is inspect.Parameter.empty:
         return __type_inspect_from_annotation(annotation_obj)
     
     if annotation_obj == int: return (annotation_obj, False, default_obj)
@@ -83,27 +105,12 @@ def _type_inspect(annotation_obj, default_obj):
     elif annotation_obj == str: return  (annotation_obj, False, default_obj)
     elif annotation_obj == Image: return (annotation_obj, False, default_obj)
     elif dataclasses.is_dataclass(annotation_obj):
-        return (dict, True, dataclasses.asdict(default_obj))
-    else:
-        raise PyJuizUnknownTypeError()
-    
-def __type_inspect_from_default(default_obj):
-    """ 
-    returns: (タイプオブジェクト、dataclassかどうかのフラグ、デフォルト値)
-    """
-    if isinstance(default_obj, int): return (int, False, default_obj)
-    elif isinstance(default_obj, bool): return (bool, False, default_obj)
-    elif isinstance(default_obj, float): return (float, False, default_obj)
-    elif isinstance(default_obj, list): return (list, False, default_obj)
-    elif isinstance(default_obj, str): return (str, False, default_obj)
-    elif isinstance(default_obj, dict): return (dict, False, default_obj)
-    elif dataclasses.is_dataclass(default_obj):
         try:
             return (dict, True, dataclasses.asdict(default_obj))
         except:
             raise PyJuizCannotCreateDeafultError(default_obj)
     else:
-        raise PyJuizUnknownTypeError(default_obj)
+        raise PyJuizUnknownTypeError(annotation_obj)
 
 def __type_inspect_from_annotation(annotation_obj):
     """ 
@@ -122,7 +129,62 @@ def __type_inspect_from_annotation(annotation_obj):
         except:
             raise PyJuizCannotCreateDeafultError(annotation_obj)
     else:
-        raise PyJuizUnknownTypeError()
+        raise PyJuizUnknownTypeError(annotation_obj)
+
+
+def _add_arg_manifest(manifest, function_name, param):
+    """ 型注釈を必須として、引数の情報を manifest に追加する。dataclassかどうかのフラグを返す。"""
+    _require_arg_annotation(function_name, param)
+    try:
+        param_type, is_dataclass, param_default = _type_inspect(param.annotation, param.default)
+    except PyJuizCannotCreateDeafultError as e:
+        raise PyJuizArgumentCannotCreateDefaultError(e._type_obj)
+    except PyJuizUnknownTypeError as e:
+        raise PyJuizArgumentUnknownTypeError(e._type_obj)
+    param_desc = ""
+    if param_type == int:
+        manifest.add_int_arg(param.name, param_desc, param_default)
+    elif param_type == float:
+        manifest.add_float_arg(param.name, param_desc, param_default)
+    elif param_type == bool:
+        manifest.add_bool_arg(param.name, param_desc, param_default)
+    elif param_type == str:
+        manifest.add_string_arg(param.name, param_desc, param_default)
+    elif param_type == dict:
+        manifest.add_object_arg(param.name, param_desc, param_default)
+    elif param_type == list:
+        manifest.add_array_arg(param.name, param_desc, param_default)
+    elif param_type == Image:
+        manifest.add_image_arg(param.name, param_desc, param_default)
+    return is_dataclass
+
+
+def _returns_profile(returns):
+    """ 戻り値の型注釈から (出力のプロファイル、dataclassかどうかのフラグ) を返す。"""
+    if returns == int:
+        return (PrimitiveProfile(type_name='Int', default_value=''), False)
+    elif returns == float:
+        return (PrimitiveProfile(type_name='Float', default_value=''), False)
+    elif returns == bool:
+        return (PrimitiveProfile(type_name='Bool', default_value=''), False)
+    elif returns == str:
+        return (PrimitiveProfile(type_name='String', default_value=''), False)
+    elif returns == dict:
+        return (PrimitiveProfile(type_name='Object', default_value=''), False)
+    elif returns == list:
+        return (PrimitiveProfile(type_name='Array', default_value=''), False)
+    elif returns == Image:
+        return (PrimitiveProfile(type_name='Array', default_value=''), False)
+    elif dataclasses.is_dataclass(returns):
+        try:
+            sample_obj = dataclasses.asdict(returns())
+        except:
+            raise PyJuizProcessReturnsCannotCreateDeafultError(returns_type=returns)
+        if isinstance(sample_obj, dict):
+            return (PrimitiveProfile(type_name='Object', default_value=''), True)
+        raise PyJuizProcessReturnsUnknownTypeError(returns_type=returns)
+    else:
+        raise PyJuizProcessReturnsUnknownTypeError(returns_type=returns)
     
 
 class JuizProcess(object):
@@ -140,67 +202,10 @@ class JuizProcess(object):
         self._arg_is_dataclass = []
         self._returns_is_dataclass = False
         
-        for arg_index, p in enumerate(self.signature.parameters):
-            self.__add_arg_manif(arg_index, self.signature.parameters[p])
-        self.__add_returns_manif(self.signature.return_annotation)
-            
-    def __add_returns_manif(self, returns):
-        if returns == int:
-            self._manifest.outputs = PrimitiveProfile(type_name='Int', default_value='')
-        elif returns == float:
-            self._manifest.outputs = PrimitiveProfile(type_name='Float', default_value='')
-        elif returns == bool:
-            self._manifest.outputs = PrimitiveProfile(type_name='Bool', default_value='')
-        elif returns == str:
-            self._manifest.outputs = PrimitiveProfile(type_name='String', default_value='')
-        elif returns == dict:
-            self._manifest.outputs = PrimitiveProfile(type_name='Object', default_value='')
-        elif returns == list:
-            self._manifest.outputs = PrimitiveProfile(type_name='Array', default_value='')
-        elif returns == Image:
-            self._manifest.outputs = PrimitiveProfile(type_name='Array', default_value='')
-        else:
-            if dataclasses.is_dataclass(returns):
-                try:
-                    sample_obj = dataclasses.asdict(returns())
-                except:
-                    raise PyJuizProcessReturnsCannotCreateDeafultError(returns_type=returns)
-                if isinstance(sample_obj, dict):
-                    self._manifest.outputs = PrimitiveProfile(type_name='Object', default_value='')
-                    self._returns_is_dataclass = True
-                else:
-                    raise PyJuizProcessReturnsUnknownTypeError(returns_type=returns)
-            else:
-                raise PyJuizProcessReturnsUnknownTypeError(returns_type=returns)
-        
-    def __add_arg_manif(self, arg_index, param):
-        try:
-            param_type, is_dataclass, param_default = _type_inspect(param.annotation, param.default)
-            print('param:', param)
-            param_desc = ""
-            self._arg_is_dataclass.append(is_dataclass)
-            if param_type == int:
-                self._manifest.add_int_arg(param.name, param_desc, param_default)
-            elif param_type == float:
-                self._manifest.add_float_arg(param.name, param_desc, param_default)
-            elif param_type == bool:
-                self._manifest.add_bool_arg(param.name, param_desc, param_default)
-            elif param_type == str:
-                self._manifest.add_string_arg(param.name, param_desc, param_default)
-            elif param_type == dict:
-                self._manifest.add_object_arg(param.name, param_desc, param_default)
-            elif param_type == list:
-                self._manifest.add_array_arg(param.name, param_desc, param_default)
-            elif param_type == Image:
-                self._manifest.add_image_arg(param.name, param_desc, param_default)
-            
-        except PyJuizUnknownTypeButNoClueError as e:
-            raise PyJuizArgumentUnknownTypeButNoClueError(arg_index)
-        except PyJuizCannotCreateDeafultError as e:
-            raise PyJuizArgumentCannotCreateDefaultError(e._type_obj)
-        except PyJuizUnknownTypeError as e:
-            raise PyJuizArgumentUnknownTypeError(e._type_obj)
-        
+        for p in self.signature.parameters:
+            self._arg_is_dataclass.append(_add_arg_manifest(self._manifest, self.name, self.signature.parameters[p]))
+        _require_return_annotation(self.name, self.signature)
+        self._manifest.outputs, self._returns_is_dataclass = _returns_profile(self.signature.return_annotation)
         
     def manifest(self):
         return self._manifest.into_value()
@@ -222,58 +227,7 @@ class JuizContainer(object):
         self.signature = inspect.signature(proc)
         self._manifest = ContainerManifest.new(self.name).set_description(proc.__doc__)
         for p in self.signature.parameters:
-            param = self.signature.parameters[p]
-            param_type = param.annotation
-            param_default = param.default
-            if param_type is inspect._empty:
-                if isinstance(param_default, int):
-                    param_type = int
-                elif isinstance(param_default, bool):
-                    param_type = bool
-                elif isinstance(param_default, float):
-                    param_type = float
-                elif isinstance(param_default, list):
-                    param_type = list
-                elif isinstance(param_default, str):
-                    param_type = str
-                elif isinstance(param_default, dict):
-                    param_type = dict
-                elif isinstance(param_default, Image):
-                    param_type = Image
-                else:
-                    raise PyJuizProcessArgumentUnknownTypeError()
-            if param_default is inspect._empty:
-                if param_type == int:
-                    param_default = 0
-                elif param_type == float:
-                    param_default = 0.0
-                elif param_type == dict:
-                    param_default = {}
-                elif param_type == list:
-                    param_default = []
-                elif param_type == bool:
-                    param_default = False
-                elif param_type == str:
-                    param_default = ""
-                elif param_type == Image:
-                    param_default =  None
-                else:
-                    raise PyJuizProcessArgumentUnknownTypeError()
-                
-            if param_type == int:
-                self._manifest.add_int_arg(param.name, "", param_default)
-            elif param_type == float:
-                self._manifest.add_float_arg(param.name, "", param_default)
-            elif param_type == bool:
-                self._manifest.add_bool_arg(param.name, "", param_default)
-            elif param_type == str:
-                self._manifest.add_string_arg(param.name, "", param_default)
-            elif param_type == dict:
-                self._manifest.add_object_arg(param.name, "", param_default)
-            elif param_type == list:
-                self._manifest.add_array_arg(param.name, "", param_default)
-            elif param_type == Image:
-                self._manifest.add_image_arg(param.name, "", param_default)
+            _add_arg_manifest(self._manifest, self.name, self.signature.parameters[p])
     def manifest(self):
         return self._manifest.into_value()
         
@@ -294,68 +248,21 @@ class JuizContainerProcess(object):
         self.name = proc.__name__
         self.signature = inspect.signature(proc)
         self._manifest = ProcessManifest.new(self.name).set_description(proc.__doc__).set_container_type(container_type)
+        self._returns_is_dataclass = False
         for i, p in enumerate(self.signature.parameters):
             if i == 0:
-                continue
-            param = self.signature.parameters[p]
-            param_type = param.annotation
-            param_default = param.default
-            if param_type is inspect._empty:
-                if isinstance(param_default, int):
-                    param_type = int
-                elif isinstance(param_default, bool):
-                    param_type = bool
-                elif isinstance(param_default, float):
-                    param_type = float
-                elif isinstance(param_default, list):
-                    param_type = list
-                elif isinstance(param_default, str):
-                    param_type = str
-                elif isinstance(param_default, dict):
-                    param_type = dict
-                elif isinstance(param_default, Image):
-                    param_type = Image
-                else:
-                    raise PyJuizProcessArgumentUnknownTypeError()
-            if param_default is inspect._empty:
-                if param_type == int:
-                    param_default = 0
-                elif param_type == float:
-                    param_default = 0.0
-                elif param_type == dict:
-                    param_default = {}
-                elif param_type == list:
-                    param_default = []
-                elif param_type == bool:
-                    param_default = False
-                elif param_type == str:
-                    param_default = ""
-                elif param_type == Image:
-                    param_default = None
-                else:
-                    print('Param Type Unknown:', param_type)
-                    raise PyJuizProcessArgumentUnknownTypeError()
-                
-            # print('p:', param.name, param.default, param.kind, param.annotation, param)
-            if param_type == int:
-                self._manifest.add_int_arg(param.name, "", param_default)
-            elif param_type == float:
-                self._manifest.add_float_arg(param.name, "", param_default)
-            elif param_type == bool:
-                self._manifest.add_bool_arg(param.name, "", param_default)
-            elif param_type == str:
-                self._manifest.add_string_arg(param.name, "", param_default)
-            elif param_type == dict:
-                self._manifest.add_object_arg(param.name, "", param_default)
-            elif param_type == list:
-                self._manifest.add_array_arg(param.name, "", param_default)
-            elif param_type == Image:
-                self._manifest.add_image_arg(param.name, "", param_default)
+                continue # 第1引数はコンテナ
+            _add_arg_manifest(self._manifest, self.name, self.signature.parameters[p])
+        _require_return_annotation(self.name, self.signature)
+        self._manifest.outputs, self._returns_is_dataclass = _returns_profile(self.signature.return_annotation)
     def manifest(self):
         return self._manifest.into_value()
         
     def __call__(self, *args, **kwargs):
-        return convert_process_result(self.__proc(*args, **kwargs))
+        if self._returns_is_dataclass:
+            return convert_process_result(dataclasses.asdict(self.__proc(*args, **kwargs)))
+        else:
+            return convert_process_result(self.__proc(*args, **kwargs))
 
 def convert_process_result(retval):
     # if isinstance(retval, Image):

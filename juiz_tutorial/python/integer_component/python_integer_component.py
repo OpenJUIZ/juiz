@@ -11,14 +11,14 @@ def python_integer_container(initial_value:  int = 0):
 @juiz_container_process(
     container_type="python_integer_container"
 )
-def python_integer_container_set(pycomp, value:int = 0):
+def python_integer_container_set(pycomp, value:int = 0) -> int:
     pycomp.buf = value
     return pycomp.buf
 
 @juiz_container_process(
     container_type="python_integer_container"
 )
-def python_integer_container_get(pycomp):
+def python_integer_container_get(pycomp) -> int:
     return pycomp.buf
 
 # def component_manifest():
