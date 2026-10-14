@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 70 757 300" role="img" aria-label="juiz">
+<g transform="translate(-19.6 80.3) scale(0.5457)">
+<circle cx="256" cy="256" r="205" fill="none" stroke="#F3F2EF" stroke-width="30" stroke-dasharray="34.9 34.9"/>
+<circle cx="256" cy="256" r="175" fill="none" stroke="#F3F2EF" stroke-width="40"/>
+<g transform="rotate(-45 256 256)">
+<rect x="243" y="248" width="26" height="152" rx="13" fill="#F3F2EF"/>
+<rect x="156" y="170" width="200" height="80" rx="14" fill="#E2734F"/>
+<rect x="180" y="164" width="16" height="92" rx="5" fill="#1C1A17"/>
+<rect x="316" y="164" width="16" height="92" rx="5" fill="#1C1A17"/>
+</g>
+</g>
+<g transform="translate(277 0)">
+<g fill="none" stroke="#F3F2EF" stroke-width="40" stroke-linecap="round" stroke-linejoin="round">
+<path d="M70 170 V310 Q70 350 30 350"/>
+<path d="M130 170 V240 A50 50 0 0 0 230 240"/>
+<path d="M230 170 V290"/>
+<path d="M300 170 V290"/>
+<path d="M360 170 H460 L360 290 H460"/>
+</g>
+<circle cx="70" cy="100" r="24" fill="none" stroke="#F3F2EF" stroke-width="12" stroke-dasharray="9.42 9.42"/>
+<circle cx="70" cy="100" r="16" fill="none" stroke="#F3F2EF" stroke-width="10"/>
+<g transform="rotate(22.5 300 100)">
+<circle cx="300" cy="100" r="24" fill="none" stroke="#E2734F" stroke-width="12" stroke-dasharray="9.42 9.42"/>
+<circle cx="300" cy="100" r="16" fill="none" stroke="#E2734F" stroke-width="10"/>
+</g>
+</g>
+</svg>
