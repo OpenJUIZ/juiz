@@ -297,6 +297,53 @@ fn check_call_with_own_http_identifier(bp: &mut dyn BrokerProxy) -> JuizResult<(
     Ok(())
 }
 
+/// 別の System から EC を操作するときと同じく、CoreWorker::ec_proxy_from_identifier で得た
+/// ExecutionContextProxy 経由で HTTP 越しに EC を start / stop できる (issue #50)
+fn check_ec_proxy(system: &mut System) -> JuizResult<()> {
+    let id = format!("http://localhost:{PORT}/execution_context/timer0::TimerEC");
+    let state = |system: &mut System| -> JuizResult<Value> {
+        let proxy = system.core_broker().lock()?.worker().broker_proxy(
+            "http",
+            format!("localhost:{PORT}").as_str(),
+            false,
+        )?;
+        let v = juiz_lock(&proxy)?.ec_get_state(&id)?;
+        Ok(v["__value__"].clone())
+    };
+    let wait_for = |system: &mut System, expected: &str| -> JuizResult<bool> {
+        for _ in 0..200 {
+            if state(system)? == jvalue!(expected) {
+                return Ok(true);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        Ok(false)
+    };
+
+    // 作成済みの BrokerProxy を create_when_not_found = false でも取り出せる
+    let ec = system
+        .core_broker()
+        .lock_mut()?
+        .worker_mut()
+        .ec_proxy_from_identifier(&id)?;
+    assert!(wait_for(system, "STOPPED")?);
+    juiz_lock(&ec)?.start()?;
+    assert!(wait_for(system, "STARTED")?);
+    juiz_lock(&ec)?.stop()?;
+    assert!(wait_for(system, "STOPPED")?);
+
+    // 存在しない EC の start は HTTP の 500 をエラーとして返す
+    let missing = system
+        .core_broker()
+        .lock_mut()?
+        .worker_mut()
+        .ec_proxy_from_identifier(&format!(
+            "http://localhost:{PORT}/execution_context/nothing::TimerEC"
+        ))?;
+    assert!(juiz_lock(&missing)?.start().is_err());
+    Ok(())
+}
+
 #[test]
 fn http_broker_api_with_rust_python_cpp_plugins() -> JuizResult<()> {
     let _ = env_logger::try_init();
@@ -318,6 +365,8 @@ fn http_broker_api_with_rust_python_cpp_plugins() -> JuizResult<()> {
             check_connections(&mut *bp)?;
             check_lists_and_profiles(&mut *bp)?;
             check_create_destroy(&mut *bp)?;
+            drop(bp);
+            check_ec_proxy(system)?;
             Ok(())
         })
 }
