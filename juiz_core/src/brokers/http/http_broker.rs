@@ -58,11 +58,14 @@ async fn on_start_inner(broker_manifest: Value, crud_broker: Arc<Mutex<CRUDBroke
         match TcpListener::bind(address).await {
             Ok(listener) => {
                 log::info!("バインド成功(host={host}, port={port})");
-                crud_broker.lock().unwrap().set_started();
-                let new_broker_name = format!("127.0.0.1:{:}", port);
-                juiz_lock(&crud_broker)
-                    .unwrap()
-                    .update_broker_name(new_broker_name.as_str());
+                // 名前の更新を済ませてから起動済みにする。wait_until_started() の直後に
+                // profile() が読まれるので、順序が逆だと古い名前が登録されることがある (issue #55)
+                {
+                    let new_broker_name = format!("127.0.0.1:{:}", port);
+                    let mut b = juiz_lock(&crud_broker).unwrap();
+                    let _ = b.update_broker_name(new_broker_name.as_str());
+                    b.set_started();
+                }
                 log::trace!("HTTPブローカ起動します。");
                 return axum::serve(
                     listener,

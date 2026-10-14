@@ -135,6 +135,9 @@ impl CRUDBroker {
             .as_str()
             .unwrap();
         self.identifier = BrokerIdentifier::new(broker_name, broker_type, "core", "core");
+        // profile も新しい名前にそろえる。CoreStore はこの profile を登録するので、
+        // 古い名前(設定時の 0.0.0.0:8000 など)が残るとマスターに誤った住所を伝えてしまう (issue #55)
+        self.profile.name = broker_name.to_owned();
         Ok(())
     }
 

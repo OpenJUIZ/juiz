@@ -169,9 +169,10 @@ fn check_lists_and_profiles(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
         assert_eq!(profile.name, id_struct.object_name);
         assert_eq!(profile.type_name, id_struct.type_name);
     }
+    // バインド後のブローカー名は実際の住所 127.0.0.1:{PORT} になる (issue #55)
     assert!(broker_ids
         .iter()
-        .any(|id| id.ends_with(&format!("/broker/0.0.0.0:{PORT}::http"))));
+        .any(|id| id.ends_with(&format!("/broker/127.0.0.1:{PORT}::http"))));
     assert!(broker_ids
         .iter()
         .any(|id| id.ends_with("/broker/local::local")));
