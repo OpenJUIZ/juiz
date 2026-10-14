@@ -71,7 +71,9 @@ impl ExecutionContextFunction for ExecutionContextProxy {
     }
 
     fn stop(&mut self) -> JuizResult<Value> {
-        todo!()
+        let id = self.identifier();
+        log::trace!("ExecutionContextProxy({id})::stop() called");
+        juiz_lock(&self.broker_proxy)?.ec_stop(&self.identifier())
     }
 
     fn get_state(&self) -> JuizResult<super::execution_context_core::ExecutionContextState> {

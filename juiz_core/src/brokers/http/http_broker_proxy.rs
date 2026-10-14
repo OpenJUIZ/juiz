@@ -249,6 +249,14 @@ impl CRUDBrokerProxy for HTTPBrokerProxy {
                 Err(anyhow::Error::from(e))
             }
             Ok(response) => {
+                let status_code = response.status();
+                if status_code != 200 {
+                    log::error!("HTTPBrokerProxy.update() failed. Response is {response:?}");
+                    return Err(anyhow::Error::from(HTTPBrokerError::HTTPStatusError {
+                        status_code,
+                        message: response.text().unwrap_or_default(),
+                    }));
+                }
                 let hdr = response.headers();
                 if hdr["content-type"] == "image/png" {
                     image_png_response_to_capsule_ptr(response)
