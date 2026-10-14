@@ -161,8 +161,10 @@ impl CoreWorker {
             type_name = "local";
         }
 
+        // 登録時の識別子 (ObjectCore が JuizObjectClass::BrokerProxy から作る
+        // core://core/broker_proxy/<name>::<type>) と同じ形で探す (issue #50)
         let identifier =
-            "core://core/BrokerProxy/".to_string() + broker_name + "::" + broker_type_name;
+            "core://core/broker_proxy/".to_string() + broker_name + "::" + broker_type_name;
         log::debug!("【broker_proxy】broker_proxy({identifier})を探しています。");
         match self
             .store()

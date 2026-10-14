@@ -33,6 +33,19 @@ pub(crate) enum EcSubCommands {
         )]
         filepath: String,
     },
+
+    #[clap(arg_required_else_help = false)]
+    Stop {
+        #[arg(help = "ID of Execution context")]
+        identifier: String,
+
+        #[arg(
+            short = 'f',
+            default_value = "./juiz.conf",
+            help = "Input system definition file path"
+        )]
+        filepath: String,
+    },
 }
 
 pub(crate) fn on_execution_context(
@@ -80,7 +93,22 @@ pub(crate) fn on_ec_inner(
                 .start_http_broker(args.start_http_broker)
                 .setup()?
                 .add_systemproxy_by_id(Some(server.clone()))?
-                .run_and_do_once(|system| on_ec_start(system, Some(server), identifier))
+                .run_and_do_once(|system| on_ec_start(system, server, identifier))
+        }
+
+        EcSubCommands::Stop {
+            identifier,
+            filepath,
+        } => {
+            log::trace!("ec stop command is selected.");
+            let manifest2 = yaml_conf_load(filepath.clone())?;
+            let server = args.server;
+            System::new(manifest2)?
+                .set_working_dir(working_dir)
+                .start_http_broker(args.start_http_broker)
+                .setup()?
+                .add_systemproxy_by_id(Some(server.clone()))?
+                .run_and_do_once(|system| on_ec_stop(system, server, identifier))
         }
     }
 }
@@ -96,18 +124,81 @@ fn on_ec_list(system: &mut System, _server: Option<String>, recursive: bool) -> 
     Ok(())
 }
 
-fn on_ec_start(system: &mut System, _server: Option<String>, id: String) -> JuizResult<()> {
-    //println!("processes:");
-    let e = system
-        .core_broker()
-        .lock_mut()?
-        .worker_mut()
-        .ec_from_id(&id);
-    match e {
-        Ok(ec) => {
-            juiz_lock(&ec)?.start()?;
-        }
-        Err(e) => println!("Error: {e:?}"),
+fn on_ec_start(system: &mut System, server: String, id: String) -> JuizResult<()> {
+    if let Err(e) = ec_start_or_stop(system, &server, &id, true) {
+        println!("Error: {e:?}");
     }
     Ok(())
+}
+
+fn on_ec_stop(system: &mut System, server: String, id: String) -> JuizResult<()> {
+    if let Err(e) = ec_start_or_stop(system, &server, &id, false) {
+        println!("Error: {e:?}");
+    }
+    Ok(())
+}
+
+/// 識別子で指定した EC を start (start = true) または stop (start = false) する。
+///
+/// http://<host>:<port>/... の識別子はブローカープロキシ経由で起動中の juiz の EC を指す (issue #50)。
+/// core://core/... の識別子はまずコマンド側のローカルシステムから探し、
+/// 見つからなければ -s で指定したサーバー上の同じ EC として扱う。
+fn ec_start_or_stop(system: &mut System, server: &str, id: &str, start: bool) -> JuizResult<Value> {
+    let ec = {
+        let mut core_broker = system.core_broker().lock_mut()?;
+        let worker = core_broker.worker_mut();
+        match worker.ec_proxy_from_identifier(&id.to_owned()) {
+            Ok(ec) => ec,
+            Err(e) => match server_identifier(server, id) {
+                Some(remote_id) => worker.ec_proxy_from_identifier(&remote_id)?,
+                None => return Err(e),
+            },
+        }
+    };
+    let mut ec = juiz_lock(&ec)?;
+    if start {
+        ec.start()
+    } else {
+        ec.stop()
+    }
+}
+
+/// core://core/<path> を <server>/<path> に書き換える。core://core/ 以外の識別子では None。
+fn server_identifier(server: &str, id: &str) -> Option<String> {
+    let path = id.strip_prefix("core://core/")?;
+    Some(format!("{}/{path}", server.trim_end_matches('/')))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::server_identifier;
+
+    #[test]
+    fn server_identifier_rewrites_core_identifier() {
+        assert_eq!(
+            server_identifier(
+                "http://127.0.0.1:8000",
+                "core://core/execution_context/ec0::main_loop_ec"
+            ),
+            Some("http://127.0.0.1:8000/execution_context/ec0::main_loop_ec".to_owned())
+        );
+        assert_eq!(
+            server_identifier(
+                "http://127.0.0.1:8000/",
+                "core://core/execution_context/ec0::main_loop_ec"
+            ),
+            Some("http://127.0.0.1:8000/execution_context/ec0::main_loop_ec".to_owned())
+        );
+    }
+
+    #[test]
+    fn server_identifier_keeps_other_identifiers() {
+        assert_eq!(
+            server_identifier(
+                "http://127.0.0.1:8000",
+                "http://127.0.0.1:8000/execution_context/ec0::main_loop_ec"
+            ),
+            None
+        );
+    }
 }
