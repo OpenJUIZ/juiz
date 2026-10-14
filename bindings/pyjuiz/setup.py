@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="pyjuiz",
-    version="0.0.11",
+    version="0.0.12",
     description='Python binding interface for JUIZ robot middleware components',
     url='https://github.com/OpenJUIZ/juiz',
     author='ysuga',
