@@ -86,10 +86,11 @@ namespace juiz {
                 throw ValueNotFoundError();
             }
             char* iv;
-            if (capsule_ptr_get_string(ptr, &iv) != JUIZ_OK) {
+            size_t len;
+            if (capsule_ptr_get_string_with_len(ptr, &iv, &len) != JUIZ_OK) {
                 throw ValueNotFoundError();
             }
-            return std::string(iv);
+            return std::string(iv, len);
         }
 
         std::vector<juiz::Value> get_array(const std::string& name) const {
@@ -217,10 +218,11 @@ namespace juiz {
             return juiz::Value{fv};
         } else if (value_is_string(v)) {
             char* cv;
-            if (value_get_string(v, &cv)!=JUIZ_OK) {
+            size_t len;
+            if (value_get_string_with_len(v, &cv, &len)!=JUIZ_OK) {
                 throw ValueConvertError();
             }
-            return juiz::Value{cv};
+            return juiz::Value{std::string(cv, len)};
         } else if (value_is_array(v)) {
             juiz::Value array_v = juiz::Value::list();
             value_array_foreach(v, __value_array_callback, &array_v);
@@ -255,10 +257,11 @@ namespace juiz {
             val.doubleValue(fv);
         } else if (value_is_string(v)) {
             char* cv;
-            if (value_get_string(v, &cv)!=JUIZ_OK) {
+            size_t len;
+            if (value_get_string_with_len(v, &cv, &len)!=JUIZ_OK) {
                 throw ValueConvertError();
             }
-            val.stringValue(cv);
+            val.stringValue(std::string(cv, len));
         } else if (value_is_array(v)) {
             val.listValue({});
             //juiz::Value array_v = juiz::Value::list();

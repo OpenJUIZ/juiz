@@ -1,7 +1,4 @@
-use std::{
-    ffi::CStr,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 use super::converter_error::*;
 use crate::prelude::*;
@@ -265,15 +262,31 @@ pub unsafe extern "C" fn capsule_is_string(capsule: *mut Capsule) -> bool {
     }
 }
 
+/// 文字列の先頭ポインタを返す。返す文字列は NUL 終端されていないので、
+/// 長さも受け取れる capsule_get_string_with_len を使うこと。
+/// 古いプラグインとのバイナリ互換のためだけに残している。
 #[no_mangle]
 pub unsafe extern "C" fn capsule_get_string(capsule: *mut Capsule, v: *mut *const u8) -> i64 {
+    let mut len: usize = 0;
+    capsule_get_string_with_len(capsule, v, &mut len)
+}
+
+/// 文字列の先頭ポインタ (NUL 終端ではない) とバイト長を返す。
+#[no_mangle]
+pub unsafe extern "C" fn capsule_get_string_with_len(
+    capsule: *mut Capsule,
+    v: *mut *const u8,
+    len: *mut usize,
+) -> i64 {
     if capsule_is_value(capsule) {
         let val = capsule.as_ref().unwrap().as_value().unwrap();
-        if !val.is_string() {
-            JUIZ_CAPSULE_TYPE_ERROR
-        } else {
-            *v = val.as_str().unwrap().as_ptr();
-            JUIZ_OK
+        match val.as_str() {
+            Some(s) => {
+                *v = s.as_ptr();
+                *len = s.len();
+                JUIZ_OK
+            }
+            None => JUIZ_CAPSULE_TYPE_ERROR,
         }
     } else {
         JUIZ_CAPSULE_NO_VALUE
@@ -285,8 +298,11 @@ pub unsafe extern "C" fn capsule_set_string(
     capsule: *mut Capsule,
     v: *const std::os::raw::c_char,
 ) -> i64 {
+    let Some(s) = c_str_to_str(v) else {
+        return JUIZ_VALUE_CONVERTER_ERROR;
+    };
     let cap = capsule.as_mut().unwrap();
-    cap.replace_value(jvalue!(CStr::from_ptr(v).to_str().unwrap()).into());
+    cap.replace_value(jvalue!(s).into());
     JUIZ_OK
 }
 

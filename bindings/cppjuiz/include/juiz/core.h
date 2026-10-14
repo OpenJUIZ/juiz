@@ -4,6 +4,7 @@
 
 #ifdef __cplusplus
 #include <cstdint>
+#include <cstddef>
 #include <vector>
 #include "value.h"
 
@@ -11,6 +12,7 @@ extern "C" {
 #else
 
 #include <stdint.h>
+#include <stddef.h>
 
 #endif
 
@@ -39,7 +41,9 @@ int capsule_ptr_set_int(capsule_ptr* cp, int64_t val);
 int capsule_ptr_get_uint(capsule_ptr* cp, uint64_t* val);
 int capsule_ptr_get_bool(capsule_ptr* cp, int64_t* val);
 int capsule_ptr_get_float(capsule_ptr* cp, double* val);
+// 返る文字列は NUL 終端されていない。長さを受け取る *_with_len を使うこと。
 int capsule_ptr_get_string(capsule_ptr* cp, char** val);
+int capsule_ptr_get_string_with_len(capsule_ptr* cp, char** val, size_t* len);
 // int capsule_ptr_get_array(capsule_ptr* cp, char** val);
 int capsule_ptr_lock_as_value(capsule_ptr* cp, void callback(value*));
 
@@ -58,6 +62,7 @@ int value_is_float(value* v);
 int value_get_float(value* v, double* float_value);
 int value_is_string(value* v);
 int value_get_string(value* v, char** char_value);
+int value_get_string_with_len(value* v, char** char_value, size_t* len);
 int value_is_object(value* v);
 int value_object_foreach(value* v, void callback(void*, const char* key, value* v), void*);
 
@@ -100,6 +105,7 @@ int capsule_get_bool(capsule* cp, int64_t* val);
 int capsule_is_string(capsule* cp);
 int capsule_set_string(capsule* cp, const char* val);
 int capsule_get_string(capsule* cp, char** val);
+int capsule_get_string_with_len(capsule* cp, char** val, size_t* len);
 
 
 #ifdef __cplusplus
