@@ -17,7 +17,7 @@ pub mod prelude;
 pub use brokers::{
     create_broker_factory_impl, create_broker_proxy_factory_impl, CRUDBroker, CRUDBrokerHolder,
 };
-pub use brokers::{CRUDBrokerProxy, CRUDBrokerProxyHolder};
+pub use brokers::{localize_identifier, CRUDBrokerProxy, CRUDBrokerProxyHolder};
 pub use core::{SystemStore, SystemStorePtr};
 pub use ecs::{
     execution_context_core::ExecutionContextState, ExecutionContext, ExecutionContextCore,

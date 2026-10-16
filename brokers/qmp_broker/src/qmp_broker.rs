@@ -14,7 +14,8 @@ use rustls::crypto::ring::default_provider;
 use rustls::pki_types::CertificateDer;
 use rustls::pki_types::PrivatePkcs8KeyDer;
 
-use crate::{value_to_vecu8, vecu8_to_value};
+use crate::{error_response, value_to_vecu8, vecu8_to_value, MAX_MESSAGE_SIZE};
+use juiz_core::localize_identifier;
 
 #[allow(unused)]
 pub fn make_server_endpoint(
@@ -99,38 +100,56 @@ pub const ALPN_QUIC_HTTP: &[&[u8]] = &[b"hq-29"];
 //     return retval;
 // }
 
+/// 受け取ったリクエストの param に、どの住所でアクセスされたかを書き込み、
+/// 自分自身を指す qmp:// の識別子を core://core/... に書き換える。
+///
+/// HTTP ルータが Host ヘッダからしていることと同じ。これにより process/list などは
+/// qmp://<アクセスされた住所>/... の識別子を返し、それをそのまま渡されても自分宛てに
+/// 再接続せずに処理できる。
+fn localize_request(mut val: Value, own_name: &str) -> Value {
+    let Some(param) = val
+        .as_object_mut()
+        .and_then(|o| o.get_mut("__param__"))
+        .and_then(|p| p.as_object_mut())
+    else {
+        return val;
+    };
+    let accessed_name = param
+        .get("accessed_broker_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or(own_name)
+        .to_owned();
+    if let Some(id) = param.get("identifier").and_then(|v| v.as_str()) {
+        let mut id = localize_identifier(id, "qmp", Some(accessed_name.as_str()));
+        id = localize_identifier(id.as_str(), "qmp", Some(own_name));
+        param.insert("identifier".to_owned(), jvalue!(id));
+    }
+    param.insert(
+        "accessed_broker_id".to_owned(),
+        jvalue!(format!("qmp://{accessed_name}")),
+    );
+    param.insert("accessed_broker_type".to_owned(), jvalue!("qmp"));
+    param.insert("accessed_broker_name".to_owned(), jvalue!(accessed_name));
+    val
+}
+
 fn callback(
     request: Vec<u8>,
     crud_broker: Arc<Mutex<CRUDBroker>>,
     remote_addr: SocketAddr,
 ) -> anyhow::Result<Vec<u8>> {
     let val = vecu8_to_value(request)?;
-    let capsule_ptr = juiz_lock(&crud_broker)?.on_value_request(val, Some(remote_addr))?;
-    // let cp = to_request(val)?;
-    // let class_name = cp.get_param("class_name").unwrap().clone();
-    // let method_name = cp.get_param("method_name").unwrap().clone();
-    // let function_name = cp.get_param("function_name").unwrap().clone();
-    // //let (class_name, function_name, method_name, payload, param) = to_request(&val)?;
-    // let capsule_ptr = match method_name.as_str() {
-    //     "create" => juiz_lock(&crud_broker)?.create_class(class_name.as_str(), function_name.as_str(), cp),
-    //     "delete" => juiz_lock(&crud_broker)?.delete_class(class_name.as_str(), function_name.as_str(), cp),
-    //     "read" => juiz_lock(&crud_broker)?.read_class(class_name.as_str(), function_name.as_str(), cp),
-    //     "update" => {
-    //         on_update(crud_broker, class_name.as_str(), function_name.as_str(), cp, remote_addr)
-    //     }
-    //     _ => {
-    //         Err(anyhow!(JuizError::InvalidValueError{message: format!("qmp_broker received invalid value. Its method name is unknown ({})", method_name)}))
-    //     }
-    // }?;
+    let crud = juiz_lock(&crud_broker)?;
+    let val = localize_request(val, crud.name().as_str());
+    let capsule_ptr = crud.on_value_request(val, Some(remote_addr))?;
     if capsule_ptr.is_value()? {
         capsule_ptr.lock_as_value(|v| value_to_vecu8(v))?
     } else if capsule_ptr.is_empty()? {
         Ok(value_to_vecu8(&jvalue!({}))?)
-    // } else if capsule_ptr.is_mat()? {
-    //     todo!()
     } else {
-        log::error!("capsule_ptr is unknown data {capsule_ptr:?}");
-        todo!()
+        Err(anyhow!(JuizError::InvalidValueError {
+            message: format!("qmp_broker can not send this data ({capsule_ptr:?})")
+        }))
     }
 }
 
@@ -150,9 +169,29 @@ pub async fn on_start(broker_manifest: Value, crud_broker: Arc<Mutex<CRUDBroker>
         .or::<Option<u64>>(Ok(None))
         .unwrap();
     let address = format!("{:}:{:}", host, port);
+    let endpoint = match bind_server(address.as_str(), idle_timeout) {
+        Ok(v) => v,
+        Err(e) => {
+            log::error!("qmp_broker::on_start(broker_manifest='{broker_manifest:}') failed. Error({e:?})");
+            return;
+        }
+    };
+    // バインドできたら名前を実際の住所にそろえてから起動済みにする。
+    // System は wait_until_started() で起動を待ち、その直後に profile() を読む (http_broker と同じ)
+    {
+        let mut b = juiz_lock(&crud_broker).unwrap();
+        if let Ok(local_addr) = endpoint.local_addr() {
+            let host = if local_addr.ip().is_unspecified() {
+                "127.0.0.1".to_owned()
+            } else {
+                local_addr.ip().to_string()
+            };
+            let _ = b.update_broker_name(format!("{host}:{}", local_addr.port()).as_str());
+        }
+        b.set_started();
+    }
     run_server(
-        address.parse().unwrap(),
-        idle_timeout,
+        endpoint,
         Arc::new(move |req, conn: &Connection| {
             callback(req, crud_broker.clone(), conn.remote_address())
         }),
@@ -160,20 +199,19 @@ pub async fn on_start(broker_manifest: Value, crud_broker: Arc<Mutex<CRUDBroker>
     .await;
 }
 
-/// Runs a QUIC server bound to given address.
-async fn run_server<F>(addr: SocketAddr, idle_timeout: Option<u64>, callback: Arc<F>)
+fn bind_server(address: &str, idle_timeout: Option<u64>) -> anyhow::Result<Endpoint> {
+    let addr: SocketAddr = address
+        .parse()
+        .with_context(|| format!("invalid qmp broker address '{address}'"))?;
+    let (endpoint, _server_cert) = make_server_endpoint(addr, idle_timeout)?;
+    Ok(endpoint)
+}
+
+/// Runs a QUIC server on the given endpoint.
+async fn run_server<F>(endpoint: Endpoint, callback: Arc<F>)
 where
     F: Fn(Vec<u8>, &Connection) -> anyhow::Result<Vec<u8>> + Send + Sync + 'static,
 {
-    let (endpoint, _server_cert) = match make_server_endpoint(addr, idle_timeout) {
-        Ok(v) => Ok(v),
-        Err(e) => {
-            println!("calling make_server_endpoint failed. Error {e:?}");
-            Err(e)
-        }
-    }
-    .unwrap();
-    //let cb = Arc::new(callback);
     loop {
         log::trace!("endpoint.accept in run_server()");
         match endpoint.accept().await {
@@ -182,6 +220,7 @@ where
             }
             None => {
                 log::error!("endpoint.accept returns None");
+                return;
             }
         }
     }
@@ -189,7 +228,7 @@ where
 
 async fn handle_incoming<F>(incoming: Incoming, callback: Arc<F>) -> anyhow::Result<()>
 where
-    F: Fn(Vec<u8>, &Connection) -> anyhow::Result<Vec<u8>> + Send + Sync,
+    F: Fn(Vec<u8>, &Connection) -> anyhow::Result<Vec<u8>> + Send + Sync + 'static,
 {
     log::trace!("handle_incoming() called");
     match incoming.await {
@@ -203,7 +242,7 @@ where
 
 async fn handle_connection<F>(conn: Connection, callback: Arc<F>) -> anyhow::Result<()>
 where
-    F: Fn(Vec<u8>, &Connection) -> anyhow::Result<Vec<u8>> + Send + Sync,
+    F: Fn(Vec<u8>, &Connection) -> anyhow::Result<Vec<u8>> + Send + Sync + 'static,
 {
     log::trace!("handle_connection(from:{})", conn.remote_address());
     //async {
@@ -238,18 +277,30 @@ async fn handle_stream<F>(
     connection: &Connection,
 ) -> anyhow::Result<()>
 where
-    F: Fn(Vec<u8>, &Connection) -> anyhow::Result<Vec<u8>> + Send + Sync,
+    F: Fn(Vec<u8>, &Connection) -> anyhow::Result<Vec<u8>> + Send + Sync + 'static,
 {
-    let mut req = recv.read_to_end(64 * 1024).await.or_else(|e| {
+    let req = recv.read_to_end(MAX_MESSAGE_SIZE).await.or_else(|e| {
         log::error!("RecvStream::read_to_end() failed. {e:?}");
         return Err(anyhow!(e));
     })?;
 
-    let req_msg = rmp_serde::from_slice::<serde_json::Value>(&mut &req.as_mut_slice()[..])?;
-
-    log::trace!("request : {:?}", req_msg);
-
-    let response = callback(req, connection)?;
+    // CoreBroker の処理はブロックするので、HTTP ブローカーと同じく blocking スレッドで実行する。
+    // 非同期タスク内で実行すると、処理中に BrokerProxy (tokio ランタイムを持つ) を作ったり
+    // 捨てたりしたときに panic する。
+    let conn = connection.clone();
+    let response = tokio::task::spawn_blocking(move || callback(req, &conn))
+        .await
+        .map_err(|e| anyhow!(e))
+        .and_then(|r| r);
+    // エラーでも応答を返し、接続は保つ。応答しないとクライアントは読み取りで失敗し、
+    // 接続を閉じると同じ BrokerProxy からの以後の呼び出しがすべて失敗する。
+    let response = match response {
+        Ok(v) => v,
+        Err(e) => {
+            log::error!("qmp_broker request failed. Error({e:?})");
+            error_response(&e)?
+        }
+    };
 
     send.write_all(&response).await.or_else(|e| {
         log::error!("write error. {e:?}");
