@@ -1,4 +1,5 @@
 use juiz_core::prelude::*;
+use juiz_sdk::process_identifier::ProcessIdentifier;
 
 #[cfg(test)]
 #[test]
@@ -165,4 +166,127 @@ fn test_system_rust_container_load() -> JuizResult<()> {
         assert!(result_prof.is_ok(), "Process profile failed.");
         Ok(())
     }).expect("Error in System::run_and_do()"))
+}
+
+fn int_of(c: JuizResult<CapsulePtr>) -> i64 {
+    c.expect("execute failed")
+        .lock_as_value(|v| v.as_i64().expect("not an integer"))
+        .unwrap()
+}
+
+/// 設定ファイルの p_apply で、Process と ContainerProcess の引数に初期値を与えられる (issue #61)
+#[cfg(test)]
+#[test]
+fn test_system_p_apply_in_manifest() -> JuizResult<()> {
+    let manifest = jvalue!(
+        {
+            "name": "test_system",
+            "option": {
+                "http_broker" : {
+                    "start": false
+                }
+            },
+            "plugins": {
+                "process_factories": {
+                    "increment_process": {
+                        "path": "../target/debug"
+                    }
+                },
+                "container_factories": {
+                    "example_container": {
+                        "path": "../target/debug",
+                        "processes": {
+                            "example_container_increment": {
+                                "path": "../target/debug",
+                            }
+                        }
+                    }
+                }
+            },
+            "processes": [
+                {
+                    "type_name": "increment_process",
+                    "name": "inc0",
+                    "p_apply": { "arg1": 10 }
+                },
+            ],
+            "containers": [
+                {
+                    "type_name": "example_container",
+                    "name": "container_a",
+                    "initial_value": 100,
+                    "processes": [
+                        {
+                            "type_name": "example_container_increment",
+                            "name": "increment_a",
+                            "p_apply": { "arg1": 5 }
+                        }
+                    ]
+                }
+            ],
+        }
+    );
+
+    let _r = env_logger::try_init();
+    Ok(System::new(manifest)?
+        .setup()?
+        .run_and_do_once(|system| {
+            let id: ProcessIdentifier = "core://core/process/inc0::increment_process".try_into()?;
+            // conf の p_apply が初期値として効く
+            assert_eq!(
+                int_of(system.core_broker().lock_mut()?.process_execute(&id)),
+                11
+            );
+            // 後からの p_apply で上書きできる
+            system
+                .core_broker()
+                .lock_mut()?
+                .process_p_apply(&id, "arg1", jvalue!(20).into())?;
+            assert_eq!(
+                int_of(system.core_broker().lock_mut()?.process_execute(&id)),
+                21
+            );
+
+            let cid: ProcessIdentifier =
+                "core://core/container_process/increment_a::example_container_increment:container_a"
+                    .try_into()?;
+            assert_eq!(
+                int_of(
+                    system
+                        .core_broker()
+                        .lock_mut()?
+                        .container_process_execute(&cid)
+                ),
+                105
+            );
+            Ok(())
+        })
+        .expect("Error in System::run_and_do()"))
+}
+
+/// p_apply に存在しない引数を書いたら setup が失敗する (issue #61)
+#[cfg(test)]
+#[test]
+fn test_system_p_apply_in_manifest_unknown_arg() -> JuizResult<()> {
+    let manifest = jvalue!(
+        {
+            "name": "test_system",
+            "option": { "http_broker" : { "start": false } },
+            "plugins": {
+                "process_factories": {
+                    "increment_process": { "path": "../target/debug" }
+                }
+            },
+            "processes": [
+                {
+                    "type_name": "increment_process",
+                    "name": "inc0",
+                    "p_apply": { "no_such_arg": 10 }
+                },
+            ]
+        }
+    );
+    let _r = env_logger::try_init();
+    assert!(System::new(manifest)?.setup().is_err());
+    Ok(())
 }

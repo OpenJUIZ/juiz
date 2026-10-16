@@ -83,6 +83,7 @@ pub(super) fn setup_processes(system: &System, manifest: &Value) -> JuizResult<(
             .worker_mut()
             .create_process_ref(&process_manifest)?;
         log::info!("【作成】Process ({:?})", process_manifest);
+        p_apply_from_manifest(&new_process, process_manifest_value)?;
 
         // Topicをpublishするなら
         for pub_topic in process_manifest.publishes.iter() {
@@ -93,6 +94,32 @@ pub(super) fn setup_processes(system: &System, manifest: &Value) -> JuizResult<(
         }
     }
     log::trace!("【終了】setup_processes()");
+    Ok(())
+}
+
+/// 設定ファイルのプロセス定義に `p_apply` があれば、その値を引数に部分適用する (issue #61)
+///
+/// ```yaml
+/// p_apply:
+///   arg1: 10
+/// ```
+/// conf で与えた値は inlet の初期値として働き、後から push や p_apply が来れば上書きされる。
+pub(super) fn p_apply_from_manifest(process: &ProcessPtr, manifest: &Value) -> JuizResult<()> {
+    let Some(p_apply) = manifest.get("p_apply") else {
+        return Ok(());
+    };
+    let map = p_apply.as_object().ok_or_else(|| {
+        anyhow::Error::from(JuizError::InvalidSettingError {
+            message: format!("p_apply must be object type. ({p_apply})"),
+        })
+    })?;
+    for (arg_name, value) in map.iter() {
+        process
+            .lock_mut()?
+            .p_apply(arg_name, value.clone().into())
+            .with_context(|| format!("p_apply(arg_name='{arg_name}', value={value})"))?;
+        log::debug!("【p_apply】{arg_name} = {value}");
+    }
     Ok(())
 }
 

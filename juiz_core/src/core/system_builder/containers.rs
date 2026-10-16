@@ -2,7 +2,10 @@ use std::path::PathBuf;
 
 use crate::{
     containers::{ContainerFactoryWrapper, ContainerProcessFactoryWrapper},
-    core::system_builder::topics::{setup_publish_topic, setup_subscribe_topic},
+    core::system_builder::{
+        processes::p_apply_from_manifest,
+        topics::{setup_publish_topic, setup_subscribe_topic},
+    },
     plugin::JuizObjectPlugin,
     prelude::*,
 };
@@ -29,17 +32,13 @@ pub(super) fn setup_containers(system: &System, manifest: &Value) -> JuizResult<
         let container_manifest: ContainerManifest =
             serde_json::from_value(container_manifest_value.clone())?;
         log::debug!("Container ({:?}) Creating...", container_manifest);
-        setup_container(
-            system,
-            container_manifest.clone(),
-            container_manifest_value.clone().try_into()?,
-        )
-        .with_context(|| {
-            format!(
-                "setup_container({}) in setup_containers() in containers.rs",
-                container_manifest
-            )
-        })?;
+        setup_container(system, container_manifest.clone(), container_manifest_value)
+            .with_context(|| {
+                format!(
+                    "setup_container({}) in setup_containers() in containers.rs",
+                    container_manifest
+                )
+            })?;
         log::debug!("Container ({:?}) Fully Created", container_manifest);
     }
     log::trace!("setup_containers() exit");
@@ -128,8 +127,12 @@ fn setup_container_factory(
 fn setup_container(
     system: &System,
     container_manifest: ContainerManifest,
-    container_argument: CapsuleMap,
+    container_manifest_value: &Value,
 ) -> JuizResult<()> {
+    let container_argument: CapsuleMap = container_manifest_value.clone().try_into()?;
+    let container_process_values = container_manifest_value
+        .get("processes")
+        .and_then(|v| v.as_array());
     log::trace!("setup_container({container_manifest:?}) called");
     let type_name = container_manifest.type_name;
     let name = container_manifest.name.unwrap();
@@ -138,7 +141,8 @@ fn setup_container(
         .lock_mut()?
         .worker_mut()
         .create_container_ref(type_name.as_str(), name.as_str(), container_argument)?;
-    for container_process_manifest_original in container_manifest.processes.iter() {
+    for (i, container_process_manifest_original) in container_manifest.processes.iter().enumerate()
+    {
         let container_process_manifest = container_process_manifest_original
             .clone()
             .container_name(Some(name.clone()))
@@ -161,6 +165,9 @@ fn setup_container(
             "【作成完了】ContainerProcess ({:?})",
             container_process_manifest
         );
+        if let Some(v) = container_process_values.and_then(|a| a.get(i)) {
+            p_apply_from_manifest(&cp_ref, v)?;
+        }
         // Topicをpublishするなら
         for pub_topic in container_process_manifest.publishes.iter() {
             setup_publish_topic(system, cp_ref.clone(), pub_topic.clone())?
