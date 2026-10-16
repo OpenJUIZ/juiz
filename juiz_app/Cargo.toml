@@ -3,7 +3,7 @@ name = "juiz_app"
 version = "0.0.15"
 edition = "2021"
 description = "JUIZ utility command-line application package"
-license = "MIT"
+license.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 
