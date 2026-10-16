@@ -337,6 +337,21 @@ impl SystemBrokerProxy for CoreBroker {
                 Err(e)
             })?;
         }
+        // 同じアドレスのサブシステムが別の UUID で登録済みなら、それは止まって再起動する前の古いものなので外す。
+        // 残すと一覧などの再帰的な問い合わせで同じサブシステムに 2 回問い合わせてしまう (issue #60)
+        let new_bp_id = juiz_lock(&bp)?.identifier();
+        self.subsystem_proxies.retain(|ssp| {
+            let same_address = juiz_lock(&ssp.broker_proxy())
+                .map(|b| b.identifier() == new_bp_id)
+                .unwrap_or(false);
+            if same_address {
+                log::info!(
+                    "Subsystem(uuid={}) at the same address ({new_bp_id}) is replaced by Subsystem(uuid={uuid}).",
+                    ssp.uuid()
+                );
+            }
+            !same_address
+        });
         // 最後にサブシステムのProxyを登録しておく。
         self.subsystem_proxies.push(subsystem_proxy);
         log::info!("In system_add_subsystem({profile}) successfully exit");
