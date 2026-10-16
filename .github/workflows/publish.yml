@@ -111,3 +111,9 @@ jobs:
           else
             cargo publish --dry-run $args
           fi
+
+      # cargo publish が target/package に展開したクレートは、rust-cache の後処理が
+      # tests/target などを探して ENOENT エラーを出すので、キャッシュ保存前に消しておく
+      - name: Remove packaged crates
+        if: always()
+        run: rm -rf target/package
