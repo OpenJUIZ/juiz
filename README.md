@@ -28,7 +28,7 @@ juiz を作った動機と設計思想については [MOTIVATION.md](MOTIVATION
 - **Container**: 状態を保持する場合は Container を使い、Container に結びついた ContainerProcess で状態を読み書きします。
 - **2つの使い方**: Process 同士を connect してデータフロー的にロボットを動かすこと（ROS などのロボット用ミドルウェア寄りの開発）も、外部から Process を call して結果を得ること（サーバー・クライアント的な開発）もできます。
 - **多言語対応**: 機能要素は Rust、C++、Python で実装できます。
-- **Broker**: HTTP+JSON と QUIC のブローカーを標準で提供します。HTTP ブローカーは OpenAPI 定義を提供するので、Swagger UI から動作確認できます。
+- **Broker**: HTTP+JSON と QUIC のブローカーを標準で提供します。HTTP ブローカーは OpenAPI 定義を提供し、feature `swagger-ui` を有効にしてビルドすると Swagger UI から動作確認できます（[Swagger UI を使う](#swagger-ui-を使う)）。
 - **Execution Context**: 周期実行 (TimerEC) やメインスレッドでの実行 (MainLoopEC) などの実行コンテキストを提供します。
 
 ## 必要環境
@@ -51,6 +51,20 @@ cargo build
 ```terminal
 cargo install --path juiz_app
 ```
+
+### Swagger UI を使う
+
+HTTP ブローカーの Swagger UI（`/docs`）は juiz_core の feature `swagger-ui` で、既定ではオフです。
+オフでも OpenAPI 定義は `/api-docs/openapi.json` で取得できます。
+Swagger UI を使う場合は feature を有効にし、リポジトリの Cargo.lock を使う `--locked` を付けてビルドします。
+
+```terminal
+cargo build --locked --features juiz_core/swagger-ui
+cargo install --locked --path juiz_app --features juiz_core/swagger-ui
+```
+
+既定でオフにしているのは、Swagger UI が使う utoipa-swagger-ui がビルド時に zip クレートに依存していて、crates.io の zip がほぼすべて yank されているためです（2026-10 時点）。
+リポジトリの Cargo.lock には yank 前の zip が記録されているので `--locked` を付ければビルドできますが、crates.io から `cargo install juiz_app` で入れる場合はこの feature は使えません。
 
 Python で機能要素を書く場合は pyjuiz パッケージをインストールするか、`bindings/pyjuiz` に PYTHONPATH を通してください。
 
@@ -78,7 +92,7 @@ cmake --build examples/cpp/build --parallel
 cargo test -- --test-threads=1
 ```
 
-HTTP ブローカーの 8000 番ポートはホストに転送されるので、ホストのブラウザから http://localhost:8000/docs を開けます。
+HTTP ブローカーの 8000 番ポートはホストに転送されるので、ホストのブラウザから http://localhost:8000/docs を開けます（Swagger UI は feature `swagger-ui` を有効にしてビルドしたときだけ。[Swagger UI を使う](#swagger-ui-を使う)）。
 
 `.vscode/` には、コンテナの内外どちらでも使える VS Code の設定があります。
 
@@ -96,7 +110,7 @@ juiz -f examples/rust/container/example_container.conf -d
 ```
 
 `-d` オプションを付けると実行後に待機します（Ctrl+C で終了）。
-待機中はデフォルトで 8000 番ポートで HTTP ブローカーが動作しているので、ブラウザで以下にアクセスすると Swagger UI から API を試せます。
+待機中はデフォルトで 8000 番ポートで HTTP ブローカーが動作しているので、feature `swagger-ui` を有効にしてビルドした場合は（[Swagger UI を使う](#swagger-ui-を使う)）、ブラウザで以下にアクセスすると Swagger UI から API を試せます。
 
 ```
 http://127.0.0.1:8000/docs
@@ -439,7 +453,7 @@ cargo run -- --process ./target/debug/libtalker.dylib -e -1
 デフォルトのbinとしてjuizコマンドが登録されているのでcargo runで実行される。
 
 -dオプションをつけると、実行後にサーバーを立ててそのまま待機をする。
-この状態ならばhttp://localhost:8000/docsをブラウザで開くと、swagger-uiを使ったテストを行うことができる。
+この状態ならばhttp://localhost:8000/docsをブラウザで開くと、swagger-uiを使ったテストを行うことができる（feature `swagger-ui` を有効にしてビルドした場合。[Swagger UI を使う](#swagger-ui-を使う)）。
 
 ### ContainerおよびContainerProcessを試す。
 Rustで作ったContainerとContainerProcessがそれぞれ、./target/debug/my_container.dylibと./target/debug/my_container_process.dylibであった場合、以下のコマンドで単体のコンテナプロセスを実行できる。
