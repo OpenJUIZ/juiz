@@ -192,3 +192,39 @@ fn simple_connection_builder_invoke_test() -> JuizResult<()> {
     assert_eq!(iv, 3);
     Ok(())
 }
+
+/// push で届いた値は inlet バッファに残り、p_apply と後勝ちで切り替わる (issue #70)
+#[test]
+fn push_value_stays_in_inlet_buffer_test() -> JuizResult<()> {
+    let (rp1, rp2) = setup_use_memo()?;
+
+    let manifest = ConnectionManifest::new(
+        ConnectionType::Push,
+        rp1.identifier().clone(),
+        "arg1".to_owned(),
+        rp2.identifier().clone(),
+    );
+    connect(rp1.clone(), rp2.clone(), &manifest)?;
+
+    let output_of = |p: &ProcessPtr| -> JuizResult<i64> {
+        Ok(p.lock()?
+            .get_output()
+            .lock_as_value(|value| value.as_i64().unwrap())?)
+    };
+
+    rp2.lock_mut()?.p_apply("arg1", jvalue!(10).into())?;
+
+    // 上流を execute すると 1+1=2 が下流に push され、下流は 3 を返す
+    rp1.lock()?.execute()?;
+    assert_eq!(output_of(&rp2)?, 3);
+
+    // 下流だけを execute しても、push された 2 が使われる
+    rp2.lock()?.execute()?;
+    assert_eq!(output_of(&rp2)?, 3);
+
+    // 後から p_apply した値が有効になる
+    rp2.lock_mut()?.p_apply("arg1", jvalue!(5).into())?;
+    rp2.lock()?.execute()?;
+    assert_eq!(output_of(&rp2)?, 6);
+    Ok(())
+}
