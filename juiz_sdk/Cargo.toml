@@ -4,7 +4,7 @@ rust-version = "1.81"
 version = "0.0.15"
 edition = "2021"
 description = "SDK definitions for juiz functional elements crate."
-license = "WTFPL"
+license.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]

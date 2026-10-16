@@ -3,7 +3,7 @@ name = "juiz_core"
 version = "0.0.15"
 edition = "2021"
 description = "Core library for JUIZ application. This package is not required if you want to build juiz functional module."
-license = "WTFPL"
+license.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
