@@ -1507,7 +1507,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_app"
-version = "0.0.14"
+version = "0.0.15"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -1518,7 +1518,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_core"
-version = "0.0.14"
+version = "0.0.15"
 dependencies = [
  "axum",
  "futures",
@@ -1540,7 +1540,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_macro"
-version = "0.0.14"
+version = "0.0.15"
 dependencies = [
  "anyhow",
  "litrs",
@@ -1565,7 +1565,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_sdk"
-version = "0.0.14"
+version = "0.0.15"
 dependencies = [
  "anyhow",
  "approx",
