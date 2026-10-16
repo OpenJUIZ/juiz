@@ -18,6 +18,7 @@ use utoipa::openapi::{
     PathItemType,
 };
 use utoipa::{IntoParams, OpenApi};
+#[cfg(feature = "swagger-ui")]
 use utoipa_swagger_ui::SwaggerUi;
 
 use axum::{
@@ -377,9 +378,16 @@ pub fn app_new(
     api.merge(connection::ApiDoc::openapi());
     api.merge(topic::ApiDoc::openapi());
     log::trace!("app_new(static_filepaths: {static_filepaths:?}) called");
-    let mut r = Router::new()
-        .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", api))
-        .nest("/api/", any::object_router(crud_broker.clone()));
+    let r = Router::new();
+    // Swagger UI は feature "swagger-ui" のときだけ。無いときも OpenAPI 定義は返す。
+    #[cfg(feature = "swagger-ui")]
+    let r = r.merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", api));
+    #[cfg(not(feature = "swagger-ui"))]
+    let r = r.route(
+        "/api-docs/openapi.json",
+        axum::routing::get(move || async move { axum::Json(api) }),
+    );
+    let mut r = r.nest("/api/", any::object_router(crud_broker.clone()));
 
     match static_filepaths {
         Some(paths) => {

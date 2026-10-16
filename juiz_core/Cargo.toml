@@ -10,6 +10,11 @@ license = "WTFPL"
 crate-type = ["cdylib", "lib"]
 
 
+[features]
+# HTTP ブローカーの /docs で Swagger UI を提供する。オフでも /api-docs/openapi.json は提供する。
+# 有効にするとビルドに zip が必要になるので、リポジトリの Cargo.lock を使ってビルドすること。
+swagger-ui = ["dep:utoipa-swagger-ui"]
+
 [dependencies]
 axum = {workspace = true}
 futures ={workspace = true}
@@ -33,7 +38,10 @@ tower-http = { workspace = true, features = ["fs", "trace"] }
 tokio = {workspace = true, features = ["full"] }
 uuid = {workspace = true, features = ["v4"] }
 utoipa = {workspace = true, features = ["axum_extras"] }
-utoipa-swagger-ui = {workspace = true, features = ["axum"] }
+# Swagger UI はオプション (feature "swagger-ui")。既定ではオフ。
+# utoipa-swagger-ui はビルド時に zip に依存しており、crates.io の zip がほぼすべて
+# yank されたため (2026-10-16)、依存に含めると crates.io から使う側で解決できなくなる。
+utoipa-swagger-ui = {workspace = true, features = ["axum"], optional = true }
 
 
 juiz_sdk = { workspace = true}
