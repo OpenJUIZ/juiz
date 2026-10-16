@@ -321,6 +321,7 @@ impl Process for ProcessImpl {
 
     fn push_by(&self, arg_name: &str, value: CapsulePtr) -> JuizResult<CapsulePtr> {
         log::trace!("【呼出】ProcessImpl::push_by({}) called", self.identifier());
+        self.inlet(arg_name)?.store(value.clone());
         let v = self
             .outlet
             .set_value(self.call(self.collect_values_exclude(arg_name, value))?);

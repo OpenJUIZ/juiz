@@ -125,6 +125,14 @@ impl Inlet {
         Some(self.source_connections.remove(index).profile())
     }
 
+    /// push 接続で届いた値をバッファに保存する。
+    ///
+    /// p_apply と同じバッファに書くので、後から来た値が次の execute で使われる (issue #70)。
+    /// 届いた値ですぐ計算するため、updated フラグは立てない。
+    pub fn store(&self, value: CapsulePtr) {
+        self.buffer.replace(Some(value));
+    }
+
     pub fn bind(&mut self, value: CapsulePtr) -> JuizResult<CapsulePtr> {
         // 後から設定した値で上書きし、次の invoke でメモを使わずに再計算させる (issue #18)
         self.buffer.replace(Some(value.clone()));
