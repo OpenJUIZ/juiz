@@ -24,3 +24,6 @@ ring = "0.17"
 quinn-proto = { version = "0.11.6", default-features = false }
 tracing = { version = "0.1.10", default-features = false, features = ["std"] }
 tracing-futures = { version = "0.2.0", default-features = false, features = ["std-future"] }
+
+[dev-dependencies]
+juiz_sdk = { path = "../../juiz_sdk/" }

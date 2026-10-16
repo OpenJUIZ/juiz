@@ -9,6 +9,16 @@ use juiz_core::{
 mod qmp_broker;
 mod qmp_broker_proxy;
 
+/// 1 回のリクエスト/応答で読み取る最大バイト数
+pub(crate) const MAX_MESSAGE_SIZE: usize = 64 * 1024 * 1024;
+
+/// サーバー側の処理が失敗したときに返す応答。クライアントはこのキーを見てエラーにする
+pub(crate) const ERROR_KEY: &str = "__qmp_error__";
+
+pub(crate) fn error_response(e: &anyhow::Error) -> anyhow::Result<Vec<u8>> {
+    value_to_vecu8(&jvalue!({ ERROR_KEY: format!("{e:?}") }))
+}
+
 pub(crate) fn value_to_vecu8(val: &Value) -> anyhow::Result<Vec<u8>> {
     rmp_serde::to_vec(val).or_else(|e| Err(anyhow!(e)))
 }
@@ -29,8 +39,8 @@ pub(crate) fn value_to_request_value(
     param.insert("function_name".to_owned(), function_name.into());
     param.insert("method_name".to_owned(), method_name.into());
     jvalue!({
-        "map": payload,
-        "param": param
+        "__map__": payload,
+        "__param__": param
     })
 }
 
@@ -60,8 +70,8 @@ pub(crate) fn to_request_value(
     param.insert("function_name".to_owned(), function_name.into());
     param.insert("method_name".to_owned(), method_name.into());
     jvalue!({
-        "map": {},
-        "param": param
+        "__map__": {},
+        "__param__": param
     })
 }
 

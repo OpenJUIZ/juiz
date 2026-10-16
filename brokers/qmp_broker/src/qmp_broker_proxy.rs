@@ -20,9 +20,16 @@ use rustls::{
 };
 
 use crate::{
-    payload_to_request_value, to_request_value, value_to_request_value, value_to_vecu8,
+    payload_to_request_value, ERROR_KEY, MAX_MESSAGE_SIZE, to_request_value, value_to_request_value, value_to_vecu8,
     vecu8_to_value,
 };
+
+/// サーバーへの接続を待つ時間
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+/// manifest に idle_timeout が無いときのアイドルタイムアウト (秒)
+const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 30;
+/// 使っていない間に接続を保つための送信間隔
+const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(5);
 
 pub(crate) fn create_broker_proxy_function(
     _core_broker: &CoreWorker,
@@ -43,6 +50,7 @@ pub(crate) fn create_broker_proxy_function(
 #[allow(unused)]
 struct QuicBrokerProxy {
     //base_url: String,
+    name: String,
     rt: Arc<tokio::runtime::Runtime>,
     endpoint: Endpoint,
     connection: Connection,
@@ -119,10 +127,11 @@ impl QuicBrokerProxy {
         //    Err(e)
         //})?;
 
-        println!("[client] connected: addr={}", connection.remote_address());
+        log::debug!("[client] connected: addr={}", connection.remote_address());
         // let rt2 = tokio::runtime::Runtime::new().unwrap();
 
         Ok(QuicBrokerProxy {
+            name: name.to_owned(),
             rt: rt.clone(),
             endpoint,
             connection,
@@ -134,11 +143,23 @@ async fn make_endpoint_and_connection(
     name: &str,
     idle_timeout: Option<u64>,
 ) -> JuizResult<(Endpoint, Connection)> {
-    let endpoint = make_client_endpoint(idle_timeout).or_else(|e| {
+    // "localhost:5000" のようなホスト名も使えるように名前解決する。
+    // localhost が ::1 と 127.0.0.1 の両方に解決される環境があるので IPv4 を優先する
+    let addrs: Vec<SocketAddr> = tokio::net::lookup_host(name).await?.collect();
+    let server_addr = addrs
+        .iter()
+        .find(|a| a.is_ipv4())
+        .or_else(|| addrs.first())
+        .cloned()
+        .ok_or_else(|| anyhow!("can not resolve qmp broker address '{name}'"))?;
+    let endpoint = make_client_endpoint(idle_timeout, &server_addr).or_else(|e| {
         log::error!("making client endpoint. Error({e})");
         Err(e)
     })?;
-    let connection = connect(&endpoint, name.parse()?).await?;
+    // サーバーが居ないと QUIC のハンドシェイクは終わらないので、時間を区切る
+    let connection = tokio::time::timeout(CONNECT_TIMEOUT, connect(&endpoint, server_addr))
+        .await
+        .map_err(|_| anyhow!("connecting to qmp broker '{name}' ({server_addr}) timed out"))??;
     Ok((endpoint, connection))
 }
 
@@ -160,13 +181,19 @@ async fn write_and_then<T, F: Fn(Vec<u8>) -> anyhow::Result<T>>(
         log::error!("SendStream.finish() failed. {e:?}");
         Err(anyhow!(e))
     })?;
-    callback(recv.read_to_end(64 * 1024).await.or_else(|e| {
+    callback(recv.read_to_end(MAX_MESSAGE_SIZE).await.or_else(|e| {
         log::error!("RecvStream.read_to_end() failed. {e:?}");
         Err(anyhow!(e))
     })?)
 }
 
 fn response_to_capsule_ptr(response: Value) -> JuizResult<CapsulePtr> {
+    if let Some(message) = response.as_object().and_then(|o| o.get(ERROR_KEY)) {
+        return Err(anyhow!(
+            "qmp broker returned error: {}",
+            message.as_str().unwrap_or_default()
+        ));
+    }
     Ok(response.into())
 }
 
@@ -187,8 +214,10 @@ impl CRUDBrokerProxy for QuicBrokerProxy {
         class_name: &str,
         function_name: &str,
         payload: Value,
-        param: std::collections::HashMap<String, String>,
+        mut param: std::collections::HashMap<String, String>,
     ) -> JuizResult<CapsulePtr> {
+        // どの住所でアクセスしたかをサーバーに伝える (HTTP の Host ヘッダにあたる)
+        param.insert("accessed_broker_name".to_owned(), self.name.clone());
         log::trace!(
             "QuicBrokerProxy::create({class_name},{function_name},{payload:?},{param:?}) called"
         );
@@ -204,8 +233,10 @@ impl CRUDBrokerProxy for QuicBrokerProxy {
         &self,
         class_name: &str,
         function_name: &str,
-        param: std::collections::HashMap<String, String>,
+        mut param: std::collections::HashMap<String, String>,
     ) -> JuizResult<CapsulePtr> {
+        // どの住所でアクセスしたかをサーバーに伝える (HTTP の Host ヘッダにあたる)
+        param.insert("accessed_broker_name".to_owned(), self.name.clone());
         log::trace!("QuicBrokerProxy::delete({class_name},{function_name},{param:?}) called");
         let request = to_request_value(class_name, function_name, "delete", param);
         futures::executor::block_on(write_and_then_value(
@@ -219,8 +250,10 @@ impl CRUDBrokerProxy for QuicBrokerProxy {
         &self,
         class_name: &str,
         function_name: &str,
-        param: std::collections::HashMap<String, String>,
+        mut param: std::collections::HashMap<String, String>,
     ) -> JuizResult<CapsulePtr> {
+        // どの住所でアクセスしたかをサーバーに伝える (HTTP の Host ヘッダにあたる)
+        param.insert("accessed_broker_name".to_owned(), self.name.clone());
         log::trace!("QuicBrokerProxy::read({class_name},{function_name},{param:?}) called");
         let request = to_request_value(class_name, function_name, "read", param);
         futures::executor::block_on(write_and_then_value(
@@ -235,8 +268,10 @@ impl CRUDBrokerProxy for QuicBrokerProxy {
         class_name: &str,
         function_name: &str,
         payload: CapsuleMap,
-        param: std::collections::HashMap<String, String>,
+        mut param: std::collections::HashMap<String, String>,
     ) -> JuizResult<CapsulePtr> {
+        // どの住所でアクセスしたかをサーバーに伝える (HTTP の Host ヘッダにあたる)
+        param.insert("accessed_broker_name".to_owned(), self.name.clone());
         log::trace!(
             "QuicBrokerProxy::update({class_name},{function_name},{payload:?},{param:?}) called"
         );
@@ -249,18 +284,26 @@ impl CRUDBrokerProxy for QuicBrokerProxy {
     }
 }
 
-fn make_client_endpoint(idle_timeout: Option<u64>) -> anyhow::Result<Endpoint> {
-    let mut endpoint = Endpoint::client("127.0.0.1:0".parse().unwrap()).or_else(|e| {
+fn make_client_endpoint(
+    idle_timeout: Option<u64>,
+    server_addr: &SocketAddr,
+) -> anyhow::Result<Endpoint> {
+    // 127.0.0.1 にバインドすると他のマシンのサーバーに届かないので、すべてのインターフェースを使う
+    let bind_addr: SocketAddr = if server_addr.is_ipv4() {
+        "0.0.0.0:0".parse()?
+    } else {
+        "[::]:0".parse()?
+    };
+    let mut endpoint = Endpoint::client(bind_addr).or_else(|e| {
         log::error!("Endpoint::client() error. Error({e})");
         Err(anyhow!(e))
     })?;
     let mut transport_config = TransportConfig::default();
-    if idle_timeout.is_none() {
-        transport_config.max_idle_timeout(None);
-    } else {
-        transport_config
-            .max_idle_timeout(Some(Duration::from_secs(idle_timeout.unwrap()).try_into()?));
-    }
+    // 指定が無ければ、相手が落ちたことに気づけるよう有限のアイドルタイムアウトにし、
+    // 使っていない間もキープアライブで接続を保つ
+    let idle_timeout = idle_timeout.unwrap_or(DEFAULT_IDLE_TIMEOUT_SECS);
+    transport_config.max_idle_timeout(Some(Duration::from_secs(idle_timeout).try_into()?));
+    transport_config.keep_alive_interval(Some(KEEP_ALIVE_INTERVAL));
 
     let mut client_config = ClientConfig::new(Arc::new(
         QuicClientConfig::try_from(
