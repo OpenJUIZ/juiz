@@ -83,22 +83,19 @@ impl TopicPtr {
             match my_topic.read() {
                 Ok(t) => {
                     log::trace!(" - my_topic.read() OK.");
+                    // 送れない転送先(止まったサブシステムなど)があっても、残りの転送先には送る (issue #67)
                     for subsystem in t.subsystem_proxies.iter() {
                         log::trace!("- broker_proxy: subsystem={:?}", subsystem.uuid());
-                        match juiz_lock(&subsystem.broker_proxy())?.topic_push(
-                            my_topic_name.as_str(),
-                            v.clone(),
-                            Some(my_uuid),
-                        ) {
-                            Ok(_) => {
-                                log::trace!("SubsystemProxy.topic_push() success");
-                                Ok(())
-                            }
-                            Err(e) => {
-                                log::error!("Error {e} occurred in SubsystemProxy.topic_push()");
-                                Err(e)
-                            }
-                        }?;
+                        let r = juiz_lock(&subsystem.broker_proxy()).and_then(|bp| {
+                            bp.topic_push(my_topic_name.as_str(), v.clone(), Some(my_uuid))
+                        });
+                        match r {
+                            Ok(_) => log::trace!("SubsystemProxy.topic_push() success"),
+                            Err(e) => log::error!(
+                                "Error {e} occurred in SubsystemProxy(uuid={}).topic_push()",
+                                subsystem.uuid()
+                            ),
+                        }
                     }
                 }
                 Err(_) => {
@@ -159,6 +156,16 @@ impl TopicPtr {
         Ok(self.ptr.lock()?.destination_connections()?.len())
     }
 
+    /// このTopicの値を転送する先のサブシステムの数
+    pub fn num_subscriber_subsystems(&self) -> JuizResult<usize> {
+        match self.topic.read() {
+            Ok(t) => Ok(t.subsystem_proxies.len()),
+            Err(_e) => Err(anyhow!(JuizError::ObjectLockError {
+                target: "Topic".to_owned()
+            })),
+        }
+    }
+
     pub fn register_subscriber_subsystem(&self, subsystem_proxy: SubSystemProxy) -> JuizResult<()> {
         log::trace!(
             "register_subscriber_subsystem(name={}, subsystem_proxy={}) called",
@@ -167,6 +174,24 @@ impl TopicPtr {
         );
         match self.topic.write() {
             Ok(mut t) => {
+                // 同じ UUID、または同じアドレスで登録済みの転送先は置き換える。
+                // 同じアドレスで UUID が違うのは、止まって再起動する前の古いサブシステム (issue #67)
+                let new_bp_id = juiz_lock(&subsystem_proxy.broker_proxy())?.identifier();
+                t.subsystem_proxies.retain(|ssp| {
+                    let same = ssp.uuid() == subsystem_proxy.uuid()
+                        || juiz_lock(&ssp.broker_proxy())
+                            .map(|b| b.identifier() == new_bp_id)
+                            .unwrap_or(false);
+                    if same {
+                        log::debug!(
+                            "Topic({}): subscriber Subsystem(uuid={}) is replaced by Subsystem(uuid={}).",
+                            self.name,
+                            ssp.uuid(),
+                            subsystem_proxy.uuid()
+                        );
+                    }
+                    !same
+                });
                 t.subsystem_proxies.push(subsystem_proxy);
                 Ok(())
             }

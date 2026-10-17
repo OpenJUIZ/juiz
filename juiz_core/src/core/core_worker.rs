@@ -712,17 +712,18 @@ impl CoreWorker {
     fn connect_from_topic(
         &mut self,
         process: ProcessPtr,
-        _arg_name: &String,
+        arg_name: &String,
         topic: TopicPtr,
     ) -> JuizResult<()> {
         log::error!("connect_from_topic");
         // let topic_subscribe_connection_manifest = jvalue!({
         //     "type": "push",
         // });
+        // Topic の値は subscribes で指定された引数に渡す
         let topic_subscribe_connection_manifest = ConnectionManifest::new(
             ConnectionType::Push,
             topic.process_ptr().identifier(),
-            "input".to_owned(),
+            arg_name.to_owned(),
             process.identifier(),
         );
         let _connection_profile = connection_builder::connect(
