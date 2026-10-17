@@ -72,7 +72,7 @@ pub fn system_manifest(name: &str, port: i64) -> Value {
                   { "type_name": "example_container_cpp_get", "name": "cppc0get" } ] }
         ],
         "ecs": [
-            { "type_name": "TimerEC", "name": "timer0", "rate": 0.01 }
+            { "type_name": "TimerEC", "name": "timer0", "rate": 100.0 }
         ]
     })
 }

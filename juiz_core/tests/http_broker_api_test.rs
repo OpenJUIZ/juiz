@@ -257,7 +257,7 @@ fn check_create_destroy(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
 
     // EC の作成 (issue #19)
     let created =
-        bp.ec_create(&jvalue!({"type_name": "TimerEC", "name": "timer1", "rate": 0.01}))?;
+        bp.ec_create(&jvalue!({"type_name": "TimerEC", "name": "timer1", "rate": 100.0}))?;
     assert_eq!(created["__value__"]["name"], jvalue!("timer1"));
     assert_eq!(bp.ec_list(false)?.as_array().unwrap().len(), 2);
 

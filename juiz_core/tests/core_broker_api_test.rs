@@ -158,7 +158,7 @@ fn check_ec(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     assert!(wait_ec_state(bp, &id, "STOPPED")?);
 
     let created =
-        bp.ec_create(&jvalue!({"type_name": "TimerEC", "name": "timer1", "rate": 0.01}))?;
+        bp.ec_create(&jvalue!({"type_name": "TimerEC", "name": "timer1", "rate": 100.0}))?;
     assert_eq!(obj_get_str(&created, "name")?, "timer1");
     assert_eq!(bp.ec_list(false)?.as_array().unwrap().len(), 2);
     assert!(bp
