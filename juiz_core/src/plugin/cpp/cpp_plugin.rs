@@ -46,6 +46,16 @@ impl CppPlugin {
             path,
             manifest_entry_point
         );
+        if !path.exists() {
+            log::error!("【エラー】CppPlugin::new({path:?}) failed. ファイルが見つかりません");
+            return Err(anyhow::Error::from(JuizError::PluginFileNotFoundError {
+                plugin_path: path.display().to_string(),
+                hint: "Build the C++ plugin first with cmake (juiz's own examples: \
+                       `cmake -S examples/cpp -B examples/cpp/build && cmake --build examples/cpp/build` \
+                       after `cargo build`). For juiz's own tests, `scripts/test.sh` builds all the examples."
+                    .to_owned(),
+            }));
+        }
         let entry_point = manifest_entry_point.to_owned() + "_entry_point";
         unsafe {
             let lib = Library::new(path.clone()).or_else(|e| {
