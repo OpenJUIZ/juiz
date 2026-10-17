@@ -156,32 +156,34 @@ class SystemProxy():
         
     def processes(self):
         ps = self.crud.read('process', 'list')
-        self._processes = [ProcessProxy.new(self, pid) for pid in ps]
+        self._processes = [ProcessProxy.new(self, to_identifier(pid, 'process')) for pid in ps]
         return self._processes.copy()
 
     def process(self, id):
         ps = self.crud.read('process', 'list')
         for pid in ps:
+            pid = to_identifier(pid, 'process')
             if pid == id:
                 return ProcessProxy.new(self, pid)
         return None            
         
     def containers(self, update=False):
         ps = self.crud.read('container', 'list')
-        self._containers = [ContainerProxy.new(self, pid) for pid in ps]
+        self._containers = [ContainerProxy.new(self, to_identifier(pid, 'container')) for pid in ps]
         return self._containers
 
     def container(self, id):
         cs = self.crud.read('container', 'list')
         for pid in cs:
+            pid = to_identifier(pid, 'container')
             if pid == id:
                 return ContainerProxy.new(self, pid)
         return None            
     
     def container_processes(self, update=False):
-        ps = self.crud.read('container_process','list')
         if self._container_processes is None or update:
-            self._container_processes = [ContainerProcessProxy(self, p) for p in ps]
+            ps = self.crud.read('container_process','list')
+            self._container_processes = [ContainerProcessProxy(self, to_identifier(p, 'container_process')) for p in ps]
         return self._container_processes
 
     
@@ -229,6 +231,7 @@ class ProcessProxy(ObjectProxy):
                 if p.name() == name:
                     self._id = p.identifier()
                     return
+            raise NotFoundError(f'process "{name}" not found in http://{host}:{port}')
             
     def __repr__(self):
         return f'ProcessProxy("{self.identifier()}")'
@@ -279,11 +282,17 @@ class ContainerProxy(ObjectProxy):
         elif protocol == 'http':
             super().__init__(SystemProxy(HttpProxy(host,port)), 'container', None)
             self._name = None
-            for c in self.system.containers():
-                # print(c.type_name(), name)
+            cs = self.system.containers()
+            # 名前で探し、見つからなければ従来どおり型名で探す
+            for c in cs:
+                if c.name() == name:
+                    self._id = c.identifier()
+                    return
+            for c in cs:
                 if c.type_name() == name:
                     self._id = c.identifier()
                     return
+            raise NotFoundError(f'container "{name}" not found in http://{host}:{port}')
                 
     @classmethod
     def new(cls, system_proxy, identifier):
@@ -296,14 +305,17 @@ class ContainerProxy(ObjectProxy):
         return f'ContainerProxy("{self.identifier()}")'
     
     def processes(self):
-        pids = self.profile_full()['processes']
-        return [ContainerProcessProxy(self.system, pid) for pid in pids]
+        # Container の profile_full の processes は空のことがあるので、
+        # container_process/list からこの Container に属するものを選ぶ
+        ps = self.system.crud.read('container_process', 'list')
+        return [ContainerProcessProxy(self.system, to_identifier(p, 'container_process'))
+                for p in ps
+                if isinstance(p, dict) and p.get('container_name') == self.name()]
         
     def process(self, id):
-        pids = self.profile_full()['processes']
-        for pid in pids:
-            if pid == id:
-                return ContainerProcessProxy(self.system, pid)
+        for p in self.processes():
+            if p.identifier() == id:
+                return p
         return None          
     
     def __getattr__(self, name):
@@ -381,7 +393,28 @@ class IdentifierStruct(object):
         return f'IdentifierStruct(broker_type="{self.broker_type}",broker_name="{self.broker_name}",class_name="{self.class_name}",type_name="{self.type_name}",name="{self.name}")'
 
 
+def to_identifier(value, class_name=None):
+    """list API の各要素を識別子の文字列にする。
+
+    /api/process/list などは各要素を
+    {"broker_type_name": ..., "broker_name": ..., "class_name": ..., "name": ..., "type_name": ...}
+    のオブジェクトで返すので、broker_type_name://broker_name/class_name/name::type_name に組み立てる。
+    文字列ならそのまま返す。
+    """
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        if isinstance(value.get('identifier'), str):
+            return value['identifier']
+        broker_type = value.get('broker_type_name') or 'core'
+        broker_name = value.get('broker_name') or 'core'
+        cn = value.get('class_name') or class_name
+        return f"{broker_type}://{broker_name}/{cn}/{value['name']}::{value['type_name']}"
+    raise TypeError(f'invalid identifier: {value!r}')
+
+
 def id_to_name(id: str):
+    id = to_identifier(id)
     if id.find('://') > 0: # 通常IDフォーマット。プロトコルあり
         # print('id=', id)
         broker_type, id_body = id.split('://')
@@ -391,6 +424,7 @@ def id_to_name(id: str):
     
 
 def id_to_type_name(id: str):
+    id = to_identifier(id)
     if id.find('://') > 0: # 通常IDフォーマット。プロトコルあり
         # print('id=', id)
         broker_type, id_body = id.split('://')
