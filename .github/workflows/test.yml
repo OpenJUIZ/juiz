@@ -29,7 +29,7 @@ env:
 jobs:
   # Rust のビルドとテスト(juiz_core / juiz_app / brokers など)
   # system_test は ../target/debug にビルド済みの例(Rust/C++)を読み込むため、
-  # テストの前に cargo build と C++ 例のビルドを済ませる。
+  # scripts/test.sh でテストの前に cargo build と C++ 例のビルドを済ませる。
   rust:
     name: Rust build & test
     runs-on: ubuntu-24.04
@@ -48,19 +48,10 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Build (default workspace members)
-        run: cargo build --verbose
-
-      - name: Build C++ examples
-        run: |
-          cmake -S examples/cpp -B examples/cpp/build -DCMAKE_BUILD_TYPE=Debug
-          cmake --build examples/cpp/build --parallel
-
-      - name: Test
-        env:
-          PYTHONPATH: ${{ github.workspace }}/bindings/pyjuiz
-        # テストはブローカーのポートや埋め込み Python を使うので直列に実行する
-        run: cargo test --verbose -- --test-threads=1
+      # 例(Rust/C++)のビルド、Python パッケージの確認、PYTHONPATH の設定を済ませてから
+      # cargo test -- --test-threads=1 を実行する(手元と同じスクリプト)
+      - name: Build & test
+        run: scripts/test.sh --verbose
 
   # テストカバレッジ(cargo-llvm-cov)。結果はジョブサマリーに表示し、
   # main への push 時は shields.io 用の JSON を badges ブランチに置いて README のバッジに使う。
@@ -88,14 +79,9 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # system_test が読み込む例(Rust/C++)は通常ビルドで ../target/debug に用意する
-      - name: Build (default workspace members)
-        run: cargo build
-
-      - name: Build C++ examples
-        run: |
-          cmake -S examples/cpp -B examples/cpp/build -DCMAKE_BUILD_TYPE=Debug
-          cmake --build examples/cpp/build --parallel
+      # system_test が読み込む例(Rust/C++)は通常ビルドで ../target/debug などに用意する
+      - name: Prepare tests (build examples, check Python packages)
+        run: scripts/test.sh --prepare-only
 
       # パッケージを指定しないと cargo-llvm-cov はルートパッケージ(juiz_meta)だけを集計し、
       # サブディレクトリのメンバーが除外されて 0% になるので、default-members を明示する。

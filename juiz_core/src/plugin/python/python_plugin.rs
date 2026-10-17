@@ -10,6 +10,7 @@ use image::ImageFormat;
 use juiz_sdk::anyhow::{self, anyhow};
 use juiz_sdk::serde_json::Map;
 use pyo3::{
+    exceptions::PyModuleNotFoundError,
     prelude::*,
     types::{PyBool, PyBytes, PyDict, PyFloat, PyInt, PyList, PyNone, PySet, PyString, PyTuple},
 };
@@ -169,7 +170,7 @@ if not "{path_str:}" in sys.path:
             }
 
             let py_app = fs::read_to_string(fullpath.clone())?;
-            let module = PyModule::from_code_bound(py, &py_app, "", "")?;
+            let module = module_from_code(py, &py_app, "")?;
             match module.getattr(symbol_name) {
                 Ok(manifest_bound) => {
                     let manifest_func: Py<PyAny> = manifest_bound.into();
@@ -243,7 +244,7 @@ if not "{path_str:}" in sys.path:
             }
 
             let py_app = fs::read_to_string(fullpath.clone())?;
-            let module = PyModule::from_code_bound(py, &py_app, "", "")?;
+            let module = module_from_code(py, &py_app, "")?;
             match module.getattr(symbol_name) {
                 Ok(manifest_bound) => {
                     let manifest_func: Py<PyAny> = manifest_bound.into();
@@ -412,12 +413,7 @@ if not "{path_str:}" in sys.path:
         let mut manifest = jvalue!({});
         let py_app = fs::read_to_string(fullpath.clone()).unwrap();
         let pyfunc2 = Python::with_gil(|py| -> PyResult<Py<PyAny>> {
-            let module = PyModule::from_code_bound(
-                py,
-                &py_app.to_string(),
-                fullpath.clone().to_str().unwrap(),
-                "",
-            )?;
+            let module = module_from_code(py, &py_app, fullpath.to_str().unwrap())?;
             //let tuple = module.getattr(symbol_name)?.into_py(py).call0(py)?;
             // manifest = pyany_to_value(pytuple.get_item(0)?)?;
             let proc_object = module.getattr(type_name)?.into_py(py); // .call0(py)?;
@@ -475,12 +471,7 @@ if not "{path_str:}" in sys.path:
         let py_app = fs::read_to_string(fullpath.clone()).unwrap();
         let pyfunc2 = match Python::with_gil(|py| -> PyResult<Py<PyAny>> {
             log::debug!("Python::with_gil({py_app}) for load_Container_process_factory({symbol_name}, {type_name_opt:?}), fullpath={fullpath:?}");
-            let module = PyModule::from_code_bound(
-                py,
-                &py_app.to_owned(),
-                fullpath.clone().to_str().unwrap(),
-                "",
-            )?;
+            let module = module_from_code(py, &py_app, fullpath.to_str().unwrap())?;
             let proc_object = module.getattr(type_name)?.into_py(py);
             let manifest_object = proc_object.getattr(py, "manifest")?.into_py(py).call0(py)?;
             manifest = pyany_to_value(manifest_object.extract::<&PyAny>(py)?)?;
@@ -554,12 +545,7 @@ if not "{path_str:}" in sys.path:
         let mut manifest = jvalue!({});
         let py_app = fs::read_to_string(fullpath.clone()).unwrap();
         let pyfunc2 = Python::with_gil(|py| -> PyResult<Py<PyAny>> {
-            let module = PyModule::from_code_bound(
-                py,
-                &py_app.to_string(),
-                fullpath.clone().to_str().unwrap(),
-                "",
-            )?;
+            let module = module_from_code(py, &py_app, fullpath.to_str().unwrap())?;
             //let tuple = module.getattr(symbol_name)?.into_py(py).call0(py)?;
             //let pytuple = tuple.extract::<&PyTuple>(py)?;
             //manifest = pyany_to_value(pytuple.get_item(0)?)?;
@@ -614,6 +600,29 @@ if not "{path_str:}" in sys.path:
             }
         }
     }
+}
+
+/// プラグインの Python コードをモジュールとして読み込む。
+/// import に失敗した (ModuleNotFoundError) ときは、必要な準備を案内するメッセージを付けて返す。
+fn module_from_code<'py>(
+    py: Python<'py>,
+    code: &str,
+    file_name: &str,
+) -> PyResult<Bound<'py, PyModule>> {
+    PyModule::from_code_bound(py, code, file_name, "").map_err(|e| {
+        if !e.is_instance_of::<PyModuleNotFoundError>(py) {
+            return e;
+        }
+        let hinted = PyModuleNotFoundError::new_err(format!(
+            "{}. Python plugins need pyjuiz (the `juiz` module) and its dependencies: \
+             run `python3 -m pip install pyyaml httpx pillow docstring_parser` and add \
+             bindings/pyjuiz to PYTHONPATH (or `python3 -m pip install pyjuiz`). \
+             For juiz's own tests, `scripts/test.sh` checks these.",
+            e.value_bound(py)
+        ));
+        hinted.set_cause(py, Some(e));
+        hinted
+    })
 }
 
 fn arg_to_pyargs<'a>(

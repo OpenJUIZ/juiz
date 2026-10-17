@@ -79,6 +79,20 @@ cmake -S examples/cpp -B examples/cpp/build
 cmake --build examples/cpp/build
 ```
 
+### テストを実行する
+
+`scripts/test.sh` が、テストの前提になる準備(ワークスペースの `cargo build`、C++ の例の cmake ビルド、Python の例が使うパッケージの確認と `PYTHONPATH=bindings/pyjuiz` の設定)を済ませてから `cargo test -- --test-threads=1` を実行します。CI(`.github/workflows/test.yml`)も同じスクリプトを使います。
+
+```terminal
+scripts/test.sh                              # すべてのテスト
+scripts/test.sh -p juiz_core                 # cargo test に渡す引数
+scripts/test.sh -p juiz_core -- p_apply      # -- 以降はテストバイナリに渡す(テスト名の絞り込みなど)
+scripts/test.sh --prepare-only               # 準備だけ行う
+```
+
+必要なものは Rust、CMake と C++ コンパイラ、Python 3 と pyjuiz の依存パッケージ(`python3 -m pip install pyyaml httpx pillow docstring_parser`)です。足りないものがあれば、スクリプトがその旨と入れ方を表示して止まります。
+`cargo test` だけを実行すると、例のプラグインを読み込むテスト(`system_test` や `*_broker_api_test` など)は失敗します。そのときのエラーには、見つからなかったプラグインのパスや足りない Python モジュールと、必要な準備が表示されます。
+
 ### VS Code + Dev Containers で開発する
 
 `.devcontainer/` に、CI と同じ環境(Ubuntu 24.04、Rust stable、CMake、Clang、Python 3 と pyjuiz の依存パッケージ)のコンテナ設定があります。
@@ -86,10 +100,7 @@ Docker と VS Code の Dev Containers 拡張機能を入れた状態でリポジ
 `PYO3_PYTHON` と `PYTHONPATH` は設定済みなので、コンテナ内のターミナルで CI と同じ手順でビルドとテストができます。
 
 ```terminal
-cargo build
-cmake -S examples/cpp -B examples/cpp/build -DCMAKE_BUILD_TYPE=Debug
-cmake --build examples/cpp/build --parallel
-cargo test -- --test-threads=1
+scripts/test.sh
 ```
 
 HTTP ブローカーの 8000 番ポートはホストに転送されるので、ホストのブラウザから http://localhost:8000/docs を開けます（Swagger UI は feature `swagger-ui` を有効にしてビルドしたときだけ。[Swagger UI を使う](#swagger-ui-を使う)）。

@@ -12,8 +12,10 @@ pub enum JuizError {
     ValueIsNotObjectError { value: Value },
     #[error("Value({value:}) is not array type.")]
     ValueIsNotArrayError { value: Value },
-    #[error("Plugin Load failed.")]
+    #[error("Plugin({plugin_path:}) load failed.")]
     PluginLoadFailedError { plugin_path: String },
+    #[error("Plugin file({plugin_path:}) is not found. {hint:}")]
+    PluginFileNotFoundError { plugin_path: String, hint: String },
     #[error("Plugin({plugin_path:}) tried to load symbol({symbol_name:}) but failed.")]
     PluginLoadSymbolFailedError {
         plugin_path: String,

@@ -34,6 +34,18 @@ impl std::fmt::Debug for RustPlugin {
 impl RustPlugin {
     pub fn load(path: PathBuf) -> JuizResult<RustPlugin> {
         log::trace!("【呼出】RustPlugin::load({:?})", path);
+        if !path.exists() {
+            log::error!(
+                "【失敗】RustPlugin::load({:?}). ファイルが見つかりません",
+                path
+            );
+            return Err(anyhow::Error::from(JuizError::PluginFileNotFoundError {
+                plugin_path: path.display().to_string(),
+                hint: "Build the Rust plugin first with `cargo build`. \
+                       For juiz's own tests, `scripts/test.sh` builds all the examples."
+                    .to_owned(),
+            }));
+        }
         unsafe {
             match libloading::Library::new(path.clone()) {
                 Ok(lib) => {
