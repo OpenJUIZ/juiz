@@ -69,7 +69,7 @@ fn server_manifest(name: &str, port: i64, http_port: i64) -> Value {
                   { "type_name": "example_container_get", "name": "c0get" } ] }
         ],
         "ecs": [
-            { "type_name": "TimerEC", "name": "timer0", "rate": 0.01 }
+            { "type_name": "TimerEC", "name": "timer0", "rate": 100.0 }
         ]
     })
 }

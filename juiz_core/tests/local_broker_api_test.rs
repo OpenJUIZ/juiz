@@ -145,7 +145,7 @@ fn check_create_destroy(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
 
     // Value を返す EC の API は __value__ で包んだまま返す
     let created =
-        bp.ec_create(&jvalue!({"type_name": "TimerEC", "name": "timer1", "rate": 0.01}))?;
+        bp.ec_create(&jvalue!({"type_name": "TimerEC", "name": "timer1", "rate": 100.0}))?;
     assert_eq!(created["__value__"]["name"], jvalue!("timer1"));
     // ec_destroy はメッセンジャーブローカーのスレッド内で tokio のランタイムを落として panic するので、ここでは試さない
     Ok(())
