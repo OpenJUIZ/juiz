@@ -18,7 +18,7 @@ use std::{
     collections::HashMap,
     fs,
     io::{BufWriter, Cursor},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 
@@ -58,11 +58,20 @@ impl PythonPlugin {
         Ok(PythonPlugin { path, pythonpaths })
     }
 
+    /// プラグインの Python ファイルのパスを返す。
+    ///
+    /// self.path は JuizObjectPlugin::new で作業ディレクトリと連結済み(CLI から読み込むときは
+    /// カレントディレクトリからの相対パス)なので、作業ディレクトリをもう一度連結しない。
+    /// 作業ディレクトリが相対パスだと二重に連結されてしまうため (issue #78)。
+    fn full_path(&self, working_dir: &Option<PathBuf>) -> PathBuf {
+        match working_dir {
+            Some(_) => self.path.clone(),
+            None => PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(&self.path),
+        }
+    }
+
     fn init_path(&self, working_dir: Option<PathBuf>) -> JuizResult<()> {
-        let fullpath = working_dir
-            .clone()
-            .unwrap_or(env!("CARGO_MANIFEST_DIR").into())
-            .join(self.path.clone());
+        let fullpath = self.full_path(&working_dir);
         let pythonpaths = self.pythonpaths.clone();
         log::debug!("【デバッグ情報】pythonpaths:{pythonpaths:?}");
         Python::with_gil(|py| -> PyResult<()> {
@@ -121,10 +130,7 @@ if not "{path_str:}" in sys.path:
         working_dir: Option<PathBuf>,
         symbol_name: &str,
     ) -> JuizResult<Value> {
-        let fullpath = working_dir
-            .clone()
-            .unwrap_or(env!("CARGO_MANIFEST_DIR").into())
-            .join(self.path.clone());
+        let fullpath = self.full_path(&working_dir);
         let pythonpaths = self.pythonpaths.clone();
         match Python::with_gil(|py| -> PyResult<Value> {
             log::trace!(
@@ -169,7 +175,7 @@ if not "{path_str:}" in sys.path:
                 });
             }
 
-            let py_app = fs::read_to_string(fullpath.clone())?;
+            let py_app = read_python_source(&fullpath)?;
             let module = module_from_code(py, &py_app, "")?;
             match module.getattr(symbol_name) {
                 Ok(manifest_bound) => {
@@ -195,10 +201,7 @@ if not "{path_str:}" in sys.path:
         working_dir: Option<PathBuf>,
         symbol_name: &str,
     ) -> JuizResult<Value> {
-        let fullpath = working_dir
-            .clone()
-            .unwrap_or(env!("CARGO_MANIFEST_DIR").into())
-            .join(self.path.clone());
+        let fullpath = self.full_path(&working_dir);
         let pythonpaths = self.pythonpaths.clone();
         match Python::with_gil(|py| -> anyhow::Result<Value> {
             log::trace!(
@@ -243,7 +246,7 @@ if not "{path_str:}" in sys.path:
                 });
             }
 
-            let py_app = fs::read_to_string(fullpath.clone())?;
+            let py_app = read_python_source(&fullpath)?;
             let module = module_from_code(py, &py_app, "")?;
             match module.getattr(symbol_name) {
                 Ok(manifest_bound) => {
@@ -406,12 +409,10 @@ if not "{path_str:}" in sys.path:
             }
         };
         log::trace!("【load_process_factory】type_name = {type_name}");
-        let fullpath = working_dir
-            .unwrap_or(env!("CARGO_MANIFEST_DIR").into())
-            .join(self.path.clone());
+        let fullpath = self.full_path(&working_dir);
         log::trace!("【load_process_factory】fullpath = {type_name}");
         let mut manifest = jvalue!({});
-        let py_app = fs::read_to_string(fullpath.clone()).unwrap();
+        let py_app = read_python_source(&fullpath)?;
         let pyfunc2 = Python::with_gil(|py| -> PyResult<Py<PyAny>> {
             let module = module_from_code(py, &py_app, fullpath.to_str().unwrap())?;
             //let tuple = module.getattr(symbol_name)?.into_py(py).call0(py)?;
@@ -464,11 +465,9 @@ if not "{path_str:}" in sys.path:
             None => self.path.file_stem().unwrap().to_str().unwrap(),
         };
         // self.load_container_process_factory_with_manifest(working_dir.clone(), cp_profile.clone(), symbol_name)
-        let fullpath = working_dir
-            .unwrap_or(env!("CARGO_MANIFEST_DIR").into())
-            .join(self.path.clone());
+        let fullpath = self.full_path(&working_dir);
         let mut manifest = jvalue!({});
-        let py_app = fs::read_to_string(fullpath.clone()).unwrap();
+        let py_app = read_python_source(&fullpath)?;
         let pyfunc2 = match Python::with_gil(|py| -> PyResult<Py<PyAny>> {
             log::debug!("Python::with_gil({py_app}) for load_Container_process_factory({symbol_name}, {type_name_opt:?}), fullpath={fullpath:?}");
             let module = module_from_code(py, &py_app, fullpath.to_str().unwrap())?;
@@ -539,11 +538,9 @@ if not "{path_str:}" in sys.path:
             None => self.path.file_stem().unwrap().to_str().unwrap(),
         };
         //let type_name = ;
-        let fullpath = working_dir
-            .unwrap_or(env!("CARGO_MANIFEST_DIR").into())
-            .join(self.path.clone());
+        let fullpath = self.full_path(&working_dir);
         let mut manifest = jvalue!({});
-        let py_app = fs::read_to_string(fullpath.clone()).unwrap();
+        let py_app = read_python_source(&fullpath)?;
         let pyfunc2 = Python::with_gil(|py| -> PyResult<Py<PyAny>> {
             let module = module_from_code(py, &py_app, fullpath.to_str().unwrap())?;
             //let tuple = module.getattr(symbol_name)?.into_py(py).call0(py)?;
@@ -604,6 +601,16 @@ if not "{path_str:}" in sys.path:
 
 /// プラグインの Python コードをモジュールとして読み込む。
 /// import に失敗した (ModuleNotFoundError) ときは、必要な準備を案内するメッセージを付けて返す。
+/// Python ファイルを読み込む。失敗したときはパスをエラーに含める。
+fn read_python_source(path: &Path) -> std::io::Result<String> {
+    fs::read_to_string(path).map_err(|e| {
+        std::io::Error::new(
+            e.kind(),
+            format!("Pythonファイル({path:?})を読み込めませんでした: {e}"),
+        )
+    })
+}
+
 fn module_from_code<'py>(
     py: Python<'py>,
     code: &str,
