@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <vector>
 #include <functional>
+#include <string>
+#include <type_traits>
 #include "process_manifest.h"
 #include "bind_process.h"
 
@@ -71,26 +73,34 @@ int64_t component_manifest_entry_point(capsule_ptr* ptr) { \
     return capsule_ptr_set_value(ptr, v); \
 }
 
-int64_t serialize(capsule* cp, int64_t retval) {
-    return capsule_set_int(cp, retval);
-}
-
-template<bool>
-int64_t serialize(capsule* cp, bool retval) {
+// 戻り値の型ごとに capsule へ書き込む関数。
+// 非型テンプレート引数を付けるとオーバーロード解決で選ばれず、
+// double や bool が int64_t に変換されてしまうので、通常のオーバーロードにする (issue #77)。
+inline int64_t serialize(capsule* cp, bool retval) {
     return capsule_set_bool(cp, retval);
 }
 
-template<double&>
-int64_t serialize(capsule* cp, double& retval) {
+inline int64_t serialize(capsule* cp, double retval) {
     return capsule_set_float(cp, retval);
 }
 
-// template<std::string&>
-int64_t serialize(capsule* cp, const std::string& retval) {
+// int や int32_t などの整数型は int64_t として返す。
+// bool / double / int64_t の中から曖昧にならないよう、整数型はまとめてこの関数で受ける。
+template<typename T, std::enable_if_t<std::is_integral_v<T> && !std::is_same_v<T, bool>, int> = 0>
+int64_t serialize(capsule* cp, T retval) {
+    return capsule_set_int(cp, static_cast<int64_t>(retval));
+}
+
+// const char* はポインタから bool への変換で bool 版が選ばれないよう、文字列として受ける。
+inline int64_t serialize(capsule* cp, const char* retval) {
+    return capsule_set_string(cp, retval);
+}
+
+inline int64_t serialize(capsule* cp, const std::string& retval) {
     return capsule_set_string(cp, retval.c_str());
 }
 
-int64_t serialize(capsule* cp, const std::string&& retval) {
+inline int64_t serialize(capsule* cp, const std::string&& retval) {
     return capsule_set_string(cp, retval.c_str());
 }
 
