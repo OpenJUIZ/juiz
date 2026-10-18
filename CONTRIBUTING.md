@@ -38,6 +38,22 @@ cargo install --locked --path juiz_app --features juiz_core/swagger-ui
 既定でオフにしているのは、Swagger UI が使う utoipa-swagger-ui がビルド時に zip クレートに依存していて、crates.io の zip がほぼすべて yank されているためです（2026-10 時点）。
 リポジトリの Cargo.lock には yank 前の zip が記録されているので `--locked` を付ければビルドできますが、crates.io から `cargo install juiz_app` で入れる場合はこの feature は使えません。
 
+### Python 連携の feature
+
+Python の Process などを読み込む機能は、juiz_core の feature で切り替えます。
+
+| feature | 内容 |
+|---|---|
+| `embed-python`(既定) | juiz の中で Python インタプリタを起動する。ネイティブバイナリ(juiz_app)向けで、libpython にリンクする |
+| `extension-module` | juiz を Python の拡張モジュールとして Python プロセスの中で動かす(pip で入れる juiz 向け、issue #88)。libpython にはリンクしない。`default-features = false` と一緒に使う |
+| `python` | Python プラグインの読み込みだけを有効にする(上の2つが内部で使う) |
+
+Python を使わないなら、次のように既定の feature を外すと libpython なしで起動するバイナリになります。このとき Python のプラグインを読み込もうとするとエラーになります。
+
+```terminal
+cargo install --path juiz_app --no-default-features
+```
+
 Python で機能要素を書く場合は pyjuiz パッケージをインストールするか、`bindings/pyjuiz` に PYTHONPATH を通してください。
 
 ```terminal

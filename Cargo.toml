@@ -20,7 +20,8 @@ license = "MIT OR Apache-2.0"
 
 juiz_macro = {version="0.0.15", path="juiz_macro"}
 juiz_sdk = {version="0.0.15", path="juiz_sdk"}
-juiz_core = {version="0.0.15", path="juiz_core"}
+# 既定の feature(embed-python)は使う側で選ぶ(juiz_app/Cargo.toml を参照)
+juiz_core = {version="0.0.15", path="juiz_core", default-features = false}
 juiz_app= {version="0.0.15", path="juiz_app"}
 
 anyhow = "1.0.89"
@@ -46,7 +47,8 @@ nalgebra = "0.33.0"
 
 proc-macro2 = {version = "1.0.89"}
 # opencv = {version="0.92.0", default-features=false, features=["highgui", "videoio", "imgproc", "imgcodecs", "clang-runtime"], optional=true}
-pyo3 = {version = "0.22.2", features=["auto-initialize", "gil-refs"]}
+# auto-initialize と extension-module は juiz_core の feature で選ぶ(embed-python / extension-module)
+pyo3 = {version = "0.22.2", features=["gil-refs"]}
 
 quote = "1.0.37"
 quaternion-core = "0.5.2"
