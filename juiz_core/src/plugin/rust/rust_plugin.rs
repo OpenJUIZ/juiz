@@ -1,6 +1,9 @@
 use juiz_sdk::anyhow::{self, Context};
+use juiz_sdk::build_info::{BuildInfo, BUILD_INFO_SYMBOL_SUFFIX};
 use libloading::Library;
 use std::{
+    ffi::CStr,
+    os::raw::c_char,
     path::PathBuf,
     sync::{Arc, Mutex},
 };
@@ -102,6 +105,48 @@ impl RustPlugin {
         }
     }
 
+    /// ファクトリ `symbol_name` を呼ぶ前に、プラグインのビルド情報をホストと比べる。
+    ///
+    /// juiz_macro が生成した `<symbol_name>_build_info` を呼び、コンパイラか juiz_sdk の版が
+    /// 食い違えば、ファクトリを呼ばずにエラーにする(Rust の ABI がずれたまま呼ぶと異常終了しうる)。
+    /// 関数が無い古いプラグインは警告を出して読み込む。
+    pub fn check_build_info(&self, symbol_name: &str) -> JuizResult<()> {
+        let build_info_symbol = format!("{symbol_name}{BUILD_INFO_SYMBOL_SUFFIX}");
+        type BuildInfoSymbolType<'a> =
+            libloading::Symbol<'a, unsafe extern "C" fn() -> *const c_char>;
+        let func = match unsafe {
+            self.lib
+                .as_ref()
+                .unwrap()
+                .get::<BuildInfoSymbolType>(build_info_symbol.as_bytes())
+        } {
+            Ok(func) => func,
+            Err(_) => {
+                log::warn!(
+                    "RustPlugin({}) has no '{build_info_symbol}', so the compiler and juiz_sdk versions can not be checked. \
+                     Rebuild the plugin with the same juiz_sdk as this juiz ({}) to enable the check.",
+                    self.path.display(),
+                    BuildInfo::current().juiz_sdk_str()
+                );
+                return Ok(());
+            }
+        };
+        let ptr = unsafe { func() };
+        if ptr.is_null() {
+            log::warn!(
+                "RustPlugin({})::{build_info_symbol}() returned null.",
+                self.path.display()
+            );
+            return Ok(());
+        }
+        let plugin_info = BuildInfo::parse(&unsafe { CStr::from_ptr(ptr) }.to_string_lossy());
+        verify_build_info(
+            &self.path.display().to_string(),
+            &plugin_info,
+            &BuildInfo::current(),
+        )
+    }
+
     pub fn load_process_factory(
         &self,
         _working_dir: Option<PathBuf>,
@@ -114,6 +159,7 @@ impl RustPlugin {
             'static,
             unsafe extern "Rust" fn() -> JuizResult<ProcessFactoryStruct>,
         >;
+        self.check_build_info(symbol_name)?;
         unsafe {
             let symbol = self.load_symbol::<SymbolType>(symbol_name.as_bytes())?;
             let ProcessFactoryStruct(manifest, proc_function) =
@@ -134,6 +180,7 @@ impl RustPlugin {
             'static,
             unsafe extern "Rust" fn() -> JuizResult<ContainerFactoryStruct>,
         >;
+        self.check_build_info(symbol_name)?;
         unsafe {
             let symbol = self.load_symbol::<SymbolType>(symbol_name.as_bytes())?;
             let ContainerFactoryStruct(manifest, factory_function) = (symbol)()?;
@@ -151,6 +198,7 @@ impl RustPlugin {
             'static,
             unsafe extern "Rust" fn() -> JuizResult<ContainerProcessFactoryStruct>,
         >;
+        self.check_build_info(symbol_name)?;
         unsafe {
             let symbol = self.load_symbol::<SymbolType>(symbol_name.as_bytes())?;
             let ContainerProcessFactoryStruct(manifest, factory_function) = (symbol)()?;
@@ -165,6 +213,7 @@ impl RustPlugin {
         );
         type ComponentProfileFunctionSymbolType<'a> =
             libloading::Symbol<'a, unsafe extern "Rust" fn() -> ComponentManifest>;
+        self.check_build_info("component_manifest")?;
         let symbol =
             self.load_symbol::<ComponentProfileFunctionSymbolType>(b"component_manifest")?;
         Ok(unsafe {
@@ -207,6 +256,28 @@ impl RustPlugin {
     }
 }
 
+/// プラグインのビルド情報がホストと同じか比べ、食い違えば PluginBuildInfoMismatchError を返す。
+fn verify_build_info(
+    plugin_path: &str,
+    plugin_info: &BuildInfo,
+    host_info: &BuildInfo,
+) -> JuizResult<()> {
+    if plugin_info == host_info {
+        return Ok(());
+    }
+    log::error!(
+        "【失敗】RustPlugin({plugin_path}) のビルド情報がホストと食い違います (plugin: {plugin_info}, juiz: {host_info})"
+    );
+    Err(anyhow::Error::from(
+        JuizError::PluginBuildInfoMismatchError {
+            plugin_path: plugin_path.to_owned(),
+            plugin_build_info: plugin_info.to_string(),
+            host_build_info: host_info.to_string(),
+            host_juiz_sdk: host_info.juiz_sdk_str().to_owned(),
+        },
+    ))
+}
+
 impl Plugin for RustPlugin {
     fn profile_full(&self) -> JuizResult<Value> {
         Ok(jvalue!({
@@ -218,5 +289,43 @@ impl Plugin for RustPlugin {
 impl Drop for RustPlugin {
     fn drop(&mut self) {
         log::info!("RustPlugin({})::drop() called", self.path.display());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn same_build_info_is_accepted() {
+        let host = BuildInfo::current();
+        assert!(verify_build_info("libfoo.so", &host.clone(), &host).is_ok());
+    }
+
+    #[test]
+    fn different_build_info_is_rejected() {
+        let host = BuildInfo::parse("juiz_sdk=0.0.15;rustc=rustc 1.97.0 (2d8144b78 2026-07-07)");
+        for plugin_str in [
+            "juiz_sdk=0.0.14;rustc=rustc 1.97.0 (2d8144b78 2026-07-07)",
+            "juiz_sdk=0.0.15;rustc=rustc 1.96.0 (aaaaaaaaa 2026-05-28)",
+            "juiz_sdk=0.0.15",
+        ] {
+            let plugin = BuildInfo::parse(plugin_str);
+            let err = verify_build_info("libfoo.so", &plugin, &host).unwrap_err();
+            match err.downcast_ref::<JuizError>() {
+                Some(JuizError::PluginBuildInfoMismatchError {
+                    plugin_path,
+                    host_juiz_sdk,
+                    ..
+                }) => {
+                    assert_eq!(plugin_path, "libfoo.so");
+                    assert_eq!(host_juiz_sdk, "0.0.15");
+                }
+                other => panic!("unexpected error {other:?}"),
+            }
+            let message = err.to_string();
+            assert!(message.contains("rustc 1.97.0"), "{message}");
+            assert!(message.contains("juiz_sdk = \"=0.0.15\""), "{message}");
+        }
     }
 }

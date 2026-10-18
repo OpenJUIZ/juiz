@@ -16,6 +16,13 @@ pub enum JuizError {
     PluginLoadFailedError { plugin_path: String },
     #[error("Plugin file({plugin_path:}) is not found. {hint:}")]
     PluginFileNotFoundError { plugin_path: String, hint: String },
+    #[error("Plugin({plugin_path:}) was built with a different Rust compiler or juiz_sdk than this juiz (plugin: {plugin_build_info:}, juiz: {host_build_info:}). Rust plugins are loaded through the Rust ABI, so they must be built with the same compiler and the same juiz_sdk version as juiz. Rebuild the plugin with `cargo build` using the same toolchain and `juiz_sdk = \"={host_juiz_sdk:}\"`, or use a juiz built with the plugin's toolchain.")]
+    PluginBuildInfoMismatchError {
+        plugin_path: String,
+        plugin_build_info: String,
+        host_build_info: String,
+        host_juiz_sdk: String,
+    },
     #[error("Plugin({plugin_path:}) tried to load symbol({symbol_name:}) but failed.")]
     PluginLoadSymbolFailedError {
         plugin_path: String,

@@ -156,6 +156,7 @@
 //!
 //! ```
 
+pub mod build_info;
 pub mod connection_identifier;
 pub mod connections;
 pub mod containers;
