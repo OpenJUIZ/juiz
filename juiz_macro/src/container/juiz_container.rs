@@ -52,7 +52,7 @@ pub(crate) fn juiz_container_inner(attr: TokenStream, item: TokenStream) -> Toke
 
     // factoryを自動生成する
     let fts = factory_tokenstream(ast.sig.ident.clone());
-    let factory_item_fn: ItemFn = syn::parse_macro_input!(fts as ItemFn);
+    let factory_item_fn = proc_macro2::TokenStream::from(fts);
 
     // 最後の最後に全部の関数を並べる。
     quote! {

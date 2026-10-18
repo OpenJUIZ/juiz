@@ -3,7 +3,7 @@ use quote::{format_ident, quote};
 use serde_json::{Map, Value};
 use syn::{parse_macro_input, ItemFn, Stmt};
 
-use crate::util::parse_attr;
+use crate::util::{build_info_tokenstream, parse_attr};
 
 pub(crate) fn juiz_component_manifest_inner(attr: TokenStream) -> TokenStream {
     let manifest_attr = parse_attr(attr);
@@ -123,7 +123,10 @@ pub(crate) fn juiz_component_manifest_inner(attr: TokenStream) -> TokenStream {
         .push(parse_macro_input!(return_token_stream as Stmt));
 
     // 最後の最後に全部の関数を並べる。
+    let build_info = build_info_tokenstream("component_manifest");
     let ts = quote! {
+        #build_info
+
         #item_fn
     };
 
