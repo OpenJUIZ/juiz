@@ -60,6 +60,18 @@ Python で機能要素を書く場合は pyjuiz パッケージをインスト�
 pip install ./bindings/pyjuiz
 ```
 
+### pip で入れる juiz(bindings/juiz_py)
+
+`bindings/juiz_py` は、Rust のツールチェーンなしで `pip install juiz` だけで `juiz` コマンドを使えるようにする PyPI パッケージ `juiz` です(issue #88)。juiz_app の feature `python-entry` と juiz_core の `extension-module` を使った abi3 の拡張モジュールを [maturin](https://www.maturin.rs/) でビルドします。Python から `import juiz` で使うデコレータは pyjuiz にあるので、拡張モジュールは `juiz_cli` という名前にしています。ルートのワークスペースには入れていません(ワークスペースをまとめてビルドすると `embed-python` と `extension-module` が同時に有効になるため)。
+
+```terminal
+pip install maturin ./bindings/pyjuiz
+cd bindings/juiz_py
+maturin build --release
+pip install target/wheels/juiz-*.whl
+python tests/smoke_test.py
+```
+
 C++ のサンプルは CMake でビルドします。
 
 ```terminal
@@ -110,7 +122,7 @@ HTTP ブローカーの 8000 番ポートはホストに転送されるので、
 | `juiz_app` | `juiz` コマンド |
 | `brokers` | 追加のブローカー実装 (QUIC など) |
 | `ecs` | 実行コンテキスト (TimerEC, OneShotEC, MainLoopEC) |
-| `bindings` | C++ (`cppjuiz`)、Python (`pyjuiz`)、JavaScript 向けバインディング |
+| `bindings` | C++ (`cppjuiz`)、Python (`pyjuiz`、pip で入れる `juiz` コマンドの `juiz_py`)、JavaScript 向けバインディング |
 | `examples` | Rust / C++ / Python のサンプル |
 | `juiz_tutorial` | チュートリアル |
 
