@@ -5,6 +5,6 @@ pub mod container;
 pub mod container_impl;
 pub mod container_ptr;
 
-pub use container::Container;
+pub use container::{Container, ContainerTypeInfo};
 pub use container_impl::ContainerImpl;
 pub use container_ptr::ContainerPtr;

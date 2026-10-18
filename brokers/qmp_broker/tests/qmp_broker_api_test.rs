@@ -258,7 +258,7 @@ impl Drop for ServerProcess {
 }
 
 fn spawn_server() -> ServerProcess {
-    let juiz = target_dir().join("juiz");
+    let juiz = target_dir().join(format!("juiz{}", std::env::consts::EXE_SUFFIX));
     assert!(
         juiz.exists(),
         "{juiz:?} not found. Run `cargo build` before this test."
