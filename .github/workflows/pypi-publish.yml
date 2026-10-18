@@ -2,13 +2,13 @@ name: Publish to PyPI
 
 # v* タグ(例: v0.0.12)の push で次の2つを PyPI に公開する。
 #   - pyjuiz(bindings/pyjuiz): デコレータと HTTP クライアント(純 Python)
-#   - juiz(bindings/juiz_py): juiz コマンドの wheel(OS・CPU ごと、juiz-wheels.yml でビルド)
+#   - juiz-cli(bindings/juiz_py): juiz コマンドの wheel(OS・CPU ごと、juiz-wheels.yml でビルド)
 # crates.io への公開(publish.yml)と同じタグで動き、どちらのバージョンもタグに揃える。
 # タグのバージョンと bindings/pyjuiz/setup.py、bindings/juiz_py の pyproject.toml・Cargo.toml の
-# version(と juiz が依存する pyjuiz の版)が一致しない場合は公開しない。
-# juiz は pyjuiz==<同版> に依存するので、pyjuiz を先に公開する。
+# version(と juiz-cli が依存する pyjuiz の版)が一致しない場合は公開しない。
+# juiz-cli は pyjuiz==<同版> に依存するので、pyjuiz を先に公開する。
 # 認証は PyPI の Trusted Publishing(OIDC)を使うので、API トークンのシークレットは不要。
-# PyPI 側では pyjuiz と juiz のそれぞれに、このワークフローと環境 pypi を Trusted Publisher として登録する。
+# PyPI 側では pyjuiz と juiz-cli のそれぞれに、このワークフローと環境 pypi を Trusted Publisher として登録する。
 # 手動実行(workflow_dispatch)ではビルドとチェックだけを行い、実際には公開しない。
 on:
   push:
@@ -137,13 +137,13 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
 
   publish-juiz:
-    name: Publish juiz
+    name: Publish juiz-cli
     needs: publish
     if: github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     environment:
       name: pypi
-      url: https://pypi.org/project/juiz/
+      url: https://pypi.org/project/juiz-cli/
     permissions:
       id-token: write
     steps:
