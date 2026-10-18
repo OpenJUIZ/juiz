@@ -53,9 +53,8 @@ jobs:
       - name: Build & test
         run: scripts/test.sh --verbose
 
-  # Windows でのビルドとテスト。C++ の例(cmake)はまだ対象外なので scripts/test.sh は使わず、
-  # cargo build と cargo test を直接実行する。Python は actions/setup-python で入れ、
-  # pyo3(auto-initialize)がその libpython にリンクする。
+  # Windows でのビルドとテスト。Python は actions/setup-python で入れ、
+  # pyo3(auto-initialize)がその libpython にリンクする。C++ の例は MSVC と cmake でビルドする。
   windows:
     name: Windows build & test
     runs-on: windows-latest
@@ -79,13 +78,9 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Build
-        run: cargo build
-
-      - name: Test
-        env:
-          PYTHONPATH: ${{ github.workspace }}/bindings/pyjuiz
-        run: cargo test -- --test-threads=1
+      # Windows で失敗するテストをまとめて把握できるよう --no-fail-fast で最後まで実行する
+      - name: Build & test
+        run: scripts/test.sh --no-fail-fast
 
   # テストカバレッジ(cargo-llvm-cov)。結果はジョブサマリーに表示し、
   # main への push 時は shields.io 用の JSON を badges ブランチに置いて README のバッジに使う。

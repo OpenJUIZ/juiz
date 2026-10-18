@@ -21,6 +21,9 @@ endif (WIN32)
 # プロセスを宣言するときの操作を関数にしておく。
 # まとめて変更できるように。
 # コンテナやコンポーネントも全く同じ操作だけど、一応、別にしておく。
+# 出力先はジェネレータ式 $<1:...> で書く。Visual Studio のような複数構成のジェネレータは
+# 出力先に Debug/ などの構成名のディレクトリを足すが、ジェネレータ式を使うと足さなくなるので、
+# どのプラットフォームでも ../target(コンポーネントは ../target/debug)に出力される。
 function(add_juiz_process ARG_NAME)
   message("-- Adding JUIZ process (name='${ARG_NAME}')")
   cmake_parse_arguments(JUIZ "" "" "SOURCES" ${ARGN})
@@ -28,9 +31,9 @@ function(add_juiz_process ARG_NAME)
   target_link_libraries(${ARG_NAME} juiz_sdk)
   set_target_properties(${ARG_NAME}
       PROPERTIES
-      ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_HOME}/target/"
-      LIBRARY_OUTPUT_DIRECTORY "${PROJECT_HOME}/target/"
-      RUNTIME_OUTPUT_DIRECTORY "${PROJECT_HOME}/target/"
+      ARCHIVE_OUTPUT_DIRECTORY "$<1:${PROJECT_HOME}/target/>"
+      LIBRARY_OUTPUT_DIRECTORY "$<1:${PROJECT_HOME}/target/>"
+      RUNTIME_OUTPUT_DIRECTORY "$<1:${PROJECT_HOME}/target/>"
   )
 endfunction()
 
@@ -42,9 +45,9 @@ function(add_juiz_container ARG_NAME)
   target_link_libraries(${ARG_NAME} juiz_sdk)
   set_target_properties(${ARG_NAME}
       PROPERTIES
-      ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_HOME}/target/"
-      LIBRARY_OUTPUT_DIRECTORY "${PROJECT_HOME}/target/"
-      RUNTIME_OUTPUT_DIRECTORY "${PROJECT_HOME}/target/"
+      ARCHIVE_OUTPUT_DIRECTORY "$<1:${PROJECT_HOME}/target/>"
+      LIBRARY_OUTPUT_DIRECTORY "$<1:${PROJECT_HOME}/target/>"
+      RUNTIME_OUTPUT_DIRECTORY "$<1:${PROJECT_HOME}/target/>"
   )
 endfunction()
 
@@ -56,9 +59,9 @@ function(add_juiz_container_process ARG_NAME)
   target_link_libraries(${ARG_NAME} juiz_sdk)
   set_target_properties(${ARG_NAME}
       PROPERTIES
-      ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_HOME}/target/"
-      LIBRARY_OUTPUT_DIRECTORY "${PROJECT_HOME}/target/"
-      RUNTIME_OUTPUT_DIRECTORY "${PROJECT_HOME}/target/"
+      ARCHIVE_OUTPUT_DIRECTORY "$<1:${PROJECT_HOME}/target/>"
+      LIBRARY_OUTPUT_DIRECTORY "$<1:${PROJECT_HOME}/target/>"
+      RUNTIME_OUTPUT_DIRECTORY "$<1:${PROJECT_HOME}/target/>"
   )
 endfunction()
 
@@ -70,9 +73,9 @@ function(add_juiz_component ARG_NAME)
   target_link_libraries(${ARG_NAME} juiz_sdk)
   set_target_properties(${ARG_NAME}
       PROPERTIES
-      ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_HOME}/target/debug"
-      LIBRARY_OUTPUT_DIRECTORY "${PROJECT_HOME}/target/debug"
-      RUNTIME_OUTPUT_DIRECTORY "${PROJECT_HOME}/target/debug"
+      ARCHIVE_OUTPUT_DIRECTORY "$<1:${PROJECT_HOME}/target/debug>"
+      LIBRARY_OUTPUT_DIRECTORY "$<1:${PROJECT_HOME}/target/debug>"
+      RUNTIME_OUTPUT_DIRECTORY "$<1:${PROJECT_HOME}/target/debug>"
   )
 endfunction()
 

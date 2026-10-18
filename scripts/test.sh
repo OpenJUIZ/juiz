@@ -56,7 +56,7 @@ if ! command -v cmake >/dev/null 2>&1; then
     exit 1
 fi
 cmake -S examples/cpp -B examples/cpp/build -DCMAKE_BUILD_TYPE=Debug
-cmake --build examples/cpp/build --parallel
+cmake --build examples/cpp/build --config Debug --parallel
 
 step "Python の例が使うパッケージを確認する ($python)"
 python_packages=(pyyaml httpx pillow docstring_parser)
@@ -73,7 +73,12 @@ if [[ -n "$missing" ]]; then
     echo "  $python -m pip install ${python_packages[*]}" >&2
     exit 1
 fi
-export PYTHONPATH="$repo_root/bindings/pyjuiz${PYTHONPATH:+:$PYTHONPATH}"
+# PYTHONPATH の区切り文字は Windows だと ; になる
+case "$(uname -s)" in
+    MINGW* | MSYS* | CYGWIN*) path_sep=";" ;;
+    *) path_sep=":" ;;
+esac
+export PYTHONPATH="$repo_root/bindings/pyjuiz${PYTHONPATH:+$path_sep$PYTHONPATH}"
 echo "PYTHONPATH=$PYTHONPATH"
 
 if [[ $prepare_only -eq 1 ]]; then
