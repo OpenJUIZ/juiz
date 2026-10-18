@@ -1,6 +1,6 @@
 [package]
 name = "juiz_app"
-version = "0.0.15"
+version = "0.0.16"
 edition = "2021"
 description = "JUIZ utility command-line application package"
 license.workspace = true

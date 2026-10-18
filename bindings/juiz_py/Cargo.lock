@@ -1108,7 +1108,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_app"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "clap",
  "home",
@@ -1118,7 +1118,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_core"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "axum",
  "futures",
@@ -1139,7 +1139,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_macro"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "anyhow",
  "litrs",
@@ -1151,7 +1151,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_py"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "juiz_app",
  "juiz_core",
@@ -1160,7 +1160,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_sdk"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "anyhow",
  "env_logger",
