@@ -84,14 +84,15 @@ impl PythonPlugin {
                 py.version_info()
             );
             // サブモジュールのためにルートディレクトリをpathに入れとく。
+            // Windows のパスの \ がエスケープ文字として解釈されないよう、Python の raw 文字列(r"...")で埋め込む。
             let parent = fullpath.parent().unwrap().to_str().unwrap();
             let _ = PyModule::from_code_bound(
                 py,
                 &format!(
                     r#"
 import sys
-if not "{parent:}" in sys.path:
-    sys.path.append("{parent:}")
+if not r"{parent:}" in sys.path:
+    sys.path.append(r"{parent:}")
             "#
                 ),
                 "",
@@ -110,8 +111,8 @@ if not "{parent:}" in sys.path:
                         &format!(
                             r#"
 import sys
-if not "{path_str:}" in sys.path:
-    sys.path.append("{path_str:}")
+if not r"{path_str:}" in sys.path:
+    sys.path.append(r"{path_str:}")
             "#
                         ),
                         "",
@@ -145,8 +146,8 @@ if not "{path_str:}" in sys.path:
                 &format!(
                     r#"
 import sys
-if not "{parent:}" in sys.path:
-    sys.path.append("{parent:}")
+if not r"{parent:}" in sys.path:
+    sys.path.append(r"{parent:}")
             "#
                 ),
                 "",
@@ -165,8 +166,8 @@ if not "{parent:}" in sys.path:
                         &format!(
                             r#"
 import sys
-if not "{path_str:}" in sys.path:
-    sys.path.append("{path_str:}")
+if not r"{path_str:}" in sys.path:
+    sys.path.append(r"{path_str:}")
             "#
                         ),
                         "",
@@ -216,8 +217,8 @@ if not "{path_str:}" in sys.path:
                 &format!(
                     r#"
 import sys
-if not "{parent:}" in sys.path:
-    sys.path.append("{parent:}")
+if not r"{parent:}" in sys.path:
+    sys.path.append(r"{parent:}")
             "#
                 ),
                 "",
@@ -236,8 +237,8 @@ if not "{parent:}" in sys.path:
                         &format!(
                             r#"
 import sys
-if not "{path_str:}" in sys.path:
-    sys.path.append("{path_str:}")
+if not r"{path_str:}" in sys.path:
+    sys.path.append(r"{path_str:}")
             "#
                         ),
                         "",

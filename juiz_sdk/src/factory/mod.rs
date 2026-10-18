@@ -60,13 +60,34 @@ fn bind_container_process_function<T: 'static>(
     function: impl Fn(&mut ContainerImpl<T>, CapsuleMap) -> JuizResult<Capsule>,
 ) -> impl Fn(ContainerPtr, CapsuleMap) -> JuizResult<Capsule> {
     move |container_ptr: ContainerPtr, capmap: CapsuleMap| -> JuizResult<Capsule> {
-        match container_ptr.lock_mut()?.downcast_mut::<ContainerImpl<T>>() {
+        let mut container = container_ptr.lock_mut()?;
+        match downcast_container_mut::<T>(&mut *container) {
             Some(cn) => (function)(cn, capmap),
             None => Err(anyhow!(JuizError::ContainerDowncastingError {
                 identifier: "ContainerPTr".to_owned()
             })),
         }
     }
+}
+
+/// コンテナを ContainerImpl<T> にダウンキャストする。
+///
+/// コンテナとコンテナプロセスは別々のプラグイン(共有ライブラリ)でビルドされるので、
+/// 同じ型でも TypeId が一致しないことがある(Windows で起きる)。
+/// そのときは型名が一致すれば同じ型とみなしてキャストする。
+fn downcast_container_mut<T: 'static>(
+    container: &mut dyn Container,
+) -> Option<&mut ContainerImpl<T>> {
+    if container.is::<ContainerImpl<T>>() {
+        return container.downcast_mut::<ContainerImpl<T>>();
+    }
+    let expected = std::any::type_name::<ContainerImpl<T>>();
+    if container.container_type_name() == expected {
+        log::debug!("downcast container by type name ({expected})");
+        // SAFETY: 同じソースからビルドされた同名の型なのでメモリ配置は同じ。
+        return Some(unsafe { container.downcast_mut_unchecked::<ContainerImpl<T>>() });
+    }
+    None
 }
 
 pub struct ContainerStackFactoryStruct(

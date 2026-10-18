@@ -19,6 +19,11 @@ pub trait Container: Display + Debug + mopa::Any {
     fn purge_process(&mut self, name_or_id: &String) -> JuizResult<()>;
 
     fn clear(&mut self) -> JuizResult<()>;
+
+    /// 実装の型名。プラグイン(共有ライブラリ)をまたいで TypeId が一致しないときのダウンキャストに使う。
+    fn container_type_name(&self) -> &'static str {
+        std::any::type_name::<Self>()
+    }
 }
 
 mopafy!(Container);
