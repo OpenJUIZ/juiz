@@ -1,0 +1,79 @@
+name: juiz wheels
+
+# pip で入れる juiz(bindings/juiz_py、issue #88)の wheel を OS・CPU ごとにビルドし、
+# インストールした juiz コマンドで Python の Process と juiz_examples_python のサンプルを動かす。
+# Test(test.yml)と Publish to PyPI(pypi-publish.yml)から呼ばれる。
+# wheel は abi3(Python 3.10 以降で共通)なので、OS・CPU の組み合わせごとに1つだけ作る。
+# ビルドした wheel は juiz-wheel-<名前> というアーティファクトに置く。
+#
+# sdist は作らない。maturin の sdist はルートの Cargo.toml(パッケージ juiz_meta を兼ねるワークスペース)を
+# そのまま入れるため、展開した先で cargo がワークスペースを読めずビルドできない。
+# wheel の無い環境では pip が「対応する配布物が無い」で止まり、cargo install juiz_app を使ってもらう。
+on:
+  workflow_call:
+
+jobs:
+  wheel:
+    name: wheel (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            runner: ubuntu-24.04
+            target: x86_64
+          - name: linux-aarch64
+            runner: ubuntu-24.04-arm
+            target: aarch64
+          - name: macos-arm64
+            runner: macos-14
+            target: aarch64
+          - name: macos-x86_64
+            runner: macos-15-intel
+            target: x86_64
+          - name: windows-x86_64
+            runner: windows-latest
+            target: x64
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      # スモークテストで動かすサンプル
+      - uses: actions/checkout@v4
+        with:
+          repository: OpenJUIZ/juiz_examples_python
+          path: juiz_examples_python
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Linux では manylinux のコンテナの中でビルドする(古い glibc の Linux でも入るように)
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: bindings/juiz_py
+          target: ${{ matrix.target }}
+          manylinux: auto
+          args: --release --out dist
+          sccache: "true"
+
+      - name: Install wheel
+        run: |
+          python -m venv .venv
+          if [ "$RUNNER_OS" = "Windows" ]; then bin=.venv/Scripts; else bin=.venv/bin; fi
+          echo "$PWD/$bin" >> "$GITHUB_PATH"
+          # pyjuiz は PyPI の版ではなくリポジトリのものを先に入れる
+          "$bin/python" -m pip install ./bindings/pyjuiz
+          "$bin/python" -m pip install bindings/juiz_py/dist/*.whl
+
+      - name: Smoke test
+        run: python bindings/juiz_py/tests/smoke_test.py juiz_examples_python
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: juiz-wheel-${{ matrix.name }}
+          path: bindings/juiz_py/dist/*.whl

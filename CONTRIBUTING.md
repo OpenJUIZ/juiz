@@ -69,8 +69,11 @@ pip install maturin ./bindings/pyjuiz
 cd bindings/juiz_py
 maturin build --release
 pip install target/wheels/juiz-*.whl
-python tests/smoke_test.py
+python tests/smoke_test.py                          # juiz_examples_python のディレクトリを渡すとサンプルも動かす
 ```
+
+CI では `.github/workflows/juiz-wheels.yml` が Linux(x86_64・aarch64、manylinux)、macOS(arm64・x86_64)、Windows(x86_64)の wheel をビルドし、それぞれでスモークテストと [juiz_examples_python](https://github.com/OpenJUIZ/juiz_examples_python) のサンプルを動かします。
+v* タグを打つと `.github/workflows/pypi-publish.yml` が pyjuiz を公開したあと、これらの wheel を PyPI の `juiz` として公開します。そのため版上げでは、`bindings/juiz_py/pyproject.toml` の `version` と `pyjuiz==` の版、`bindings/juiz_py/Cargo.toml` の `version` もタグに揃えてください(揃っていないと公開しません)。
 
 C++ のサンプルは CMake でビルドします。
 
