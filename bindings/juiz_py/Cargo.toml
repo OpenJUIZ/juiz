@@ -1,6 +1,6 @@
 [package]
 name = "juiz_py"
-version = "0.0.16"
+version = "0.0.17"
 edition = "2021"
 description = "juiz command for Python (the PyPI package juiz-cli)"
 license = "MIT OR Apache-2.0"
@@ -17,6 +17,6 @@ crate-type = ["cdylib"]
 [dependencies]
 juiz_app = { path = "../../juiz_app", default-features = false, features = ["python-entry"] }
 # libpython にはリンクせず、juiz を起動した Python プロセスの中で動く
-juiz_core = { path = "../../juiz_core", default-features = false, features = ["extension-module"] }
+juiz_core = { path = "../../juiz_core", default-features = false, features = ["extension-module", "swagger-ui"] }
 # abi3: Python 3.10 以降の各版で同じ wheel を使う
 pyo3 = { version = "0.22.2", features = ["abi3-py310"] }
