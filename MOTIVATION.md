@@ -1,7 +1,7 @@
 # juiz のモチベーションと設計思想
 
 このドキュメントには juiz を作った動機と、その設計思想（コンセプト）をまとめている。
-インストール方法や使い方は [README.md](README.md) を参照してほしい。
+インストール方法や使い方は [README.md](README.md) と [公式サイト](https://openjuiz.github.io/ja/) を参照してほしい。
 
 ## モチベーション Motivation
 
@@ -183,4 +183,4 @@ BrokerはCoreBrokerを通してコンテナやプロセスにアクセスする�
 Brokerの実装として、デフォルトでHTTP+JSONとQUIC (バイナリ) が提供されている。
 特にHTTPのBrokerはデフォルトでOpenAPIのインターフェース定義を提供するので、SwaggerUIで動作確認をすることが可能である。
 
-具体的なビルド方法、`juiz` コマンドの使い方、機能要素の実装例、設定ファイルの書き方は [README.md](README.md) を参照してほしい。
+具体的なビルド方法、`juiz` コマンドの使い方、機能要素の実装例、設定ファイルの書き方は [公式サイト](https://openjuiz.github.io/ja/) のチュートリアルとガイドを参照してほしい。
