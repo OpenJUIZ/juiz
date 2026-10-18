@@ -1,10 +1,10 @@
-# juiz (Python)
+# juiz-cli
 
 [JUIZ](https://openjuiz.github.io/) のロボット・IoT 向けミドルウェアの `juiz` コマンドを、
 Rust のツールチェーンなしで `pip` から入れるためのパッケージです。
 
 ```sh
-pip install juiz
+pip install juiz-cli
 juiz --help
 ```
 

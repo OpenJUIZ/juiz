@@ -3,7 +3,8 @@ requires = ["maturin>=1.7,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "juiz"
+# PyPI の "juiz" は既存の "julz" と紛らわしい名前として登録できないため juiz-cli にする
+name = "juiz-cli"
 version = "0.0.15"
 description = "JUIZ robot middleware: the juiz command for Python users (no Rust toolchain needed)"
 readme = "README.md"

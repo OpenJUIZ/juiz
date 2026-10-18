@@ -1,7 +1,7 @@
-"""PyPI パッケージ juiz の `juiz` コマンド。
+"""PyPI パッケージ juiz-cli の `juiz` コマンド。
 
 Python の Process などを作るためのデコレータは pyjuiz(``import juiz``)にある。
-このパッケージは pyjuiz に依存しているので、``pip install juiz`` だけで両方使える。
+このパッケージは pyjuiz に依存しているので、``pip install juiz-cli`` だけで両方使える。
 """
 
 import sys
