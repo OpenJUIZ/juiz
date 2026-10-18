@@ -48,7 +48,7 @@ impl TryFrom<String> for ContainerIdentifier {
     type Error = anyhow::Error;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        match regex::Regex::new(r"^(.+?)://(.+?)/(.+?)/(.+?)::(.+?)$") {
+        match crate::identifier::OBJECT_IDENTIFIER_REGEX.as_ref() {
             Ok(re) => match re.captures(value.as_str()) {
                 Some(caps) => {
                     let class_name = caps[3].to_owned();
@@ -71,7 +71,7 @@ impl TryFrom<String> for ContainerIdentifier {
                     }));
                 }
             },
-            Err(e) => Err(anyhow!(e)),
+            Err(e) => Err(anyhow!(e.clone())),
         }
     }
 }

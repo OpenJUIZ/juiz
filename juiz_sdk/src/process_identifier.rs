@@ -143,7 +143,7 @@ impl TryFrom<&str> for ProcessIdentifier {
     type Error = anyhow::Error;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match regex::Regex::new(r"^(.+?)://(.+?)/(.+?)/(.+?)::(.+?)$") {
+        match crate::identifier::OBJECT_IDENTIFIER_REGEX.as_ref() {
             Ok(re) => {
                 match re.captures(value) {
                     Some(caps) => {
@@ -187,7 +187,7 @@ impl TryFrom<&str> for ProcessIdentifier {
                     }
                 }
             }
-            Err(e) => Err(anyhow!(e)),
+            Err(e) => Err(anyhow!(e.clone())),
         }
     }
 }

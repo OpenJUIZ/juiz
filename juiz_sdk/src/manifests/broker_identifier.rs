@@ -152,7 +152,11 @@ impl TryFrom<&str> for BrokerIdentifier {
 /// }
 /// ```
 pub fn parse_broker_identifier(value: &str) -> JuizResult<(&str, &str, &str, &str)> {
-    let re = regex::Regex::new(r"^([^:/]+)://([^/]+)/(?:[Bb]roker/)?([^/]+?)::([^/]+)$")?;
+    static RE: std::sync::LazyLock<Result<regex::Regex, regex::Error>> =
+        std::sync::LazyLock::new(|| {
+            regex::Regex::new(r"^([^:/]+)://([^/]+)/(?:[Bb]roker/)?([^/]+?)::([^/]+)$")
+        });
+    let re = RE.as_ref().map_err(|e| anyhow::anyhow!(e.clone()))?;
     match re.captures(value) {
         Some(caps) => Ok((
             caps.get(3).unwrap().as_str(),
