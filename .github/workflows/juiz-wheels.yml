@@ -64,8 +64,14 @@ jobs:
       - name: Install wheel
         run: |
           python -m venv .venv
-          if [ "$RUNNER_OS" = "Windows" ]; then bin=.venv/Scripts; else bin=.venv/bin; fi
-          echo "$PWD/$bin" >> "$GITHUB_PATH"
+          # 以降のステップで venv の python と juiz を使う(Windows の PATH には Windows 形式で書く)
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            bin=.venv/Scripts
+            cygpath -w "$PWD/$bin" >> "$GITHUB_PATH"
+          else
+            bin=.venv/bin
+            echo "$PWD/$bin" >> "$GITHUB_PATH"
+          fi
           # pyjuiz は PyPI の版ではなくリポジトリのものを先に入れる
           "$bin/python" -m pip install ./bindings/pyjuiz
           "$bin/python" -m pip install bindings/juiz_py/dist/*.whl
