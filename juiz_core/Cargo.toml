@@ -15,6 +15,15 @@ crate-type = ["cdylib", "lib"]
 # 有効にするとビルドに zip が必要になるので、リポジトリの Cargo.lock を使ってビルドすること。
 swagger-ui = ["dep:utoipa-swagger-ui"]
 
+default = ["embed-python"]
+# Python の Process・Container・Component を読み込む。オフにすると pyo3 を使わず、libpython なしで動く。
+python = ["dep:pyo3"]
+# Python インタプリタを juiz の中で起動する(ネイティブバイナリ juiz_app 向け、libpython にリンクする)。
+embed-python = ["python", "pyo3/auto-initialize"]
+# juiz を Python の拡張モジュールとして Python プロセスの中で動かす(pip で入れる juiz 向け、libpython にリンクしない)。
+# embed-python と同時に使わないこと(default-features = false で使う)。
+extension-module = ["python", "pyo3/extension-module"]
+
 [dependencies]
 axum = {workspace = true}
 futures ={workspace = true}
@@ -25,7 +34,7 @@ home = {workspace = true}
 
 
 # opencv = {version="0.92.0", default-features=false, features=["highgui", "videoio", "imgproc", "imgcodecs", "clang-runtime"], optional=true}
-pyo3 = {workspace = true, features=["auto-initialize", "gil-refs"]}
+pyo3 = {workspace = true, features=["gil-refs"], optional = true}
 
 reqwest = {workspace = true, features = ["blocking", "json"]}
 signal-hook = {workspace = true}

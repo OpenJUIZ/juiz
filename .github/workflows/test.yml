@@ -48,6 +48,12 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # Python 連携の feature の組み合わせがビルドできることを確かめる(issue #88)
+      - name: Check feature combinations
+        run: |
+          cargo check -p juiz_app --no-default-features
+          cargo check -p juiz_core --no-default-features --features extension-module
+
       # 例(Rust/C++)のビルド、Python パッケージの確認、PYTHONPATH の設定を済ませてから
       # cargo test -- --test-threads=1 を実行する(手元と同じスクリプト)
       - name: Build & test

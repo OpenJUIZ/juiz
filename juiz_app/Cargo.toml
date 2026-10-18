@@ -11,6 +11,12 @@ license.workspace = true
 name = "juiz"
 path = "src/bin/juiz/main.rs"
 
+[features]
+default = ["embed-python"]
+# Python の Process などを読み込む。Python を使わないなら
+# cargo install juiz_app --no-default-features で libpython なしのバイナリになる。
+embed-python = ["juiz_core/embed-python"]
+
 [dependencies]
 
 clap = {workspace = true}
@@ -18,7 +24,7 @@ home = {workspace = true}
 # Swagger UI を使うときは juiz_core の feature "swagger-ui" を有効にしてビルドする
 # (例: cargo build -p juiz_app --features juiz_core/swagger-ui)。
 # ここに feature を置くと、使わなくても cargo install juiz_app が zip を解決しようとして失敗する。
-juiz_core = { workspace = true }
+juiz_core = { workspace = true, default-features = false }
 
 
 [dev-dependencies]
