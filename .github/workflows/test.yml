@@ -96,38 +96,10 @@ jobs:
       - name: Test python-entry
         run: scripts/test.sh -p juiz_app --features python-entry --test python_entry_test
 
-  # pip で入れる juiz(bindings/juiz_py、issue #88)の wheel をビルドし、
-  # インストールした juiz コマンドで Python の Process を動かす。
-  # pyjuiz は PyPI の版ではなくリポジトリのものを先に入れる。
-  juiz-wheel:
-    name: juiz wheel (Linux)
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: bindings/juiz_py
-
-      - name: Build wheel
-        working-directory: bindings/juiz_py
-        run: |
-          python -m pip install "maturin>=1.7,<2.0"
-          maturin build --out dist
-
-      - name: Install wheel
-        run: |
-          python -m pip install ./bindings/pyjuiz
-          python -m pip install bindings/juiz_py/dist/*.whl
-
-      - name: Smoke test
-        run: python bindings/juiz_py/tests/smoke_test.py
+  # pip で入れる juiz(bindings/juiz_py、issue #88)の wheel を Linux・macOS・Windows でビルドし、
+  # インストールした juiz コマンドで Python の Process とサンプルを動かす(juiz-wheels.yml)。
+  juiz-wheels:
+    uses: ./.github/workflows/juiz-wheels.yml
 
   # テストカバレッジ(cargo-llvm-cov)。結果はジョブサマリーに表示し、
   # main への push 時は shields.io 用の JSON を badges ブランチに置いて README のバッジに使う。

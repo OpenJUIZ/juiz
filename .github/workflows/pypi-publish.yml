@@ -1,9 +1,14 @@
 name: Publish to PyPI
 
-# v* タグ(例: v0.0.12)の push で bindings/pyjuiz を PyPI に公開する。
-# crates.io への公開(publish.yml)と同じタグで動き、pyjuiz のバージョンもタグに揃える。
-# タグのバージョンと bindings/pyjuiz/setup.py の version が一致しない場合は公開しない。
+# v* タグ(例: v0.0.12)の push で次の2つを PyPI に公開する。
+#   - pyjuiz(bindings/pyjuiz): デコレータと HTTP クライアント(純 Python)
+#   - juiz(bindings/juiz_py): juiz コマンドの wheel(OS・CPU ごと、juiz-wheels.yml でビルド)
+# crates.io への公開(publish.yml)と同じタグで動き、どちらのバージョンもタグに揃える。
+# タグのバージョンと bindings/pyjuiz/setup.py、bindings/juiz_py の pyproject.toml・Cargo.toml の
+# version(と juiz が依存する pyjuiz の版)が一致しない場合は公開しない。
+# juiz は pyjuiz==<同版> に依存するので、pyjuiz を先に公開する。
 # 認証は PyPI の Trusted Publishing(OIDC)を使うので、API トークンのシークレットは不要。
+# PyPI 側では pyjuiz と juiz のそれぞれに、このワークフローと環境 pypi を Trusted Publisher として登録する。
 # 手動実行(workflow_dispatch)ではビルドとチェックだけを行い、実際には公開しない。
 on:
   push:
@@ -66,9 +71,55 @@ jobs:
           name: pyjuiz-dist
           path: dist/
 
+  check-juiz-version:
+    name: Check juiz version
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compare tag with juiz version
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            expected="${GITHUB_REF_NAME#v}"
+          else
+            # 手動実行ではタグが無いので、juiz_core のバージョンに揃っているかだけを見る
+            expected=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "juiz_core") | .version')
+          fi
+          echo "Expected version: $expected"
+          python - "$expected" <<'EOF'
+          import sys, tomllib
+          expected = sys.argv[1]
+          with open("bindings/juiz_py/pyproject.toml", "rb") as f:
+              project = tomllib.load(f)["project"]
+          with open("bindings/juiz_py/Cargo.toml", "rb") as f:
+              crate = tomllib.load(f)["package"]
+          found = {
+              "pyproject.toml の version": project["version"],
+              "Cargo.toml の version": crate["version"],
+              "pyproject.toml の pyjuiz 依存": next(
+                  d.split("==", 1)[1] for d in project["dependencies"] if d.startswith("pyjuiz==")),
+          }
+          ok = True
+          for name, ver in found.items():
+              print(f"{name}: {ver}")
+              if ver != expected:
+                  print(f"::error::bindings/juiz_py の {name} {ver} がタグのバージョン {expected} と一致しません")
+                  ok = False
+          sys.exit(0 if ok else 1)
+          EOF
+
+  juiz-wheels:
+    needs: check-juiz-version
+    uses: ./.github/workflows/juiz-wheels.yml
+
   publish:
-    name: Publish
-    needs: build
+    name: Publish pyjuiz
+    # juiz の wheel がそろわないときは pyjuiz も公開しない(片方だけ新しい版が出るのを避ける)
+    needs: [build, juiz-wheels]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     # PyPI の Trusted Publisher に登録する環境名
@@ -81,6 +132,25 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: pyjuiz-dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  publish-juiz:
+    name: Publish juiz
+    needs: publish
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    environment:
+      name: pypi
+      url: https://pypi.org/project/juiz/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: juiz-wheel-*
+          merge-multiple: true
           path: dist/
 
       - uses: pypa/gh-action-pypi-publish@release/v1

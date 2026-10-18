@@ -8,6 +8,8 @@ pip install juiz
 juiz --help
 ```
 
+wheel は Python 3.10 以降で、Linux(x86_64・aarch64)、macOS(Apple シリコン・Intel)、Windows(x86_64)向けがあります。
+
 - `juiz` コマンドは Python のプロセスの中で動き、Python で書いた Process・Container・Component を読み込みます。
 - Process などを書くためのデコレータ(`import juiz`)は [pyjuiz](https://pypi.org/project/pyjuiz/) にあり、このパッケージと一緒に入ります。
 - `cargo install juiz_app` で `juiz` を入れた人は、このパッケージではなく `pip install pyjuiz` だけを追加してください。
