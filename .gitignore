@@ -11,3 +11,5 @@ examples/cpp/build/
 /bindings/pyjuiz/*.egg-info/
 !.devcontainer/
 !.vscode/
+/bindings/juiz_py/target/
+/bindings/juiz_py/dist/
