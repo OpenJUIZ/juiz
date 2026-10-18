@@ -32,15 +32,14 @@ JUIZ (ジュイス) は、ロボットやIoT機器をネットワーク分散シ
 ## すぐに試す
 
 引数に 1 を足して返す Process を Python で書いて、外から呼び出してみます。
-Rust 1.81 以降と Python 3（Ubuntu なら `python3-dev` と `python3-venv` も）が必要です。
+Python 3.10 以降があれば、Rust のツールチェーンは要りません(Linux・macOS・Windows)。
 
-`juiz` コマンドと pyjuiz をインストールします。`juiz` コマンドは venv を有効にしたターミナルで起動してください。
+`pip install juiz-cli` で、`juiz` コマンドと、Process を書くための pyjuiz の両方が入ります。
 
 ```sh
-cargo install juiz_app
 python3 -m venv .venv
-source .venv/bin/activate
-pip install pyjuiz
+source .venv/bin/activate        # Windows では .venv\Scripts\activate
+pip install juiz-cli
 ```
 
 `increment_process.py` を作ります。ファイル名と関数名はそろえます。
@@ -60,11 +59,23 @@ Process を読み込んで、インスタンスを 1 つ作って待機します
 juiz --process ./increment_process.py -l python -1 -d
 ```
 
-別のターミナルから呼び出します。
+別のターミナルで同じ venv を有効にしてから呼び出します。
 
 ```sh
 juiz process call "http://127.0.0.1:8000/process/increment_process0::increment_process" '{"arg1": 3}' -p
 # => CapsulePtr((value:Value(4), option: []))
+```
+
+### Rust・C++ で書く場合
+
+Rust や C++ で書く場合は、`juiz` コマンドを `cargo install juiz_app` で入れます(Rust 1.81 以降が必要です)。
+pip の `juiz-cli` は CI でビルドしたもので、手元でビルドした Rust のプラグインはコンパイラの版がそろわないため読み込めません。
+
+この `juiz` で Python の Process も使うときは、`pip install pyjuiz` **だけ** を追加してください。`juiz-cli` も入れると `juiz` コマンドが 2 つになり、どちらが動くかが PATH の順番で決まってしまいます。
+
+```sh
+cargo install juiz_app
+pip install pyjuiz   # Python の Process も使う場合
 ```
 
 Rust と C++ で書く方法や、Process をつなぐ方法は、公式サイトのチュートリアルで説明しています。
@@ -80,7 +91,7 @@ Rust と C++ で書く方法や、Process をつなぐ方法は、公式サイ�
 
 - サンプル集: [Rust](https://github.com/OpenJUIZ/juiz_examples_rust) / [Python](https://github.com/OpenJUIZ/juiz_examples_python) / [C++](https://github.com/OpenJUIZ/juiz_examples_cpp)
 - API リファレンス: [juiz_sdk (docs.rs)](https://docs.rs/juiz_sdk)
-- パッケージ: [juiz_app (crates.io)](https://crates.io/crates/juiz_app) / [pyjuiz (PyPI)](https://pypi.org/project/pyjuiz/)
+- パッケージ: [juiz-cli (PyPI)](https://pypi.org/project/juiz-cli/) / [juiz_app (crates.io)](https://crates.io/crates/juiz_app) / [pyjuiz (PyPI)](https://pypi.org/project/pyjuiz/)
 - juiz を作った動機と設計思想: [MOTIVATION.md](MOTIVATION.md)
 - ソースからのビルド、テスト、開発環境、リポジトリ構成: [CONTRIBUTING.md](CONTRIBUTING.md)
 
