@@ -17,3 +17,13 @@ fn file_doesnt_exist() -> Result<(), Box<dyn std::error::Error>> {
     println!("OK?");
     Ok(())
 }
+
+#[test]
+fn main_with_args_help_returns_zero() {
+    assert_eq!(juiz_app::main_with_args(["juiz", "--help"]), 0);
+}
+
+#[test]
+fn main_with_args_bad_option_returns_error_code() {
+    assert_eq!(juiz_app::main_with_args(["juiz", "--no-such-option"]), 2);
+}
