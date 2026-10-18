@@ -83,6 +83,8 @@ pub enum JuizError {
     ContainerCanNotFoundByIdError { id: String },
     #[error("Container({identifier:}) can not be downcast.")]
     ContainerDowncastingError { identifier: String },
+    #[error("Container type mismatch: the container is {actual:}, but the container process expects {expected:}. Build the container and its container processes with the same juiz_sdk and the same container type.")]
+    ContainerTypeMismatchError { expected: String, actual: String },
     #[error("ContainerProcessFactory({type_name:}) can not be found.")]
     ContainerProcessFactoryCanNotFoundError { type_name: String },
     #[error("ContainerFactory({type_name:}) is already loaded.")]
