@@ -1,27 +1,20 @@
-use cv_convert::{TryFromCv, TryIntoCv};
-use juiz_sdk::anyhow;
+use crate::convert::{image_to_mat, mat_to_image};
 use juiz_sdk::{image::DynamicImage, prelude::*};
 use opencv::{
-    core::{AlgorithmHint, Mat, ALGO_HINT_DEFAULT},
-    imgproc::{cvt_color, COLOR_BGR2RGB},
+    core::Mat,
+    imgproc::{cvt_color_def, COLOR_BGR2RGB},
 };
 
 #[juiz_component_process]
-fn cv_cvt_color(img: DynamicImage, code: String) -> JuizResult<Capsule> {
+pub(crate) fn cv_cvt_color(img: DynamicImage, code: String) -> JuizResult<Capsule> {
     println!("cvt_color_function called");
-    let mat = Mat::try_from_cv(img)?;
+    Ok(bgr_to_rgb(&img)?.into())
+}
+
+/// 画像の B と R のチャンネルを入れ替える(COLOR_BGR2RGB)
+pub(crate) fn bgr_to_rgb(img: &DynamicImage) -> JuizResult<DynamicImage> {
+    let mat = image_to_mat(img)?;
     let mut out_img = Mat::default();
-    match cvt_color(
-        &mat,
-        &mut out_img,
-        COLOR_BGR2RGB,
-        0,
-        AlgorithmHint::ALGO_HINT_DEFAULT,
-    ) {
-        Ok(()) => {
-            let out_img2: DynamicImage = out_img.try_into_cv()?;
-            Ok(out_img2.into())
-        }
-        Err(e) => Err(anyhow::Error::from(e)),
-    }
+    cvt_color_def(&mat, &mut out_img, COLOR_BGR2RGB)?;
+    mat_to_image(&out_img)
 }
