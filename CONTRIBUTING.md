@@ -26,17 +26,13 @@ cargo install --path juiz_app
 
 ### Swagger UI を使う
 
-HTTP ブローカーの Swagger UI（`/docs`）は juiz_core の feature `swagger-ui` で、既定ではオフです。
-オフでも OpenAPI 定義は `/api-docs/openapi.json` で取得できます。
-Swagger UI を使う場合は feature を有効にし、リポジトリの Cargo.lock を使う `--locked` を付けてビルドします。
+HTTP ブローカーは Swagger UI（`/docs`）を提供します（juiz_core と juiz_app の feature `swagger-ui`、既定でオン）。
+OpenAPI 定義は `/api-docs/openapi.json` で取得できます。
+Swagger UI が要らない場合は `--no-default-features` を付け、必要な feature（`embed-python` など）だけを指定してビルドします。
 
 ```terminal
-cargo build --locked --features juiz_core/swagger-ui
-cargo install --locked --path juiz_app --features juiz_core/swagger-ui
+cargo install --path juiz_app --no-default-features --features embed-python
 ```
-
-既定でオフにしているのは、Swagger UI が使う utoipa-swagger-ui がビルド時に zip クレートに依存していて、crates.io の zip がほぼすべて yank されているためです（2026-10 時点）。
-リポジトリの Cargo.lock には yank 前の zip が記録されているので `--locked` を付ければビルドできますが、crates.io から `cargo install juiz_app` で入れる場合はこの feature は使えません。
 
 ### Python 連携の feature
 
@@ -48,10 +44,10 @@ Python の Process などを読み込む機能は、juiz_core の feature で切
 | `extension-module` | juiz を Python の拡張モジュールとして Python プロセスの中で動かす(pip で入れる juiz 向け、issue #88)。libpython にはリンクしない。`default-features = false` と一緒に使う |
 | `python` | Python プラグインの読み込みだけを有効にする(上の2つが内部で使う) |
 
-Python を使わないなら、次のように既定の feature を外すと libpython なしで起動するバイナリになります。このとき Python のプラグインを読み込もうとするとエラーになります。
+Python を使わないなら、次のように既定の feature を外すと libpython なしで起動するバイナリになります。このとき Python のプラグインを読み込もうとするとエラーになります（`--features swagger-ui` は Swagger UI を残すためのものです）。
 
 ```terminal
-cargo install --path juiz_app --no-default-features
+cargo install --path juiz_app --no-default-features --features swagger-ui
 ```
 
 Python で機能要素を書く場合は pyjuiz パッケージをインストールするか、`bindings/pyjuiz` に PYTHONPATH を通してください。
@@ -106,7 +102,7 @@ Docker と VS Code の Dev Containers 拡張機能を入れた状態でリポジ
 scripts/test.sh
 ```
 
-HTTP ブローカーの 8000 番ポートはホストに転送されるので、ホストのブラウザから http://localhost:8000/docs を開けます（Swagger UI は feature `swagger-ui` を有効にしてビルドしたときだけ。[Swagger UI を使う](#swagger-ui-を使う)）。
+HTTP ブローカーの 8000 番ポートはホストに転送されるので、ホストのブラウザから http://localhost:8000/docs を開けます。
 
 `.vscode/` には、コンテナの内外どちらでも使える VS Code の設定があります。
 
