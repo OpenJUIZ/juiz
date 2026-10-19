@@ -393,6 +393,11 @@ impl System {
     //     self.core_broker.lock_mut()?.broker_proxy_from_manifest(manifest, create_when_not_found)
     // }
 
+    /// type_name のブローカーのファクトリが登録済みか
+    pub fn has_broker_factory(&self, type_name: &str) -> JuizResult<bool> {
+        Ok(self.store.lock()?.broker_factories.contains_key(type_name))
+    }
+
     pub fn register_broker_factories_wrapper(
         &mut self,
         bf: Arc<Mutex<BrokerFactoriesWrapper>>,

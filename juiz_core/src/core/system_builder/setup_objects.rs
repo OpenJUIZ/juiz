@@ -2,6 +2,7 @@ use juiz_sdk::anyhow::Context;
 
 use crate::core::system_builder::{
     brokers::{setup_broker_proxies, setup_brokers},
+    builtin_brokers::setup_builtin_broker_factories,
     connections::setup_connections,
     containers::setup_containers,
     ecs::setup_ecs,
@@ -51,6 +52,9 @@ pub(crate) fn setup_objects(system: &mut System, manifest: &Value) -> JuizResult
             log::trace!("http_broker was not created. option is {options:?}");
         }
     }
+
+    setup_builtin_broker_factories(system)
+        .context("system_builder::setup_builtin_broker_factories in System::setup() failed.")?;
 
     setup_local_broker_factory(system)
         .context("system_builder::setup_local_broker_factory in System::setup() failed.")?;

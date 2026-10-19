@@ -23,6 +23,7 @@ juiz_sdk = {version="0.0.17", path="juiz_sdk"}
 # 既定の feature(embed-python)は使う側で選ぶ(juiz_app/Cargo.toml を参照)
 juiz_core = {version="0.0.17", path="juiz_core", default-features = false}
 juiz_app= {version="0.0.17", path="juiz_app"}
+juiz_qmp_broker = {version="0.0.17", path="brokers/qmp_broker"}
 
 anyhow = "1.0.89"
 approx = "0.5.1"

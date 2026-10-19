@@ -96,16 +96,9 @@ pub async fn on_start(broker_manifest: Value, crud_broker: Arc<Mutex<CRUDBroker>
     qmp_broker::on_start(broker_manifest, crud_broker).await
 }
 
-#[no_mangle]
-pub unsafe extern "Rust" fn broker_factory(
-    core_broker: CoreBrokerPtr,
-) -> JuizResult<Arc<Mutex<dyn BrokerFactory>>> {
-    let _ = juiz_core::env_logger::try_init();
-
-    fn create_broker_function(
-        core_broker: CoreBrokerPtr,
-        manifest: Value,
-    ) -> JuizResult<BrokerPtr> {
+/// qmp ブローカーのファクトリを作る
+pub fn qmp_broker_factory(core_broker: CoreBrokerPtr) -> JuizResult<Arc<Mutex<dyn BrokerFactory>>> {
+    fn create_broker_function(core_broker: CoreBrokerPtr, manifest: Value) -> JuizResult<BrokerPtr> {
         Ok(BrokerPtr::new(CRUDBrokerHolder::new(
             "QuinnBroker",
             "qmp",
@@ -122,11 +115,32 @@ pub unsafe extern "Rust" fn broker_factory(
     create_broker_factory_impl(core_broker, manifest, create_broker_function)
 }
 
-#[no_mangle]
-pub unsafe extern "Rust" fn broker_proxy_factory() -> JuizResult<Arc<Mutex<dyn BrokerProxyFactory>>>
-{
+/// qmp ブローカープロキシのファクトリを作る
+pub fn qmp_broker_proxy_factory() -> JuizResult<Arc<Mutex<dyn BrokerProxyFactory>>> {
     let manifest = jvalue!({
         "type_name": "qmp"
     });
     create_broker_proxy_factory_impl(manifest, qmp_broker_proxy::create_broker_proxy_function)
+}
+
+/// qmp ブローカーを組み込みのブローカーとして登録する。これ以降に setup() する System は、
+/// 設定ファイルの plugins.broker_factories でプラグインを読み込まなくても qmp を使える。
+pub fn register() {
+    juiz_core::register_builtin_broker_factory(qmp_broker_factory, qmp_broker_proxy_factory);
+}
+
+// 以下はプラグイン(libqmp_broker.so など)として読み込まれたときの入口
+
+#[no_mangle]
+pub unsafe extern "Rust" fn broker_factory(
+    core_broker: CoreBrokerPtr,
+) -> JuizResult<Arc<Mutex<dyn BrokerFactory>>> {
+    let _ = juiz_core::env_logger::try_init();
+    qmp_broker_factory(core_broker)
+}
+
+#[no_mangle]
+pub unsafe extern "Rust" fn broker_proxy_factory() -> JuizResult<Arc<Mutex<dyn BrokerProxyFactory>>>
+{
+    qmp_broker_proxy_factory()
 }

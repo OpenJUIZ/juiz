@@ -2,6 +2,7 @@ pub mod broker;
 pub mod broker_factory;
 pub mod broker_factory_impl;
 pub mod broker_ptr;
+pub mod builtin_broker_factories;
 
 mod core_broker;
 
