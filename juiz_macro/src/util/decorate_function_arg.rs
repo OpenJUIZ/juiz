@@ -15,7 +15,7 @@ pub(crate) fn change_argument_to_capsule_map(ast: &mut ItemFn) -> Vec<(TypePath,
     ast.sig.inputs.clear();
     let ass: ItemFn = parse_quote!(
         fn __unused_function_name__(
-            __the_only_argument_modified_by_juiz_process_macro__: juiz_sdk::prelude::CapsuleMap,
+            #[allow(unused_mut)] mut __the_only_argument_modified_by_juiz_process_macro__: juiz_sdk::prelude::CapsuleMap,
         ) {
         }
     );
@@ -36,7 +36,7 @@ pub(crate) fn change_container_process_argument_to_capsule_map(
     ast.sig.inputs.clear();
     let ass: ItemFn = parse_quote!(
         fn __unused_function_name__(
-            __the_only_argument_modified_by_juiz_process_macro__: juiz_sdk::prelude::CapsuleMap,
+            #[allow(unused_mut)] mut __the_only_argument_modified_by_juiz_process_macro__: juiz_sdk::prelude::CapsuleMap,
         ) {
         }
     );
@@ -75,11 +75,11 @@ pub(crate) fn argument_statement(type_name: &TypePath, arg_name: &syn::Ident) ->
             .is_some_and(|s| s.ident == "Value" && s.arguments.is_empty());
     if is_value {
         quote!(
-            let #arg_name : #type_name = __the_only_argument_modified_by_juiz_process_macro__.get(stringify!(#arg_name))?.lock_as_value(|v| v.clone())?;
+            let #arg_name : #type_name = __the_only_argument_modified_by_juiz_process_macro__.take(stringify!(#arg_name))?.extract_value()?;
         ).into()
     } else {
         quote!(
-            let #arg_name : #type_name = __the_only_argument_modified_by_juiz_process_macro__.get(stringify!(#arg_name))?.try_into()?;
+            let #arg_name : #type_name = __the_only_argument_modified_by_juiz_process_macro__.take(stringify!(#arg_name))?.try_into()?;
         ).into()
     }
 }

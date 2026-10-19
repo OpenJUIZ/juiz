@@ -2234,6 +2234,7 @@ dependencies = [
 name = "qmp_broker"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "juiz_core",
  "juiz_sdk",
  "quinn",

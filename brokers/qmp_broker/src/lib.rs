@@ -15,6 +15,19 @@ pub(crate) const MAX_MESSAGE_SIZE: usize = 64 * 1024 * 1024;
 /// サーバー側の処理が失敗したときに返す応答。クライアントはこのキーを見てエラーにする
 pub(crate) const ERROR_KEY: &str = "__qmp_error__";
 
+/// ストリームを最後まで読む。RecvStream::read_to_end は 0 で埋めた領域を確保してから
+/// 写すので、届いた順に Vec へ足していく（0 埋めの分だけ速い）。
+pub(crate) async fn read_all(recv: &mut quinn::RecvStream) -> anyhow::Result<Vec<u8>> {
+    let mut buf = Vec::new();
+    while let Some(chunk) = recv.read_chunk(usize::MAX, true).await? {
+        if buf.len() + chunk.bytes.len() > MAX_MESSAGE_SIZE {
+            return Err(anyhow!("message exceeds {MAX_MESSAGE_SIZE} bytes"));
+        }
+        buf.extend_from_slice(&chunk.bytes);
+    }
+    Ok(buf)
+}
+
 pub(crate) fn error_response(e: &anyhow::Error) -> anyhow::Result<Vec<u8>> {
     value_to_vecu8(&jvalue!({ ERROR_KEY: format!("{e:?}") }))
 }

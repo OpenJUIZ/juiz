@@ -315,3 +315,27 @@ fn capsule_map_param_value_round_trip() -> JuizResult<()> {
     assert_eq!(back.get_param("p"), Some(&"q".to_owned()));
     Ok(())
 }
+
+#[test]
+fn capsule_map_take_and_move_out() -> JuizResult<()> {
+    let mut m: CapsuleMap = vec![("s", jvalue!("abc")), ("a", jvalue!([1, 2]))].into();
+    // take は値を取り除く
+    let s: String = m.take("s")?.try_into()?;
+    assert_eq!(s, "abc");
+    assert!(m.take("s").is_err());
+    assert!(m.get("s").is_err());
+    let a: Vec<i64> = m.take("a")?.try_into()?;
+    assert_eq!(a, vec![1, 2]);
+
+    // 共有されていれば複製を返し、元の値は残る
+    let p: CapsulePtr = jvalue!("xyz").into();
+    let keep = p.clone();
+    let s: String = p.try_into()?;
+    assert_eq!(s, "xyz");
+    assert_eq!(keep.extract_value()?, jvalue!("xyz"));
+
+    // 型が違えばエラー
+    let p: CapsulePtr = jvalue!(1).into();
+    assert!(TryInto::<String>::try_into(p).is_err());
+    Ok(())
+}

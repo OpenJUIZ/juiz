@@ -155,20 +155,24 @@ impl CapsulePtr {
         }
     }
 
+    /// 値型の中身を取り出す。ほかに参照が無ければ複製せずに移し、あれば複製する。
     pub fn extract_value(self) -> JuizResult<Value> {
+        let not_value = || {
+            anyhow!(JuizError::ValueTypeError {
+                message: "extract_value() failed. Value is not value-type".to_owned()
+            })
+        };
         match Arc::try_unwrap(self.value) {
             Ok(v) => match v.into_inner() {
-                Ok(vv) => return Ok(vv.to_value().unwrap()),
-                Err(v) => return Ok(v.get_ref().as_value().unwrap().clone()),
+                Ok(vv) => vv.to_value().ok_or_else(not_value),
+                Err(v) => v.get_ref().as_value().cloned().ok_or_else(not_value),
             },
             Err(e) => e
                 .lock()
-                .and_then(|v| Ok(v.as_value().unwrap().clone()))
-                .or_else(|_e| {
-                    Err(anyhow::Error::from(JuizError::MutexLockFailedError {
-                        error: "".to_owned(),
-                    }))
-                }),
+                .or(Err(anyhow::Error::from(JuizError::MutexLockFailedError {
+                    error: "CapsulePtr.extract_value() lock error.".to_owned(),
+                })))
+                .and_then(|v| v.as_value().cloned().ok_or_else(not_value)),
         }
     }
 
@@ -412,12 +416,12 @@ impl TryInto<String> for CapsulePtr {
     type Error = anyhow::Error;
 
     fn try_into(self) -> Result<String, Self::Error> {
-        self.lock_as_value(|v| v.as_str().and_then(|sv| Some(sv.to_owned())))?
-            .ok_or_else(|| {
-                anyhow!(JuizError::ValueTypeError {
-                    message: "From<String> for CapsulePtr failed.".to_owned()
-                })
-            })
+        match self.extract_value()? {
+            Value::String(s) => Ok(s),
+            _ => Err(anyhow!(JuizError::ValueTypeError {
+                message: "From<String> for CapsulePtr failed.".to_owned()
+            })),
+        }
     }
 }
 
@@ -449,31 +453,19 @@ impl TryInto<Vec<Value>> for CapsulePtr {
     type Error = anyhow::Error;
 
     fn try_into(self) -> Result<Vec<Value>, Self::Error> {
-        let val = self.lock_as_value(|v| -> JuizResult<Vec<Value>> {
-            Ok(v.as_array()
-                .ok_or_else(|| {
-                    anyhow!(JuizError::ValueTypeError {
-                        message: "TryInto<Vec<Value>> for CapsulePtr failed.".to_owned()
-                    })
-                })?
-                .clone())
-        })??;
-        Ok(val)
+        match self.extract_value()? {
+            Value::Array(a) => Ok(a),
+            _ => Err(anyhow!(JuizError::ValueTypeError {
+                message: "TryInto<Vec<Value>> for CapsulePtr failed.".to_owned()
+            })),
+        }
     }
 }
 impl TryInto<Vec<i64>> for CapsulePtr {
     type Error = anyhow::Error;
 
     fn try_into(self) -> Result<Vec<i64>, Self::Error> {
-        let val = self.lock_as_value(|v| -> JuizResult<Vec<Value>> {
-            Ok(v.as_array()
-                .ok_or_else(|| {
-                    anyhow!(JuizError::ValueTypeError {
-                        message: "From<u64> for CapsulePtr failed.".to_owned()
-                    })
-                })?
-                .clone())
-        })??;
+        let val: Vec<Value> = self.try_into()?;
         val.into_iter()
             .map(|v| {
                 v.as_i64().ok_or_else(|| {
@@ -489,15 +481,7 @@ impl TryInto<Vec<f64>> for CapsulePtr {
     type Error = anyhow::Error;
 
     fn try_into(self) -> Result<Vec<f64>, Self::Error> {
-        let val = self.lock_as_value(|v| -> JuizResult<Vec<Value>> {
-            Ok(v.as_array()
-                .ok_or_else(|| {
-                    anyhow!(JuizError::ValueTypeError {
-                        message: "From<Vec<f64>>> for CapsulePtr failed.".to_owned()
-                    })
-                })?
-                .clone())
-        })??;
+        let val: Vec<Value> = self.try_into()?;
         val.into_iter()
             .map(|v| {
                 v.as_f64().ok_or_else(|| {

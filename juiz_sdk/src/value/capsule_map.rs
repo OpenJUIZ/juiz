@@ -38,6 +38,15 @@ impl CapsuleMap {
         self.param.get(key)
     }
 
+    /// 値を取り除いて返す。get と違い参照を残さないので、呼び出し側が中身を複製せずに取り出せる。
+    pub fn take(&mut self, key: &str) -> JuizResult<CapsulePtr> {
+        self.map.remove(key).ok_or_else(|| {
+            anyhow::Error::from(JuizError::CapsuleMapDoesNotContainValueError {
+                key: key.to_owned(),
+            })
+        })
+    }
+
     pub fn get(&self, key: &str) -> JuizResult<CapsulePtr> {
         match self.map.get(key) {
             Some(v) => Ok(v.clone()),
@@ -171,6 +180,9 @@ impl From<CapsuleMap> for Value {
             .map(|(k, v)| -> (String, Value) { (k, v.extract_value().unwrap()) })
             .collect::<Map<String, Value>>();
 
+        // jvalue! は map_map を複製する。複製しない形も試したが、HTTP ブローカーの呼び出し側で
+        // glibc のヒープ末尾の縮小と再拡張が毎回起き（1 MB の引数で 1 要求あたり約 650 回の
+        // ページフォールト）、複製 1 回より遅くなったので、この形のままにしている。
         return jvalue!({
             "__map__": map_map,
             "__param__": capsule_map.param,

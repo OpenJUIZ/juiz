@@ -8,13 +8,14 @@ use std::sync::Mutex;
 use std::time::Duration;
 use std::{net::SocketAddr, sync::Arc};
 
+use bytes::Bytes;
 use quinn::ServerConfig;
 use quinn::{Connection, Endpoint, Incoming};
 use rustls::crypto::ring::default_provider;
 use rustls::pki_types::CertificateDer;
 use rustls::pki_types::PrivatePkcs8KeyDer;
 
-use crate::{error_response, value_to_vecu8, vecu8_to_value, MAX_MESSAGE_SIZE};
+use crate::{error_response, read_all, value_to_vecu8, vecu8_to_value};
 use juiz_core::localize_identifier;
 
 #[allow(unused)]
@@ -279,8 +280,8 @@ async fn handle_stream<F>(
 where
     F: Fn(Vec<u8>, &Connection) -> anyhow::Result<Vec<u8>> + Send + Sync + 'static,
 {
-    let req = recv.read_to_end(MAX_MESSAGE_SIZE).await.or_else(|e| {
-        log::error!("RecvStream::read_to_end() failed. {e:?}");
+    let req = read_all(recv).await.or_else(|e| {
+        log::error!("read_all() failed. {e:?}");
         return Err(anyhow!(e));
     })?;
 
@@ -302,7 +303,8 @@ where
         }
     };
 
-    send.write_all(&response).await.or_else(|e| {
+    // write_all は送信バッファへ複製するので、Vec をそのまま Bytes にして渡す。
+    send.write_chunk(Bytes::from(response)).await.or_else(|e| {
         log::error!("write error. {e:?}");
         Err(anyhow!(e))
     })?;
