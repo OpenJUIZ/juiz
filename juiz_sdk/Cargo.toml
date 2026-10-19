@@ -1,7 +1,7 @@
 [package]
 name = "juiz_sdk"
 rust-version = "1.81"
-version = "0.0.17"
+version = "0.0.18"
 edition = "2021"
 description = "SDK definitions for juiz functional elements crate."
 license.workspace = true

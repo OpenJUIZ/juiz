@@ -1501,7 +1501,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_app"
-version = "0.0.17"
+version = "0.0.18"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -1514,7 +1514,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_core"
-version = "0.0.17"
+version = "0.0.18"
 dependencies = [
  "axum",
  "futures",
@@ -1536,7 +1536,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_macro"
-version = "0.0.17"
+version = "0.0.18"
 dependencies = [
  "anyhow",
  "litrs",
@@ -1560,7 +1560,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_qmp_broker"
-version = "0.0.17"
+version = "0.0.18"
 dependencies = [
  "bytes",
  "juiz_core",
@@ -1579,7 +1579,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_sdk"
-version = "0.0.17"
+version = "0.0.18"
 dependencies = [
  "anyhow",
  "approx",
