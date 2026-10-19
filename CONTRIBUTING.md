@@ -78,6 +78,19 @@ cmake -S examples/cpp -B examples/cpp/build
 cmake --build examples/cpp/build
 ```
 
+### OpenCV のコンポーネントをビルドする
+
+`examples/rust/component/juiz_opencv` は OpenCV を使うため、通常の `cargo build` には含まれません(`default-members` の外)。
+opencv クレートがビルド時に libclang で OpenCV のヘッダを読むので、OpenCV の開発パッケージと libclang が必要です。Ubuntu では次のようにします。
+
+```terminal
+sudo apt-get install libopencv-dev clang libclang-dev
+cargo build -p juiz_opencv
+cargo test -p juiz_opencv    # カメラや画面を使わない処理(画像の変換、色変換、ファイルの読み書き)のテスト
+```
+
+CI では `.github/workflows/test.yml` の `opencv` ジョブ(Ubuntu)で同じことを実行しています。
+
 ### テストを実行する
 
 `scripts/test.sh` が、テストの前提になる準備(ワークスペースの `cargo build`、C++ の例の cmake ビルド、Python の例が使うパッケージの確認と `PYTHONPATH=bindings/pyjuiz` の設定)を済ませてから `cargo test -- --test-threads=1` を実行します。CI(`.github/workflows/test.yml`)も同じスクリプトを使います。

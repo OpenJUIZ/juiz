@@ -64,6 +64,33 @@ jobs:
       - name: Test python-entry
         run: scripts/test.sh -p juiz_app --features python-entry --test python_entry_test
 
+  # OpenCV を使うコンポーネント(examples/rust/component/juiz_opencv)のビルドとテスト。
+  # opencv クレートはビルド時に libclang でシステムの OpenCV のヘッダからバインディングを生成するので、
+  # libopencv-dev と libclang-dev を入れる。通常のテストと独立させ、失敗しても他のジョブに影響しない。
+  # カメラや画面は使わず、画像の変換・色変換・ファイルの読み書きだけをテストする。
+  opencv:
+    name: OpenCV component build & test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libopencv-dev clang libclang-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: opencv
+
+      - name: Build
+        run: cargo build -p juiz_opencv --verbose
+
+      - name: Test
+        run: cargo test -p juiz_opencv
+
   # Windows でのビルドとテスト。Python は actions/setup-python で入れ、
   # pyo3(auto-initialize)がその libpython にリンクする。C++ の例は MSVC と cmake でビルドする。
   windows:

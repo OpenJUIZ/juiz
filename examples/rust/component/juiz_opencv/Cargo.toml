@@ -10,7 +10,5 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-opencv = {version="0.84", default-features=false, features=["highgui", "videoio", "imgproc", "imgcodecs", "clang-runtime"]}
+opencv = {version="0.101", default-features=false, features=["highgui", "videoio", "imgproc", "imgcodecs", "clang-runtime"]}
 juiz_sdk = { path="../../../../juiz_sdk/" }
-# mat2image = { version="0.2" }
-cv-convert = { version="0.25" , default-features=false, features=[ "opencv_0-84", 'image_0-24', 'ndarray_0-15' ] }

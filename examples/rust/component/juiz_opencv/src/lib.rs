@@ -1,3 +1,4 @@
+mod convert;
 mod cv_cvt_color;
 mod filesystem;
 mod filesystem_imwrite;
@@ -7,6 +8,9 @@ mod video_capture_read;
 mod video_capture_readandget;
 mod window;
 mod window_show;
+
+#[cfg(test)]
+mod tests;
 
 pub use juiz_sdk::prelude::*;
 
