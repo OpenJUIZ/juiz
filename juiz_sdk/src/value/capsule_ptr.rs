@@ -140,9 +140,11 @@ impl CapsulePtr {
             },
             Err(e) => e
                 .lock()
-                .or(Err(anyhow::Error::from(JuizError::MutexLockFailedError {
-                    error: "".to_owned(),
-                })))
+                .or_else(|_| {
+                    Err(anyhow::Error::from(JuizError::MutexLockFailedError {
+                        error: "".to_owned(),
+                    }))
+                })
                 .and_then(|v| {
                     if let Some(img) = v.as_image() {
                         Ok(img.clone())
@@ -169,9 +171,12 @@ impl CapsulePtr {
             },
             Err(e) => e
                 .lock()
-                .or(Err(anyhow::Error::from(JuizError::MutexLockFailedError {
-                    error: "CapsulePtr.extract_value() lock error.".to_owned(),
-                })))
+                // or(Err(..)) だと成功時にもエラー値（バックトレース付き）を作るので、失敗時だけ作る
+                .or_else(|_| {
+                    Err(anyhow::Error::from(JuizError::MutexLockFailedError {
+                        error: "CapsulePtr.extract_value() lock error.".to_owned(),
+                    }))
+                })
                 .and_then(|v| v.as_value().cloned().ok_or_else(not_value)),
         }
     }
