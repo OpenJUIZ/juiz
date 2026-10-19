@@ -105,10 +105,24 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           args=""
-          for pkg in $PUBLISH_PACKAGES; do args="$args -p $pkg"; done
           if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            # 途中で失敗したあとタグを打ち直したときのため、crates.io に公開済みの版は飛ばす
+            ver="${GITHUB_REF_NAME#v}"
+            for pkg in $PUBLISH_PACKAGES; do
+              status=$(curl -s -o /dev/null -w '%{http_code}' -A "OpenJUIZ/juiz publish workflow" "https://crates.io/api/v1/crates/$pkg/$ver")
+              if [ "$status" = "200" ]; then
+                echo "skip: $pkg $ver は公開済み"
+              else
+                args="$args -p $pkg"
+              fi
+            done
+            if [ -z "$args" ]; then
+              echo "すべてのクレートが公開済みです"
+              exit 0
+            fi
             cargo publish $args
           else
+            for pkg in $PUBLISH_PACKAGES; do args="$args -p $pkg"; done
             cargo publish --dry-run $args
           fi
 
