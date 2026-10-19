@@ -31,8 +31,14 @@ OpenAPI 定義は `/api-docs/openapi.json` で取得できます。
 Swagger UI が要らない場合は `--no-default-features` を付け、必要な feature（`embed-python` など）だけを指定してビルドします。
 
 ```terminal
-cargo install --path juiz_app --no-default-features --features embed-python
+cargo install --path juiz_app --no-default-features --features embed-python,qmp-broker
 ```
+
+### QUIC (qmp) ブローカー
+
+QUIC (qmp) ブローカー(`brokers/qmp_broker`、クレート `juiz_qmp_broker`)は juiz_app の feature `qmp-broker`(既定でオン)で `juiz` コマンドに組み込まれます(issue #63)。設定ファイルの `brokers` / `broker_proxies` に `type_name: qmp` を書くだけで使え、`plugins.broker_factories` でプラグインを読み込む必要はありません。
+プラグインとしてビルドした `libqmp_broker.so` などを `plugins.broker_factories.qmp_broker` で読み込んだ場合は、そちらが優先されます。
+自分で `System` を作るアプリケーションでは、`setup()` の前に `qmp_broker::register()` を呼ぶと組み込みで使えます。
 
 ### Python 連携の feature
 
@@ -44,10 +50,10 @@ Python の Process などを読み込む機能は、juiz_core の feature で切
 | `extension-module` | juiz を Python の拡張モジュールとして Python プロセスの中で動かす(pip で入れる juiz 向け、issue #88)。libpython にはリンクしない。`default-features = false` と一緒に使う |
 | `python` | Python プラグインの読み込みだけを有効にする(上の2つが内部で使う) |
 
-Python を使わないなら、次のように既定の feature を外すと libpython なしで起動するバイナリになります。このとき Python のプラグインを読み込もうとするとエラーになります（`--features swagger-ui` は Swagger UI を残すためのものです）。
+Python を使わないなら、次のように既定の feature を外すと libpython なしで起動するバイナリになります。このとき Python のプラグインを読み込もうとするとエラーになります（`--features swagger-ui,qmp-broker` は Swagger UI と QUIC ブローカーを残すためのものです）。
 
 ```terminal
-cargo install --path juiz_app --no-default-features --features swagger-ui
+cargo install --path juiz_app --no-default-features --features swagger-ui,qmp-broker
 ```
 
 Python で機能要素を書く場合は pyjuiz パッケージをインストールするか、`bindings/pyjuiz` に PYTHONPATH を通してください。
@@ -132,7 +138,7 @@ HTTP ブローカーの 8000 番ポートはホストに転送されるので、
 | `juiz_macro` | `#[juiz_process]` などのマクロ |
 | `juiz_core` | 機能要素を実体化・管理するコア (CoreBroker, Broker など) |
 | `juiz_app` | `juiz` コマンド |
-| `brokers` | 追加のブローカー実装 (QUIC など) |
+| `brokers` | 追加のブローカー実装 (QUIC の `juiz_qmp_broker` など) |
 | `ecs` | 実行コンテキスト (TimerEC, OneShotEC, MainLoopEC) |
 | `bindings` | C++ (`cppjuiz`)、Python (`pyjuiz`、pip で入れる `juiz` コマンドの `juiz_py`)、JavaScript 向けバインディング |
 | `examples` | Rust / C++ / Python のサンプル |

@@ -1507,6 +1507,7 @@ dependencies = [
  "clap",
  "home",
  "juiz_core",
+ "juiz_qmp_broker",
  "predicates",
  "pyo3",
 ]
@@ -1555,6 +1556,25 @@ version = "0.1.0"
 dependencies = [
  "juiz_sdk",
  "opencv",
+]
+
+[[package]]
+name = "juiz_qmp_broker"
+version = "0.0.17"
+dependencies = [
+ "bytes",
+ "juiz_core",
+ "juiz_sdk",
+ "quinn",
+ "quinn-proto",
+ "rcgen",
+ "ring",
+ "rmp-serde",
+ "rmpv",
+ "rustls",
+ "serde_json",
+ "tracing",
+ "tracing-futures",
 ]
 
 [[package]]
@@ -2210,25 +2230,6 @@ dependencies = [
  "pyo3-build-config",
  "quote",
  "syn 2.0.119",
-]
-
-[[package]]
-name = "qmp_broker"
-version = "0.1.0"
-dependencies = [
- "bytes",
- "juiz_core",
- "juiz_sdk",
- "quinn",
- "quinn-proto",
- "rcgen",
- "ring",
- "rmp-serde",
- "rmpv",
- "rustls",
- "serde_json",
- "tracing",
- "tracing-futures",
 ]
 
 [[package]]

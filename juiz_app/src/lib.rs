@@ -589,6 +589,8 @@ where
     T: Into<OsString> + Clone,
 {
     let _ = env_logger::try_init();
+    #[cfg(feature = "qmp-broker")]
+    qmp_broker::register();
     let args = match Args::try_parse_from(args) {
         Ok(args) => args,
         Err(e) => {

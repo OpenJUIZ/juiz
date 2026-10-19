@@ -15,12 +15,15 @@ name = "juiz"
 path = "src/bin/juiz/main.rs"
 
 [features]
-default = ["embed-python", "swagger-ui"]
+default = ["embed-python", "swagger-ui", "qmp-broker"]
 # Python の Process などを読み込む。Python を使わないなら
 # cargo install juiz_app --no-default-features で libpython なしのバイナリになる。
 embed-python = ["juiz_core/embed-python"]
 # HTTP ブローカーの /docs で Swagger UI を提供する。
 swagger-ui = ["juiz_core/swagger-ui"]
+# QUIC (qmp) ブローカーを組み込む。設定ファイルの brokers / broker_proxies に type_name: qmp を書くだけで使える
+# (plugins.broker_factories でプラグインを読み込む必要が無い)。issue #63
+qmp-broker = ["dep:juiz_qmp_broker"]
 # Python から juiz を起動する入口(juiz_app::python)。pip で入る juiz コマンドが使う(issue #88)。
 # libpython へのリンクは embed-python か juiz_core/extension-module で別に選ぶ。
 python-entry = ["juiz_core/python", "dep:pyo3"]
@@ -30,6 +33,7 @@ python-entry = ["juiz_core/python", "dep:pyo3"]
 clap = {workspace = true}
 home = {workspace = true}
 juiz_core = { workspace = true, default-features = false }
+juiz_qmp_broker = { workspace = true, optional = true }
 pyo3 = { workspace = true, optional = true }
 
 

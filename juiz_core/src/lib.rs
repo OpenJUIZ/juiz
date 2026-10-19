@@ -17,6 +17,9 @@ pub mod prelude;
 pub use brokers::{
     create_broker_factory_impl, create_broker_proxy_factory_impl, CRUDBroker, CRUDBrokerHolder,
 };
+pub use brokers::builtin_broker_factories::{
+    register_builtin_broker_factory, BrokerFactoryFunction, BrokerProxyFactoryFunction,
+};
 pub use brokers::{localize_identifier, CRUDBrokerProxy, CRUDBrokerProxyHolder};
 pub use core::{SystemStore, SystemStorePtr};
 pub use ecs::{
