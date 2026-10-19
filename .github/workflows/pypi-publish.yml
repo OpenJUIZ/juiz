@@ -135,6 +135,9 @@ jobs:
           path: dist/
 
       - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # タグを打ち直したときに、公開済みのファイルでエラーにしない
+          skip-existing: true
 
   publish-juiz:
     name: Publish juiz-cli
@@ -154,3 +157,6 @@ jobs:
           path: dist/
 
       - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # タグを打ち直したときに、公開済みのファイルでエラーにしない
+          skip-existing: true
