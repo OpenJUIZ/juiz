@@ -11,6 +11,7 @@ use juiz_core::{
     tokio::{self},
     CRUDBrokerProxy, CRUDBrokerProxyHolder,
 };
+use bytes::Bytes;
 use quinn::{
     crypto::rustls::QuicClientConfig, ClientConfig, Connection, Endpoint, TransportConfig,
 };
@@ -20,7 +21,7 @@ use rustls::{
 };
 
 use crate::{
-    payload_to_request_value, ERROR_KEY, MAX_MESSAGE_SIZE, to_request_value, value_to_request_value, value_to_vecu8,
+    payload_to_request_value, ERROR_KEY, read_all, to_request_value, value_to_request_value, value_to_vecu8,
     vecu8_to_value,
 };
 
@@ -173,7 +174,8 @@ async fn write_and_then<T, F: Fn(Vec<u8>) -> anyhow::Result<T>>(
         log::error!("connection.open_bi failed. {e:?}");
         Err(anyhow!(e))
     })?;
-    send.write_all(&request).await.or_else(|e| {
+    // write_all は送信バッファへ複製するので、Vec をそのまま Bytes にして渡す。
+    send.write_chunk(Bytes::from(request)).await.or_else(|e| {
         log::error!("SendStream.write_all failed. {e:?}");
         Err(anyhow!(e))
     })?;
@@ -181,8 +183,8 @@ async fn write_and_then<T, F: Fn(Vec<u8>) -> anyhow::Result<T>>(
         log::error!("SendStream.finish() failed. {e:?}");
         Err(anyhow!(e))
     })?;
-    callback(recv.read_to_end(MAX_MESSAGE_SIZE).await.or_else(|e| {
-        log::error!("RecvStream.read_to_end() failed. {e:?}");
+    callback(read_all(&mut recv).await.or_else(|e| {
+        log::error!("read_all() failed. {e:?}");
         Err(anyhow!(e))
     })?)
 }

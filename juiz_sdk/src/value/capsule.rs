@@ -335,18 +335,19 @@ impl From<&str> for Capsule {
         jvalue!(value).into()
     }
 }
+// String・Map・Vec は jvalue! を通すと複製されるので、そのまま Value に包む。
 impl From<String> for Capsule {
     fn from(value: String) -> Self {
-        jvalue!(value).into()
+        Value::String(value).into()
     }
 }
 impl From<Map<String, Value>> for Capsule {
     fn from(value: Map<String, Value>) -> Self {
-        jvalue!(value).into()
+        Value::Object(value).into()
     }
 }
 impl From<Vec<Value>> for Capsule {
     fn from(value: Vec<Value>) -> Self {
-        jvalue!(value).into()
+        Value::Array(value).into()
     }
 }
