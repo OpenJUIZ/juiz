@@ -3,7 +3,15 @@
 
 use crate::prelude::*;
 use anyhow::anyhow;
+use std::sync::LazyLock;
 pub type Identifier = String;
+
+// 識別子の正規表現は呼び出しのたびにコンパイルすると 1 回で 100 µs 以上かかるので、最初の 1 回だけ作って使い回す。
+/// `<broker_type>://<broker_name>/<class>/<name>::<type>` を分解する正規表現
+pub(crate) static OBJECT_IDENTIFIER_REGEX: LazyLock<Result<regex::Regex, regex::Error>> =
+    LazyLock::new(|| regex::Regex::new(r"^(.+?)://(.+?)/(.+?)/(.+?)::(.+?)$"));
+static BROKER_ID_REGEX: LazyLock<Result<regex::Regex, regex::Error>> =
+    LazyLock::new(|| regex::Regex::new(r"^(.+?)://(.+?)$"));
 
 pub fn identifier_new(
     broker_type_name: &str,
@@ -229,7 +237,7 @@ impl IdentifierStruct {
         }
     }
     pub fn new_broker_id(id: Identifier) -> JuizResult<Self> {
-        match regex::Regex::new(r"^(.+?)://(.+?)$") {
+        match BROKER_ID_REGEX.as_ref() {
             Ok(re) => match re.captures(&id) {
                 Some(caps) => {
                     let class_name = "".to_owned();
@@ -255,14 +263,14 @@ impl IdentifierStruct {
             },
             Err(e) => {
                 log::error!("new_broker_id error. Invalid Identifier ({id}).");
-                Err(anyhow!(e))
+                Err(anyhow!(e.clone()))
             }
         }
     }
 
     pub fn from_broker_identifier(identifier: &Identifier) -> JuizResult<Self> {
         log::trace!("IdentifierStruct::from_broker_identifier({identifier}) called");
-        match regex::Regex::new(r"^(.+?)://(.+?)/(.+?)/(.+?)::(.+?)$") {
+        match OBJECT_IDENTIFIER_REGEX.as_ref() {
             Ok(re) => {
                 match re.captures(identifier) {
                     Some(caps) => {
@@ -288,7 +296,7 @@ impl IdentifierStruct {
                     }
                 }
             }
-            Err(e) => Err(anyhow!(e)),
+            Err(e) => Err(anyhow!(e.clone())),
         }
     }
 }
@@ -296,7 +304,7 @@ impl IdentifierStruct {
 ///
 ///
 fn digest_identifier(identifier: &Identifier) -> JuizResult<IdentifierStruct> {
-    match regex::Regex::new(r"^(.+?)://(.+?)/(.+?)/(.+?)::(.+?)$") {
+    match OBJECT_IDENTIFIER_REGEX.as_ref() {
         Ok(re) => match re.captures(identifier) {
             Some(caps) => {
                 let class_name = caps[3].to_owned();
@@ -320,6 +328,6 @@ fn digest_identifier(identifier: &Identifier) -> JuizResult<IdentifierStruct> {
                 }));
             }
         },
-        Err(e) => Err(anyhow!(e)),
+        Err(e) => Err(anyhow!(e.clone())),
     }
 }

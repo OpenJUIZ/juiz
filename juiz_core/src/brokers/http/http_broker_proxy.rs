@@ -49,6 +49,7 @@ fn name_to_host_and_port<'a>(name: &'a String) -> JuizResult<(&'a str, i64)> {
 
 struct HTTPBrokerProxy {
     base_url: String,
+    /// 接続（keep-alive）を使い回すため、呼び出しごとに作らずこの 1 つを使う
     client: reqwest::blocking::Client,
 }
 
@@ -120,8 +121,8 @@ impl CRUDBrokerProxy for HTTPBrokerProxy {
         param: std::collections::HashMap<String, String>,
     ) -> JuizResult<CapsulePtr> {
         log::trace!("【呼出】HTTPBrokerProxy({}).create({class_name:}, {function_name}, {payload}, {param:?})", self.base_url);
-        let client = reqwest::blocking::Client::new();
-        match client
+        match self
+            .client
             .post(construct_url(
                 &self.base_url,
                 class_name,
@@ -159,8 +160,8 @@ impl CRUDBrokerProxy for HTTPBrokerProxy {
             "【呼出】HTTPBrokerProxy({}).delete({class_name:}, {function_name}, {param:?})",
             self.base_url
         );
-        let client = reqwest::blocking::Client::new();
-        match client
+        match self
+            .client
             .delete(construct_url(
                 &self.base_url,
                 class_name,
@@ -198,7 +199,6 @@ impl CRUDBrokerProxy for HTTPBrokerProxy {
             self.base_url
         );
 
-        // let client = reqwest::blocking::Client::new();
         let url = construct_url(&self.base_url, class_name, function_name, &param);
         log::trace!("【read】(url={url:})に対してリクエストをします。");
         match self.client.get(url.clone()).send() {
@@ -232,9 +232,9 @@ impl CRUDBrokerProxy for HTTPBrokerProxy {
         param: std::collections::HashMap<String, String>,
     ) -> JuizResult<CapsulePtr> {
         log::trace!("【呼出】HTTPBrokerProxy({}).update({class_name:}, {function_name}, {payload}, {param:?})", self.base_url);
-        let client = reqwest::blocking::Client::new();
         let v: Value = payload.into();
-        match client
+        match self
+            .client
             .patch(construct_url(
                 &self.base_url,
                 class_name,

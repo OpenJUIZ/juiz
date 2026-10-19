@@ -26,23 +26,50 @@ cargo install --path juiz_app
 
 ### Swagger UI を使う
 
-HTTP ブローカーの Swagger UI（`/docs`）は juiz_core の feature `swagger-ui` で、既定ではオフです。
-オフでも OpenAPI 定義は `/api-docs/openapi.json` で取得できます。
-Swagger UI を使う場合は feature を有効にし、リポジトリの Cargo.lock を使う `--locked` を付けてビルドします。
+HTTP ブローカーは Swagger UI（`/docs`）を提供します（juiz_core と juiz_app の feature `swagger-ui`、既定でオン）。
+OpenAPI 定義は `/api-docs/openapi.json` で取得できます。
+Swagger UI が要らない場合は `--no-default-features` を付け、必要な feature（`embed-python` など）だけを指定してビルドします。
 
 ```terminal
-cargo build --locked --features juiz_core/swagger-ui
-cargo install --locked --path juiz_app --features juiz_core/swagger-ui
+cargo install --path juiz_app --no-default-features --features embed-python
 ```
 
-既定でオフにしているのは、Swagger UI が使う utoipa-swagger-ui がビルド時に zip クレートに依存していて、crates.io の zip がほぼすべて yank されているためです（2026-10 時点）。
-リポジトリの Cargo.lock には yank 前の zip が記録されているので `--locked` を付ければビルドできますが、crates.io から `cargo install juiz_app` で入れる場合はこの feature は使えません。
+### Python 連携の feature
+
+Python の Process などを読み込む機能は、juiz_core の feature で切り替えます。
+
+| feature | 内容 |
+|---|---|
+| `embed-python`(既定) | juiz の中で Python インタプリタを起動する。ネイティブバイナリ(juiz_app)向けで、libpython にリンクする |
+| `extension-module` | juiz を Python の拡張モジュールとして Python プロセスの中で動かす(pip で入れる juiz 向け、issue #88)。libpython にはリンクしない。`default-features = false` と一緒に使う |
+| `python` | Python プラグインの読み込みだけを有効にする(上の2つが内部で使う) |
+
+Python を使わないなら、次のように既定の feature を外すと libpython なしで起動するバイナリになります。このとき Python のプラグインを読み込もうとするとエラーになります（`--features swagger-ui` は Swagger UI を残すためのものです）。
+
+```terminal
+cargo install --path juiz_app --no-default-features --features swagger-ui
+```
 
 Python で機能要素を書く場合は pyjuiz パッケージをインストールするか、`bindings/pyjuiz` に PYTHONPATH を通してください。
 
 ```terminal
 pip install ./bindings/pyjuiz
 ```
+
+### pip で入れる juiz(bindings/juiz_py)
+
+`bindings/juiz_py` は、Rust のツールチェーンなしで `pip install juiz-cli` だけで `juiz` コマンドを使えるようにする PyPI パッケージ `juiz-cli` です(`juiz` は既存の `julz` と紛らわしいとして PyPI に登録できない)(issue #88)。juiz_app の feature `python-entry` と juiz_core の `extension-module` を使った abi3 の拡張モジュールを [maturin](https://www.maturin.rs/) でビルドします。Python から `import juiz` で使うデコレータは pyjuiz にあるので、拡張モジュールは `juiz_cli` という名前にしています。ルートのワークスペースには入れていません(ワークスペースをまとめてビルドすると `embed-python` と `extension-module` が同時に有効になるため)。
+
+```terminal
+pip install maturin ./bindings/pyjuiz
+cd bindings/juiz_py
+maturin build --release
+pip install target/wheels/juiz_cli-*.whl
+python tests/smoke_test.py                          # juiz_examples_python のディレクトリを渡すとサンプルも動かす
+```
+
+CI では `.github/workflows/juiz-wheels.yml` が Linux(x86_64・aarch64、manylinux)、macOS(arm64・x86_64)、Windows(x86_64)の wheel をビルドし、それぞれでスモークテストと [juiz_examples_python](https://github.com/OpenJUIZ/juiz_examples_python) のサンプルを動かします。
+v* タグを打つと `.github/workflows/pypi-publish.yml` が pyjuiz を公開したあと、これらの wheel を PyPI の `juiz-cli` として公開します。そのため版上げでは、`bindings/juiz_py/pyproject.toml` の `version` と `pyjuiz==` の版、`bindings/juiz_py/Cargo.toml` の `version` もタグに揃えてください(揃っていないと公開しません)。
 
 C++ のサンプルは CMake でビルドします。
 
@@ -88,7 +115,7 @@ Docker と VS Code の Dev Containers 拡張機能を入れた状態でリポジ
 scripts/test.sh
 ```
 
-HTTP ブローカーの 8000 番ポートはホストに転送されるので、ホストのブラウザから http://localhost:8000/docs を開けます（Swagger UI は feature `swagger-ui` を有効にしてビルドしたときだけ。[Swagger UI を使う](#swagger-ui-を使う)）。
+HTTP ブローカーの 8000 番ポートはホストに転送されるので、ホストのブラウザから http://localhost:8000/docs を開けます。
 
 `.vscode/` には、コンテナの内外どちらでも使える VS Code の設定があります。
 
@@ -107,7 +134,7 @@ HTTP ブローカーの 8000 番ポートはホストに転送されるので、
 | `juiz_app` | `juiz` コマンド |
 | `brokers` | 追加のブローカー実装 (QUIC など) |
 | `ecs` | 実行コンテキスト (TimerEC, OneShotEC, MainLoopEC) |
-| `bindings` | C++ (`cppjuiz`)、Python (`pyjuiz`)、JavaScript 向けバインディング |
+| `bindings` | C++ (`cppjuiz`)、Python (`pyjuiz`、pip で入れる `juiz` コマンドの `juiz_py`)、JavaScript 向けバインディング |
 | `examples` | Rust / C++ / Python のサンプル |
 | `juiz_tutorial` | チュートリアル |
 

@@ -1,24 +1,36 @@
 [package]
 name = "juiz_app"
-version = "0.0.15"
+version = "0.0.17"
 edition = "2021"
 description = "JUIZ utility command-line application package"
 license.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 
+[lib]
+path = "src/lib.rs"
+
 [[bin]]
 name = "juiz"
 path = "src/bin/juiz/main.rs"
+
+[features]
+default = ["embed-python", "swagger-ui"]
+# Python の Process などを読み込む。Python を使わないなら
+# cargo install juiz_app --no-default-features で libpython なしのバイナリになる。
+embed-python = ["juiz_core/embed-python"]
+# HTTP ブローカーの /docs で Swagger UI を提供する。
+swagger-ui = ["juiz_core/swagger-ui"]
+# Python から juiz を起動する入口(juiz_app::python)。pip で入る juiz コマンドが使う(issue #88)。
+# libpython へのリンクは embed-python か juiz_core/extension-module で別に選ぶ。
+python-entry = ["juiz_core/python", "dep:pyo3"]
 
 [dependencies]
 
 clap = {workspace = true}
 home = {workspace = true}
-# Swagger UI を使うときは juiz_core の feature "swagger-ui" を有効にしてビルドする
-# (例: cargo build -p juiz_app --features juiz_core/swagger-ui)。
-# ここに feature を置くと、使わなくても cargo install juiz_app が zip を解決しようとして失敗する。
-juiz_core = { workspace = true }
+juiz_core = { workspace = true, default-features = false }
+pyo3 = { workspace = true, optional = true }
 
 
 [dev-dependencies]

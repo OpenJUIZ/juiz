@@ -62,3 +62,24 @@ pub(crate) fn get_body_tokenstream(ast: &ItemFn) -> TokenStream {
     }
     .into()
 }
+
+/// CapsuleMap から引数を一つ取り出して元の型に変換する文を生成する。
+/// Value 型の引数は TryInto<Value> を使うと直列化用の {"__value__": ..., "__option__": ...} で包まれるので、
+/// 中身の値をそのまま取り出す。
+pub(crate) fn argument_statement(type_name: &TypePath, arg_name: &syn::Ident) -> TokenStream {
+    let is_value = type_name.qself.is_none()
+        && type_name
+            .path
+            .segments
+            .last()
+            .is_some_and(|s| s.ident == "Value" && s.arguments.is_empty());
+    if is_value {
+        quote!(
+            let #arg_name : #type_name = __the_only_argument_modified_by_juiz_process_macro__.get(stringify!(#arg_name))?.lock_as_value(|v| v.clone())?;
+        ).into()
+    } else {
+        quote!(
+            let #arg_name : #type_name = __the_only_argument_modified_by_juiz_process_macro__.get(stringify!(#arg_name))?.try_into()?;
+        ).into()
+    }
+}
