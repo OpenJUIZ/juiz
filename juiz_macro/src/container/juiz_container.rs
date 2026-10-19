@@ -1,6 +1,7 @@
 use super::container_manifest::{construct_manif_tokenstream, manifest_tokenstream};
 use super::gen_container_factory::factory_tokenstream;
 use crate::proc_macro::TokenStream;
+use crate::util::argument_statement;
 use crate::util::{change_argument_to_capsule_map, get_body_tokenstream};
 use quote::quote;
 use syn::{parse_macro_input, ItemFn, Stmt};
@@ -25,9 +26,7 @@ pub(crate) fn juiz_container_inner(attr: TokenStream, item: TokenStream) -> Toke
 
     // 最初に取得した引数のリストから、CapsuleMapから引数それぞれにtry_intoするコードを生成する。
     for (type_name, arg_name) in arg_map.iter() {
-        let set_original_argument_statement: TokenStream = quote!(
-            let #arg_name : #type_name = __the_only_argument_modified_by_juiz_process_macro__.get(stringify!(#arg_name))?.try_into()?;
-        ).into();
+        let set_original_argument_statement: TokenStream = argument_statement(type_name, arg_name);
         ast.block
             .stmts
             .push(parse_macro_input!(set_original_argument_statement as Stmt));
