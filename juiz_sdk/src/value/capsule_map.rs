@@ -121,22 +121,27 @@ impl TryFrom<Value> for CapsuleMap {
     type Error = anyhow::Error;
 
     fn try_from(value: Value) -> Result<Self, Self::Error> {
+        // 値は複製せずに取り出す。画像のような大きい引数では、ここでの複製が 1 回分のコピーになる。
+        get_hashmap(&value)?;
+        let Value::Object(mut c_map) = value else {
+            unreachable!()
+        };
         let mut c = CapsuleMap::new();
-        let c_map = get_hashmap(&value)?;
-        if c_map.contains_key("__map__") {
-            let map_v = c_map.get("__map__").unwrap();
-            for (key, value) in get_hashmap(map_v)?.iter() {
-                c.insert(key.to_owned(), (*value).clone().into());
+        if let Some(map_v) = c_map.remove("__map__") {
+            get_hashmap(&map_v)?;
+            if let Value::Object(map) = map_v {
+                for (key, value) in map {
+                    c.insert(key, value.into());
+                }
             }
-            if c_map.contains_key("__param__") {
-                let param_v = c_map.get("__param__").unwrap();
+            if let Some(param_v) = c_map.get("__param__") {
                 for (key, value) in get_hashmap(param_v)?.iter() {
                     c.set_param(key.as_str(), (*value).as_str().unwrap());
                 }
             }
         } else {
-            for (k, v) in get_hashmap(&value)?.iter() {
-                c.insert(k.to_owned(), v.clone().into());
+            for (k, v) in c_map {
+                c.insert(k, v.into());
             }
         }
         Ok(c)
