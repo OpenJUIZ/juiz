@@ -1,0 +1,45 @@
+name: WebUI
+
+on:
+  push:
+    branches: [main]
+    paths: &webui-paths
+      - "webui/**"
+      - ".github/workflows/webui.yml"
+  pull_request:
+    paths: *webui-paths
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ブラウザ管理画面(webui/)の lint・型検査・ビルド
+  webui:
+    name: WebUI lint & build
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: webui
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: webui/package-lock.json
+
+      - run: npm ci
+
+      - name: API の型が openapi.json と合っているか
+        run: |
+          npm run gen:api
+          git diff --exit-code -- src/api/openapi.gen.ts
+
+      - run: npm run lint
+
+      - run: npm run typecheck
+
+      - run: npm run build

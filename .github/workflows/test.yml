@@ -12,6 +12,8 @@ on:
       - "compose.yml"
       - "build_docker.sh"
       - ".github/workflows/python.yml"
+      - "webui/**"
+      - ".github/workflows/webui.yml"
   pull_request:
     paths-ignore: *rust-ignore
   workflow_dispatch:

@@ -1,0 +1,1016 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "juiz_core",
+    "description": "Core library for JUIZ application. This package is not required if you want to build juiz functional module.",
+    "license": {
+      "name": "MIT OR Apache-2.0"
+    },
+    "version": "0.0.18"
+  },
+  "paths": {
+    "/api/broker/list": {
+      "get": {
+        "tags": [
+          "universal.broker"
+        ],
+        "operationId": "list_dummy",
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/broker/profile_full": {
+      "get": {
+        "tags": [
+          "universal.broker"
+        ],
+        "operationId": "profile_handler_dummy",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/connection/create": {
+      "post": {
+        "tags": [
+          "universal.connection"
+        ],
+        "operationId": "create_dummy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateConnectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/connection/list": {
+      "get": {
+        "tags": [
+          "universal.connection"
+        ],
+        "operationId": "list_dummy",
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/connection/profile_full": {
+      "get": {
+        "tags": [
+          "universal.connection"
+        ],
+        "operationId": "profile_handler_dummy",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/container/destroy": {
+      "delete": {
+        "tags": [
+          "universal.container"
+        ],
+        "operationId": "delete_dummy",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/container/list": {
+      "get": {
+        "tags": [
+          "universal.container"
+        ],
+        "operationId": "list_dummy",
+        "parameters": [
+          {
+            "name": "recursive",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/container/profile_full": {
+      "get": {
+        "tags": [
+          "universal.container"
+        ],
+        "operationId": "profile_handler_dummy",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Container"
+          }
+        }
+      }
+    },
+    "/api/container_process/call": {
+      "patch": {
+        "tags": [
+          "universal.container_process"
+        ],
+        "operationId": "call_dummy",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/container_process/destroy": {
+      "delete": {
+        "tags": [
+          "universal.container_process"
+        ],
+        "operationId": "delete_dummy",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/container_process/execute": {
+      "patch": {
+        "tags": [
+          "universal.container_process"
+        ],
+        "operationId": "execute_dummy",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/container_process/list": {
+      "get": {
+        "tags": [
+          "universal.container_process"
+        ],
+        "operationId": "list_dummy",
+        "parameters": [
+          {
+            "name": "recursive",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/container_process/openapi_spec": {
+      "get": {
+        "tags": [
+          "universal.container_process"
+        ],
+        "operationId": "openapi_spec_handler_dummy",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/container_process/p_apply": {
+      "patch": {
+        "tags": [
+          "universal.container_process"
+        ],
+        "operationId": "p_apply_dummy",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/container_process/profile_full": {
+      "get": {
+        "tags": [
+          "universal.container_process"
+        ],
+        "operationId": "profile_handler_dummy",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/execution_context/get_state": {
+      "get": {
+        "tags": [
+          "universal.execution_context"
+        ],
+        "operationId": "get_state_dummy",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/execution_context/list": {
+      "get": {
+        "tags": [
+          "universal.execution_context"
+        ],
+        "operationId": "list_dummy",
+        "parameters": [
+          {
+            "name": "recursive",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/execution_context/profile_full": {
+      "get": {
+        "tags": [
+          "universal.execution_context"
+        ],
+        "operationId": "profile_handler_dummy",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/execution_context/start": {
+      "patch": {
+        "tags": [
+          "universal.execution_context"
+        ],
+        "operationId": "start_dummy",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "",
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/execution_context/stop": {
+      "patch": {
+        "tags": [
+          "universal.execution_context"
+        ],
+        "operationId": "stop_dummy",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "",
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/process/call": {
+      "patch": {
+        "tags": [
+          "universal.process"
+        ],
+        "operationId": "call_dummy",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/process/create": {
+      "post": {
+        "tags": [
+          "universal.process"
+        ],
+        "operationId": "create_dummy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/process/destroy": {
+      "delete": {
+        "tags": [
+          "universal.process"
+        ],
+        "operationId": "delete_dummy",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/process/execute": {
+      "patch": {
+        "tags": [
+          "universal.process"
+        ],
+        "operationId": "execute_dummy",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/process/list": {
+      "get": {
+        "tags": [
+          "universal.process"
+        ],
+        "operationId": "list_dummy",
+        "parameters": [
+          {
+            "name": "recursive",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/process/openapi_spec": {
+      "get": {
+        "tags": [
+          "universal.process"
+        ],
+        "operationId": "openapi_spec_handler_dummy",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/process/p_apply": {
+      "patch": {
+        "tags": [
+          "universal.process"
+        ],
+        "operationId": "p_apply_dummy",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/process/profile_full": {
+      "get": {
+        "tags": [
+          "universal.process"
+        ],
+        "operationId": "profile_handler_dummy",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/system/add_mastersystem": {
+      "patch": {
+        "tags": [
+          "universal.system"
+        ],
+        "operationId": "add_mastersystem_dummy",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "recursive",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "system_uuid",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "topic_name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/system/add_subsystem": {
+      "patch": {
+        "tags": [
+          "universal.system"
+        ],
+        "operationId": "add_subsystem_dummy",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/system/filesystem_list": {
+      "get": {
+        "tags": [
+          "universal.system"
+        ],
+        "operationId": "fslist_handler_dummy",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/system/profile_full": {
+      "get": {
+        "tags": [
+          "universal.system"
+        ],
+        "operationId": "profile_handler_dummy",
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/system/uuid": {
+      "get": {
+        "tags": [
+          "universal.system"
+        ],
+        "operationId": "uuid_dummy",
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/topic/list": {
+      "get": {
+        "tags": [
+          "universal.topic"
+        ],
+        "operationId": "list_dummy",
+        "parameters": [
+          {
+            "name": "recursive",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/topic/push": {
+      "patch": {
+        "tags": [
+          "universal.topic"
+        ],
+        "operationId": "push_dummy",
+        "parameters": [
+          {
+            "name": "topic_name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "system_uuid",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/topic/request_subscribe": {
+      "patch": {
+        "tags": [
+          "universal.topic"
+        ],
+        "operationId": "request_subscribe_dummy",
+        "parameters": [
+          {
+            "name": "topic_name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          },
+          {
+            "name": "system_uuid",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CreateConnectionRequest": {
+        "type": "object",
+        "required": [
+          "source",
+          "destination",
+          "arg_name"
+        ],
+        "properties": {
+          "arg_name": {
+            "type": "string"
+          },
+          "destination": {
+            "$ref": "#/components/schemas/IdentifierManifest"
+          },
+          "source": {
+            "$ref": "#/components/schemas/IdentifierManifest"
+          }
+        }
+      },
+      "IdentifierManifest": {
+        "type": "object",
+        "required": [
+          "identifier"
+        ],
+        "properties": {
+          "identifier": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "tags": []
+}

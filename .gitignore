@@ -13,3 +13,5 @@ examples/cpp/build/
 !.vscode/
 /bindings/juiz_py/target/
 /bindings/juiz_py/dist/
+/webui/node_modules/
+/webui/dist/
