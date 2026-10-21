@@ -124,6 +124,12 @@ impl CapsuleValue {
     }*/
 }
 
+/// Process の関数が返す値を表す型。実体は Capsule です。
+///
+/// `fn talker() -> JuizResult<JuizResponse>` のように、関数の返り値であることを
+/// わかりやすく書くための別名です。Capsule と同じように `jvalue!(...).into()` などで作れます。
+pub type JuizResponse = Capsule;
+
 #[derive(Clone, Debug)]
 pub struct Capsule {
     value: CapsuleValue,
