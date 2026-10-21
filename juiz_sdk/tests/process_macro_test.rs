@@ -9,7 +9,8 @@ mod sink {
     use juiz_sdk::prelude::*;
 
     #[juiz_process(arguments = { default = { msg = {}, n = 0 } })]
-    pub fn sink(msg: Value, n: i64) -> JuizResult<Capsule> {
+    // 返り値は Capsule の別名 JuizResponse でも書ける (juiz_examples_rust#12)。
+    pub fn sink(msg: Value, n: i64) -> JuizResult<JuizResponse> {
         Ok(jvalue!({"t": msg.get("t"), "msg": msg, "n": n}).into())
     }
 }
