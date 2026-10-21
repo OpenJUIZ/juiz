@@ -1,0 +1,14 @@
+[package]
+name = "juiz_webui"
+version = "0.0.18"
+edition = "2021"
+description = "Built web UI (system viewer) of JUIZ, embedded into juiz_core and served at /ui."
+# このクレートは公開時にリポジトリの外(git 管理外)へコピーしてから cargo publish するので、
+# ワークスペースの値を引き継がずにここで書く(.github/workflows/publish.yml、issue #117)。
+license = "MIT OR Apache-2.0"
+build = "build.rs"
+# 画面のビルド成果物 dist/ は .gitignore にあるので、含めるファイルを並べる
+include = ["/src/**", "/build.rs", "/dist/**", "/Cargo.toml", "/LICENSE-*"]
+
+[dependencies]
+rust-embed = { version = "8.5.0", features = ["interpolate-folder-path", "mime-guess", "debug-embed"] }

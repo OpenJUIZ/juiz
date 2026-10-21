@@ -27,17 +27,35 @@ npm run dev
 JUIZ_URL=http://192.168.0.10:8000 npm run dev
 ```
 
-## juiz から配信して動かす
+## juiz に同梱した画面を開く
 
-ビルドした画面を、juiz の `option.http_broker.static_filepaths` で配信できます。画面と API が同じ場所になるので、こちらも CORS は要りません。
+juiz は管理画面を埋め込んでいて、HTTP Broker を有効にすると `/ui` で配信します([#117](https://github.com/OpenJUIZ/juiz/issues/117))。起動すると次のように URL が出るので、ブラウザで開きます。
 
 ```sh
-cd webui
-npm install
-npm run build   # webui/dist にできる
+$ juiz -f juiz.conf -d
+juiz 管理画面: http://localhost:8000/ui/
 ```
 
-系の設定ファイルに `/ui` の行を足して juiz を起動し、http://localhost:8000/ui/ を開きます。パスは juiz を起動したディレクトリ(`-C` で指定したディレクトリ)からの相対です。
+画面と API が同じ場所になるので、CORS の設定は要りません。
+
+- crates.io の juiz_app(`cargo install juiz_app`)と pip の juiz-cli には、ビルド済みの画面が入っています。Node.js は要りません。
+- リポジトリから juiz をビルドするときは、先に `cd webui && npm ci && npm run build` で `webui/dist` を作っておくと、juiz_webui クレート(`juiz_webui/`)の `build.rs` がそれを埋め込みます(画面をビルドし直したら `cargo build` し直す)。`webui/dist` が無いままビルドした juiz では、`/ui/` は画面のビルド方法の案内になります。
+- 画面のビルド成果物は juiz_webui クレートに入り、juiz_core / juiz_app の feature `webui`(既定でオン)で使います。外すときは `--no-default-features` で他の feature を選び直します。
+- 埋め込む元のディレクトリは環境変数 `JUIZ_WEBUI_DIR` で指定することもできます。
+
+配信を止めるときは設定ファイルで `webui: false` にします。
+
+```yaml
+"option":
+  "http_broker":
+    "port": 8000
+    "start": true
+    "webui": false
+```
+
+### ビルドしたディレクトリを配信する
+
+埋め込みの代わりに、ビルドした画面を `option.http_broker.static_filepaths` で配信することもできます。`/ui` を指定すると、埋め込みの画面ではなくこちらを配信します。パスは juiz を起動したディレクトリ(`-C` で指定したディレクトリ)からの相対です。
 
 ```yaml
 "option":
@@ -48,13 +66,12 @@ npm run build   # webui/dist にできる
       "/ui": "./webui/dist"
 ```
 
-リポジトリの最上位で次のように起動すれば、画面だけを試せます。
+リポジトリの最上位で次のように起動すれば、juiz をビルドし直さずに `webui/dist` の画面を試せます。
 
 ```sh
+cd webui && npm run build && cd ..
 juiz -f webui/juiz_webui.conf -d
 ```
-
-将来は juiz に同梱して `/ui` で配信する予定です([#117](https://github.com/OpenJUIZ/juiz/issues/117))。
 
 ## 画面の見方
 

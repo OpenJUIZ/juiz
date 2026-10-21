@@ -6,6 +6,7 @@ wheel をインストールした環境で実行する:
 
 Python の Process を読み込んだ juiz を起動し、HTTP 経由で呼び出して結果を確かめたあと、
 Ctrl+C(Windows では CTRL_BREAK_EVENT)で止まることを確かめる。
+埋め込んだ管理画面が /ui/ で配信されることも確かめる(issue #117、wheel のビルド前に webui をビルドしておくこと)。
 juiz_examples_python のディレクトリを渡すと、そのサンプル(Process と Container)も同じように動かす。
 """
 
@@ -17,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.request
 
 PORT = 18080
 
@@ -71,10 +73,23 @@ def wait_for_port_free(port: int, timeout: float) -> None:
             time.sleep(0.5)
 
 
-def run_case(juiz: str, cwd: str, conf: str, port: int, calls: list) -> bool:
+def check_webui(port: int) -> bool:
+    """埋め込んだ管理画面が /ui/ で配信されているか(画面を埋め込まずにビルドすると案内ページになる)。"""
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/ui/", timeout=10) as res:
+        body = res.read().decode("utf-8")
+    if 'id="root"' not in body:
+        print(f"/ui/ で管理画面が配信されていません:\n{body[:500]}", file=sys.stderr)
+        return False
+    # Windows の標準出力は cp1252 のことがあるので、成功時の表示は ASCII にする
+    print("webui: /ui/ OK")
+    return True
+
+
+def run_case(juiz: str, cwd: str, conf: str, port: int, calls: list, webui: bool = False) -> bool:
     """cwd で juiz -f conf -d を起動し、calls の各コマンドの出力に期待する文字列が含まれるか確かめてから止める。
 
     calls は (juiz のサブコマンドと引数のリスト, 出力に含まれるべき文字列) のリスト。
+    webui が True なら管理画面の配信も確かめる。
     """
     print(f"--- {conf}")
     wait_for_port_free(port, 30)
@@ -84,6 +99,8 @@ def run_case(juiz: str, cwd: str, conf: str, port: int, calls: list) -> bool:
     server = subprocess.Popen([juiz, "-f", conf, "-d"], cwd=cwd, **kwargs)
     try:
         wait_for_port(port, 60)
+        if webui and not check_webui(port):
+            return False
         for args, expected in calls:
             result = subprocess.run(
                 [juiz, *args], cwd=cwd, check=True, capture_output=True, text=True,
@@ -139,7 +156,7 @@ def main() -> int:
         url = f"http://127.0.0.1:{PORT}/process/increment0::increment_process_python"
         if not run_case(juiz, work, "smoke.conf", PORT, [
             (["process", "call", url, '{"arg1": 3}', "-p"], "Value(4)"),
-        ]):
+        ], webui=True):
             return 1
 
     if len(sys.argv) > 1 and not run_examples(juiz, sys.argv[1]):

@@ -24,6 +24,52 @@ fn check_server_is_juiz(_host: &str, _port: i64) -> bool {
     return true;
 }
 
+/// 埋め込んだ管理画面を /ui で配信するか (issue #117)。
+///
+/// feature "webui" が無いとき、option.http_broker.webui が false のとき、
+/// static_filepaths で /ui に別のディレクトリを割り当てているときは配信しない。
+#[allow(unused_variables)]
+fn serve_webui(broker_manifest: &Value, static_filepaths: &Option<Vec<(String, PathBuf)>>) -> bool {
+    #[cfg(feature = "webui")]
+    {
+        use super::webui::WEBUI_PATH;
+        if broker_manifest.get("webui").and_then(|v| v.as_bool()) == Some(false) {
+            return false;
+        }
+        let overridden = static_filepaths
+            .iter()
+            .flatten()
+            .any(|(url, _)| url.trim_end_matches('/') == WEBUI_PATH);
+        if overridden {
+            log::info!("static_filepaths で {WEBUI_PATH} が指定されているので、埋め込みの管理画面は配信しません");
+        }
+        !overridden
+    }
+    #[cfg(not(feature = "webui"))]
+    false
+}
+
+/// 管理画面の URL を起動時に表示する (issue #117)
+#[allow(unused_variables)]
+fn announce_webui(host: &str, port: i64) {
+    #[cfg(feature = "webui")]
+    {
+        use super::webui::{webui_embedded, WEBUI_PATH};
+        // すべてのアドレスで待ち受けるときは、同じ機械から開く URL を出す
+        let host = match host {
+            "0.0.0.0" | "::" | "[::]" | "" => "localhost",
+            h => h,
+        };
+        let url = format!("http://{host}:{port}{WEBUI_PATH}/");
+        if webui_embedded() {
+            println!("juiz 管理画面: {url}");
+            log::info!("管理画面を {url} で配信します");
+        } else {
+            log::info!("管理画面は同梱されていません ({url} はビルド方法の案内になります)");
+        }
+    }
+}
+
 /// option.http_broker.cors_allow_origins から CORS の設定を作る (issue #112)。
 ///
 /// 管理画面を juiz とは別のオリジン (開発サーバーなど) から開くときに使う。既定 (指定なし) では CORS ヘッダを付けない。
@@ -102,6 +148,8 @@ async fn on_start_inner(broker_manifest: Value, crud_broker: Arc<Mutex<CRUDBroke
             Err(_e) => None,
         };
 
+    let serve_webui = serve_webui(&broker_manifest, &static_filepaths);
+
     loop {
         let address = into_address(host, port);
         log::debug!(
@@ -119,7 +167,10 @@ async fn on_start_inner(broker_manifest: Value, crud_broker: Arc<Mutex<CRUDBroke
                     b.set_started();
                 }
                 log::trace!("HTTPブローカ起動します。");
-                let mut app = app_new(crud_broker, static_filepaths);
+                if serve_webui {
+                    announce_webui(host, port);
+                }
+                let mut app = app_new(crud_broker, static_filepaths, serve_webui);
                 if let Some(cors) = cors_layer(&broker_manifest) {
                     app = app.layer(cors);
                 }

@@ -14,7 +14,10 @@ crate-type = ["cdylib", "lib"]
 # HTTP ブローカーの /docs で Swagger UI を提供する。オフでも /api-docs/openapi.json は提供する。
 swagger-ui = ["dep:utoipa-swagger-ui"]
 
-default = ["embed-python", "swagger-ui"]
+# 管理画面(webui)を埋め込み、HTTP ブローカーの /ui で配信する(issue #117)。
+webui = ["dep:juiz_webui"]
+
+default = ["embed-python", "swagger-ui", "webui"]
 # Python の Process・Container・Component を読み込む。オフにすると pyo3 を使わず、libpython なしで動く。
 python = ["dep:pyo3"]
 # Python インタプリタを juiz の中で起動する(ネイティブバイナリ juiz_app 向け、libpython にリンクする)。
@@ -49,5 +52,8 @@ utoipa = {workspace = true, features = ["axum_extras"] }
 # Swagger UI はオプション (feature "swagger-ui"、既定でオン)。
 utoipa-swagger-ui = {workspace = true, features = ["axum"], optional = true }
 
+
+# 管理画面のビルド成果物(feature "webui"、既定でオン)
+juiz_webui = { workspace = true, optional = true }
 
 juiz_sdk = { workspace = true}

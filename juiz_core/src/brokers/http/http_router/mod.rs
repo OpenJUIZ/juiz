@@ -364,9 +364,13 @@ pub async fn multipart_to_capsule_map(mut multipart: Multipart) -> JuizResult<Ca
 #[openapi(tags(), paths(), components(schemas()))]
 struct ApiDoc;
 
+/// HTTP ブローカーの Router を作る。
+///
+/// serve_webui が true なら、埋め込んだ管理画面を /ui で配信する(feature "webui" のときだけ、issue #117)。
 pub fn app_new(
     crud_broker: Arc<Mutex<CRUDBroker>>,
     static_filepaths: Option<Vec<(String, PathBuf)>>,
+    serve_webui: bool,
 ) -> Router {
     let mut api = ApiDoc::openapi();
     api.merge(system::ApiDoc::openapi());
@@ -389,6 +393,12 @@ pub fn app_new(
         axum::routing::get(move || async move { axum::Json(api) }),
     );
     let mut r = r.nest("/api/", any::object_router(crud_broker.clone()));
+    #[cfg(feature = "webui")]
+    if serve_webui {
+        r = r.merge(super::webui::webui_router());
+    }
+    #[cfg(not(feature = "webui"))]
+    let _ = serve_webui;
 
     match static_filepaths {
         Some(paths) => {

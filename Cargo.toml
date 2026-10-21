@@ -24,6 +24,7 @@ juiz_sdk = {version="0.0.18", path="juiz_sdk"}
 juiz_core = {version="0.0.18", path="juiz_core", default-features = false}
 juiz_app= {version="0.0.18", path="juiz_app"}
 juiz_qmp_broker = {version="0.0.18", path="brokers/qmp_broker"}
+juiz_webui = {version="0.0.18", path="juiz_webui"}
 
 anyhow = "1.0.89"
 approx = "0.5.1"
@@ -79,6 +80,7 @@ members = [
     "juiz_sdk",
     "juiz_core",
     "juiz_app",
+    "juiz_webui",
     "ecs/timer_ec",
     "ecs/one_shot_ec", 
     "ecs/main_loop_ec",
@@ -122,6 +124,7 @@ default-members = [
     "juiz_sdk",
     "juiz_core",
     "juiz_app",
+    "juiz_webui",
     "ecs/timer_ec",
     "ecs/one_shot_ec", 
     "ecs/main_loop_ec",
