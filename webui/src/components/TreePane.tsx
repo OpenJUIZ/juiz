@@ -56,52 +56,72 @@ function SystemNode({ system, depth, ...p }: NodeProps & { system: SystemModel; 
       {...p}
       element={system}
       label={system.name}
-      sub={depth === 0 ? <Term k="system" /> : <Term k="subsystem" />}
+      // 副系は「副系」の分類の下に並ぶので、名前を削らないよう用語は出さない
+      sub={depth === 0 ? <Term k="system" /> : undefined}
+      badge={
+        <>
+          {system.via && (
+            <span className="conn-type" title="親の系から経由する仲介">
+              {system.via.typeName}
+            </span>
+          )}
+          {system.error && (
+            <span className="sys-error" title={system.error}>
+              取得不可
+            </span>
+          )}
+        </>
+      }
     >
-      <Category {...p} k={ck("process")} term="process" items={system.processes} />
-      <Category {...p} k={ck("container")} term="container" items={system.containers}>
-        {(c) =>
-          c.kind === "container" && (
-            <TreeNode {...p} element={c} label={c.name} sub={c.typeName}>
-              {c.processes.map((cp) => (
-                <TreeNode {...p} key={cp.key} element={cp} label={cp.name} sub={cp.typeName} />
-              ))}
-            </TreeNode>
-          )
-        }
-      </Category>
-      {orphanCps.length > 0 && (
-        <Category {...p} k={ck("containerProcess")} term="containerProcess" items={orphanCps} />
+      {/* 中身を取れなかった副系は、分類を並べない */}
+      {system.profile.core_store && (
+        <>
+          <Category {...p} k={ck("process")} term="process" items={system.processes} />
+          <Category {...p} k={ck("container")} term="container" items={system.containers}>
+            {(c) =>
+              c.kind === "container" && (
+                <TreeNode {...p} element={c} label={c.name} sub={c.typeName}>
+                  {c.processes.map((cp) => (
+                    <TreeNode {...p} key={cp.key} element={cp} label={cp.name} sub={cp.typeName} />
+                  ))}
+                </TreeNode>
+              )
+            }
+          </Category>
+          {orphanCps.length > 0 && (
+            <Category {...p} k={ck("containerProcess")} term="containerProcess" items={orphanCps} />
+          )}
+          <Category {...p} k={ck("ec")} term="ec" items={system.ecs}>
+            {(ec) =>
+              ec.kind === "ec" && (
+                <TreeNode
+                  {...p}
+                  element={ec}
+                  label={ec.name}
+                  sub={ec.typeName}
+                  badge={<span className={`ec-state ${ec.profile.state === "STARTED" ? "on" : ""}`}>{ecStateLabel(ec.profile.state)}</span>}
+                />
+              )
+            }
+          </Category>
+          {system.connections && (
+            <Category {...p} k={ck("connection")} term="connection" items={system.connections}>
+              {(c) =>
+                c.kind === "connection" && (
+                  <TreeNode
+                    {...p}
+                    element={c}
+                    label={c.name}
+                    badge={<span className="conn-type">{connectionTypeLabel(c.profile.connection_type)}</span>}
+                  />
+                )
+              }
+            </Category>
+          )}
+          <Category {...p} k={ck("topic")} term="topic" items={system.topics} />
+          <Category {...p} k={ck("broker")} term="broker" items={system.brokers} />
+        </>
       )}
-      <Category {...p} k={ck("ec")} term="ec" items={system.ecs}>
-        {(ec) =>
-          ec.kind === "ec" && (
-            <TreeNode
-              {...p}
-              element={ec}
-              label={ec.name}
-              sub={ec.typeName}
-              badge={<span className={`ec-state ${ec.profile.state === "STARTED" ? "on" : ""}`}>{ecStateLabel(ec.profile.state)}</span>}
-            />
-          )
-        }
-      </Category>
-      {system.connections && (
-        <Category {...p} k={ck("connection")} term="connection" items={system.connections}>
-          {(c) =>
-            c.kind === "connection" && (
-              <TreeNode
-                {...p}
-                element={c}
-                label={c.name}
-                badge={<span className="conn-type">{connectionTypeLabel(c.profile.connection_type)}</span>}
-              />
-            )
-          }
-        </Category>
-      )}
-      <Category {...p} k={ck("topic")} term="topic" items={system.topics} />
-      <Category {...p} k={ck("broker")} term="broker" items={system.brokers} />
       {system.subsystems.length > 0 && (
         <Category {...p} k={ck("subsystem")} term="subsystem" items={system.subsystems}>
           {(s) => s.kind === "system" && <SystemNode {...p} system={s} depth={depth + 1} />}

@@ -23,7 +23,7 @@ interface Fetched {
 }
 
 /**
- * system/profile_full と接続の一覧を取得して画面用の形にする。
+ * system/profile_full(副系の中身つき)を取得して画面用の形にする。
  * intervalMs が null なら手動更新だけ。
  */
 export function useSystemModel(serverUrl: string, intervalMs: number | null): SystemModelState {
@@ -35,11 +35,16 @@ export function useSystemModel(serverUrl: string, intervalMs: number | null): Sy
     const ac = new AbortController();
     abortRef.current = ac;
     const client = new JuizClient(serverUrl);
-    Promise.all([client.systemProfileFull(ac.signal), client.connectionList(ac.signal)])
-      .then(async ([profile, ids]) => {
-        // system/profile_full には接続が入っていないので、一つずつ取る。
+    client
+      .systemProfileFull(true, ac.signal)
+      .then(async (profile) => {
+        const url = client.baseUrl || window.location.origin;
+        // recursive=true に対応した juiz なら、副系の中身と各系の接続が profile に入っている(#116)
+        if (profile.connections) return buildModel(profile, url);
+        // 古い juiz では接続が入っていないので、最上位の系の分だけ一つずつ取る。
         // 話題への発行・購読も接続として返るが、発行側は profile_full が 500 になるうえ、
         // 処理の publishes / subscribes で分かるので取らない。
+        const ids = await client.connectionList(ac.signal);
         const results = await Promise.allSettled(
           ids
             .filter((id) => !isTopicConnection(id))
@@ -47,7 +52,7 @@ export function useSystemModel(serverUrl: string, intervalMs: number | null): Sy
         );
         if (ac.signal.aborted) throw new DOMException("aborted", "AbortError");
         const connections = results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
-        return buildModel(profile, connections, client.baseUrl || window.location.origin);
+        return buildModel(profile, url, connections);
       })
       .then((model) => {
         setFetched({ serverUrl, model, error: null, updatedAt: new Date() });

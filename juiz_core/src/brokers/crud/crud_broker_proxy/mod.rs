@@ -575,6 +575,14 @@ impl SystemBrokerProxy for CRUDBrokerProxyHolder {
         )?)?)
     }
 
+    fn system_profile_full_recursive(&self) -> JuizResult<Value> {
+        capsule_value(self.modify_profile(self.broker.read(
+            "system",
+            "profile_full",
+            HashMap::from([("recursive".to_owned(), "true".to_owned())]),
+        )?)?)
+    }
+
     fn system_filesystem_list(&self, path_buf: std::path::PathBuf) -> JuizResult<Value> {
         capsule_to_value(self.broker.read(
             "system",

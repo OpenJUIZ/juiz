@@ -132,3 +132,36 @@ fn test_topic_subscriber_subsystem_is_not_duplicated() -> JuizResult<()> {
             Ok(())
         })
 }
+
+/// 再帰的な system/profile_full で、サブシステムの中身と、経由する BrokerProxy が分かる (issue #116)
+#[cfg(test)]
+#[test]
+fn test_recursive_profile_full_has_subsystem_contents() -> JuizResult<()> {
+    let _r = env_logger::try_init();
+    System::new(system_manifest())?
+        .setup()?
+        .run_and_do_once(|master| {
+            System::new(subsystem_manifest())?
+                .setup()?
+                .run_and_do_once(|sub| {
+                    let uuid = sub.core_broker().lock()?.system_uuid()?;
+                    // 再帰しない profile の subsystems は BrokerProxy の profile だけ
+                    assert!(subsystems(master)?[0].get("core_store").is_none());
+
+                    let profile = master
+                        .core_broker()
+                        .lock()?
+                        .system_profile_full_recursive()?;
+                    assert!(profile["connections"].is_array(), "{profile}");
+                    let ss = profile["subsystems"]
+                        .as_array()
+                        .expect("subsystems must be array");
+                    assert_eq!(ss.len(), 1);
+                    assert_eq!(ss[0]["system_store"]["uuid"], uuid);
+                    assert_eq!(ss[0]["broker_proxy"]["type_name"], jvalue!("http"));
+                    assert_eq!(ss[0]["core_store"]["processes"][0]["name"], jvalue!("inc0"));
+                    assert!(ss[0]["connections"].is_array(), "{}", ss[0]);
+                    Ok(())
+                })
+        })
+}

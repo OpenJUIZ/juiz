@@ -54,8 +54,10 @@ export class JuizClient {
     return res.json();
   }
 
-  async systemProfileFull(signal?: AbortSignal): Promise<SystemProfile> {
-    return (await this.get("/api/system/profile_full", undefined, signal)) as SystemProfile;
+  /** recursive なら副系の中身と各系の接続も入れてもらう(#116) */
+  async systemProfileFull(recursive: boolean, signal?: AbortSignal): Promise<SystemProfile> {
+    const query = recursive ? { recursive: "true" } : undefined;
+    return (await this.get("/api/system/profile_full", query, signal)) as SystemProfile;
   }
 
   /** 接続の識別子の一覧 */

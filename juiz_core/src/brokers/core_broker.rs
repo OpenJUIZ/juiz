@@ -156,6 +156,48 @@ impl SystemBrokerProxy for CoreBroker {
         result
     }
 
+    fn system_profile_full_recursive(&self) -> JuizResult<Value> {
+        log::trace!("【呼出】system_profile_full_recursive() called");
+        let mut v = self.profile_full()?;
+        // この System が持つ接続。両端が別の System の接続は、両方の System に現れる
+        let connections = self
+            .worker()
+            .connection_profile_list()?
+            .into_iter()
+            .map(|p| -> JuizResult<Value> {
+                let id: ConnectionIdentifier = p.clone().into();
+                let mut cv = serde_json::to_value(p)?;
+                get_hashmap_mut(&mut cv)?
+                    .insert("identifier".to_owned(), jvalue!(Into::<String>::into(id)));
+                Ok(cv)
+            })
+            .collect::<JuizResult<Vec<Value>>>()?;
+        // サブシステムは中身を取りに行く。取れなければ BrokerProxy の profile に error を添える
+        let subsystems = self
+            .subsystem_proxies
+            .iter()
+            .map(|ssp| -> JuizResult<Value> {
+                let bp = ssp.broker_proxy();
+                let bp = juiz_lock(&bp)?;
+                let proxy_profile = bp.profile_full()?;
+                Ok(match bp.system_profile_full_recursive() {
+                    Ok(mut sub) => {
+                        get_hashmap_mut(&mut sub)?.insert("broker_proxy".to_owned(), proxy_profile);
+                        sub
+                    }
+                    Err(e) => {
+                        log::error!("【system_profile_full_recursive】サブシステム({ssp})の profile を取得できませんでした。エラーは({e})");
+                        obj_merge(proxy_profile, &jvalue!({ "error": e.to_string() }))?
+                    }
+                })
+            })
+            .collect::<JuizResult<Vec<Value>>>()?;
+        let map = get_hashmap_mut(&mut v)?;
+        map.insert("connections".to_owned(), connections.into());
+        map.insert("subsystems".to_owned(), subsystems.into());
+        Ok(v)
+    }
+
     fn system_filesystem_list(&self, path_buf: PathBuf) -> JuizResult<Value> {
         log::trace!("【呼出】system_filesystem_list({path_buf:?})");
         if path_buf.is_relative() {

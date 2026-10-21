@@ -37,6 +37,62 @@
   background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.85) 100%);
 }
 
+/* ---- 系の枠(#116) ---- */
+
+.dframe {
+  box-sizing: border-box;
+  border: 1px dashed var(--kind-system);
+  background: rgba(201, 214, 219, 0.03);
+  color: var(--kind-system);
+}
+
+.dframe.root {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.dframe.error {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.dframe.selected {
+  border-style: solid;
+  box-shadow: 0 0 10px currentColor;
+}
+
+/* 枠の中は下の要素や背景へクリックを通し、見出しだけが受ける */
+.dframe-head {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.5em;
+  margin: 6px 8px;
+  padding: 2px 6px;
+  pointer-events: auto;
+  cursor: pointer;
+  background: var(--bg-pane);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.dframe-term {
+  font-size: 0.85em;
+  opacity: 0.8;
+}
+
+.dframe-name {
+  font-family: var(--font-mono);
+  color: var(--text);
+}
+
+.dframe-via,
+.dframe-error {
+  padding: 0 4px;
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  border: 1px solid currentColor;
+}
+
 /* ---- 要素 ---- */
 
 .react-flow__node-juiz {

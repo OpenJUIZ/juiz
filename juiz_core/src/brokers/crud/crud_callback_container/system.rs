@@ -12,9 +12,16 @@ use super::CallbackContainerType;
 
 pub(crate) fn create_read_callbacks() -> CallbackContainerType {
     let mut system_callbacks = CallbackContainerType::new();
-    system_callbacks.insert("profile_full", |_crud, cb, _args| {
+    system_callbacks.insert("profile_full", |_crud, cb, args| {
         log::debug!("[READ  ] system/profile_full called");
-        Ok(value_to_capsule(cb.lock()?.system_profile_full()?))
+        let recursive = args.get_param("recursive").is_some_and(|v| v == "true");
+        if recursive {
+            Ok(value_to_capsule(
+                cb.lock()?.system_profile_full_recursive()?,
+            ))
+        } else {
+            Ok(value_to_capsule(cb.lock()?.system_profile_full()?))
+        }
     });
     system_callbacks.insert("uuid", |_crud, cb, _args| {
         log::debug!("[READ  ] system/uuid called");
