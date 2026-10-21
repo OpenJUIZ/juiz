@@ -17,18 +17,9 @@ pub fn setup_http_broker_factory(system: &mut System) -> JuizResult<()> {
     Ok(())
 }
 
-fn get_http_staticfilepaths(options: Option<&Value>) -> Option<&Value> {
-    match options {
-        Some(opt) => match obj_get_obj(opt, "http_broker") {
-            Ok(http_opt) => match http_opt.get("static_filepaths") {
-                Some(v) => Some(v),
-                None => None,
-            },
-            Err(_) => None,
-        },
-        None => None,
-    }
-}
+/// option.http_broker のうち、HTTP ブローカーにそのまま渡す項目
+/// (static_filepaths: 静的ファイルの配信、cors_allow_origins: CORS の許可オリジン (issue #112))
+const HTTP_BROKER_PASS_THROUGH_OPTIONS: [&str; 2] = ["static_filepaths", "cors_allow_origins"];
 
 pub(super) fn setup_http_broker(
     system: &mut System,
@@ -36,25 +27,20 @@ pub(super) fn setup_http_broker(
     options: Option<&Value>,
 ) -> JuizResult<()> {
     log::trace!("system_builder::setup_http_broker() called");
-    let manifest = match get_http_staticfilepaths(options) {
-        None => {
-            jvalue!({
-                "type_name": "http",
-                "name": format!("0.0.0.0:{}", port_number),
-                "host": "0.0.0.0",
-                "port": port_number,
-            })
+    let mut manifest = jvalue!({
+        "type_name": "http",
+        "name": format!("0.0.0.0:{}", port_number),
+        "host": "0.0.0.0",
+        "port": port_number,
+    });
+    if let Some(http_opt) = options.and_then(|opt| obj_get_obj(opt, "http_broker").ok()) {
+        let map = get_hashmap_mut(&mut manifest)?;
+        for key in HTTP_BROKER_PASS_THROUGH_OPTIONS {
+            if let Some(v) = http_opt.get(key) {
+                map.insert(key.to_owned(), v.clone());
+            }
         }
-        Some(v) => {
-            jvalue!({
-                "type_name": "http",
-                "name": format!("0.0.0.0:{}", port_number),
-                "host": "0.0.0.0",
-                "port": port_number,
-                "static_filepaths": v
-            })
-        }
-    };
+    }
 
     let _http_broker = system
         .create_broker(&manifest)

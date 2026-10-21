@@ -77,6 +77,19 @@ juiz -f webui/juiz_webui.conf -d
 
 juiz に接続できないときは、上部の状態が「未接続」になり、ツリーの上に理由を出します。前回取れた内容は薄くして残します。
 
+## 別の場所から開くとき(CORS)
+
+画面を juiz とは別のオリジン(別のホストやポート)から開くときは、juiz 側で CORS を許可します。`option.http_broker.cors_allow_origins` に許可するオリジンを並べます(既定では許可しません)。`"*"` と書けばどこからでも呼べるようになるので、手元で試すときだけにしてください。
+
+```yaml
+"option":
+  "http_broker":
+    "port": 8000
+    "start": true
+    "cors_allow_origins":
+      - "http://localhost:5173"
+```
+
 ## 設定
 
 左のツリーの上にある「設定」ボタンから変えます。値はブラウザの localStorage に保存され、juiz の host:port ごとに別になります。

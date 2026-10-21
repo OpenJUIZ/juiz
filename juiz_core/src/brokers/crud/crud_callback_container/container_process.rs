@@ -5,7 +5,8 @@ use juiz_sdk::{
 };
 use std::str::FromStr;
 
-use super::CallbackContainerType;
+use super::{rewrite_to_accessed_broker, CallbackContainerType};
+use crate::core::process_profile_value;
 
 pub(crate) fn create_create_callbacks() -> CallbackContainerType {
     let mut container_process_callbacks = CallbackContainerType::new();
@@ -44,7 +45,7 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
             .clone()
             .try_into()?;
         let profile: ProcessProfile = cb.lock()?.container_process_profile_full(&id)?;
-        Ok(serde_json::to_value(profile)?.into())
+        Ok(process_profile_value(&profile)?.into())
     });
     cpro_cbs.insert("list", |_crud, cb, args| {
         log::debug!("[READ  ] container_process/list called");
@@ -59,7 +60,10 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
             cb.lock()?.container_process_list(recursive, None)?;
         Ok(profiles
             .into_iter()
-            .map(|id| serde_json::to_value(id))
+            .map(|mut id| {
+                rewrite_to_accessed_broker(&args, &mut id.broker_name, &mut id.broker_type_name);
+                serde_json::to_value(id)
+            })
             .collect::<serde_json::Result<Value>>()?
             .into())
     });

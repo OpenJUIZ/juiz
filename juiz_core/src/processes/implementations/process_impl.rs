@@ -222,7 +222,16 @@ impl ProcessImpl {
 
 impl Process for ProcessImpl {
     fn profile(&self) -> JuizResult<ProcessProfile> {
-        Ok(self.profile.clone())
+        // 引数ごとに今の値 (拘束値) を添える (issue #112)
+        let mut profile = self.profile.clone();
+        for arg in profile.arguments.iter_mut() {
+            arg.value = self
+                .inlets
+                .iter()
+                .find(|inlet| inlet.name() == &arg.name)
+                .and_then(|inlet| inlet.current_value());
+        }
+        Ok(profile)
     }
 
     fn call(&self, args: RequestMap) -> JuizResult<ResponsePtr> {

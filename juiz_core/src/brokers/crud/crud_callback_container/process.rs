@@ -5,7 +5,8 @@ use juiz_sdk::{
 };
 use std::str::FromStr;
 
-use super::CallbackContainerType;
+use super::{rewrite_to_accessed_broker, CallbackContainerType};
+use crate::core::process_profile_value;
 
 pub(crate) fn create_create_callbacks() -> CallbackContainerType {
     let mut process_callbacks = CallbackContainerType::new();
@@ -34,12 +35,10 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
             .clone()
             .try_into()?;
         let profile: ProcessProfile = cb.lock()?.process_profile_full(&process_id)?;
-        Ok(serde_json::to_value(profile)?.into())
+        Ok(process_profile_value(&profile)?.into())
     });
     proc_cbs.insert("list", |_crud, cb, args| {
         let accessed_broker_id = args.get_param("accessed_broker_id");
-        let accessed_broker_type = args.get_param("accessed_broker_type");
-        let accessed_broker_name = args.get_param("accessed_broker_name");
         log::debug!(
             "[READ  ] process/listが呼ばれました。accessed_broker_idは{accessed_broker_id:?}です。"
         );
@@ -62,18 +61,13 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
         Ok(Value::from(
             profiles
                 .into_iter()
-                .map(|id| {
-                    let mut mut_id = id.clone();
-                    // HTTP 以外 (メッセンジャー系ブローカーなど) では accessed_broker_* が無いので書き換えない (issue #36)
-                    if let (Some(name), Some(type_name)) =
-                        (accessed_broker_name, accessed_broker_type)
-                    {
-                        if id.broker_name == "core" && id.broker_type_name == "core" {
-                            mut_id.broker_name = name.clone();
-                            mut_id.broker_type_name = type_name.clone();
-                        }
-                    }
-                    serde_json::to_value(mut_id)
+                .map(|mut id| {
+                    rewrite_to_accessed_broker(
+                        &args,
+                        &mut id.broker_name,
+                        &mut id.broker_type_name,
+                    );
+                    serde_json::to_value(id)
                 })
                 .collect::<serde_json::Result<Value>>()?,
         )

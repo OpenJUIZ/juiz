@@ -9,6 +9,43 @@
     "version": "0.0.18"
   },
   "paths": {
+    "/api/any_process/list": {
+      "get": {
+        "tags": [
+          "any_process"
+        ],
+        "operationId": "list_dummy",
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
+    "/api/any_process/profile_full": {
+      "get": {
+        "tags": [
+          "any_process"
+        ],
+        "operationId": "profile_handler_dummy",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        }
+      }
+    },
     "/api/broker/list": {
       "get": {
         "tags": [

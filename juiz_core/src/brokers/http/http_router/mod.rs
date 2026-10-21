@@ -377,6 +377,7 @@ pub fn app_new(
     api.merge(execution_context::ApiDoc::openapi());
     api.merge(connection::ApiDoc::openapi());
     api.merge(topic::ApiDoc::openapi());
+    api.merge(any_process::ApiDoc::openapi());
     log::trace!("app_new(static_filepaths: {static_filepaths:?}) called");
     let r = Router::new();
     // Swagger UI は feature "swagger-ui" のときだけ。無いときも OpenAPI 定義は返す。
