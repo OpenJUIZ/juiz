@@ -1,3 +1,4 @@
+mod any_process;
 mod broker;
 mod connection;
 mod container;
@@ -11,6 +12,26 @@ use std::collections::HashMap;
 
 use super::{super::core_broker::CoreBrokerPtr, CRUDBroker};
 use crate::prelude::*;
+
+/// list で返す識別子のうち core を指すものを、呼び出しに使われたブローカー (http なら host:port) を指す形に書き換える。
+///
+/// HTTP などから呼ばれたときだけ accessed_broker_* が付くので、それ以外 (メッセンジャー系など) では書き換えない (issue #36)。
+/// process / container / container_process の list でそろえる (issue #112)。
+pub(crate) fn rewrite_to_accessed_broker(
+    args: &CapsuleMap,
+    broker_name: &mut String,
+    broker_type_name: &mut String,
+) {
+    if let (Some(name), Some(type_name)) = (
+        args.get_param("accessed_broker_name"),
+        args.get_param("accessed_broker_type"),
+    ) {
+        if broker_name == "core" && broker_type_name == "core" {
+            *broker_name = name.clone();
+            *broker_type_name = type_name.clone();
+        }
+    }
+}
 
 pub type CBFnType = fn(&CRUDBroker, CoreBrokerPtr, CapsuleMap) -> JuizResult<CapsulePtr>;
 pub type CallbackContainerType = HashMap<&'static str, CBFnType>;
@@ -69,6 +90,9 @@ pub(crate) fn read_callback_container() -> ClassCallbackContainerType {
         "container_process",
         container_process::create_read_callbacks(),
     );
+
+    // Process と ContainerProcess をまとめたもの
+    read_cb_container.insert("any_process", any_process::create_read_callbacks());
 
     read_cb_container.insert("broker", broker::create_read_callbacks());
 

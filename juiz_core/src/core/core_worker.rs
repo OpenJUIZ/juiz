@@ -893,13 +893,15 @@ impl CoreWorker {
     ) -> JuizResult<ConnectionProfile> {
         //let source_id = &connection_identifier.source_identifier;
         //let destination_id = &connection_identifier.destination_identifier;
-        let dst_proc = self.any_process_from_identifier(
-            &connection_identifier.destination_identifier,
-            create_when_not_found,
-        )?;
-        for con in dst_proc.lock()?.source_connections()?.into_iter() {
-            if con.identifier() == *connection_identifier {
-                return Ok(con.profile());
+        // 処理 → 話題の接続では送り先が話題 (型名 topic) で、processes には無い。
+        // そのときは送り元の出力側の接続から探す (issue #121)
+        let dst_id = &connection_identifier.destination_identifier;
+        if dst_id.type_name != "topic" {
+            let dst_proc = self.any_process_from_identifier(dst_id, create_when_not_found)?;
+            for con in dst_proc.lock()?.source_connections()?.into_iter() {
+                if con.identifier() == *connection_identifier {
+                    return Ok(con.profile());
+                }
             }
         }
         let src_proc = self.any_process_from_identifier(

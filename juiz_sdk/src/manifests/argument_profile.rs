@@ -12,6 +12,10 @@ pub struct ArgumentProfile {
     pub name: String,
     pub description: Description,
     pub default: Value,
+    /// 次の実行で使われる値。p_apply で拘束した値か、push で届いた値 (issue #112)。
+    /// 値がまだ無いとき、画像のように値型でないとき、ファクトリの profile では None で、JSON には出さない。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<Value>,
 }
 
 impl Display for ArgumentProfile {
@@ -30,6 +34,7 @@ impl From<ArgumentManifest> for ArgumentProfile {
             name: value.name,
             description: value.description,
             default: value.default,
+            value: None,
         }
     }
 }
@@ -45,6 +50,7 @@ impl ArgumentProfile {
             name: name.to_owned(),
             description,
             default,
+            value: None,
         }
     }
 
@@ -60,6 +66,7 @@ impl ArgumentProfile {
             name: name.to_owned(),
             description,
             default,
+            value: None,
         })
     }
 

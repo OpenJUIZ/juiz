@@ -134,7 +134,7 @@ impl TopicPtr {
     }
 
     pub fn profile(&self) -> JuizResult<Value> {
-        Ok(serde_json::to_value(self.ptr.lock()?.profile()?)?)
+        crate::core::process_profile_value(&self.ptr.lock()?.profile()?)
     }
 
     pub fn push(&self, capsule: CapsulePtr, pushed_system_uuid: Option<Uuid>) -> JuizResult<()> {

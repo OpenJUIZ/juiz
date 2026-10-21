@@ -68,6 +68,15 @@ impl Inlet {
         .into())
     }
 
+    /// 次の実行で使われる値 (p_apply で拘束した値か、push で届いた値)。
+    /// まだ無いときと、値型でない (画像など) ときは None (issue #112)
+    pub fn current_value(&self) -> Option<Value> {
+        self.buffer
+            .borrow()
+            .as_ref()
+            .and_then(|c| c.lock_as_value(|v| v.clone()).ok())
+    }
+
     pub fn is_updated(&self) -> JuizResult<bool> {
         if self.updated.get() {
             return Ok(true);

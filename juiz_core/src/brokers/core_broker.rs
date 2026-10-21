@@ -743,13 +743,9 @@ impl ProcessBrokerProxy for CoreBroker {
 
 impl ContainerBrokerProxy for CoreBroker {
     fn container_profile_full(&self, id: &ContainerIdentifier) -> JuizResult<ContainerProfile> {
-        self.worker()
-            .store()
-            .containers
-            .get(&id.to_string())?
-            .clone()
-            .lock()?
-            .profile()
+        let store = self.worker().store();
+        let container = store.containers.get(&id.to_string())?;
+        store.container_profile(&container)
     }
 
     fn container_list(
@@ -774,8 +770,13 @@ impl ContainerBrokerProxy for CoreBroker {
             //for (_id, proxy) in self.store().broker_proxies.objects().iter() {
             for ssp in self.subsystem_proxies.iter() {
                 let proxy = ssp.broker_proxy();
-                let mut plist = juiz_lock(&proxy)?.container_list(recursive, None)?;
-                ids.append(&mut plist);
+                let p = juiz_lock(&proxy)?;
+                // 副系のものは、副系へのブローカーを指す識別子にする (process_list と同じ。issue #112)
+                for mut id in p.container_list(recursive, None)?.into_iter() {
+                    id.broker_name = p.name().to_owned();
+                    id.broker_type_name = p.type_name().to_owned();
+                    ids.push(id);
+                }
             }
         }
         Ok(ids)
@@ -844,8 +845,13 @@ impl ContainerProcessBrokerProxy for CoreBroker {
         if recursive {
             for ssp in self.subsystem_proxies.iter() {
                 let proxy = ssp.broker_proxy();
-                let mut plist = juiz_lock(&proxy)?.container_process_list(recursive, None)?;
-                ids.append(&mut plist);
+                let p = juiz_lock(&proxy)?;
+                // 副系のものは、副系へのブローカーを指す識別子にする (process_list と同じ。issue #112)
+                for mut id in p.container_process_list(recursive, None)?.into_iter() {
+                    id.broker_name = p.name().to_owned();
+                    id.broker_type_name = p.type_name().to_owned();
+                    ids.push(id);
+                }
             }
         }
         Ok(ids)

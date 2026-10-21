@@ -3,6 +3,7 @@ use super::mutex_object_collection::MutexObjectCollection;
 use super::object_collection::ObjectCollection;
 use std::collections::HashMap;
 
+use crate::core::{container_profile_value, process_profile_value};
 use crate::ecs::{
     execution_context_function::ExecutionContextFunction,
     execution_context_holder_factory::ExecutionContextHolderFactory,
@@ -12,7 +13,7 @@ use crate::topics::TopicPtr;
 
 use juiz_sdk::anyhow::{self, anyhow};
 use juiz_sdk::manifests::ContainerIdentifier;
-use juiz_sdk::manifests::{ContainerProfile, ProcessProfile};
+use juiz_sdk::manifests::ContainerProfile;
 use juiz_sdk::process_identifier::ProcessIdentifier;
 use juiz_sdk::topic_identifier::TopicIdentifier;
 
@@ -166,38 +167,53 @@ impl CoreStore {
             .collect()
     }
 
-    pub fn processes_profile_full(&self) -> JuizResult<Vec<ProcessProfile>> {
+    pub fn processes_profile_full(&self) -> JuizResult<Vec<Value>> {
         log::trace!("process_profile_full() called");
         self.processes
             .objects()
             .iter()
             .map(|(_k, c)| {
-                c.lock().and_then(|co| {
-                    //let id = co.identifier().clone();
-                    co.profile()
-                })
+                c.lock()
+                    .and_then(|co| process_profile_value(&co.profile()?))
             })
             .collect()
     }
 
-    pub fn containers_profile_full(&self) -> JuizResult<Vec<ContainerProfile>> {
+    pub fn containers_profile_full(&self) -> JuizResult<Vec<Value>> {
         self.containers
             .objects()
             .iter()
-            .map(|(_k, c)| {
-                c.lock().and_then(|co| {
-                    //let id = co.identifier().clone();
-                    Ok(co.profile()?)
-                })
-            })
+            .map(|(_k, c)| container_profile_value(&self.container_profile(c)?))
             .collect()
     }
 
-    pub fn container_processes_profile_full(&self) -> JuizResult<Vec<ProcessProfile>> {
+    /// Container の profile。processes には、この Container に属する ContainerProcess の profile を入れる。
+    /// Container 自身の profile の processes は空のままなので、store から集める (issue #112)
+    pub fn container_profile(&self, container: &ContainerPtr) -> JuizResult<ContainerProfile> {
+        // ContainerProcess の profile は Container を参照するので、Container のロックは先に外す
+        let mut profile = { container.lock()?.profile()? };
+        let mut processes = Vec::new();
+        for (_k, cp) in self.container_processes.objects().iter() {
+            let p = cp.lock()?.profile()?;
+            let same_type =
+                p.container_type.is_none() || p.container_type.as_ref() == Some(&profile.type_name);
+            if p.container_name.as_ref() == Some(&profile.name) && same_type {
+                processes.push(p);
+            }
+        }
+        processes.sort_by(|a, b| a.name.cmp(&b.name));
+        profile.processes = processes;
+        Ok(profile)
+    }
+
+    pub fn container_processes_profile_full(&self) -> JuizResult<Vec<Value>> {
         self.container_processes
             .objects()
             .iter()
-            .map(|(_k, c)| c.lock().and_then(|co| co.profile()))
+            .map(|(_k, c)| {
+                c.lock()
+                    .and_then(|co| process_profile_value(&co.profile()?))
+            })
             .collect()
     }
 

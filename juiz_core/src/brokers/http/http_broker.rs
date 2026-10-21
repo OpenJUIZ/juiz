@@ -6,6 +6,7 @@ use std::{
 };
 //use axum::extract::path::ErrorKind;
 use tokio::net::TcpListener;
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 
 use super::super::core_broker::CoreBrokerPtr;
 use crate::brokers::CRUDBroker;
@@ -21,6 +22,57 @@ fn into_address(host: &str, port: i64) -> String {
 }
 fn check_server_is_juiz(_host: &str, _port: i64) -> bool {
     return true;
+}
+
+/// option.http_broker.cors_allow_origins から CORS の設定を作る (issue #112)。
+///
+/// 管理画面を juiz とは別のオリジン (開発サーバーなど) から開くときに使う。既定 (指定なし) では CORS ヘッダを付けない。
+/// 値はオリジンの配列か文字列。"*" ならすべてのオリジンを許可する。
+/// ```yaml
+/// option:
+///   http_broker:
+///     cors_allow_origins:
+///       - "http://localhost:5173"
+/// ```
+fn cors_layer(broker_manifest: &Value) -> Option<CorsLayer> {
+    let origins: Vec<String> = match broker_manifest.get("cors_allow_origins")? {
+        Value::String(s) => vec![s.clone()],
+        Value::Array(arr) => arr
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_owned()))
+            .collect(),
+        v => {
+            log::error!("cors_allow_origins はオリジンの文字列か配列で指定します ({v})。CORS は無効のままです。");
+            return None;
+        }
+    };
+    let allow_origin = if origins.iter().any(|o| o == "*") {
+        AllowOrigin::any()
+    } else {
+        let values = origins
+            .iter()
+            .filter_map(|o| match o.parse() {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    log::error!(
+                        "cors_allow_origins のオリジン({o})を読めません ({e})。無視します。"
+                    );
+                    None
+                }
+            })
+            .collect::<Vec<axum::http::HeaderValue>>();
+        if values.is_empty() {
+            return None;
+        }
+        AllowOrigin::list(values)
+    };
+    log::info!("HTTPブローカは CORS を許可します (origins={origins:?})");
+    Some(
+        CorsLayer::new()
+            .allow_origin(allow_origin)
+            .allow_methods(Any)
+            .allow_headers(Any),
+    )
 }
 
 async fn on_start(broker_manifest: Value, crud_broker: Arc<Mutex<CRUDBroker>>) -> () {
@@ -67,10 +119,13 @@ async fn on_start_inner(broker_manifest: Value, crud_broker: Arc<Mutex<CRUDBroke
                     b.set_started();
                 }
                 log::trace!("HTTPブローカ起動します。");
+                let mut app = app_new(crud_broker, static_filepaths);
+                if let Some(cors) = cors_layer(&broker_manifest) {
+                    app = app.layer(cors);
+                }
                 return axum::serve(
                     listener,
-                    app_new(crud_broker, static_filepaths)
-                        .into_make_service_with_connect_info::<SocketAddr>(),
+                    app.into_make_service_with_connect_info::<SocketAddr>(),
                 )
                 .await
                 .unwrap();
@@ -135,4 +190,23 @@ pub fn http_broker_factory(
         "type_name": "http"
     });
     create_broker_factory_impl(core_broker, manifest, create_broker_function)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cors_layer;
+    use crate::prelude::*;
+
+    #[test]
+    fn cors_is_off_by_default() {
+        assert!(cors_layer(&jvalue!({"port": 8000})).is_none());
+    }
+
+    #[test]
+    fn cors_accepts_string_or_array() {
+        assert!(cors_layer(&jvalue!({"cors_allow_origins": "*"})).is_some());
+        assert!(cors_layer(&jvalue!({"cors_allow_origins": ["http://localhost:5173"]})).is_some());
+        assert!(cors_layer(&jvalue!({"cors_allow_origins": []})).is_none());
+        assert!(cors_layer(&jvalue!({"cors_allow_origins": 1})).is_none());
+    }
 }
