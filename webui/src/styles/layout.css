@@ -246,15 +246,6 @@ button.conn-type:hover {
   background: var(--bg);
 }
 
-/* 湾曲した座標グリッドは #115 で作る。骨組みでは中央が明るい暗がりだけを敷く。 */
-.diagram-pane::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.85) 100%);
-}
-
 .props-pane {
   grid-area: props;
   border-left: 1px solid var(--line);
