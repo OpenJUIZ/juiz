@@ -1,7 +1,7 @@
 .app {
   display: grid;
   grid-template-rows: auto 1fr;
-  grid-template-columns: 260px 1fr 300px;
+  grid-template-columns: 280px 1fr 340px;
   grid-template-areas:
     "top top top"
     "tree diagram props";
@@ -74,51 +74,170 @@
   padding: 6px 0;
 }
 
+/* 取得に失敗して前回の内容を出しているとき */
+.tree.stale {
+  opacity: 0.55;
+}
+
 .tree ul {
   list-style: none;
   margin: 0;
-  padding-left: 16px;
+  padding-left: 14px;
 }
 
-.tree li {
-  padding: 1px 10px;
+.tree .row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px 1px 4px;
+  white-space: nowrap;
+  border-left: 2px solid transparent;
 }
 
-.tree .mark {
+.tree .row.element {
+  cursor: pointer;
+}
+
+.tree .row.element:hover {
+  background: var(--bg-raised);
+}
+
+.tree .row.selected {
+  background: var(--bg-raised);
+  border-left-color: var(--accent);
+}
+
+.tree .row.selected .label {
+  color: var(--accent);
+}
+
+.tree .row.category .label {
+  cursor: pointer;
+  color: var(--text-dim);
+}
+
+.tree .twisty {
   display: inline-block;
-  width: 0.7em;
-  height: 0.7em;
-  margin-right: 0.5em;
-  border: 1px solid currentColor;
-  box-shadow: var(--glow);
+  width: 1em;
+  flex: none;
+  text-align: center;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
 }
 
-.tree .mark.process {
-  color: var(--kind-process);
-  border-radius: 50%;
+.tree .label {
+  flex: 0 1 auto;
+  min-width: 2em;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.tree .mark.container {
-  color: var(--kind-container);
+.tree .sub {
+  flex: 0 1000 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.8em;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
 }
 
-.tree .mark.ec {
-  color: var(--kind-ec);
-}
-
-.tree .mark.topic {
-  color: var(--kind-topic);
-}
-
-.tree .mark.system,
-.tree .mark.other {
-  color: var(--kind-system);
+.tree .sub .term-en {
+  margin-left: 0.3em;
 }
 
 .tree .count {
   margin-left: 0.5em;
   color: var(--text-dim);
   font-family: var(--font-mono);
+}
+
+/* 種類ごとのマーク。ツリーと性質欄で共通 */
+.mark {
+  display: inline-block;
+  flex: none;
+  width: 0.7em;
+  height: 0.7em;
+  margin-right: 0.3em;
+  border: 1px solid currentColor;
+  box-shadow: var(--glow);
+}
+
+.mark.process {
+  color: var(--kind-process);
+  width: 0.9em;
+  border-radius: 50%;
+}
+
+.mark.container {
+  color: var(--kind-container);
+}
+
+.mark.ec {
+  color: var(--kind-ec);
+  border-radius: 2px;
+}
+
+.mark.topic {
+  color: var(--kind-topic);
+}
+
+.mark.connection {
+  color: var(--kind-connection);
+  height: 0;
+  border-width: 1px 0 0;
+}
+
+.mark.system,
+.mark.other {
+  color: var(--kind-system);
+}
+
+.ec-state {
+  margin-left: 0.4em;
+  padding: 0 4px;
+  font-size: 0.8em;
+  border: 1px solid var(--line);
+  color: var(--text-dim);
+}
+
+.ec-state.on {
+  border-color: var(--kind-ec);
+  color: var(--kind-ec);
+  box-shadow: 0 0 4px rgba(255, 225, 77, 0.5);
+}
+
+.conn-type {
+  margin-left: 0.4em;
+  padding: 0 4px;
+  font-size: 0.8em;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  color: var(--text-dim);
+  background: none;
+}
+
+button.conn-type:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.tree-error {
+  margin: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--error);
+  color: var(--error);
+  font-size: 0.9em;
+}
+
+.tree-error .title {
+  font-weight: bold;
+}
+
+.tree-error .detail {
+  color: var(--text-dim);
+  word-break: break-all;
 }
 
 .diagram-pane {
@@ -139,6 +258,140 @@
 .props-pane {
   grid-area: props;
   border-left: 1px solid var(--line);
+}
+
+/* 性質欄 */
+.props {
+  padding: 8px 10px 16px;
+}
+
+.props-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.props-title .kind {
+  color: var(--text-dim);
+}
+
+.props-title .name {
+  flex-basis: 100%;
+  font-size: 1.25em;
+  word-break: break-all;
+}
+
+.props-section h3 {
+  margin: 12px 0 4px;
+  font-size: 0.9em;
+  font-weight: normal;
+  color: var(--accent);
+  letter-spacing: 0.05em;
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 12px;
+  margin: 0;
+}
+
+.field-row {
+  display: contents;
+}
+
+.field-row dt {
+  color: var(--text-dim);
+}
+
+.field-row dd {
+  margin: 0;
+  min-width: 0;
+  word-break: break-all;
+}
+
+.props .mono {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+.props .none,
+.props .dim {
+  color: var(--text-dim);
+}
+
+.props .description {
+  white-space: pre-wrap;
+}
+
+.arg-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+
+.arg-table th {
+  text-align: left;
+  font-weight: normal;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--line);
+  padding: 2px 4px;
+}
+
+.arg-table td {
+  padding: 2px 4px;
+  border-bottom: 1px solid var(--line);
+  word-break: break-all;
+  vertical-align: top;
+}
+
+.arg-descriptions {
+  margin: 4px 0 0;
+  font-size: 0.85em;
+}
+
+.arg-descriptions div {
+  display: flex;
+  gap: 6px;
+}
+
+.arg-descriptions dd {
+  margin: 0;
+  color: var(--text-dim);
+}
+
+.link-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.link-list li {
+  padding: 1px 0;
+}
+
+.elem-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 2px;
+  border: none;
+  background: none;
+  color: var(--text);
+  text-decoration: underline dotted var(--text-dim);
+  text-underline-offset: 3px;
+}
+
+button.elem-link:hover {
+  color: var(--accent);
+  border: none;
+}
+
+.elem-link.missing {
+  color: var(--text-dim);
+  text-decoration: line-through;
 }
 
 .placeholder {

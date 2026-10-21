@@ -132,6 +132,23 @@ export function descriptionText(d: ProcessProfile["description"]): string {
   return typeof d === "string" ? d : (d.text ?? "");
 }
 
+/** 名前順に並べる。API の返す順は呼ぶたびに変わることがあるので、更新でツリーが並び替わらないように */
+function byName<T extends { name: string; typeName: string }>(list: T[]): T[] {
+  return list.sort((a, b) => a.name.localeCompare(b.name) || a.typeName.localeCompare(b.typeName));
+}
+
+/** 系の見出し。最上位は接続先の host:port、副系は profile の名前 */
+function systemLabel(profile: SystemProfile, url: string | null): string {
+  if (url) {
+    try {
+      return new URL(url).host;
+    } catch {
+      return url;
+    }
+  }
+  return profile.name;
+}
+
 function buildSystem(
   profile: SystemProfile,
   systemKey: string,
@@ -282,6 +299,13 @@ function buildSystem(
     }),
   );
 
+  for (const c of containers) byName(c.processes);
+  for (const p of allProcesses) {
+    byName(p.inputs);
+    byName(p.outputs);
+    byName(p.ecs);
+  }
+
   const subsystems = (profile.subsystems ?? []).map((s, i) =>
     buildSystem(s, `${systemKey}.${s.system_store?.uuid ?? i}`, null, null, elements),
   );
@@ -289,20 +313,20 @@ function buildSystem(
   return reg<SystemModel>({
     kind: "system",
     key: systemKey,
-    name: profile.name,
+    name: systemLabel(profile, url),
     typeName: profile.type_name,
     identifier: profile.identifier ?? "",
     systemKey,
     profile,
     uuid: profile.system_store?.uuid ?? null,
     url,
-    processes,
-    containers,
-    containerProcesses,
-    ecs,
-    connections: conns,
-    topics,
-    brokers,
+    processes: byName(processes),
+    containers: byName(containers),
+    containerProcesses: byName(containerProcesses),
+    ecs: byName(ecs),
+    connections: conns && byName(conns),
+    topics: byName(topics),
+    brokers: byName(brokers),
     subsystems,
   });
 }

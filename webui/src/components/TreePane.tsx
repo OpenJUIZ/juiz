@@ -36,7 +36,7 @@ export function TreePane(props: Props) {
         </div>
       )}
       {model ? (
-        <ul className="tree" role="tree">
+        <ul className={`tree${error ? " stale" : ""}`} role="tree">
           <SystemNode system={model.root} depth={0} {...props} />
         </ul>
       ) : (
