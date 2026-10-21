@@ -1,6 +1,6 @@
 [package]
 name = "juiz_py"
-version = "0.0.19"
+version = "0.0.20"
 edition = "2021"
 description = "juiz command for Python (the PyPI package juiz-cli)"
 license = "MIT OR Apache-2.0"
