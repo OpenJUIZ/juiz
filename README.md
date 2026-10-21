@@ -66,6 +66,8 @@ juiz process call "http://127.0.0.1:8000/process/increment_process0::increment_p
 # => CapsulePtr((value:Value(4), option: []))
 ```
 
+待機中の juiz はブラウザ用の管理画面も配信しています。起動時に出る URL(既定は http://localhost:8000/ui/)を開くと、系の中の処理や接続を図で確かめられます([webui/README.md](webui/README.md))。
+
 ### Rust・C++ で書く場合
 
 Rust や C++ で書く場合は、`juiz` コマンドを `cargo install juiz_app` で入れます(Rust 1.81 以降が必要です)。

@@ -4,6 +4,7 @@ name: juiz wheels
 # インストールした juiz コマンドで Python の Process と juiz_examples_python のサンプルを動かす。
 # Test(test.yml)と Publish to PyPI(pypi-publish.yml)から呼ばれる。
 # wheel は abi3(Python 3.10 以降で共通)なので、OS・CPU の組み合わせごとに1つだけ作る。
+# 管理画面(webui)も先にビルドして wheel の juiz に埋め込み、/ui で配信されることを確かめる(issue #117)。
 # ビルドした wheel は juiz-wheel-<名前> というアーティファクトに置く。
 #
 # sdist は作らない。maturin の sdist はルートの Cargo.toml(パッケージ juiz_meta を兼ねるワークスペース)を
@@ -50,6 +51,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      # 管理画面(webui)をビルドしておくと、juiz_core の build.rs が webui/dist を埋め込む(issue #117)
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: webui/package-lock.json
+
+      - name: Build webui
+        working-directory: webui
+        run: |
+          npm ci
+          npm run build
 
       # Linux では manylinux のコンテナの中でビルドする(古い glibc の Linux でも入るように)
       - name: Build wheel

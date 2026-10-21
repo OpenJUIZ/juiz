@@ -69,6 +69,8 @@ utoipa = { version="4.2.3", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "7.1.0", features = ["axum", "vendored"] }
 
 yaml-rust2 = "0.9.0"
+# 管理画面(webui)のビルド成果物を juiz_core に埋め込む(issue #117)
+rust-embed = { version = "8.5.0", features = ["interpolate-folder-path", "mime-guess", "debug-embed"] }
 
 
 # juiz_core = { path = "../../../../juiz_core/" }
