@@ -9,9 +9,9 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CurvedGrid } from "../diagram/CurvedGrid.tsx";
 import { JuizEdgeView, type JuizEdge } from "../diagram/edges.tsx";
-import { buildGraph, type DiagramEdgeKind, type DiagramGraph } from "../diagram/graph.ts";
-import { layoutGraph, type XY } from "../diagram/layout.ts";
-import { JuizNodeView, type JuizNode } from "../diagram/nodes.tsx";
+import { buildGraph, frameMinWidth, type DiagramEdgeKind, type DiagramGraph } from "../diagram/graph.ts";
+import { EMPTY_FRAME_HEIGHT, GROUP_PADDING, layoutGraph, type XY } from "../diagram/layout.ts";
+import { JuizNodeView, SystemFrameView, type JuizNode, type SystemFrameNode } from "../diagram/nodes.tsx";
 import { loadPositions, savePositions, type SavedPositions } from "../diagram/positions.ts";
 import "../diagram/diagram.css";
 import type { Model } from "../model.ts";
@@ -24,7 +24,10 @@ interface Props {
   onSelect: (key: string | null) => void;
 }
 
-const nodeTypes = { juiz: JuizNodeView };
+const nodeTypes = { juiz: JuizNodeView, systemFrame: SystemFrameView };
+
+type DiagramFlowNode = JuizNode | SystemFrameNode;
+
 const edgeTypes = { juiz: JuizEdgeView };
 
 /** 矢印の色(diagram.css の線の色と合わせる)。道具リンクは矢印なしで白丸 */
@@ -83,23 +86,62 @@ function Diagram({ model, serverUrl, selectedKey, onSelect }: Props) {
   }));
   if (saved.serverUrl !== serverUrl) setSaved({ serverUrl, positions: loadPositions(serverUrl) });
 
-  const nodes = useMemo<JuizNode[]>(
-    () =>
-      graph.nodes.map((n) => ({
-        id: n.id,
-        type: "juiz",
-        position: saved.positions[n.id] ?? auto?.positions[n.id] ?? { x: 0, y: 0 },
-        data: n.data,
-        width: n.width,
-        height: n.height,
-        selected: n.id === selectedKey,
-        // 照準の輪が他の要素の下に隠れないようにする
-        zIndex: n.id === selectedKey ? 10 : 0,
-        // 配置が済むまでは出さない(左上に重なって見えるのを避ける)
-        hidden: !saved.positions[n.id] && !auto?.positions[n.id],
-      })),
-    [graph, saved, auto, selectedKey],
-  );
+  const nodes = useMemo<DiagramFlowNode[]>(() => {
+    const elementNodes: JuizNode[] = graph.nodes.map((n) => ({
+      id: n.id,
+      type: "juiz",
+      position: saved.positions[n.id] ?? auto?.positions[n.id] ?? { x: 0, y: 0 },
+      data: n.data,
+      width: n.width,
+      height: n.height,
+      selected: n.id === selectedKey,
+      // 照準の輪が他の要素の下に隠れないようにする
+      zIndex: n.id === selectedKey ? 10 : 0,
+      // 配置が済むまでは出さない(左上に重なって見えるのを避ける)
+      hidden: !saved.positions[n.id] && !auto?.positions[n.id],
+    }));
+    // 系の枠は、中の要素の今の位置を囲む。要素を枠の外へ動かせば枠が広がる
+    const byId = new Map(elementNodes.map((n) => [n.id, n]));
+    const frames: SystemFrameNode[] = graph.groups.flatMap((g) => {
+      const members = g.members.flatMap((id) => {
+        const n = byId.get(id);
+        return n && !n.hidden ? [n] : [];
+      });
+      let box: { x: number; y: number; width: number; height: number };
+      if (members.length > 0) {
+        const x0 = Math.min(...members.map((n) => n.position.x));
+        const y0 = Math.min(...members.map((n) => n.position.y));
+        const x1 = Math.max(...members.map((n) => n.position.x + (n.width ?? 0)));
+        const y1 = Math.max(...members.map((n) => n.position.y + (n.height ?? 0)));
+        box = {
+          x: x0 - GROUP_PADDING.side,
+          y: y0 - GROUP_PADDING.top,
+          width: Math.max(x1 - x0 + 2 * GROUP_PADDING.side, frameMinWidth(g)),
+          height: y1 - y0 + GROUP_PADDING.top + GROUP_PADDING.bottom,
+        };
+      } else {
+        const p = auto?.positions[`group:${g.id}`];
+        if (!p) return [];
+        box = { ...p, width: frameMinWidth(g), height: EMPTY_FRAME_HEIGHT };
+      }
+      return [
+        {
+          id: g.id,
+          type: "systemFrame",
+          position: { x: box.x, y: box.y },
+          width: box.width,
+          height: box.height,
+          data: { name: g.name, isRoot: g.isRoot, via: g.via, error: g.error },
+          selected: g.id === selectedKey,
+          draggable: false,
+          // 枠の中のクリックは下の要素や背景へ通す(見出しだけが受ける。diagram.css)
+          style: { pointerEvents: "none" },
+          zIndex: -1,
+        },
+      ];
+    });
+    return [...frames, ...elementNodes];
+  }, [graph, saved, auto, selectedKey]);
 
   const edges = useMemo<JuizEdge[]>(
     () =>
@@ -120,7 +162,7 @@ function Diagram({ model, serverUrl, selectedKey, onSelect }: Props) {
   );
 
   const onNodesChange = useCallback(
-    (changes: NodeChange<JuizNode>[]) => {
+    (changes: NodeChange<DiagramFlowNode>[]) => {
       const moved: SavedPositions = {};
       let dropped = false;
       for (const c of changes) {
@@ -144,7 +186,7 @@ function Diagram({ model, serverUrl, selectedKey, onSelect }: Props) {
   }, [serverUrl, fitView]);
 
   return (
-    <ReactFlow<JuizNode, JuizEdge>
+    <ReactFlow<DiagramFlowNode, JuizEdge>
       nodes={nodes}
       edges={edges}
       nodeTypes={nodeTypes}

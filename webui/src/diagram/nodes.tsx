@@ -164,3 +164,30 @@ function ArgArcs({ args, outputConnected, c, r }: { args: ArgInfo[]; outputConne
     </g>
   );
 }
+
+export interface SystemFrameData extends Record<string, unknown> {
+  name: string;
+  isRoot: boolean;
+  via: string | null;
+  error: string | null;
+}
+
+export type SystemFrameNode = Node<SystemFrameData, "systemFrame">;
+
+/** 系の破線枠(#116)。見出しだけがクリックを受け、枠の中は下の要素や背景へ通す */
+export function SystemFrameView({ data, width, height, selected }: NodeProps<SystemFrameNode>) {
+  const term = TERMS[data.isRoot ? "system" : "subsystem"];
+  return (
+    <div
+      className={`dframe${data.isRoot ? " root" : ""}${data.error ? " error" : ""}${selected ? " selected" : ""}`}
+      style={{ width: width ?? 0, height: height ?? 0 }}
+    >
+      <div className="dframe-head" title={data.error ?? undefined}>
+        <span className="dframe-term">{term.ja}</span>
+        <span className="dframe-name">{data.name}</span>
+        {data.via && <span className="dframe-via">{data.via}</span>}
+        {data.error && <span className="dframe-error">取得不可</span>}
+      </div>
+    </div>
+  );
+}

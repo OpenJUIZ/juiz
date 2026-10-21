@@ -1,19 +1,22 @@
 use juiz_sdk::value::jvalue;
 use utoipa::OpenApi;
 
-use super::{FullQuery, IdentifierQuery, PathQuery, Value};
+use super::{FullQuery, IdentifierQuery, PathQuery, RecursiveQuery, Value};
 use axum::{extract::Query, response::IntoResponse, Json};
 
 #[allow(unused)]
 #[utoipa::path(
     get,
     path = "/api/system/profile_full",
+    params(
+        RecursiveQuery
+    ),
     responses(
-        (status = 200, description = "System")
+        (status = 200, description = "System. recursive=true ならサブシステムの中身と各 System の接続 (connections) も入れる")
     ),
     tag = "universal.system",
 )]
-pub async fn profile_handler_dummy() {}
+pub async fn profile_handler_dummy(_query: Query<RecursiveQuery>) {}
 
 #[allow(unused)]
 #[utoipa::path(

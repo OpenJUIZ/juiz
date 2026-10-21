@@ -208,6 +208,14 @@
   box-shadow: 0 0 4px rgba(255, 225, 77, 0.5);
 }
 
+.sys-error {
+  margin-left: 0.4em;
+  padding: 0 4px;
+  font-size: 0.8em;
+  border: 1px solid var(--error);
+  color: var(--error);
+}
+
 .conn-type {
   margin-left: 0.4em;
   padding: 0 4px;
@@ -310,6 +318,10 @@ button.conn-type:hover {
 }
 
 .props .none,
+.props .error-text {
+  color: var(--error);
+}
+
 .props .dim {
   color: var(--text-dim);
 }

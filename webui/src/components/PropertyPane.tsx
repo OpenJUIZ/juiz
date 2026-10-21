@@ -500,6 +500,17 @@ function SystemBody({ element: e, model, onSelect }: BodyProps<SystemModel>) {
         <Fields
           rows={[
             ["接続先", e.url ? <Mono>{e.url}</Mono> : null],
+            ...(e.via
+              ? ([
+                  [
+                    <>経由する<Term k="broker" /></>,
+                    <>
+                      <Mono>{e.via.name}</Mono> <span className="dim">{e.via.typeName}</span>
+                    </>,
+                  ],
+                ] as [ReactNode, ReactNode][])
+              : []),
+            ...(e.error ? ([["取得できない理由", <span className="error-text">{e.error}</span>]] as [ReactNode, ReactNode][]) : []),
             ["UUID", e.uuid ? <Mono>{e.uuid}</Mono> : null],
             [
               <Term k="broker" />,

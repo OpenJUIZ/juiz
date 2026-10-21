@@ -87,13 +87,25 @@ export interface CoreStore {
   topics: TopicProfile[];
 }
 
-/** GET /api/system/profile_full */
+/**
+ * GET /api/system/profile_full
+ *
+ * recursive=true を付けると、subsystems に副系の profile が同じ形で再帰的に入り、
+ * 各系が持つ接続が connections に入る(#116)。
+ * 付けない(または古い juiz)と、subsystems には副系へ経由する仲介の profile だけが入る。
+ */
 export interface SystemProfile extends ObjectProfile {
-  core_store: CoreStore;
+  /** 副系へ経由する仲介の profile だけのときは無い */
+  core_store?: CoreStore;
   system_store?: { uuid?: string } & Record<string, unknown>;
-  /** 別プロセスの juiz(副系)。同じ形の profile が再帰的に入る */
-  subsystems: SystemProfile[];
-  mastersystem: SystemProfile | null;
+  subsystems?: SystemProfile[];
+  mastersystem?: ObjectProfile | null;
+  /** この系が持つ接続。両端が別の系の接続は、両方の系に入る(recursive=true のときだけ) */
+  connections?: ConnectionProfile[];
+  /** 親の系から副系へ経由する仲介の profile(recursive=true のときだけ) */
+  broker_proxy?: ObjectProfile;
+  /** 副系の中身を取れなかったときの理由 */
+  error?: string;
 }
 
 /** GET /api/connection/profile_full */

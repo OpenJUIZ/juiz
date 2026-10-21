@@ -86,11 +86,17 @@ export interface SystemModel extends ElementBase {
   uuid: string | null;
   /** 取得に使った URL。副系は分からないので null */
   url: string | null;
+  /** 副系のとき、親の系から経由する仲介(http の host:port、qmp など) */
+  via: { name: string; typeName: string } | null;
+  /** 副系の中身を取れなかったときの理由 */
+  error: string | null;
+  /** この系を指す仲介の名前("種類|名前")。接続の端がどの系かを探すのに使う */
+  addresses: string[];
   processes: ProcessElement[];
   containers: ContainerElement[];
   containerProcesses: ProcessElement[];
   ecs: EcElement[];
-  /** 接続。副系の接続は取得していないので null */
+  /** この系から出る接続(出す側が分からないものは、返した系に置く)。古い juiz で副系の接続が分からないときは null */
   connections: ConnectionElement[] | null;
   topics: TopicElement[];
   brokers: BrokerElement[];
@@ -137,8 +143,25 @@ function byName<T extends { name: string; typeName: string }>(list: T[]): T[] {
   return list.sort((a, b) => a.name.localeCompare(b.name) || a.typeName.localeCompare(b.typeName));
 }
 
-/** 系の見出し。最上位は接続先の host:port、副系は profile の名前 */
-function systemLabel(profile: SystemProfile, url: string | null): string {
+/** 仲介の名前(host:port)の、同じ機械を指す書き方をそろえる */
+function normalizeBrokerName(name: string): string {
+  const m = /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|::1)(:\d+)?$/.exec(name);
+  return m ? `127.0.0.1${m[2] ?? ""}` : name;
+}
+
+function addressOf(typeName: string, name: string): string {
+  return `${typeName}|${normalizeBrokerName(name)}`;
+}
+
+/** 副系の profile から、親の系から経由する仲介を取り出す */
+function viaOf(profile: SystemProfile): { name: string; typeName: string } | null {
+  // recursive=true なら broker_proxy に入る。古い juiz では profile そのものが仲介の profile
+  const p = profile.broker_proxy ?? (profile.core_store ? null : profile);
+  return p ? { name: p.name, typeName: p.type_name } : null;
+}
+
+/** 系の見出し。最上位は接続先の host:port、副系は経由する仲介の名前 */
+function systemLabel(profile: SystemProfile, url: string | null, via: SystemModel["via"]): string {
   if (url) {
     try {
       return new URL(url).host;
@@ -146,7 +169,25 @@ function systemLabel(profile: SystemProfile, url: string | null): string {
       return url;
     }
   }
-  return profile.name;
+  return via?.name ?? profile.name;
+}
+
+/** 系ごとに、接続の端を解決するのに使うもの */
+interface SystemIndex {
+  system: SystemModel;
+  findProcess: (ref: ProcessRef) => ProcessElement | undefined;
+  /** この系が持つ接続(profile の connections、または最上位で別に取ったもの) */
+  connections: ConnectionProfile[] | null;
+}
+
+/** 話題の発行・購読の接続か。発行・購読は処理の publishes / subscribes で分かるので接続としては扱わない */
+function isTopicConnection(c: ConnectionProfile): boolean {
+  const isTopic = (r: ProcessRef) => r.class_name === "topic" || r.type_name === "topic";
+  return (
+    isTopic(c.source_process_id) ||
+    isTopic(c.destination_process_id) ||
+    (c.identifier ?? "").split("|").some((end) => end.endsWith("::topic"))
+  );
 }
 
 function buildSystem(
@@ -155,20 +196,26 @@ function buildSystem(
   url: string | null,
   connections: ConnectionProfile[] | null,
   elements: Map<string, Element>,
+  index: SystemIndex[],
 ): SystemModel {
   const store = profile.core_store;
+  const via = url ? null : viaOf(profile);
+  // 副系の profile の識別子は副系から見た形(core://core/...)なので、経由する仲介の形に直す。
+  // */list?recursive=true が返す識別子(http://127.0.0.1:8001/process/... など)と同じになる
+  const gid = (id: string): string =>
+    via && id.startsWith("core://core/") ? `${via.typeName}://${via.name}/${id.slice("core://core/".length)}` : id;
   const reg = <T extends Element>(e: T): T => {
     elements.set(e.key, e);
     return e;
   };
 
-  const processes = (store.processes ?? []).map((p) =>
+  const processes = (store?.processes ?? []).map((p) =>
     reg<ProcessElement>({
       kind: "process",
       key: elementKey(systemKey, "process", p.name, p.type_name),
       name: p.name,
       typeName: p.type_name,
-      identifier: p.identifier ?? `core://core/process/${p.name}::${p.type_name}`,
+      identifier: gid(p.identifier ?? `core://core/process/${p.name}::${p.type_name}`),
       systemKey,
       profile: p,
       containerKey: null,
@@ -178,20 +225,20 @@ function buildSystem(
     }),
   );
 
-  const containers = (store.containers ?? []).map((c) =>
+  const containers = (store?.containers ?? []).map((c) =>
     reg<ContainerElement>({
       kind: "container",
       key: elementKey(systemKey, "container", c.name, c.type_name),
       name: c.name,
       typeName: c.type_name,
-      identifier: c.identifier ?? `core://core/container/${c.name}::${c.type_name}`,
+      identifier: gid(c.identifier ?? `core://core/container/${c.name}::${c.type_name}`),
       systemKey,
       profile: c,
       processes: [],
     }),
   );
 
-  const containerProcesses = (store.container_processes ?? []).map((p) => {
+  const containerProcesses = (store?.container_processes ?? []).map((p) => {
     const typeName = baseTypeName(p.type_name);
     const container = containers.find(
       (c) => c.name === p.container_name && (!p.container_type || c.typeName === p.container_type),
@@ -201,8 +248,9 @@ function buildSystem(
       key: elementKey(systemKey, "containerProcess", p.name, typeName, `${p.container_name ?? ""}/`),
       name: p.name,
       typeName,
-      identifier:
+      identifier: gid(
         p.identifier ?? `core://core/container_process/${p.name}::${typeName}:${p.container_name ?? ""}`,
+      ),
       systemKey,
       profile: p,
       containerKey: container?.key ?? null,
@@ -226,13 +274,13 @@ function buildSystem(
     );
   };
 
-  const ecs = Object.entries(store.ecs ?? {}).map(([id, ec]) => {
+  const ecs = Object.entries(store?.ecs ?? {}).map(([id, ec]) => {
     const e = reg<EcElement>({
       kind: "ec",
       key: elementKey(systemKey, "ec", ec.name, ec.type_name),
       name: ec.name,
       typeName: ec.type_name,
-      identifier: ec.identifier ?? id,
+      identifier: gid(ec.identifier ?? id),
       systemKey,
       profile: ec,
       targets: [],
@@ -245,37 +293,14 @@ function buildSystem(
     return e;
   });
 
-  const conns =
-    connections?.map((c) => {
-      const src = findProcess(c.source_process_id);
-      const dst = findProcess(c.destination_process_id);
-      const identifier =
-        c.identifier ??
-        `connection://${src?.identifier ?? c.source_process_id.name}|${c.arg_name}|${dst?.identifier ?? c.destination_process_id.name}`;
-      const e = reg<ConnectionElement>({
-        kind: "connection",
-        key: `${systemKey}/connection/${identifier}`,
-        name: `${c.source_process_id.name} → ${c.destination_process_id.name}.${c.arg_name}`,
-        typeName: c.connection_type,
-        identifier,
-        systemKey,
-        profile: c,
-        sourceKey: src?.key ?? null,
-        destinationKey: dst?.key ?? null,
-      });
-      src?.outputs.push(e);
-      dst?.inputs.push(e);
-      return e;
-    }) ?? null;
-
   const allProcesses = [...processes, ...containerProcesses];
-  const topics = (store.topics ?? []).map((t) =>
+  const topics = (store?.topics ?? []).map((t) =>
     reg<TopicElement>({
       kind: "topic",
       key: elementKey(systemKey, "topic", t.name, t.type_name ?? "topic"),
       name: t.name,
       typeName: t.type_name ?? "topic",
-      identifier: t.identifier ?? t.name,
+      identifier: gid(t.identifier ?? t.name),
       systemKey,
       profile: t,
       publishers: allProcesses.filter((p) => (p.profile.publishes ?? []).some((r) => r.name === t.name)),
@@ -287,56 +312,125 @@ function buildSystem(
     }),
   );
 
-  const brokers = (store.brokers ?? []).map((b) =>
+  const brokers = (store?.brokers ?? []).map((b) =>
     reg<BrokerElement>({
       kind: "broker",
       key: elementKey(systemKey, "broker", b.name, b.type_name),
       name: b.name,
       typeName: b.type_name,
-      identifier: b.identifier ?? `core://core/broker/${b.name}::${b.type_name}`,
+      identifier: gid(b.identifier ?? `core://core/broker/${b.name}::${b.type_name}`),
       systemKey,
       profile: b,
     }),
   );
 
   for (const c of containers) byName(c.processes);
-  for (const p of allProcesses) {
-    byName(p.inputs);
-    byName(p.outputs);
-    byName(p.ecs);
+
+  const addresses = brokers.map((b) => addressOf(b.typeName, b.name));
+  if (via) addresses.push(addressOf(via.typeName, via.name));
+  if (url) {
+    try {
+      addresses.push(addressOf("http", new URL(url).host));
+    } catch {
+      // 接続先が URL の形でなければ、仲介の一覧だけで突き合わせる
+    }
   }
 
-  const subsystems = (profile.subsystems ?? []).map((s, i) =>
-    buildSystem(s, `${systemKey}.${s.system_store?.uuid ?? i}`, null, null, elements),
-  );
-
-  return reg<SystemModel>({
+  const system = reg<SystemModel>({
     kind: "system",
     key: systemKey,
-    name: systemLabel(profile, url),
+    name: systemLabel(profile, url, via),
     typeName: profile.type_name,
     identifier: profile.identifier ?? "",
     systemKey,
     profile,
     uuid: profile.system_store?.uuid ?? null,
     url,
+    via,
+    error: profile.error ?? (store ? null : "副系の中身を取得できませんでした"),
+    addresses,
     processes: byName(processes),
     containers: byName(containers),
     containerProcesses: byName(containerProcesses),
     ecs: byName(ecs),
-    connections: conns && byName(conns),
+    connections: connections && [],
     topics: byName(topics),
     brokers: byName(brokers),
-    subsystems,
+    subsystems: [],
   });
+  index.push({ system, findProcess, connections });
+
+  system.subsystems = (profile.subsystems ?? []).map((s, i) =>
+    buildSystem(s, `${systemKey}.${s.system_store?.uuid ?? i}`, null, s.connections ?? null, elements, index),
+  );
+  return system;
+}
+
+/**
+ * 接続をつなぐ。接続の端は、その接続を返した系から見た仲介(core なら自分、http なら host:port)で書かれているので、
+ * 仲介の名前から相手の系を探す。両端が別の系の接続は両方の系から返るので、1 本にまとめて出す側の系に置く。
+ */
+function linkConnections(index: SystemIndex[], elements: Map<string, Element>): void {
+  const findSystem = (from: SystemIndex, ref: ProcessRef): SystemIndex | undefined => {
+    if (!ref.broker_type_name || ref.broker_type_name === "core" || ref.broker_name === "core") return from;
+    const addr = addressOf(ref.broker_type_name, ref.broker_name ?? "");
+    return index.find((s) => s.system.addresses.includes(addr));
+  };
+
+  for (const from of index) {
+    for (const c of from.connections ?? []) {
+      if (isTopicConnection(c)) continue;
+      const srcSys = findSystem(from, c.source_process_id);
+      const dstSys = findSystem(from, c.destination_process_id);
+      const src = srcSys?.findProcess(c.source_process_id);
+      const dst = dstSys?.findProcess(c.destination_process_id);
+      // 出す側の系に置く。出す側が分からなければ、返した系に置く
+      const owner = src ? (srcSys ?? from) : from;
+      if (!owner.system.connections) continue;
+      const identifier =
+        src && dst
+          ? `${src.key}|${c.arg_name}|${dst.key}`
+          : (c.identifier ??
+            `connection://${src?.identifier ?? c.source_process_id.name}|${c.arg_name}|${dst?.identifier ?? c.destination_process_id.name}`);
+      const key = `${owner.system.key}/connection/${identifier}`;
+      if (elements.has(key)) continue;
+      const e: ConnectionElement = {
+        kind: "connection",
+        key,
+        name: `${c.source_process_id.name} → ${c.destination_process_id.name}.${c.arg_name}`,
+        typeName: c.connection_type,
+        identifier: c.identifier ?? identifier,
+        systemKey: owner.system.key,
+        profile: c,
+        sourceKey: src?.key ?? null,
+        destinationKey: dst?.key ?? null,
+      };
+      elements.set(key, e);
+      owner.system.connections.push(e);
+      src?.outputs.push(e);
+      dst?.inputs.push(e);
+    }
+  }
+
+  for (const { system } of index) {
+    if (system.connections) byName(system.connections);
+    for (const p of [...system.processes, ...system.containerProcesses]) {
+      byName(p.inputs);
+      byName(p.outputs);
+      byName(p.ecs);
+    }
+  }
 }
 
 /**
  * system/profile_full と接続の profile から画面用の形を作る。
  * url は取得に使った接続先(画面と同じ場所なら location.origin)。
+ * connections を渡さなければ、profile の connections(recursive=true で取ったもの)を使う。
  */
-export function buildModel(profile: SystemProfile, connections: ConnectionProfile[], url: string): Model {
+export function buildModel(profile: SystemProfile, url: string, connections?: ConnectionProfile[]): Model {
   const elements = new Map<string, Element>();
-  const root = buildSystem(profile, "sys", url, connections, elements);
+  const index: SystemIndex[] = [];
+  const root = buildSystem(profile, "sys", url, connections ?? profile.connections ?? [], elements, index);
+  linkConnections(index, elements);
   return { root, elements };
 }

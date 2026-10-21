@@ -356,6 +356,14 @@ impl SystemBrokerProxy for MessengerBrokerProxy {
         capsule_to_value(self.read("system", "profile_full")?)
     }
 
+    fn system_profile_full_recursive(&self) -> JuizResult<Value> {
+        capsule_value(self.read_with_param(
+            "system",
+            "profile_full",
+            &[("recursive".to_owned(), "true".to_owned())],
+        )?)
+    }
+
     fn system_filesystem_list(&self, path_buf: std::path::PathBuf) -> JuizResult<Value> {
         capsule_to_value(self.read_with_param(
             "system",

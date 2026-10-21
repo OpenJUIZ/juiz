@@ -19,6 +19,15 @@ pub trait SystemBrokerProxy {
     ///
     fn system_profile_full(&self) -> JuizResult<Value>;
 
+    /// サブシステムの中身まで含めた System のプロファイルを取得する (issue #116)
+    ///
+    /// system_profile_full() の subsystems は、サブシステムへの BrokerProxy の profile だけになっている。
+    /// こちらは各サブシステムの system_profile_full_recursive() を入れ子にし、
+    /// 各 System が持つ接続の profile を connections に加える。
+    fn system_profile_full_recursive(&self) -> JuizResult<Value> {
+        self.system_profile_full()
+    }
+
     ///
     ///
     ///

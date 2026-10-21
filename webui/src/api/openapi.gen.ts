@@ -1207,14 +1207,16 @@ export interface paths {
         };
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    recursive?: string | null;
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
             };
             requestBody?: never;
             responses: {
-                /** @description System */
+                /** @description System. recursive=true ならサブシステムの中身と各 System の接続 (connections) も入れる */
                 200: {
                     headers: {
                         [name: string]: unknown;

@@ -888,9 +888,20 @@
           "universal.system"
         ],
         "operationId": "profile_handler_dummy",
+        "parameters": [
+          {
+            "name": "recursive",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        ],
         "responses": {
           "200": {
-            "description": "System"
+            "description": "System. recursive=true ならサブシステムの中身と各 System の接続 (connections) も入れる"
           }
         }
       }
