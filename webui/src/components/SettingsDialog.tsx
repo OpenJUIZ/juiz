@@ -9,10 +9,10 @@ interface Props {
 
 export function SettingsDialog({ settings, onSave, onClose }: Props) {
   const [serverUrl, setServerUrl] = useState(settings.serverUrl);
-  const [interval, setInterval] = useState(String(settings.pollIntervalSec));
+  const [intervalInput, setIntervalInput] = useState(String(settings.pollIntervalSec));
 
   const save = () => {
-    const n = Number(interval);
+    const n = Number(intervalInput);
     onSave({
       serverUrl: serverUrl.trim(),
       pollIntervalSec: Number.isFinite(n) ? n : settings.pollIntervalSec,
@@ -45,8 +45,8 @@ export function SettingsDialog({ settings, onSave, onClose }: Props) {
           <input
             type="number"
             step="0.5"
-            value={interval}
-            onChange={(e) => setInterval(e.target.value)}
+            value={intervalInput}
+            onChange={(e) => setIntervalInput(e.target.value)}
           />
           <span className="hint">
             0 以下で自動更新なし(更新ボタンだけ)。最短 {MIN_POLL_INTERVAL_SEC} 秒
