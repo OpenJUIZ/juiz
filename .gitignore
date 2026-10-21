@@ -15,4 +15,4 @@ examples/cpp/build/
 /bindings/juiz_py/dist/
 /webui/node_modules/
 /webui/dist/
-/juiz_core/webui_dist/
+/juiz_webui/dist/

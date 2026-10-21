@@ -24,6 +24,7 @@ juiz_sdk = {version="0.0.18", path="juiz_sdk"}
 juiz_core = {version="0.0.18", path="juiz_core", default-features = false}
 juiz_app= {version="0.0.18", path="juiz_app"}
 juiz_qmp_broker = {version="0.0.18", path="brokers/qmp_broker"}
+juiz_webui = {version="0.0.18", path="juiz_webui"}
 
 anyhow = "1.0.89"
 approx = "0.5.1"
@@ -69,8 +70,6 @@ utoipa = { version="4.2.3", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "7.1.0", features = ["axum", "vendored"] }
 
 yaml-rust2 = "0.9.0"
-# 管理画面(webui)のビルド成果物を juiz_core に埋め込む(issue #117)
-rust-embed = { version = "8.5.0", features = ["interpolate-folder-path", "mime-guess", "debug-embed"] }
 
 
 # juiz_core = { path = "../../../../juiz_core/" }
@@ -81,6 +80,7 @@ members = [
     "juiz_sdk",
     "juiz_core",
     "juiz_app",
+    "juiz_webui",
     "ecs/timer_ec",
     "ecs/one_shot_ec", 
     "ecs/main_loop_ec",
@@ -124,6 +124,7 @@ default-members = [
     "juiz_sdk",
     "juiz_core",
     "juiz_app",
+    "juiz_webui",
     "ecs/timer_ec",
     "ecs/one_shot_ec", 
     "ecs/main_loop_ec",

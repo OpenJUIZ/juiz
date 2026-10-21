@@ -4,10 +4,6 @@ version = "0.0.18"
 edition = "2021"
 description = "Core library for JUIZ application. This package is not required if you want to build juiz functional module."
 license.workspace = true
-build = "build.rs"
-# 管理画面のビルド成果物 webui_dist/ は .gitignore にあるので、公開するクレートに含めるファイルを並べる(issue #117)。
-# 公開ワークフロー(.github/workflows/publish.yml)が webui をビルドして webui_dist/ に置いてから cargo publish する。
-include = ["/src/**", "/tests/**", "/build.rs", "/webui_dist/**", "/Cargo.toml", "/LICENSE-*"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
@@ -19,7 +15,7 @@ crate-type = ["cdylib", "lib"]
 swagger-ui = ["dep:utoipa-swagger-ui"]
 
 # 管理画面(webui)を埋め込み、HTTP ブローカーの /ui で配信する(issue #117)。
-webui = ["dep:rust-embed"]
+webui = ["dep:juiz_webui"]
 
 default = ["embed-python", "swagger-ui", "webui"]
 # Python の Process・Container・Component を読み込む。オフにすると pyo3 を使わず、libpython なしで動く。
@@ -57,7 +53,7 @@ utoipa = {workspace = true, features = ["axum_extras"] }
 utoipa-swagger-ui = {workspace = true, features = ["axum"], optional = true }
 
 
-# 管理画面の埋め込み(feature "webui"、既定でオン)
-rust-embed = { workspace = true, optional = true }
+# 管理画面のビルド成果物(feature "webui"、既定でオン)
+juiz_webui = { workspace = true, optional = true }
 
 juiz_sdk = { workspace = true}

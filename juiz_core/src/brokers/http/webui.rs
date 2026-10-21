@@ -1,7 +1,6 @@
 //! 管理画面(webui)を HTTP ブローカーの /ui で配信する(issue #117)。
 //!
-//! feature "webui" のとき、webui のビルド成果物をバイナリに埋め込む。埋め込み元は build.rs が決める
-//! (公開したクレートでは juiz_core/webui_dist、リポジトリの中では webui/dist)。
+//! feature "webui" のとき、juiz_webui クレートが埋め込んだ webui のビルド成果物を配信する。
 //! ビルド成果物が無いままビルドしたときは、/ui/ で画面のビルド方法を案内する。
 
 use axum::{
@@ -12,19 +11,13 @@ use axum::{
     routing::get,
     Router,
 };
-use rust_embed::RustEmbed;
 
 /// 画面を配信する URL
 pub const WEBUI_PATH: &str = "/ui";
 
-#[derive(RustEmbed)]
-#[folder = "$JUIZ_WEBUI_DIR"]
-#[allow_missing = true]
-struct WebUiAssets;
-
 /// 画面のビルド成果物が埋め込まれているか
 pub fn webui_embedded() -> bool {
-    WebUiAssets::get("index.html").is_some()
+    juiz_webui::embedded()
 }
 
 /// /ui を配信する Router。/ui は /ui/ に付け直す(画面は相対パスで部品を読むため)。
@@ -50,7 +43,7 @@ fn serve(path: &str) -> Response {
     } else {
         path.to_owned()
     };
-    match WebUiAssets::get(&path) {
+    match juiz_webui::get(&path) {
         Some(file) => {
             // assets/ の下はファイル名にハッシュが付くので長く持たせ、index.html は毎回確かめさせる
             let cache = if path.starts_with("assets/") {

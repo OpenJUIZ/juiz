@@ -1295,10 +1295,10 @@ dependencies = [
  "home",
  "interprocess",
  "juiz_sdk",
+ "juiz_webui",
  "libloading",
  "pyo3",
  "reqwest",
- "rust-embed",
  "serde",
  "signal-hook",
  "thiserror 1.0.69",
@@ -1366,6 +1366,13 @@ dependencies = [
  "serde_json",
  "thiserror 1.0.69",
  "yaml-rust2",
+]
+
+[[package]]
+name = "juiz_webui"
+version = "0.0.18"
+dependencies = [
+ "rust-embed",
 ]
 
 [[package]]

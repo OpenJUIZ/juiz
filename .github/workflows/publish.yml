@@ -1,7 +1,7 @@
 name: Publish to crates.io
 
-# v* タグ(例: v0.0.9)の push で juiz_macro / juiz_sdk / juiz_core / juiz_qmp_broker / juiz_app を crates.io に公開する。
-# 5 つのクレートは同じバージョンで揃えて公開する。タグのバージョンがどれかの Cargo.toml と
+# v* タグ(例: v0.0.9)の push で juiz_macro / juiz_sdk / juiz_webui / juiz_core / juiz_qmp_broker / juiz_app を crates.io に公開する。
+# 6 つのクレートは同じバージョンで揃えて公開する。タグのバージョンがどれかの Cargo.toml と
 # 一致しない場合は公開しない。
 # 手動実行(workflow_dispatch)では cargo publish --dry-run だけを行い、実際には公開しない。
 on:
@@ -19,7 +19,9 @@ env:
   # pyo3 が埋め込む Python をシステムの python3 に固定する
   PYO3_PYTHON: python3
   # 公開するクレート。cargo publish が依存順(macro → sdk → core → qmp_broker → app)に並べ替えて公開する。
-  PUBLISH_PACKAGES: juiz_macro juiz_sdk juiz_core juiz_qmp_broker juiz_app
+  # juiz_webui(管理画面のビルド成果物、issue #117)はこれらより先に、git の外から別に公開する(publish ジョブを参照)。
+  PUBLISH_PACKAGES: juiz_macro juiz_sdk juiz_webui juiz_core juiz_qmp_broker juiz_app
+  WORKSPACE_PUBLISH_PACKAGES: juiz_macro juiz_sdk juiz_core juiz_qmp_broker juiz_app
 
 jobs:
   # タグのバージョンと公開する全クレートの Cargo.toml の version が一致するか確認する
@@ -100,7 +102,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # 管理画面(webui)をビルドして juiz_core/webui_dist に置き、juiz_core のクレートに同梱する(issue #117)。
+      # 管理画面(webui)をビルドし、juiz_webui クレートに同梱する(issue #117)。
       # cargo だけで juiz を入れる人が Node.js を要らないようにするため。
       - uses: actions/setup-node@v4
         with:
@@ -111,11 +113,22 @@ jobs:
       - name: Build webui
         run: |
           (cd webui && npm ci && npm run build)
-          rm -rf juiz_core/webui_dist
-          cp -r webui/dist juiz_core/webui_dist
-          test -f juiz_core/webui_dist/index.html
+          test -f webui/dist/index.html
 
-      # webui_dist は .gitignore にあり git 管理外なので、cargo publish には --allow-dirty が要る
+      # ビルド成果物は git 管理外なので、リポジトリの中で cargo publish すると dirty 扱いになる。
+      # juiz_webui だけを git の外の一時ディレクトリにコピーし、そこから公開する
+      # (VCS の確認が行われないので --allow-dirty は要らない。ほかのクレートは普段どおりリポジトリから公開する)。
+      - name: Stage juiz_webui
+        run: |
+          dir="$RUNNER_TEMP/juiz_webui"
+          rm -rf "$dir"
+          mkdir -p "$dir"
+          cp -r juiz_webui/Cargo.toml juiz_webui/build.rs juiz_webui/src juiz_webui/LICENSE-* "$dir"/
+          cp -r webui/dist "$dir/dist"
+          # リポジトリのワークスペースから切り離す
+          printf '\n[workspace]\n' >> "$dir/Cargo.toml"
+          echo "WEBUI_STAGE=$dir" >> "$GITHUB_ENV"
+
       - name: cargo publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
@@ -124,9 +137,18 @@ jobs:
           if [ "$GITHUB_REF_TYPE" = "tag" ]; then
             # 途中で失敗したあとタグを打ち直したときのため、crates.io に公開済みの版は飛ばす
             ver="${GITHUB_REF_NAME#v}"
-            for pkg in $PUBLISH_PACKAGES; do
-              status=$(curl -s -o /dev/null -w '%{http_code}' -A "OpenJUIZ/juiz publish workflow" "https://crates.io/api/v1/crates/$pkg/$ver")
-              if [ "$status" = "200" ]; then
+            published() {
+              status=$(curl -s -o /dev/null -w '%{http_code}' -A "OpenJUIZ/juiz publish workflow" "https://crates.io/api/v1/crates/$1/$ver")
+              [ "$status" = "200" ]
+            }
+            # juiz_core が使うので juiz_webui を先に公開する
+            if published juiz_webui; then
+              echo "skip: juiz_webui $ver は公開済み"
+            else
+              (cd "$WEBUI_STAGE" && cargo publish)
+            fi
+            for pkg in $WORKSPACE_PUBLISH_PACKAGES; do
+              if published "$pkg"; then
                 echo "skip: $pkg $ver は公開済み"
               else
                 args="$args -p $pkg"
@@ -136,8 +158,12 @@ jobs:
               echo "すべてのクレートが公開済みです"
               exit 0
             fi
-            cargo publish --allow-dirty $args
+            cargo publish $args
           else
+            (cd "$WEBUI_STAGE" && cargo publish --dry-run)
+            # juiz_webui のこの版はまだ crates.io に無いので、確認ではワークスペースの juiz_webui も一緒に
+            # パッケージにする。そのために画面を juiz_webui/dist に置く(公開しないので dirty でも構わない)
+            cp -r webui/dist juiz_webui/dist
             for pkg in $PUBLISH_PACKAGES; do args="$args -p $pkg"; done
             cargo publish --allow-dirty --dry-run $args
           fi
