@@ -78,7 +78,12 @@ export default function App() {
         onToggle={toggle}
         onOpenSettings={() => setSettingsOpen(true)}
       />
-      <DiagramPane />
+      <DiagramPane
+        model={model}
+        serverUrl={settings.serverUrl}
+        selectedKey={selectedKey}
+        onSelect={(key) => (key ? select(key) : setSelectedKey(null))}
+      />
       <PropertyPane model={model} selectedKey={selectedKey} onSelect={select} />
       {settingsOpen && (
         <SettingsDialog
