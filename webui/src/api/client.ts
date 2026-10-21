@@ -1,5 +1,5 @@
 import type { paths } from "./openapi.gen.ts";
-import type { SystemProfile } from "./types.ts";
+import type { ConnectionProfile, SystemProfile } from "./types.ts";
 
 /** GET で呼べる API のパス(OpenAPI 定義から生成) */
 type GetPath = {
@@ -56,5 +56,14 @@ export class JuizClient {
 
   async systemProfileFull(signal?: AbortSignal): Promise<SystemProfile> {
     return (await this.get("/api/system/profile_full", undefined, signal)) as SystemProfile;
+  }
+
+  /** 接続の識別子の一覧 */
+  async connectionList(signal?: AbortSignal): Promise<string[]> {
+    return (await this.get("/api/connection/list", undefined, signal)) as string[];
+  }
+
+  async connectionProfileFull(identifier: string, signal?: AbortSignal): Promise<ConnectionProfile> {
+    return (await this.get("/api/connection/profile_full", { identifier }, signal)) as ConnectionProfile;
   }
 }

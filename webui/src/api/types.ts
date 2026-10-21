@@ -1,6 +1,9 @@
 // profile_full の中身は OpenAPI で schema 化されていないので、画面側で型を定義する。
 // juiz v0.0.18 の応答を見て必要な項目だけ書いている。足りない項目は使うときに足す。
 
+/** 説明。{ text } の形と文字列の形がある */
+export type Description = { text?: string } | string;
+
 /** profile に共通する項目 */
 export interface ObjectProfile {
   identifier?: string;
@@ -9,21 +12,69 @@ export interface ObjectProfile {
   class_name?: string;
   broker_type_name?: string;
   broker_name?: string;
-  description?: { text?: string } | string;
+  description?: Description;
 }
 
-export type ProcessProfile = ObjectProfile & Record<string, unknown>;
-export type ContainerProfile = ObjectProfile & Record<string, unknown>;
-export type ContainerProcessProfile = ObjectProfile & {
-  container_name?: string;
-  container_type?: string;
-} & Record<string, unknown>;
-export type ExecutionContextProfile = ObjectProfile & {
+/** 引数 */
+export interface ArgumentProfile {
+  name: string;
+  type_name: string;
+  default?: unknown;
+  description?: Description;
+}
+
+/** 話題の参照(処理の publishes / subscribes) */
+export interface TopicRef {
+  name: string;
+}
+
+/** 処理の識別に使う項目(接続の両端、実行文脈の対象) */
+export interface ProcessRef {
+  class_name?: string;
+  name: string;
+  type_name: string;
+  container_name?: string | null;
+  broker_name?: string;
+  broker_type_name?: string;
+}
+
+export interface ProcessProfile extends ObjectProfile {
+  arguments?: ArgumentProfile[];
+  factory?: string;
+  language?: string;
+  use_memo?: boolean;
+  publishes?: TopicRef[];
+  /** 引数名 → 話題 */
+  subscribes?: Record<string, TopicRef>;
+  container_name?: string | null;
+  container_type?: string | null;
+  /** 戻値の型。今は pyjuiz だけが埋める */
+  outputs?: unknown;
+}
+
+export type ContainerProcessProfile = ProcessProfile;
+
+export interface ContainerProfile extends ObjectProfile {
+  arguments?: ArgumentProfile[];
+  /** 生成時に渡した引数 */
+  args?: Record<string, unknown>;
+  factory?: string;
+  language?: string;
+  parent_name?: string | null;
+  parent_type_name?: string | null;
+}
+
+export interface ExecutionContextProfile extends ObjectProfile {
   state?: string;
   rate?: number;
-} & Record<string, unknown>;
-export type BrokerProfile = ObjectProfile & Record<string, unknown>;
-export type TopicProfile = Record<string, unknown>;
+  auto_start?: boolean;
+  targets?: ProcessRef[];
+}
+
+export type BrokerProfile = ObjectProfile;
+
+/** 話題。中身は type_name が "topic" の処理の profile */
+export type TopicProfile = ProcessProfile;
 
 /** system/profile_full の core_store */
 export interface CoreStore {
@@ -43,4 +94,13 @@ export interface SystemProfile extends ObjectProfile {
   /** 別プロセスの juiz(副系)。同じ形の profile が再帰的に入る */
   subsystems: SystemProfile[];
   mastersystem: SystemProfile | null;
+}
+
+/** GET /api/connection/profile_full */
+export interface ConnectionProfile {
+  identifier?: string;
+  arg_name: string;
+  connection_type: string;
+  source_process_id: ProcessRef;
+  destination_process_id: ProcessRef;
 }

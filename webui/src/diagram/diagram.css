@@ -1,0 +1,351 @@
+/* 系の図。種類ごとの色は theme.css の --kind-*。装飾(発光・照準の輪)は図の上だけに使う(#111)。 */
+
+.diagram-pane .react-flow {
+  --xy-background-color: transparent;
+}
+
+/* 湾曲グリッドは要素と線の下に敷く */
+.curved-grid {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.curved-grid path {
+  fill: none;
+  stroke: var(--grid);
+  stroke-width: 1;
+}
+
+.curved-grid path.major {
+  stroke: rgba(255, 255, 255, 0.32);
+}
+
+.curved-grid text {
+  fill: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+/* 図の周りを暗くする。要素と線の上、道具と凡例(z-index 5)の下に置く */
+.diagram-vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.85) 100%);
+}
+
+/* ---- 要素 ---- */
+
+.react-flow__node-juiz {
+  cursor: pointer;
+}
+
+.dnode {
+  position: relative;
+  box-sizing: border-box;
+  color: var(--text);
+}
+
+.dnode-process,
+.dnode-containerProcess {
+  --kind: var(--kind-process);
+}
+
+.dnode-container {
+  --kind: var(--kind-container);
+}
+
+.dnode-ec {
+  --kind: var(--kind-ec);
+}
+
+.dnode-topic {
+  --kind: var(--kind-topic);
+}
+
+.dnode-shape {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+
+.dnode-shape ellipse {
+  fill: rgba(0, 0, 0, 0.75);
+  stroke: var(--kind);
+  stroke-width: 1.5;
+  filter: drop-shadow(0 0 4px var(--kind));
+}
+
+.dnode-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.dnode-name {
+  font-weight: bold;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.dnode-type {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.dnode-box {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  line-height: 1.2;
+  background: rgba(0, 0, 0, 0.75);
+  border: 1.5px solid var(--kind);
+  box-shadow:
+    0 0 6px var(--kind),
+    inset 0 0 6px color-mix(in srgb, var(--kind) 35%, transparent);
+}
+
+.dnode-ec-box {
+  justify-content: flex-start;
+  align-items: stretch;
+  gap: 4px;
+  padding: 6px 10px;
+}
+
+.dnode-ec-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  height: 24px;
+}
+
+.dnode-ec-state {
+  height: 22px;
+  line-height: 20px;
+  box-sizing: border-box;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-dim);
+  border: 1px solid color-mix(in srgb, var(--kind) 40%, transparent);
+}
+
+/* 今の状態の枠を光らせる */
+.dnode-ec-state.current {
+  color: #000;
+  font-weight: bold;
+  background: var(--kind);
+  border-color: var(--kind);
+  box-shadow: 0 0 8px var(--kind);
+}
+
+/* 段階1は表示だけなので接続の口は見せない */
+.dnode .react-flow__handle {
+  opacity: 0;
+  border: none;
+  width: 2px;
+  height: 2px;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ---- 照準の輪 ---- */
+
+.reticle {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+  color: var(--kind);
+  filter: drop-shadow(0 0 3px var(--kind));
+}
+
+.reticle-ring,
+.reticle-inner,
+.reticle-arc,
+.reticle-leader {
+  fill: none;
+  stroke: currentColor;
+}
+
+.reticle-ring {
+  stroke-width: 1.2;
+}
+
+.reticle-inner {
+  stroke-width: 0.8;
+  stroke-dasharray: 2 5;
+  opacity: 0.7;
+}
+
+.reticle-tick {
+  stroke: currentColor;
+  stroke-width: 1;
+}
+
+.reticle-arc {
+  stroke-width: 3;
+  opacity: 0.85;
+}
+
+.reticle-spin {
+  animation: reticle-spin 12s linear infinite;
+}
+
+@keyframes reticle-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reticle-spin {
+    animation: none;
+  }
+}
+
+.reticle-leader {
+  stroke-width: 1;
+}
+
+.reticle-caption {
+  fill: currentColor;
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.reticle-port path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 9;
+  opacity: 0.25;
+}
+
+.reticle-port.connected path {
+  opacity: 1;
+}
+
+.reticle-port text {
+  fill: var(--text);
+  font-size: 12px;
+}
+
+.reticle-port-type {
+  fill: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+/* ---- 線 ---- */
+
+.dedge {
+  fill: none;
+  stroke-width: 1.5;
+}
+
+.dedge-push,
+.dedge-pull {
+  stroke: var(--kind-connection);
+}
+
+.dedge-pull {
+  stroke-dasharray: 6 4;
+}
+
+.dedge-instrument {
+  stroke: var(--kind-container);
+}
+
+.dedge-ec {
+  stroke: var(--kind-ec);
+}
+
+.dedge-publish {
+  stroke: var(--kind-publish);
+}
+
+.dedge-subscribe {
+  stroke: var(--kind-topic);
+}
+
+.react-flow__edge-path.dedge {
+  filter: drop-shadow(0 0 2px currentColor);
+}
+
+.react-flow__edge-path.dedge.selected {
+  stroke-width: 3;
+  filter: drop-shadow(0 0 5px var(--kind-connection));
+}
+
+.react-flow__edge-juiz {
+  cursor: default;
+}
+
+.react-flow__edge-juiz.selectable {
+  cursor: pointer;
+}
+
+/* 道具リンクの処理側の白丸 */
+.dedge-instrument-end {
+  fill: #fff;
+  stroke: var(--kind-container);
+  stroke-width: 1;
+}
+
+.dedge-label {
+  position: absolute;
+  pointer-events: none;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--kind-connection);
+  white-space: nowrap;
+}
+
+.dedge-label-subscribe {
+  color: var(--kind-topic);
+}
+
+/* ---- 図の上の道具と凡例 ---- */
+
+.diagram-tools {
+  display: flex;
+  gap: 6px;
+}
+
+.diagram-legend ul {
+  list-style: none;
+  margin: 0;
+  padding: 6px 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid var(--line);
+}
+
+.diagram-legend li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
