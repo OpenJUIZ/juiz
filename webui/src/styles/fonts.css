@@ -1,0 +1,18 @@
+/*
+ * 画面の書体はここだけで決める。
+ *
+ * 日本製の漢字フォントは後で選定する(#111)。選んだら src/assets/fonts/ に置き、
+ * ここに @font-face を書いて --font-ui の先頭に足す。juiz に同梱して /ui で配信するので
+ * 外部 CDN は使わない。同梱・Web 配信が許されるライセンスか確認すること。
+ *
+ * @font-face {
+ *   font-family: "JuizUI";
+ *   src: url("../assets/fonts/xxxx.woff2") format("woff2");
+ *   font-display: swap;
+ * }
+ */
+:root {
+  --font-ui: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "BIZ UDPGothic", "Yu Gothic UI",
+    "Meiryo", "Noto Sans JP", sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "Menlo", "Consolas", monospace;
+}
