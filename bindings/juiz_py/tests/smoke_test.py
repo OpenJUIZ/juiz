@@ -80,7 +80,8 @@ def check_webui(port: int) -> bool:
     if 'id="root"' not in body:
         print(f"/ui/ で管理画面が配信されていません:\n{body[:500]}", file=sys.stderr)
         return False
-    print("/ui/ で管理画面が配信されています")
+    # Windows の標準出力は cp1252 のことがあるので、成功時の表示は ASCII にする
+    print("webui: /ui/ OK")
     return True
 
 
