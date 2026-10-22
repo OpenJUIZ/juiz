@@ -30,9 +30,9 @@ library
                       Juiz.Internal.FFI
     build-depends:    base >=4.17 && <5
                     , bytestring >=0.11 && <0.13
-                    , containers >=0.6 && <0.8
-                    , text >=2.0 && <2.2
-                    , template-haskell >=2.19 && <2.24
+                    , containers >=0.6 && <0.9
+                    , text >=2.0 && <2.3
+                    , template-haskell >=2.19 && <2.26
     -- juiz_hs_init (RTS の初期化) と、bool を返す C 関数を安全に呼ぶための小さな関数
     c-sources:        cbits/hsjuiz.c
     -- libjuiz_sdk の場所は利用者が --extra-lib-dirs で渡す (examples/haskell/build.sh を参照)
