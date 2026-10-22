@@ -133,7 +133,7 @@ juizContainerProcess 'increment 'manifest
   (`destroy :: s -> IO ()`)を使います。
 - ContainerProcess の状態の型と Container の状態の型が違う(別の型の Haskell の Container や、C++ など別の言語の
   Container に結びつけた)ときは、呼び出しが `JUIZ_HASKELL_CONTAINER_TYPE_ERROR`(-602)のエラーになります。
-  型は `Typeable` で比べるので、両方のライブラリで同じモジュールの同じ型を使ってください。
+  型は `Typeable` で得たモジュール名つきの型名(`ExampleContainerState.ExampleContainer` など)で比べるので、両方のライブラリで同じモジュールの同じ型を使ってください(Container と ContainerProcess はライブラリごとにパッケージの識別子が変わることがあるため、`cast` は使っていません)。
 
 設定ファイルは C++ の Container と同じ形です。
 

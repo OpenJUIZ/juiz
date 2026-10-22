@@ -22,12 +22,14 @@ module Juiz.Container
 import Control.Exception (finally)
 import Control.Monad (unless, void, when)
 import Data.Proxy (Proxy (..))
-import Data.Typeable (Typeable, cast, typeOf, typeRep)
+import qualified Data.Text as T
+import Data.Typeable (TypeRep, Typeable, splitTyConApp, tyConModule, tyConName, typeOf, typeRep)
 import Data.Word (Word64)
 import Foreign.Marshal.Alloc (free, mallocBytes)
 import Foreign.Ptr (Ptr, castPtr, nullPtr)
 import Foreign.StablePtr (StablePtr, castStablePtrToPtr, deRefStablePtr, freeStablePtr, newStablePtr)
 import Foreign.Storable (peek, peekByteOff, poke, pokeByteOff, sizeOf)
+import Unsafe.Coerce (unsafeCoerce)
 
 import Juiz.Capsule (ToCapsule)
 import Juiz.Error
@@ -99,11 +101,24 @@ containerProcessEntryPoint
 containerProcessEntryPoint m f p cm out = guardEntryPoint (pmTypeName m) $ do
   sp <- stablePtrOf p
   ContainerBox s _ <- deRefStablePtr sp
-  case cast s of
-    Just (st :: s) -> applyAndWrite (pmArguments m) (f st) cm out
-    Nothing -> throwJuiz juizHaskellContainerTypeError $
-      "the container state is " <> tshow (typeOf s) <> ", but the process expects "
-        <> tshow (typeRep (Proxy :: Proxy s))
+  let actual = typeOf s
+      expected = typeRep (Proxy :: Proxy s)
+  if typeKey actual == typeKey expected
+    -- 型の名前 (モジュール名つき) が同じなら同じ型として扱う
+    then applyAndWrite (pmArguments m) (f (unsafeCoerce s :: s)) cm out
+    else throwJuiz juizHaskellContainerTypeError $
+      "the container state is " <> T.pack (typeKey actual) <> ", but the process expects "
+        <> T.pack (typeKey expected)
+
+-- | 型を、パッケージを除いたモジュール名つきの名前で表す (@Data.IORef.IORef (GHC.Int.Int64)@ など)。
+--
+-- Container と ContainerProcess は別々の foreign-library になり、同じモジュールでもライブラリごとに
+-- パッケージの識別子 (unit id) が違うことがあるので、'Data.Typeable.cast' (パッケージまで比べる) は使えない。
+-- 両方のライブラリで同じモジュールの同じ型を使うこと (README を参照)
+typeKey :: TypeRep -> String
+typeKey t = tyConModule tc ++ "." ++ tyConName tc ++ concatMap (\a -> " (" ++ typeKey a ++ ")") args
+  where
+    (tc, args) = splitTyConApp t
 
 -- | juiz から渡された @void*@ から 'StablePtr' を取り出す。hsjuiz の Container でなければエラー
 stablePtrOf :: Ptr () -> IO (StablePtr ContainerBox)
