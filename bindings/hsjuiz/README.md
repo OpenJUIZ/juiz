@@ -1,6 +1,6 @@
 # hsjuiz
 
-juiz の Process を Haskell で書くためのライブラリです(Linux / macOS、GHC 9.6 以降)。
+juiz の Process / Container を Haskell で書くためのライブラリです(Linux / macOS、GHC 9.6 以降)。
 
 Haskell の関数を cabal の `foreign-library`(共有ライブラリ)として公開し、juiz が設定ファイルの
 `language: "haskell"` のプラグインとして読み込みます。値の受け渡しには libjuiz_sdk の C 関数
@@ -63,9 +63,101 @@ juizProcess 'increment 'manifest
 
 どの場合も juiz の呼び出しはエラーになり、プロセスは落ちません。
 
+## Container を書く
+
+Container は状態を持つもので、ContainerProcess はその状態を第 1 引数に受け取る関数です。
+juiz の設定ファイルでは、Container と ContainerProcess はそれぞれ別の共有ライブラリになります
+(1 つのライブラリにまとめる Component は issue #134)。
+
+状態の型は、Container と ContainerProcess のどちらのライブラリからも同じモジュールを使ってそろえます。
+
+```haskell
+-- ExampleContainerState.hs (両方のライブラリの other-modules に入れる)
+module ExampleContainerState (ExampleContainer (..)) where
+
+import Data.IORef (IORef)
+import Data.Int (Int64)
+
+newtype ExampleContainer = ExampleContainer (IORef Int64)
+```
+
+```haskell
+-- ExampleContainer.hs: Container (example_container_hs)
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
+module ExampleContainer () where
+
+import Juiz
+import ExampleContainerState
+
+manifest :: ContainerManifest
+manifest = containerManifest "example_container_hs"
+  & description "Holds an integer value."
+  & addIntArg "value" "initial value" 0
+
+create :: Int64 -> IO ExampleContainer
+create value = ExampleContainer <$> newIORef value
+
+juizContainer 'create 'manifest
+```
+
+```haskell
+-- ExampleContainerIncrement.hs: ContainerProcess (example_container_hs_increment)
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
+module ExampleContainerIncrement () where
+
+import Juiz
+import ExampleContainerState
+
+manifest :: ProcessManifest
+manifest = containerProcessManifest "example_container_hs_increment" "example_container_hs"
+  & description "Adds arg0 to the value of the container."
+  & addIntArg "arg0" "value to be added" 1
+
+increment :: ExampleContainer -> Int64 -> IO Int64
+increment (ExampleContainer ref) arg0 = atomicModifyIORef' ref (\v -> (v + arg0, v + arg0))
+
+juizContainerProcess 'increment 'manifest
+```
+
+- `containerManifest` の引数(`addIntArg` など)は、**Container を作る関数の引数** になります。
+  設定ファイルの `containers` に書いた値を受け取り、書いていなければ既定値になります。
+- Container を作る関数の結果(`IO s` または `s`)が状態です。書き換える値は `IORef` などに入れてください
+  (`Juiz` から `IORef` / `newIORef` / `readIORef` / `writeIORef` / `modifyIORef'` / `atomicModifyIORef'` も使えます)。
+  juiz は同じ Container の ContainerProcess を同時には呼びません。
+- `containerProcessManifest "型名" "Container の型名"` で ContainerProcess のマニフェストを作ります。
+  引数は第 1 引数(状態)の後に続く引数の順です。
+- 状態は `StablePtr` に包んで juiz に渡します。Container を削除すると解放され、GC に回収されます。
+  デバイスを閉じるなど、削除のときにしたいことがあれば `juizContainerWithDestroy 'create 'destroy 'manifest`
+  (`destroy :: s -> IO ()`)を使います。
+- ContainerProcess の状態の型と Container の状態の型が違う(別の型の Haskell の Container や、C++ など別の言語の
+  Container に結びつけた)ときは、呼び出しが `JUIZ_HASKELL_CONTAINER_TYPE_ERROR`(-602)のエラーになります。
+  型は `Typeable` で比べるので、両方のライブラリで同じモジュールの同じ型を使ってください。
+
+設定ファイルは C++ の Container と同じ形です。
+
+```yaml
+plugins:
+  container_factories:
+    example_container_hs:
+      language: "haskell"
+      path: "./target"
+      processes:
+        example_container_hs_increment:
+          path: "./target"
+containers:
+  - type_name: "example_container_hs"
+    name: "hscont0"
+    value: 15
+    processes:
+      - type_name: "example_container_hs_increment"
+        name: "hsinc0"
+```
+
 ## ビルドする
 
-Process ごとに `foreign-library` を一つ作ります。`-threaded` は必須です(juiz は Process をワーカースレッドから呼ぶため。
+Process / Container / ContainerProcess ごとに `foreign-library` を一つ作ります。`-threaded` は必須です(juiz は Process をワーカースレッドから呼ぶため。
 付け忘れると、juiz が読み込むときに `juiz_hs_init` が `JUIZ_HASKELL_NOT_THREADED_RTS_ERROR`(-601)を返してエラーになります)。
 
 ```cabal
@@ -98,6 +190,9 @@ plugins:
   **一つの juiz で読み込む Haskell のライブラリは、すべて同じ GHC でビルドしてください。**
 - RTS の初期化(`juiz_hs_init`)は hsjuiz が用意しているので、自分で書く必要はありません。
   GHC は `hs_exit` の後に初期化し直せないため、hsjuiz は `hs_exit` を呼ばず、`juiz_hs_exit` も用意していません。
+- hsjuiz の `juiz_hs_init` は、RTS を初期化する前に `setKeepCAFs()` を呼び、CAF(トップレベルの値)を GC で
+  回収しないようにしています。2 つ目以降に開いたライブラリの `foreign export` が GC の根にならず、
+  エントリポイントが回収されてプロセスが落ちるのを防ぐためです(issue #133)。
 
 例は `examples/haskell` にあります。
 
@@ -134,6 +229,26 @@ foreign export ccall "manifest_entry_point" hsManifest :: ManifestFunction
 foreign export ccall "increment_process_hs_process_entry_point" hsProcess :: ProcessFunction
 foreign import ccall "&increment_process_hs_process_entry_point" p_hsProcess :: FunPtr ProcessFunction
 foreign export ccall "process_factory_entry_point" hsFactory :: ProcessFactoryFunction
+```
+
+Container と ContainerProcess は `containerManifestEntryPoint` / `containerCreateEntryPoint` /
+`containerDestroyEntryPoint` と `containerProcessManifestEntryPoint` / `containerProcessEntryPoint` で同じように書けます。
+
+```haskell
+hsManifest :: ManifestFunction
+hsManifest = containerManifestEntryPoint manifest create
+hsCreate :: ContainerCreateFunction
+hsCreate = containerCreateEntryPoint manifest create
+hsDestroy :: ContainerDestroyFunction
+hsDestroy = containerDestroyEntryPoint manifest
+hsFactory :: ContainerFactoryFunction
+hsFactory = pure p_hsCreate
+
+foreign export ccall "manifest_entry_point" hsManifest :: ManifestFunction
+foreign export ccall "example_container_hs_create_entry_point" hsCreate :: ContainerCreateFunction
+foreign import ccall "&example_container_hs_create_entry_point" p_hsCreate :: FunPtr ContainerCreateFunction
+foreign export ccall "container_factory_entry_point" hsFactory :: ContainerFactoryFunction
+foreign export ccall "container_factory_destroy_entry_point" hsDestroy :: ContainerDestroyFunction
 ```
 
 公開する関数の決まりは `bindings/cjuiz/README.md` にあります。

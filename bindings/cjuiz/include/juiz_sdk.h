@@ -34,6 +34,8 @@ extern "C" {
 #define JUIZ_CONTAINER_PROCESS_FUNCTION_NULL_OPT_RETURNED  INT64_C(-501)
 /* Haskell のプラグインが -threaded でない RTS にリンクされている (juiz_hs_init が返す) */
 #define JUIZ_HASKELL_NOT_THREADED_RTS_ERROR                INT64_C(-601)
+/* Haskell の ContainerProcess に、期待する型ではない Container が渡された (hsjuiz の ContainerProcess が返す) */
+#define JUIZ_HASKELL_CONTAINER_TYPE_ERROR                  INT64_C(-602)
 
 /* ---- 不透明な型 ----
  * 中身は Rust 側の CapsulePtr / Capsule / CapsuleMap / Value。ポインタとしてだけ使う。 */

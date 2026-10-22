@@ -33,3 +33,27 @@ foreign-library value_types_process_hs
     type:             native-shared
     build-depends:    containers, text
     other-modules:    ValueTypesProcess
+
+-- Container と ContainerProcess は別々のライブラリになる。状態の型 (ExampleContainerState) はどちらにも入れる
+foreign-library example_container_hs
+    import:           plugin
+    type:             native-shared
+    other-modules:    ExampleContainer
+                      ExampleContainerState
+
+foreign-library example_container_hs_increment
+    import:           plugin
+    type:             native-shared
+    other-modules:    ExampleContainerIncrement
+                      ExampleContainerState
+
+foreign-library example_container_hs_get
+    import:           plugin
+    type:             native-shared
+    other-modules:    ExampleContainerGet
+                      ExampleContainerState
+
+foreign-library mismatched_container_process_hs
+    import:           plugin
+    type:             native-shared
+    other-modules:    MismatchedContainerProcess

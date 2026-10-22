@@ -12,6 +12,7 @@ module Juiz.Error
   , juizCapsuleTypeError
   , juizCapsuleNoValue
   , juizProcessFunctionError
+  , juizHaskellContainerTypeError
   ) where
 
 import Control.Exception (Exception, throwIO)
@@ -46,3 +47,8 @@ juizCapsuleNoValue = -402
 -- 'JuizError' 以外の例外 (error や自分で投げた例外) はこのコードになる
 juizProcessFunctionError :: Int64
 juizProcessFunctionError = -501
+
+-- | ContainerProcess に、期待する型ではない Container が渡された (juiz_sdk.h の JUIZ_HASKELL_CONTAINER_TYPE_ERROR)。
+-- 別の言語の Container や、状態の型が違う Haskell の Container に結びつけたとき
+juizHaskellContainerTypeError :: Int64
+juizHaskellContainerTypeError = -602
