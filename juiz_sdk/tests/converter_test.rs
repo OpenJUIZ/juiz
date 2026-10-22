@@ -1,6 +1,6 @@
 //! C/C++ バインディング向けの extern "C" 変換関数のテスト
 
-use std::ffi::{c_char, c_void, CString};
+use std::ffi::{c_char, c_void, CStr, CString};
 use std::sync::{Arc, Mutex};
 
 use juiz_sdk::prelude::*;
@@ -116,11 +116,11 @@ extern "C" fn sum_ints(arg: *mut c_void, v: *mut Value) {
     }
 }
 
-extern "C" fn collect_keys(arg: *mut c_void, key: *mut c_char, _v: *mut Value) {
+extern "C" fn collect_keys(arg: *mut c_void, key: *const c_char, _v: *mut Value) {
     unsafe {
         let keys = &mut *(arg as *mut Vec<String>);
-        // value_object_foreach はキー文字列の所有権を呼び出し側に渡す
-        let k = CString::from_raw(key);
+        // キー文字列は callback の間だけ有効で、解放は value_object_foreach が行う (issue #130)
+        let k = CStr::from_ptr(key);
         keys.push(k.to_str().unwrap().to_owned());
     }
 }
@@ -130,15 +130,21 @@ fn value_foreach_callbacks() {
     unsafe {
         let mut arr = jvalue!([1, 2, 3]);
         let mut total = 0i64;
-        value_array_foreach(&mut arr, sum_ints, &mut total as *mut i64 as *mut c_void);
+        assert_eq!(
+            value_array_foreach(&mut arr, sum_ints, &mut total as *mut i64 as *mut c_void),
+            JUIZ_OK
+        );
         assert_eq!(total, 6);
 
         let mut obj = jvalue!({"a": 1, "b": 2});
         let mut keys: Vec<String> = Vec::new();
-        value_object_foreach(
-            &mut obj,
-            collect_keys,
-            &mut keys as *mut Vec<String> as *mut c_void,
+        assert_eq!(
+            value_object_foreach(
+                &mut obj,
+                collect_keys,
+                &mut keys as *mut Vec<String> as *mut c_void,
+            ),
+            JUIZ_OK
         );
         keys.sort();
         assert_eq!(keys, vec!["a".to_owned(), "b".to_owned()]);
@@ -360,7 +366,7 @@ extern "C" fn add_arg(arg: *mut c_void, v: *mut Value) -> i64 {
 fn capsule_ptr_lock_callbacks() {
     unsafe {
         let mut p: CapsulePtr = jvalue!(1).into();
-        capsule_ptr_lock_as_value(&mut p, set_to_100);
+        assert_eq!(capsule_ptr_lock_as_value(&mut p, set_to_100), JUIZ_OK);
         assert_eq!(p.lock_as_value(|v| v.clone()).unwrap(), jvalue!(100));
         let mut add = 5i64;
         assert_eq!(

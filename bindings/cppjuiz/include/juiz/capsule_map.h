@@ -166,7 +166,7 @@ namespace juiz {
     }
     
     int64_t capsule_ptr_set_value(capsule_ptr* ptr, Value v) {
-        int retval = 0;
+        int64_t retval = 0;
         if (v.isObjectValue()) {
             if ((retval = capsule_ptr_set_empty_object(ptr)) != JUIZ_OK) { 
                 return retval; 
@@ -199,11 +199,11 @@ namespace juiz {
 
     juiz::Value into_value(value* v) {
         if (value_is_bool(v)) {
-            int bv;
+            bool bv;
             if (value_get_bool(v, &bv)!=JUIZ_OK) {
                 throw ValueConvertError();
             }
-            return juiz::Value{bv != 0};
+            return juiz::Value{bv};
         } else if (value_is_int(v)) {
             int64_t iv;
             if (value_get_int(v, &iv)!=JUIZ_OK) {
@@ -238,7 +238,7 @@ namespace juiz {
 
     juiz::Value& apply_value(juiz::Value& val, value* v) {
         if (value_is_bool(v)) {
-            int bv;
+            bool bv;
             if (value_get_bool(v, &bv)!=JUIZ_OK) {
                 throw ValueConvertError();
             }

@@ -1,21 +1,4 @@
 #pragma once
 
-#include <stdint.h>
-
-
-const int64_t JUIZ_OK = 0;
-const int64_t JUIZ_VALUE_TYPE_ERROR = -101;
-const int64_t JUIZ_VALUE_NOT_FOUND_ERROR = -102;
-const int64_t JUIZ_VALUE_CONVERTER_ERROR = -103;
-
-const int64_t JUIZ_CAPSULEPTR_LOCK_ERROR = -201;
-
-
-const int64_t JUIZ_CAPSULEMAP_NO_VALUE = -301;
-
-
-const int64_t JUIZ_CAPSULE_TYPE_ERROR = -401;
-const int64_t JUIZ_CAPSULE_NO_VALUE = -402;
-
-const int64_t JUIZ_PROCESS_FUNCTION_NULL_OPT_RETURNED = -501;
-const int64_t JUIZ_CONTAINER_PROCESS_FUNCTION_NULL_OPT_RETURNED = -501;
+// エラーコードは C のヘッダ juiz_sdk.h で宣言している。
+#include "../../../cjuiz/include/juiz_sdk.h"

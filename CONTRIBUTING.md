@@ -140,7 +140,7 @@ HTTP ブローカーの 8000 番ポートはホストに転送されるので、
 | `juiz_app` | `juiz` コマンド |
 | `brokers` | 追加のブローカー実装 (QUIC の `juiz_qmp_broker` など) |
 | `ecs` | 実行コンテキスト (TimerEC, OneShotEC, MainLoopEC) |
-| `bindings` | C++ (`cppjuiz`)、Python (`pyjuiz`、pip で入れる `juiz` コマンドの `juiz_py`)、JavaScript 向けバインディング |
+| `bindings` | C (`cjuiz`: libjuiz_sdk の C の関数の宣言 `juiz_sdk.h`)、C++ (`cppjuiz`)、Python (`pyjuiz`、pip で入れる `juiz` コマンドの `juiz_py`)、JavaScript 向けバインディング |
 | `examples` | Rust / C++ / Python のサンプル |
 | `juiz_tutorial` | チュートリアル |
 | `webui` | ブラウザで系を確認する管理画面 (TypeScript + React)。[webui/README.md](webui/README.md) |

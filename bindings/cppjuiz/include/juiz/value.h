@@ -868,7 +868,7 @@ Value& Value::push_back(const Value& str) {
 
 Value& Value::emplace_back(Value&& val) {
   if (typecode_ == VALUE_TYPE_LIST) {
-    listvalue_->emplace_back(str);
+    listvalue_->emplace_back(std::move(val));
   } else {
     _clear();
     this->typecode_ = VALUE_TYPE_ERROR;

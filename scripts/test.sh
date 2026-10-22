@@ -58,6 +58,13 @@ fi
 cmake -S examples/cpp -B examples/cpp/build -DCMAKE_BUILD_TYPE=Debug
 cmake --build examples/cpp/build --config Debug --parallel
 
+# C のヘッダ juiz_sdk.h は C++ 以外の言語 (Haskell など) からも読むので、C としてコンパイルできることを確かめる
+cc_bin="${CC:-cc}"
+if command -v "$cc_bin" >/dev/null 2>&1; then
+    step "C のヘッダを C としてコンパイルできるか確かめる (bindings/cjuiz/include/juiz_sdk.h)"
+    "$cc_bin" -std=c99 -Wall -Wextra -Werror -fsyntax-only -x c bindings/cjuiz/include/juiz_sdk.h
+fi
+
 step "Python の例が使うパッケージを確認する ($python)"
 python_packages=(pyyaml httpx pillow docstring_parser)
 missing=$("$python" - <<'PY'

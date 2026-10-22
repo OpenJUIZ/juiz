@@ -5,6 +5,7 @@
 #include <functional>
 #include <string>
 #include <type_traits>
+#include <utility>
 #include "process_manifest.h"
 #include "bind_process.h"
 
@@ -33,8 +34,23 @@ extern "C" {
     JUIZ_API int64_t (*process_factory_entry_point())(capsule_map*,capsule*);
 
     JUIZ_API int64_t (*container_factory_entry_point())(capsule_map*, void**);
+    JUIZ_API void container_factory_destroy_entry_point(void* container_obj);
     JUIZ_API int64_t (*container_process_factory_entry_point())(void*, capsule_map*,capsule*);
 
+}
+
+namespace juiz {
+    // Container の解放関数 (<シンボル名>_destroy_entry_point) から呼ぶ。
+    // juiz は Container を削除するときにこの関数を呼ぶので、construct_function が new したオブジェクトを delete する。
+    // construct_function が void* を返す場合は型が分からないので何もしない。
+    template<typename F>
+    void delete_container(F construct_function, void* container_obj) {
+        using container_ptr_t = decltype(construct_function(std::declval<juiz::CapsuleMap>()));
+        using container_t = std::remove_cv_t<std::remove_pointer_t<container_ptr_t>>;
+        if constexpr (!std::is_void_v<container_t>) {
+            delete static_cast<container_t*>(container_obj);
+        }
+    }
 }
 
 #define DEFINE_PROCESS_ENTRY_POINT(func, deser, ser)\
@@ -137,6 +153,7 @@ JUIZ_API int64_t manifest_entry_point(capsule_ptr* ptr) { \
     auto v = manifest_function().into_value(); \
     return capsule_ptr_set_value(ptr, v); \
 }\
+extern "C" {\
 JUIZ_API int64_t container_create_entry_point(capsule_map* cm, void** container_obj) {\
     try {\
         *container_obj = construct_function(juiz::CapsuleMap(cm));\
@@ -148,9 +165,14 @@ JUIZ_API int64_t container_create_entry_point(capsule_map* cm, void** container_
     }\
 }\
 \
-extern "C" { JUIZ_API int64_t (*container_factory_entry_point())(capsule_map*, void**) {\
+JUIZ_API int64_t (*container_factory_entry_point())(capsule_map*, void**) {\
     return container_create_entry_point;\
-} }
+}\
+\
+JUIZ_API void container_factory_destroy_entry_point(void* container_obj) {\
+    juiz::delete_container(construct_function, container_obj);\
+}\
+}
 
 
 #define CONTAINER_PROCESS_FACTORY(container_type_t, manifest_function, process_function) \
@@ -260,6 +282,10 @@ JUIZ_API int64_t construct_function##_entry_point(capsule_map* cm, void** contai
 \
 JUIZ_API int64_t (* construct_function##_factory_entry_point())(capsule_map*, void**) {\
     return construct_function##_entry_point;\
+}\
+\
+JUIZ_API void construct_function##_factory_destroy_entry_point(void* container_obj) {\
+    juiz::delete_container(construct_function, container_obj);\
 }\
 }
 
