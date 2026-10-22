@@ -6,7 +6,7 @@ C の関数を呼べて、C の関数を公開できる言語(C、C++、Haskell 
 
 ## プラグインが公開する関数
 
-juiz は設定ファイルの `language: "c++"` のプラグイン(共有ライブラリ)を開き、次の名前の関数を探します。
+juiz は設定ファイルの `language: "c++"` または `language: "haskell"` のプラグイン(共有ライブラリ)を開き、次の名前の関数を探します。
 どれも C の呼出規約(`extern "C"`)で公開してください。`<シンボル名>` は、単体の Process / Container なら下の表の名前、
 Component の中の要素ならマニフェストの `factory` に書いた名前です。
 
@@ -20,3 +20,19 @@ Component の中の要素ならマニフェストの `factory` に書いた名�
 
 関数の戻り値は成功なら `JUIZ_OK`(0)、失敗なら負の値です。C++ では `bindings/cppjuiz/include/juiz/manifest.h` のマクロ
 (`PROCESS_FACTORY`、`CONTAINER_FACTORY` など)がこれらの関数を生成します。
+
+## Haskell のプラグイン(`language: "haskell"`)
+
+読み込み方は C++ と同じで、上の関数に加えて次の関数が必要です。
+
+| 関数 | 型 | 役割 |
+|---|---|---|
+| `juiz_hs_init` | `int64_t (void)` | GHC のランタイム(RTS)を初期化する(中で `hs_init` を呼ぶ)。成功なら 0。juiz はライブラリを開いた直後、マニフェストより先に呼ぶ。無ければ読み込みはエラーになる |
+
+- juiz は `juiz_hs_init` を一度に一つずつ呼びます(`hs_init` はスレッド安全ではないため)。
+- GHC は `hs_exit` の後に `hs_init` し直すことができないので、juiz は `hs_exit` を呼ばず、Haskell のライブラリを閉じません。RTS はプロセスの終了とともに片付きます。
+- juiz は Process をワーカースレッドから呼ぶので、`-threaded` の RTS でビルドしてください。
+- GHC の静的ライブラリは位置独立コード(`-fPIC`)ではないため、RTS を静的に抱えた共有ライブラリは作れません。cabal の `foreign-library` は RTS と base を GHC の共有ライブラリ(`libHSrts_thr` など)にリンクするので、同じプロセスに読み込んだ Haskell のライブラリは一つの RTS を共有します。そのため **一つの juiz で読み込む Haskell のライブラリは、すべて同じ GHC でビルドしてください**。
+- Haskell の例外を C の呼び出し元に出すとプロセスが落ちるので、公開する関数の中で捕まえてエラーコードに変えてください。
+
+手書きの FFI だけで書いた例が `examples/haskell` にあります。

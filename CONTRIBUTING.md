@@ -84,6 +84,13 @@ cmake -S examples/cpp -B examples/cpp/build
 cmake --build examples/cpp/build
 ```
 
+Haskell のサンプル(`examples/haskell`)は cabal でビルドします。GHC 9.6 以降と cabal が必要です(Linux / macOS)。
+先に `cargo build` で `target/debug` に libjuiz_sdk を作ってから実行すると、できた共有ライブラリが `target/` に置かれます。
+
+```terminal
+examples/haskell/build.sh
+```
+
 ### OpenCV のコンポーネントをビルドする
 
 `examples/rust/component/juiz_opencv` は OpenCV を使うため、通常の `cargo build` には含まれません(`default-members` の外)。
@@ -99,7 +106,7 @@ CI では `.github/workflows/test.yml` の `opencv` ジョブ(Ubuntu)で同じ�
 
 ### テストを実行する
 
-`scripts/test.sh` が、テストの前提になる準備(ワークスペースの `cargo build`、C++ の例の cmake ビルド、Python の例が使うパッケージの確認と `PYTHONPATH=bindings/pyjuiz` の設定)を済ませてから `cargo test -- --test-threads=1` を実行します。CI(`.github/workflows/test.yml`)も同じスクリプトを使います。
+`scripts/test.sh` が、テストの前提になる準備(ワークスペースの `cargo build`、C++ の例の cmake ビルド、Haskell の例の cabal ビルド、Python の例が使うパッケージの確認と `PYTHONPATH=bindings/pyjuiz` の設定)を済ませてから `cargo test -- --test-threads=1` を実行します。CI(`.github/workflows/test.yml`)も同じスクリプトを使います。
 
 ```terminal
 scripts/test.sh                              # すべてのテスト
@@ -109,6 +116,7 @@ scripts/test.sh --prepare-only               # 準備だけ行う
 ```
 
 必要なものは Rust、CMake と C++ コンパイラ、Python 3 と pyjuiz の依存パッケージ(`python3 -m pip install pyyaml httpx pillow docstring_parser`)です。足りないものがあれば、スクリプトがその旨と入れ方を表示して止まります。
+GHC と cabal は任意で、無ければ Haskell の例のビルドとテスト(`haskell_plugin_test`)を飛ばします(CI では `JUIZ_REQUIRE_HASKELL=1` にして飛ばしません)。
 `cargo test` だけを実行すると、例のプラグインを読み込むテスト(`system_test` や `*_broker_api_test` など)は失敗します。そのときのエラーには、見つからなかったプラグインのパスや足りない Python モジュールと、必要な準備が表示されます。
 
 ### VS Code + Dev Containers で開発する
