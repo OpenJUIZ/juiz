@@ -1,4 +1,4 @@
-//! language: "haskell" のプラグインを読み込んで呼べることを確かめるテスト (issue #131, #132)
+//! language: "haskell" のプラグインを読み込んで呼べることを確かめるテスト (issue #131, #132, #133)
 //!
 //! Haskell の例 (examples/haskell) は scripts/test.sh (CI も同じ) で ../target にビルドされている前提。
 //! GHC が無い環境では scripts/test.sh がビルドを飛ばすので、ライブラリが無ければテストも飛ばす。
@@ -213,6 +213,39 @@ fn haskell_process_can_be_called_from_many_threads() -> JuizResult<()> {
         h.join().expect("thread panicked");
     }
     Ok(())
+}
+
+/// GHC の major GC の後も、2 つ目以降に読み込んだ Haskell のライブラリを呼べる (issue #133)。
+/// hs_init の後に開いたライブラリの foreign export は GC の根に登録されないので、hsjuiz の juiz_hs_init が
+/// setKeepCAFs で CAF を残している。残さないと、生成したエントリポイント (CAF) が回収されてプロセスが落ちる
+#[test]
+fn haskell_processes_survive_major_gc() -> JuizResult<()> {
+    let _ = env_logger::try_init();
+    if skip_without_haskell_examples() {
+        return Ok(());
+    }
+    System::new(system_manifest())?
+        .setup()?
+        .run_and_do_once(|system| {
+            // juiz が開いたのと同じライブラリから、共有の RTS の performMajorGC を取り出す
+            let lib = unsafe { libloading::Library::new(plugin_file("increment_process_hs"))? };
+            let gc: libloading::Symbol<unsafe extern "C" fn()> = unsafe { lib.get(b"performMajorGC")? };
+            let cb = system.core_broker().lock()?;
+            let inc = find(&cb, "inc0")?;
+            let dec = find(&cb, "dec0")?;
+            let types = find(&cb, "types0")?;
+            for v in 0..3 {
+                assert_eq!(call(&cb, &inc, v), jvalue!(v + 1));
+                assert_eq!(call(&cb, &dec, v), jvalue!(v - 1));
+                let out = cb
+                    .process_call(&types, value_types_args("gc", jvalue!([v])))?
+                    .lock_as_value(|v| v.clone())
+                    .unwrap();
+                assert_eq!(out["sum"], jvalue!(v));
+                unsafe { gc() };
+            }
+            Ok(())
+        })
 }
 
 /// juiz_hs_init を公開していないライブラリを language: "haskell" で読み込むとエラーになる

@@ -1,9 +1,9 @@
 cabal-version:      3.0
 name:               hsjuiz
 version:            0.0.20
-synopsis:           Write juiz processes in Haskell
+synopsis:           Write juiz processes and containers in Haskell
 description:
-    juiz (ロボット・IoT 向けミドルウェア) の Process を Haskell で書くためのライブラリ。
+    juiz (ロボット・IoT 向けミドルウェア) の Process / Container を Haskell で書くためのライブラリ。
     Haskell の関数を共有ライブラリ (cabal の foreign-library) として公開し、juiz が
     @language: "haskell"@ のプラグインとして読み込む。値の受け渡しは libjuiz_sdk の C 関数を使う。
 license:            MIT OR Apache-2.0
@@ -26,6 +26,7 @@ library
                       Juiz.Capsule
                       Juiz.Manifest
                       Juiz.Process
+                      Juiz.Container
                       Juiz.TH
                       Juiz.Internal.FFI
     build-depends:    base >=4.17 && <5

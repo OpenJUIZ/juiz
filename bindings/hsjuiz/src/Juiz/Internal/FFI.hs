@@ -8,6 +8,8 @@ module Juiz.Internal.FFI
     CCapsulePtr, CCapsule, CCapsuleMap, CValue
     -- * プラグインが公開する関数の型
   , ProcessFunction, ManifestFunction, ProcessFactoryFunction
+  , ContainerCreateFunction, ContainerFactoryFunction, ContainerDestroyFunction
+  , ContainerProcessFunction, ContainerProcessFactoryFunction
     -- * callback の型
   , LockCallback, ObjectCallback, ArrayCallback
   , mkLockCallback, mkObjectCallback, mkArrayCallback
@@ -54,6 +56,17 @@ type ProcessFunction = Ptr CCapsuleMap -> Ptr CCapsule -> IO Int64
 type ManifestFunction = Ptr CCapsulePtr -> IO Int64
 -- | process_factory_entry_point (int64_t (*(void))(capsule_map*, capsule*))
 type ProcessFactoryFunction = IO (FunPtr ProcessFunction)
+
+-- | Container を作る関数 (int64_t (*)(capsule_map*, void**))。作った Container を void* で返す
+type ContainerCreateFunction = Ptr CCapsuleMap -> Ptr (Ptr ()) -> IO Int64
+-- | container_factory_entry_point (int64_t (*(void))(capsule_map*, void**))
+type ContainerFactoryFunction = IO (FunPtr ContainerCreateFunction)
+-- | container_factory_destroy_entry_point (void (void*))。Container を解放する
+type ContainerDestroyFunction = Ptr () -> IO ()
+-- | ContainerProcess の関数 (int64_t (*)(void*, capsule_map*, capsule*))。第 1 引数が Container
+type ContainerProcessFunction = Ptr () -> Ptr CCapsuleMap -> Ptr CCapsule -> IO Int64
+-- | container_process_factory_entry_point (int64_t (*(void))(void*, capsule_map*, capsule*))
+type ContainerProcessFactoryFunction = IO (FunPtr ContainerProcessFunction)
 
 -- | *_lock_as_value_with_arg の callback (int64_t (*)(void*, value*))
 type LockCallback = Ptr () -> Ptr CValue -> IO Int64

@@ -10,13 +10,19 @@
  *   同時に呼ばないよう、juiz の側でも一つずつ呼ぶ (RTS は libHSrts の共有ライブラリで共有される)。
  * - GHC は hs_exit の後に hs_init し直せないので、hs_exit は呼ばない (juiz_hs_exit も用意しない)。
  *   juiz はライブラリを閉じず、RTS はプロセスの終了とともに片付く。
+ * - hs_init の前に setKeepCAFs を呼び、CAF (トップレベルの値) を GC で回収しないようにする。
+ *   foreign export した関数は、ライブラリを開いたときに GC の根 (StablePtr) として登録を待つが、
+ *   その登録は hs_init の中でしか処理されない。そのため hs_init の後に開いた 2 つ目以降の Haskell の
+ *   ライブラリでは、foreign export した CAF (juizProcess などが生成するエントリポイント) が GC の根にならず、
+ *   major GC で回収されて、次の呼び出しでプロセスが落ちる (issue #133)。GHCi が読み込んだコードと同じく
+ *   CAF をすべて残すことで防ぐ。
  */
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <pthread.h>
 #include <HsFFI.h>
-#include <Rts.h> /* rtsSupportsBoundThreads */
+#include <Rts.h> /* rtsSupportsBoundThreads, setKeepCAFs */
 
 /* -threaded でない RTS にリンクされている */
 #define HSJUIZ_NOT_THREADED_RTS_ERROR INT64_C(-601)
@@ -29,6 +35,7 @@ static void juiz_hs_init_impl(void)
     static char *argv_buf[] = { program_name, NULL };
     int argc = 1;
     char **argv = argv_buf;
+    setKeepCAFs();
     hs_init(&argc, &argv);
 }
 
