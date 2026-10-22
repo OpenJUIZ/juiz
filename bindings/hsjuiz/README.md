@@ -67,7 +67,7 @@ juizProcess 'increment 'manifest
 
 Container は状態を持つもので、ContainerProcess はその状態を第 1 引数に受け取る関数です。
 juiz の設定ファイルでは、Container と ContainerProcess はそれぞれ別の共有ライブラリになります
-(1 つのライブラリにまとめる Component は issue #134)。
+(1 つのライブラリにまとめるときは [Component](#component-にまとめる) にします)。
 
 状態の型は、Container と ContainerProcess のどちらのライブラリからも同じモジュールを使ってそろえます。
 
@@ -155,9 +155,90 @@ containers:
         name: "hsinc0"
 ```
 
+## Component にまとめる
+
+Component は、1 つのライブラリに複数の Process / Container / ContainerProcess をまとめたものです(C++ の
+`COMPONENT_PROCESS_FACTORY` などと同じ仕組み)。ライブラリが一つで済み、Container と ContainerProcess が
+同じライブラリに入るので、状態の型を別のモジュールに分ける必要もありません。
+
+要素の関数とマニフェストは、単体で公開するときと同じものを使います。`juizComponent` に Component の
+マニフェストと要素の一覧を渡します。
+
+```haskell
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
+module ExampleComponent () where
+
+import Juiz
+
+component :: ComponentManifest
+component = componentManifest "example_component_hs"
+  & description "Haskell component example."
+
+incrementManifest :: ProcessManifest
+incrementManifest = processManifest "example_component_hs_increment"
+  & addIntArg "arg0" "value to be incremented" 3
+
+increment :: Int64 -> Int64
+increment arg0 = arg0 + 1
+
+newtype Counter = Counter (IORef Int64)
+
+counterManifest :: ContainerManifest
+counterManifest = containerManifest "example_component_hs_counter"
+  & addIntArg "value" "initial value" 0
+
+createCounter :: Int64 -> IO Counter
+createCounter value = Counter <$> newIORef value
+
+counterGetManifest :: ProcessManifest
+counterGetManifest = containerProcessManifest "example_component_hs_counter_get" "example_component_hs_counter"
+
+counterGet :: Counter -> IO Int64
+counterGet (Counter ref) = readIORef ref
+
+juizComponent 'component
+  [ componentProcess 'increment 'incrementManifest
+  , componentContainer 'createCounter 'counterManifest
+  , componentContainerProcess 'counterGet 'counterGetManifest
+  ]
+```
+
+- 要素は `componentProcess` / `componentContainer` / `componentContainerWithDestroy` / `componentContainerProcess` で
+  書きます。引数は `juizProcess` などと同じです。別のモジュールに書いた関数とマニフェストも(公開して import すれば)使えます。
+- `componentManifest` に渡す名前が、設定ファイルの `components` に書く名前とライブラリの名前になります。
+- `juizComponent` は C++ と同じ名前の C の関数を生成します: マニフェストを返す `component_manifest_entry_point`、
+  要素ごとの `<関数名>_factory_entry_point`(Container は `<関数名>_factory_destroy_entry_point` も)と
+  `<関数名>_manifest_entry_point`。要素のマニフェストの `factory` は `<関数名>_factory` に付け直すので、自分で書く必要はありません。
+  そのため **関数名は Component の中で重ならないように** してください(重なるとコンパイルエラーになります)。
+- ContainerProcess の Container は同じ Component に入れます。Component に無い Container の ContainerProcess を入れたり、
+  型名が重なっていたりすると、juiz が読み込むときにエラーになります。
+
+設定ファイルでは `plugins` の `components` に書き、Process や Container は要素の型名で作ります。
+
+```yaml
+plugins:
+  components:
+    example_component_hs:
+      language: "haskell"
+      path: "./target"
+processes:
+  - type_name: "example_component_hs_increment"
+    name: "hsinc0"
+containers:
+  - type_name: "example_component_hs_counter"
+    name: "hscounter0"
+    value: 15
+    processes:
+      - type_name: "example_component_hs_counter_get"
+        name: "hsget0"
+```
+
+一つの juiz で複数の Haskell のライブラリ(単体の Process や Container、Component)を読み込むこともできます。
+
 ## ビルドする
 
-Process / Container / ContainerProcess ごとに `foreign-library` を一つ作ります。`-threaded` は必須です(juiz は Process をワーカースレッドから呼ぶため。
+Process / Container / ContainerProcess / Component ごとに `foreign-library` を一つ作ります。`-threaded` は必須です(juiz は Process をワーカースレッドから呼ぶため。
 付け忘れると、juiz が読み込むときに `juiz_hs_init` が `JUIZ_HASKELL_NOT_THREADED_RTS_ERROR`(-601)を返してエラーになります)。
 
 ```cabal
@@ -249,6 +330,25 @@ foreign export ccall "example_container_hs_create_entry_point" hsCreate :: Conta
 foreign import ccall "&example_container_hs_create_entry_point" p_hsCreate :: FunPtr ContainerCreateFunction
 foreign export ccall "container_factory_entry_point" hsFactory :: ContainerFactoryFunction
 foreign export ccall "container_factory_destroy_entry_point" hsDestroy :: ContainerDestroyFunction
+```
+
+Component は、要素ごとに上と同じ関数を `<関数名>_factory_entry_point` などの名前で公開し、
+マニフェストの `factory` をその名前(`<関数名>_factory`)にしてから、`componentManifestEntryPoint` で
+`component_manifest_entry_point` を書きます。`processPart` などは、要素のマニフェストと関数の引数の数を確かめるために使います。
+
+```haskell
+incrementManifest' :: ProcessManifest
+incrementManifest' = incrementManifest & factory "increment_factory"
+
+hsComponentManifest :: ManifestFunction
+hsComponentManifest = componentManifestEntryPoint component
+  [ processPart incrementManifest' increment
+  , containerPart counterManifest' createCounter
+  , containerProcessPart counterGetManifest' counterGet
+  ]
+
+foreign export ccall "component_manifest_entry_point" hsComponentManifest :: ManifestFunction
+-- increment_factory_entry_point、createCounter の factory の entry_point と destroy_entry_point なども同じように公開する
 ```
 
 公開する関数の決まりは `bindings/cjuiz/README.md` にあります。
