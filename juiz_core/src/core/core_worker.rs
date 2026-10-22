@@ -744,6 +744,7 @@ impl CoreWorker {
             "rust" => JuizObjectPlugin::new_rust(PathBuf::from(filepath))?,
             "python" => JuizObjectPlugin::new_python(PathBuf::from(filepath))?,
             "cpp" => JuizObjectPlugin::new_cpp(PathBuf::from(filepath), "manifest")?,
+            "haskell" => JuizObjectPlugin::new_haskell(PathBuf::from(filepath), "manifest")?,
             _ => {
                 panic!("invalid langauge {language}")
             }
@@ -769,6 +770,7 @@ impl CoreWorker {
             "rust" => JuizObjectPlugin::new_rust(PathBuf::from(filepath))?,
             "python" => JuizObjectPlugin::new_python(PathBuf::from(filepath))?,
             "cpp" => JuizObjectPlugin::new_cpp(PathBuf::from(filepath), "manifest")?,
+            "haskell" => JuizObjectPlugin::new_haskell(PathBuf::from(filepath), "manifest")?,
             _ => {
                 panic!("invalid langauge {language}")
             }
@@ -795,6 +797,7 @@ impl CoreWorker {
             "rust" => JuizObjectPlugin::new_rust(PathBuf::from(filepath))?,
             "python" => JuizObjectPlugin::new_python(PathBuf::from(filepath))?,
             "cpp" => JuizObjectPlugin::new_cpp(PathBuf::from(filepath), "manifest")?,
+            "haskell" => JuizObjectPlugin::new_haskell(PathBuf::from(filepath), "manifest")?,
             _ => {
                 panic!("invalid langauge {language}")
             }
@@ -821,6 +824,7 @@ impl CoreWorker {
             "rust" => JuizObjectPlugin::new_rust(PathBuf::from(filepath))?,
             "python" => JuizObjectPlugin::new_python(PathBuf::from(filepath))?,
             "cpp" => JuizObjectPlugin::new_cpp(PathBuf::from(filepath), "component_manifest")?,
+            "haskell" => JuizObjectPlugin::new_haskell(PathBuf::from(filepath), "component_manifest")?,
             _ => {
                 panic!("invalid langauge {language}")
             }

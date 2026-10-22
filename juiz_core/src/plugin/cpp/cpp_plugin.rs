@@ -22,8 +22,39 @@ type ContainerDestroyFunction = unsafe extern "C" fn(*mut c_void);
 type ContainerProcessFunction =
     unsafe extern "C" fn(*mut c_void, *mut CapsuleMap, *mut Capsule) -> i64;
 
+/// C ABI で読み込むプラグインの言語。読み込み方は同じで、Haskell は RTS の初期化が加わる
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CAbiLanguage {
+    Cpp,
+    Haskell,
+}
+
+impl CAbiLanguage {
+    fn as_str(&self) -> &'static str {
+        match self {
+            CAbiLanguage::Cpp => "c++",
+            CAbiLanguage::Haskell => "haskell",
+        }
+    }
+
+    fn build_hint(&self) -> &'static str {
+        match self {
+            CAbiLanguage::Cpp => "Build the C++ plugin first with cmake (juiz's own examples: \
+                       `cmake -S examples/cpp -B examples/cpp/build && cmake --build examples/cpp/build` \
+                       after `cargo build`). For juiz's own tests, `scripts/test.sh` builds all the examples.",
+            CAbiLanguage::Haskell => "Build the Haskell plugin first with cabal (juiz's own examples: \
+                       `examples/haskell/build.sh` after `cargo build`). \
+                       For juiz's own tests, `scripts/test.sh` builds all the examples.",
+        }
+    }
+}
+
+/// Haskell のプラグインが公開する、GHC の RTS を初期化する関数 (int64_t juiz_hs_init(void))
+const HASKELL_INIT_SYMBOL: &str = "juiz_hs_init";
+
 pub struct CppPlugin {
     path: PathBuf,
+    language: CAbiLanguage,
     /// 関数ポインタを使う間はライブラリを閉じないよう、作った Process や Container にも持たせる
     lib: Arc<Library>,
     manifest: Value,
@@ -33,6 +64,7 @@ impl std::fmt::Debug for CppPlugin {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CppPlugin")
             .field("path", &self.path)
+            .field("language", &self.language)
             .field("lib", &self.lib)
             .field("manifest", &self.manifest)
             .finish()
@@ -66,19 +98,33 @@ impl CppPlugin {
     /// path:
     /// manifest_entry_point: ファイル自体のマニフェストのエントリーポイント
     pub fn new(path: PathBuf, manifest_entry_point: &str) -> JuizResult<CppPlugin> {
+        Self::open(path, manifest_entry_point, CAbiLanguage::Cpp)
+    }
+
+    /// Haskell (GHC) のプラグインを開く。
+    /// 開いた直後に juiz_hs_init を呼んで RTS を初期化する (無ければエラー)。
+    /// GHC は hs_exit の後に hs_init し直せないので juiz_hs_exit は呼ばず、
+    /// RTS のスレッドが動いているコードを外さないよう、ライブラリも閉じない。
+    pub fn new_haskell(path: PathBuf, manifest_entry_point: &str) -> JuizResult<CppPlugin> {
+        Self::open(path, manifest_entry_point, CAbiLanguage::Haskell)
+    }
+
+    fn open(
+        path: PathBuf,
+        manifest_entry_point: &str,
+        language: CAbiLanguage,
+    ) -> JuizResult<CppPlugin> {
         log::trace!(
-            "【呼出】CppPlugin::new(path={:?}, manifest_entry_point={:?})",
+            "【呼出】CppPlugin::open(path={:?}, manifest_entry_point={:?}, language={:?})",
             path,
-            manifest_entry_point
+            manifest_entry_point,
+            language
         );
         if !path.exists() {
             log::error!("【エラー】CppPlugin::new({path:?}) failed. ファイルが見つかりません");
             return Err(anyhow::Error::from(JuizError::PluginFileNotFoundError {
                 plugin_path: path.display().to_string(),
-                hint: "Build the C++ plugin first with cmake (juiz's own examples: \
-                       `cmake -S examples/cpp -B examples/cpp/build && cmake --build examples/cpp/build` \
-                       after `cargo build`). For juiz's own tests, `scripts/test.sh` builds all the examples."
-                    .to_owned(),
+                hint: language.build_hint().to_owned(),
             }));
         }
         let entry_point = manifest_entry_point.to_owned() + "_entry_point";
@@ -87,6 +133,9 @@ impl CppPlugin {
                 log::error!("【エラー】Library::new({path:?}) failed. Error ({e:?})");
                 Err(e)
             })?);
+            if language == CAbiLanguage::Haskell {
+                init_haskell_runtime(&path, &lib)?;
+            }
             let mut manif_cap = CapsulePtr::new();
             let manifest_function: Symbol<ManifestEntryPoint> =
                 lib.get(entry_point.as_bytes()).or_else(|e| {
@@ -103,6 +152,7 @@ impl CppPlugin {
             log::debug!("プロセスのマニフェスト取得に成功。マニフェスト：{manifest_value:}");
             Ok(CppPlugin {
                 path,
+                language,
                 lib,
                 manifest: manifest_value,
             })
@@ -113,6 +163,7 @@ impl CppPlugin {
     pub fn profile_full(&self) -> JuizResult<Value> {
         Ok(jvalue!({
             "path": self.path,
+            "language": self.language.as_str(),
         }))
     }
 
@@ -309,6 +360,34 @@ impl CppPlugin {
             }
         }
     }
+}
+
+/// Haskell のプラグインの juiz_hs_init を呼び、ライブラリを閉じないようにする
+unsafe fn init_haskell_runtime(path: &PathBuf, lib: &Arc<Library>) -> JuizResult<()> {
+    type InitFunction = unsafe extern "C" fn() -> i64;
+    // hs_init は複数のスレッドから同時に呼ぶと初期化が終わる前に戻ることがあり、
+    // 別々の Haskell ライブラリでも RTS は共有されるので、juiz 全体で一つずつ呼ぶ
+    static INIT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = INIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let init: Symbol<InitFunction> = lib.get(HASKELL_INIT_SYMBOL.as_bytes()).or_else(|e| {
+        log::error!("【エラー】Haskell plugin ({path:?}) does not export {HASKELL_INIT_SYMBOL}. Error ({e:?})");
+        Err(anyhow::Error::from(
+            JuizError::PluginLoadSymbolFailedError {
+                plugin_path: path.display().to_string(),
+                symbol_name: HASKELL_INIT_SYMBOL.to_owned(),
+            },
+        ))
+    })?;
+    let retval = init();
+    if retval != 0 {
+        return Err(anyhow::Error::from(JuizError::CppPluginFunctionCallError {
+            function_name: HASKELL_INIT_SYMBOL.to_owned(),
+            return_value: retval,
+        }));
+    }
+    // dlclose で RTS ごとコードを外すとプロセスが落ちるので、参照を一つ残して閉じないようにする
+    std::mem::forget(lib.clone());
+    Ok(())
 }
 
 fn find_container_process_from_component_manifest(

@@ -50,6 +50,12 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # Haskell の例(examples/haskell)のビルドに使う。対応するのは GHC 9.6 以降(issue #131)
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: "9.6"
+          cabal-version: latest
+
       # Python 連携の feature の組み合わせがビルドできることを確かめる(issue #88)
       - name: Check feature combinations
         run: |
@@ -60,6 +66,9 @@ jobs:
       # 例(Rust/C++)のビルド、Python パッケージの確認、PYTHONPATH の設定を済ませてから
       # cargo test -- --test-threads=1 を実行する(手元と同じスクリプト)
       - name: Build & test
+        env:
+          # GHC が入っているので、Haskell の例とテストを飛ばさない
+          JUIZ_REQUIRE_HASKELL: "1"
         run: scripts/test.sh --verbose
 
       # Python から juiz を起動する入口(feature python-entry)のテスト

@@ -1,0 +1,4 @@
+packages: .
+
+-- 依存は GHC に付いてくる base だけなので、Hackage の索引は使わない (cabal update 不要)
+active-repositories: :none

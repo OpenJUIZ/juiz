@@ -13,6 +13,7 @@ use super::{cpp::CppPlugin, python::PythonPlugin, rust::RustPlugin};
 pub enum JuizObjectPlugin {
     Rust(Rc<RustPlugin>),
     Python(Rc<PythonPlugin>),
+    /// C ABI で読み込むプラグイン (language: "c++" と "haskell")
     Cpp(Rc<CppPlugin>),
 }
 
@@ -107,6 +108,10 @@ impl JuizObjectPlugin {
                 cpp_plugin_path(name, v, working_dir)?,
                 manifest_entry_point,
             )?))),
+            "haskell" => Ok(JuizObjectPlugin::Cpp(Rc::new(CppPlugin::new_haskell(
+                cpp_plugin_path(name, v, working_dir)?,
+                manifest_entry_point,
+            )?))),
             _ => {
                 log::error!("In setup_container_factories() function, unknown language option ({:}) detected", language);
                 Err(anyhow::Error::from(JuizError::InvalidSettingError{message: format!("In setup_container_factories() function, unknown language option ({:}) detected", language)}))
@@ -126,6 +131,16 @@ impl JuizObjectPlugin {
 
     pub fn new_cpp(filepath: PathBuf, manifest_entry_point: &str) -> JuizResult<JuizObjectPlugin> {
         Ok(JuizObjectPlugin::Cpp(Rc::new(CppPlugin::new(
+            filepath,
+            manifest_entry_point,
+        )?)))
+    }
+
+    pub fn new_haskell(
+        filepath: PathBuf,
+        manifest_entry_point: &str,
+    ) -> JuizResult<JuizObjectPlugin> {
+        Ok(JuizObjectPlugin::Cpp(Rc::new(CppPlugin::new_haskell(
             filepath,
             manifest_entry_point,
         )?)))

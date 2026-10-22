@@ -5,7 +5,9 @@
 #   1. Rust の例: ワークスペースの cargo build で ../target/debug にできる
 #   2. C++ の例:  examples/cpp の cmake ビルドで ../target にできる(1 の juiz_sdk にリンクする)
 #   3. Python の例: pyyaml httpx pillow docstring_parser と PYTHONPATH=bindings/pyjuiz
-# このスクリプトは 1〜3 を済ませてから cargo test -- --test-threads=1 を実行する。
+#   4. Haskell の例: examples/haskell の cabal ビルドで ../target にできる(GHC と cabal が無ければ飛ばし、
+#      Haskell のテストも飛ばす。JUIZ_REQUIRE_HASKELL=1 なら飛ばさずにエラーにする)
+# このスクリプトは 1〜4 を済ませてから cargo test -- --test-threads=1 を実行する。
 #
 # 使い方:
 #   scripts/test.sh                      # すべてのテスト
@@ -15,6 +17,7 @@
 #
 # 環境変数:
 #   PYO3_PYTHON  埋め込み Python と依存パッケージの確認に使う python(既定: python3)
+#   JUIZ_REQUIRE_HASKELL  1 なら GHC / cabal が無いときにエラーにする(CI 用)
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -63,6 +66,26 @@ cc_bin="${CC:-cc}"
 if command -v "$cc_bin" >/dev/null 2>&1; then
     step "C のヘッダを C としてコンパイルできるか確かめる (bindings/cjuiz/include/juiz_sdk.h)"
     "$cc_bin" -std=c99 -Wall -Wextra -Werror -fsyntax-only -x c bindings/cjuiz/include/juiz_sdk.h
+fi
+
+step "Haskell の例をビルドする (examples/haskell)"
+case "$(uname -s)" in
+    MINGW* | MSYS* | CYGWIN*) haskell_skip_reason="Windows の Haskell プラグインはまだ対応していません (issue #137)" ;;
+    *)
+        if command -v ghc >/dev/null 2>&1 && command -v cabal >/dev/null 2>&1; then
+            haskell_skip_reason=""
+        else
+            haskell_skip_reason="ghc と cabal が見つかりません。Haskell の例とテストを動かすには GHC 9.6 以降と cabal を入れてください (https://www.haskell.org/ghcup/)"
+        fi
+        ;;
+esac
+if [[ -z "$haskell_skip_reason" ]]; then
+    examples/haskell/build.sh
+elif [[ "${JUIZ_REQUIRE_HASKELL:-0}" == "1" ]]; then
+    echo "error: $haskell_skip_reason" >&2
+    exit 1
+else
+    echo "skip: $haskell_skip_reason" >&2
 fi
 
 step "Python の例が使うパッケージを確認する ($python)"

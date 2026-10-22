@@ -1,0 +1,30 @@
+cabal-version:      3.0
+name:               juiz-haskell-examples
+version:            0.1.0.0
+synopsis:           Minimal Haskell process plugins for juiz, written with hand-written FFI
+license:            MIT OR Apache-2.0
+author:             ysuga
+build-type:         Simple
+
+-- juiz が読み込む共有ライブラリ (Linux は lib<名前>.so、macOS は lib<名前>.dylib)。
+-- juiz は Process をワーカースレッドから呼ぶので -threaded の RTS が必要。
+-- libjuiz_sdk の場所は build.sh が --extra-lib-dirs で渡す。
+
+common plugin
+    default-language: Haskell2010
+    build-depends:    base >=4.17 && <5
+    hs-source-dirs:   src
+    other-modules:    JuizFFI
+    c-sources:        cbits/juiz_hs_init.c
+    extra-libraries:  juiz_sdk
+    ghc-options:      -Wall -threaded
+
+foreign-library increment_process_hs
+    import:           plugin
+    type:             native-shared
+    other-modules:    IncrementProcess
+
+foreign-library decrement_process_hs
+    import:           plugin
+    type:             native-shared
+    other-modules:    DecrementProcess
