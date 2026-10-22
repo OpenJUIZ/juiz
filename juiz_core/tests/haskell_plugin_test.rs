@@ -1,4 +1,4 @@
-//! language: "haskell" のプラグインを読み込んで呼べることを確かめるテスト (issue #131)
+//! language: "haskell" のプラグインを読み込んで呼べることを確かめるテスト (issue #131, #132)
 //!
 //! Haskell の例 (examples/haskell) は scripts/test.sh (CI も同じ) で ../target にビルドされている前提。
 //! GHC が無い環境では scripts/test.sh がビルドを飛ばすので、ライブラリが無ければテストも飛ばす。
@@ -19,7 +19,7 @@ fn plugin_file(name: &str) -> std::path::PathBuf {
 
 /// Haskell の例がビルドされていなければ true (テストを飛ばす)
 fn skip_without_haskell_examples() -> bool {
-    let missing: Vec<_> = ["increment_process_hs", "decrement_process_hs"]
+    let missing: Vec<_> = ["increment_process_hs", "decrement_process_hs", "value_types_process_hs"]
         .iter()
         .map(|n| plugin_file(n))
         .filter(|p| !p.exists())
@@ -42,12 +42,14 @@ fn system_manifest() -> Value {
         "plugins": {
             "process_factories": {
                 "increment_process_hs": { "language": "haskell", "path": "../target" },
-                "decrement_process_hs": { "language": "haskell", "path": "../target" }
+                "decrement_process_hs": { "language": "haskell", "path": "../target" },
+                "value_types_process_hs": { "language": "haskell", "path": "../target" }
             }
         },
         "processes": [
             { "type_name": "increment_process_hs", "name": "inc0" },
-            { "type_name": "decrement_process_hs", "name": "dec0" }
+            { "type_name": "decrement_process_hs", "name": "dec0" },
+            { "type_name": "value_types_process_hs", "name": "types0" }
         ]
     })
 }
@@ -93,6 +95,75 @@ fn haskell_processes_can_be_loaded_and_called() -> JuizResult<()> {
             // 引数の型が違えば Haskell の例外ではなくエラーコードで返り、juiz はエラーにする
             let r = cb.process_call(&inc, vec![("arg1", jvalue!("not a number"))].into());
             assert!(r.is_err(), "{r:?}");
+            Ok(())
+        })
+}
+
+fn value_types_args(name: &str, items: Value) -> CapsuleMap {
+    vec![
+        ("flag", jvalue!(true)),
+        ("count", jvalue!(21)),
+        ("ratio", jvalue!(0.25)),
+        ("name", jvalue!(name)),
+        ("items", items),
+        ("extra", jvalue!({"a": 1, "b": {"c": [true, null]}})),
+    ]
+    .into()
+}
+
+/// hsjuiz の FromCapsule / ToCapsule で、いろいろな型の引数と、入れ子のオブジェクトの戻り値をやりとりできる
+#[test]
+fn haskell_process_converts_value_types() -> JuizResult<()> {
+    let _ = env_logger::try_init();
+    if skip_without_haskell_examples() {
+        return Ok(());
+    }
+    System::new(system_manifest())?
+        .setup()?
+        .run_and_do_once(|system| {
+            let cb = system.core_broker().lock()?;
+            let id = find(&cb, "types0")?;
+
+            // マニフェストは hsjuiz の ProcessManifest ビルダーで組み立てたもの。引数は足した順
+            let profile = cb.process_profile_full(&id)?;
+            let names: Vec<_> = profile.arguments.iter().map(|a| a.name.as_str()).collect();
+            assert_eq!(names, ["flag", "count", "ratio", "name", "items", "extra"]);
+            assert_eq!(profile.description.as_str(), "Echoes its arguments as an object.");
+
+            let out = cb
+                .process_call(&id, value_types_args("ロボット juiz", jvalue!([1, 2, 3])))?
+                .lock_as_value(|v| v.clone())
+                .unwrap();
+            assert_eq!(
+                out,
+                jvalue!({
+                    "flag": false,
+                    "count": 42,
+                    "ratio": 0.5,
+                    "name": "ロボット JUIZ",
+                    "items": [3, 2, 1],
+                    "sum": 6,
+                    "extra": {"a": 1, "b": {"c": [true, null]}, "seen": true},
+                    "nothing": null,
+                    "nested": [{"k": "v"}, [null, 1.5]]
+                })
+            );
+
+            // 型が合わない引数、Haskell の error、JuizError は、どれもプロセスを落とさずエラーになる
+            for (name, items) in [
+                ("ok", jvalue!(["not", "ints"])),
+                ("throw", jvalue!([])),
+                ("juiz_error", jvalue!([])),
+            ] {
+                let r = cb.process_call(&id, value_types_args(name, items.clone()));
+                assert!(r.is_err(), "{name} {items}: {r:?}");
+            }
+            // エラーの後も呼べる
+            let out = cb
+                .process_call(&id, value_types_args("again", jvalue!([])))?
+                .lock_as_value(|v| v.clone())
+                .unwrap();
+            assert_eq!(out["name"], jvalue!("AGAIN"));
             Ok(())
         })
 }

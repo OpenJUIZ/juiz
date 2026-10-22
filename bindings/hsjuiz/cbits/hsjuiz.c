@@ -1,0 +1,69 @@
+/*
+ * hsjuiz の C の部分。
+ *
+ * juiz_hs_init: juiz が language: "haskell" のプラグインを開いた直後に呼ぶ関数 (bindings/cjuiz/README.md)。
+ * GHC のランタイム (RTS) を初期化する。成功なら 0 を返す。
+ *
+ * - juiz は Process をワーカースレッドから呼ぶので、-threaded の RTS でビルドされていなければ
+ *   初期化せずにエラー (HSJUIZ_NOT_THREADED_RTS_ERROR) を返す。
+ * - hs_init はスレッド安全ではないので、pthread_once で一度だけ呼ぶ。別の Haskell ライブラリと
+ *   同時に呼ばないよう、juiz の側でも一つずつ呼ぶ (RTS は libHSrts の共有ライブラリで共有される)。
+ * - GHC は hs_exit の後に hs_init し直せないので、hs_exit は呼ばない (juiz_hs_exit も用意しない)。
+ *   juiz はライブラリを閉じず、RTS はプロセスの終了とともに片付く。
+ */
+#include <stddef.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <pthread.h>
+#include <HsFFI.h>
+#include <Rts.h> /* rtsSupportsBoundThreads */
+
+/* -threaded でない RTS にリンクされている */
+#define HSJUIZ_NOT_THREADED_RTS_ERROR INT64_C(-601)
+
+static pthread_once_t juiz_hs_init_once = PTHREAD_ONCE_INIT;
+
+static void juiz_hs_init_impl(void)
+{
+    static char program_name[] = "juiz";
+    static char *argv_buf[] = { program_name, NULL };
+    int argc = 1;
+    char **argv = argv_buf;
+    hs_init(&argc, &argv);
+}
+
+int64_t juiz_hs_init(void)
+{
+    if (!rtsSupportsBoundThreads()) {
+        return HSJUIZ_NOT_THREADED_RTS_ERROR;
+    }
+    pthread_once(&juiz_hs_init_once, juiz_hs_init_impl);
+    return 0;
+}
+
+/*
+ * value の型を整数で返す (Juiz.Internal.FFI の valueType*)。
+ * value_is_* は C の bool を返すので、Haskell から直接呼ばずにここで整数にする。
+ */
+typedef struct value_struct value;
+bool value_is_null(value* v);
+bool value_is_int(value* v);
+bool value_is_uint(value* v);
+bool value_is_float(value* v);
+bool value_is_bool(value* v);
+bool value_is_string(value* v);
+bool value_is_object(value* v);
+bool value_is_array(value* v);
+
+int64_t hsjuiz_value_type(value* v)
+{
+    if (value_is_null(v)) return 0;
+    if (value_is_bool(v)) return 1;
+    if (value_is_int(v)) return 2;
+    if (value_is_uint(v)) return 3;
+    if (value_is_float(v)) return 4;
+    if (value_is_string(v)) return 5;
+    if (value_is_array(v)) return 6;
+    if (value_is_object(v)) return 7;
+    return -1;
+}

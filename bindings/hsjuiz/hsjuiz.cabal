@@ -1,0 +1,40 @@
+cabal-version:      3.0
+name:               hsjuiz
+version:            0.0.20
+synopsis:           Write juiz processes in Haskell
+description:
+    juiz (ロボット・IoT 向けミドルウェア) の Process を Haskell で書くためのライブラリ。
+    Haskell の関数を共有ライブラリ (cabal の foreign-library) として公開し、juiz が
+    @language: "haskell"@ のプラグインとして読み込む。値の受け渡しは libjuiz_sdk の C 関数を使う。
+license:            MIT OR Apache-2.0
+license-files:      LICENSE-MIT
+                    LICENSE-APACHE
+author:             ysuga
+maintainer:         ysuga
+homepage:           https://github.com/OpenJUIZ/juiz
+category:           Robotics
+build-type:         Simple
+extra-doc-files:    README.md
+tested-with:        GHC ==9.4.7 || ==9.6.*
+
+library
+    default-language: Haskell2010
+    hs-source-dirs:   src
+    exposed-modules:  Juiz
+                      Juiz.Value
+                      Juiz.Error
+                      Juiz.Capsule
+                      Juiz.Manifest
+                      Juiz.Process
+                      Juiz.TH
+                      Juiz.Internal.FFI
+    build-depends:    base >=4.17 && <5
+                    , bytestring >=0.11 && <0.13
+                    , containers >=0.6 && <0.9
+                    , text >=2.0 && <2.3
+                    , template-haskell >=2.19 && <2.26
+    -- juiz_hs_init (RTS の初期化) と、bool を返す C 関数を安全に呼ぶための小さな関数
+    c-sources:        cbits/hsjuiz.c
+    -- libjuiz_sdk の場所は利用者が --extra-lib-dirs で渡す (examples/haskell/build.sh を参照)
+    extra-libraries:  juiz_sdk
+    ghc-options:      -Wall

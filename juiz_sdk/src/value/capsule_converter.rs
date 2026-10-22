@@ -307,6 +307,13 @@ pub unsafe extern "C" fn capsule_set_string(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn capsule_set_null(capsule: *mut Capsule) -> i64 {
+    let cap = capsule.as_mut().unwrap();
+    cap.replace_value(Value::Null.into());
+    JUIZ_OK
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn capsule_set_empty_object(capsule: *mut Capsule) -> i64 {
     let cap = capsule.as_mut().unwrap();
     cap.replace_value(jvalue!({}).into());
@@ -318,4 +325,20 @@ pub unsafe extern "C" fn capsule_set_empty_array(capsule: *mut Capsule) -> i64 {
     let cap = capsule.as_mut().unwrap();
     cap.replace_value(jvalue!([]).into());
     JUIZ_OK
+}
+
+/// capsule の中身を value として callback に渡し、callback の戻り値を返す。
+/// capsule_set_empty_object / capsule_set_empty_array の後に呼び、オブジェクトや配列を書き込むのに使う。
+/// capsule が値を持っていなければ JUIZ_CAPSULE_NO_VALUE を返す。
+#[no_mangle]
+pub unsafe extern "C" fn capsule_lock_as_value_with_arg(
+    capsule: *mut Capsule,
+    callback: extern "C" fn(*mut std::ffi::c_void, *mut Value) -> i64,
+    arg: *mut std::ffi::c_void,
+) -> i64 {
+    let cap = capsule.as_mut().unwrap();
+    match cap.as_value_mut() {
+        Some(v) => callback(arg, v),
+        None => JUIZ_CAPSULE_NO_VALUE,
+    }
 }

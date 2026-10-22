@@ -124,6 +124,17 @@ pub unsafe extern "C" fn value_object_get_value(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn value_object_set_null(
+    value: *mut Value,
+    key: *const std::os::raw::c_char,
+) -> *mut Value {
+    let obj = value.as_mut().unwrap().as_object_mut().unwrap();
+    let keystr = CStr::from_ptr(key).to_str().unwrap().to_owned();
+    obj.insert(keystr.clone(), Value::Null);
+    obj.get_mut(&keystr).unwrap()
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn value_object_set_int(
     value: *mut Value,
     key: *const std::os::raw::c_char,
@@ -240,6 +251,13 @@ pub unsafe extern "C" fn value_object_set_empty_object(
     let keystr = CStr::from_ptr(key).to_str().unwrap().to_owned();
     obj.insert(keystr.clone(), jvalue!({}));
     obj.get_mut(&keystr).unwrap()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn value_array_push_null(value: *mut Value) -> *mut Value {
+    let obj = value.as_mut().unwrap().as_array_mut().unwrap();
+    obj.push(Value::Null);
+    obj.last_mut().unwrap()
 }
 
 #[no_mangle]

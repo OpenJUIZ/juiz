@@ -451,3 +451,51 @@ fn get_string_with_len_returns_exact_length() {
         assert_eq!(len, 0);
     }
 }
+
+extern "C" fn fill_object_callback(_arg: *mut c_void, v: *mut Value) -> i64 {
+    unsafe {
+        value_object_set_int(v, cstr("x").as_ptr(), 1);
+        value_object_set_null(v, cstr("n").as_ptr());
+        let arr = value_object_set_empty_array(v, cstr("a").as_ptr());
+        value_array_push_null(arr);
+        value_array_push_int(arr, 2);
+    }
+    JUIZ_OK
+}
+
+extern "C" fn return_error_callback(_arg: *mut c_void, _v: *mut Value) -> i64 {
+    JUIZ_VALUE_CONVERTER_ERROR
+}
+
+/// capsule_lock_as_value_with_arg と null の書き込み (hsjuiz がオブジェクトや配列の戻り値を書き込むのに使う, issue #132)
+#[test]
+fn capsule_lock_as_value_and_null_setters() {
+    unsafe {
+        let mut cap = Capsule::empty();
+        assert_eq!(capsule_set_empty_object(&mut cap), JUIZ_OK);
+        assert_eq!(
+            capsule_lock_as_value_with_arg(&mut cap, fill_object_callback, std::ptr::null_mut()),
+            JUIZ_OK
+        );
+        assert_eq!(
+            cap.as_value().unwrap(),
+            &jvalue!({"x": 1, "n": null, "a": [null, 2]})
+        );
+
+        // callback の戻り値がそのまま返る
+        assert_eq!(
+            capsule_lock_as_value_with_arg(&mut cap, return_error_callback, std::ptr::null_mut()),
+            JUIZ_VALUE_CONVERTER_ERROR
+        );
+
+        // 値を持たない capsule
+        let mut empty = Capsule::empty();
+        assert_eq!(
+            capsule_lock_as_value_with_arg(&mut empty, fill_object_callback, std::ptr::null_mut()),
+            JUIZ_CAPSULE_NO_VALUE
+        );
+
+        assert_eq!(capsule_set_null(&mut cap), JUIZ_OK);
+        assert_eq!(cap.as_value().unwrap(), &Value::Null);
+    }
+}

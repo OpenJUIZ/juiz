@@ -27,7 +27,7 @@ cabal build all \
     --extra-lib-dirs="$sdk_dir" \
     --ghc-options="-optl-Wl,-rpath,$sdk_dir"
 
-for name in increment_process_hs decrement_process_hs; do
+for name in increment_process_hs decrement_process_hs value_types_process_hs; do
     lib=$(find dist-newstyle -name "lib$name.$ext" -type f | head -n 1)
     if [[ -z "$lib" ]]; then
         echo "error: lib$name.$ext が dist-newstyle に見つかりません" >&2

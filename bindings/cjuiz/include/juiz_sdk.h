@@ -32,6 +32,8 @@ extern "C" {
 #define JUIZ_CAPSULE_NO_VALUE                              INT64_C(-402)
 #define JUIZ_PROCESS_FUNCTION_NULL_OPT_RETURNED            INT64_C(-501)
 #define JUIZ_CONTAINER_PROCESS_FUNCTION_NULL_OPT_RETURNED  INT64_C(-501)
+/* Haskell のプラグインが -threaded でない RTS にリンクされている (juiz_hs_init が返す) */
+#define JUIZ_HASKELL_NOT_THREADED_RTS_ERROR                INT64_C(-601)
 
 /* ---- 不透明な型 ----
  * 中身は Rust 側の CapsulePtr / Capsule / CapsuleMap / Value。ポインタとしてだけ使う。 */
@@ -86,8 +88,13 @@ int64_t capsule_set_uint(capsule* cp, uint64_t val);
 int64_t capsule_set_float(capsule* cp, double val);
 int64_t capsule_set_bool(capsule* cp, int64_t val);
 int64_t capsule_set_string(capsule* cp, const char* val);
+int64_t capsule_set_null(capsule* cp);
 int64_t capsule_set_empty_object(capsule* cp);
 int64_t capsule_set_empty_array(capsule* cp);
+/* capsule の中身を value として callback に渡す。callback の戻り値がそのまま返る。
+ * capsule_set_empty_object / capsule_set_empty_array の後に、オブジェクトや配列を書き込むのに使う。
+ * capsule が値を持っていなければ JUIZ_CAPSULE_NO_VALUE。 */
+int64_t capsule_lock_as_value_with_arg(capsule* cp, int64_t (*callback)(void*, value*), void* arg);
 
 /* ---- value: JSON 相当の値 ---- */
 bool value_is_null(value* v);
@@ -116,6 +123,7 @@ int64_t value_object_foreach(value* v, void (*callback)(void*, const char* key, 
 int64_t value_array_foreach(value* v, void (*callback)(void*, value* v), void* arg);
 
 /* オブジェクトに要素を入れ、入れた要素を返す。v はオブジェクトであること。 */
+value* value_object_set_null(value* v, const char* key);
 value* value_object_set_bool(value* v, const char* key, int64_t d);
 value* value_object_set_int(value* v, const char* key, int64_t d);
 value* value_object_set_uint(value* v, const char* key, uint64_t d);
@@ -125,6 +133,7 @@ value* value_object_set_empty_object(value* v, const char* key);
 value* value_object_set_empty_array(value* v, const char* key);
 
 /* 配列に要素を足し、足した要素を返す。v は配列であること。 */
+value* value_array_push_null(value* v);
 value* value_array_push_bool(value* v, int64_t d);
 value* value_array_push_int(value* v, int64_t d);
 value* value_array_push_uint(value* v, uint64_t d);
