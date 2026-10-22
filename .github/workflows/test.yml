@@ -106,6 +106,12 @@ jobs:
       - name: Build libjuiz_sdk
         run: cargo build -p juiz_sdk
 
+      # haskell_container_test は C++ の Container (example_container_cpp) も読み込む
+      - name: Build C++ examples
+        run: |
+          cmake -S examples/cpp -B examples/cpp/build -DCMAKE_BUILD_TYPE=Debug
+          cmake --build examples/cpp/build --config Debug --parallel
+
       - name: Build Haskell examples
         run: examples/haskell/build.sh
 
@@ -115,7 +121,7 @@ jobs:
           # Haskell の例が無いときにテストを飛ばさない
           JUIZ_REQUIRE_HASKELL: "1"
         run: >-
-          cargo test -p juiz_core
+          cargo test -p juiz_core --no-fail-fast
           --test haskell_plugin_test --test haskell_container_test --test haskell_component_test
           -- --test-threads=1
 
