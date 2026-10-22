@@ -27,6 +27,7 @@ library
                       Juiz.Manifest
                       Juiz.Process
                       Juiz.Container
+                      Juiz.Component
                       Juiz.TH
                       Juiz.Internal.FFI
     build-depends:    base >=4.17 && <5

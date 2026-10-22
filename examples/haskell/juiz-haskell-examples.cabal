@@ -57,3 +57,17 @@ foreign-library mismatched_container_process_hs
     import:           plugin
     type:             native-shared
     other-modules:    MismatchedContainerProcess
+
+-- Component: 1 つのライブラリに Process / Container / ContainerProcess をまとめる
+foreign-library example_component_hs
+    import:           plugin
+    type:             native-shared
+    build-depends:    text
+    other-modules:    ExampleComponent
+                      ExampleComponentCounter
+
+-- 誤った Component。juiz が読み込むときにエラーになる (juiz のテスト用)
+foreign-library broken_component_hs
+    import:           plugin
+    type:             native-shared
+    other-modules:    BrokenComponent

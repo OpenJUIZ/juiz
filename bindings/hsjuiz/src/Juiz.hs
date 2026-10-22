@@ -36,6 +36,18 @@
 -- >
 -- > juizContainerProcess 'increment 'manifest
 --
+-- 1 つのライブラリに複数の Process / Container / ContainerProcess をまとめるときは Component にする。
+-- 要素の関数とマニフェストは単体のときと同じものを使う。
+--
+-- > component :: ComponentManifest
+-- > component = componentManifest "counter_component_hs"
+-- >
+-- > juizComponent 'component
+-- >   [ componentProcess 'add 'addManifest
+-- >   , componentContainer 'create 'counterManifest
+-- >   , componentContainerProcess 'increment 'incrementManifest
+-- >   ]
+--
 -- このモジュールを cabal の @foreign-library@ (type: native-shared、ghc-options: -threaded) に入れてビルドし、
 -- juiz の設定ファイルに @language: "haskell"@ で書く。詳しくは bindings/hsjuiz/README.md。
 module Juiz
@@ -44,13 +56,25 @@ module Juiz
   , juizContainer
   , juizContainerWithDestroy
   , juizContainerProcess
+    -- * Component (1 つのライブラリにまとめる)
+  , juizComponent
+  , ComponentEntry
+  , componentProcess
+  , componentContainer
+  , componentContainerWithDestroy
+  , componentContainerProcess
     -- * マニフェスト
   , ProcessManifest
   , ContainerManifest
+  , ComponentManifest
+  , HasDescription
   , HasArguments
   , processManifest
   , containerManifest
   , containerProcessManifest
+  , componentManifest
+  , addProcess
+  , addContainer
   , description
   , factory
   , useMemo
@@ -102,6 +126,11 @@ module Juiz
   , containerDestroyEntryPoint
   , containerProcessManifestEntryPoint
   , containerProcessEntryPoint
+  , ComponentPart
+  , processPart
+  , containerPart
+  , containerProcessPart
+  , componentManifestEntryPoint
   , FunPtr
   ) where
 
@@ -114,6 +143,7 @@ import Data.Word (Word64)
 import Foreign.Ptr (FunPtr)
 
 import Juiz.Capsule
+import Juiz.Component
 import Juiz.Container
 import Juiz.Error
 import Juiz.Internal.FFI

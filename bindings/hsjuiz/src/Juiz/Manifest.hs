@@ -9,14 +9,22 @@
 -- 引数を足した順が、Process の関数の引数の順になる。
 -- Container ('containerManifest') では、Container を作る関数の引数の順になる。
 -- ContainerProcess ('containerProcessManifest') では、第 1 引数 (Container の状態) の後に続く引数の順になる。
+--
+-- Component ('componentManifest') は、1 つのライブラリにまとめた Process / Container / ContainerProcess の
+-- マニフェストを束ねたもの。ふつうは 'Juiz.TH.juizComponent' が組み立てる。
 module Juiz.Manifest
   ( ProcessManifest (..)
   , ContainerManifest (..)
+  , ComponentManifest (..)
   , ArgumentManifest (..)
+  , HasDescription (..)
   , HasArguments (..)
   , processManifest
   , containerManifest
   , containerProcessManifest
+  , componentManifest
+  , addProcess
+  , addContainer
   , description
   , factory
   , useMemo
@@ -30,6 +38,7 @@ module Juiz.Manifest
   , addObjectArg
   , manifestToValue
   , containerManifestToValue
+  , componentManifestToValue
   ) where
 
 import Data.Int (Int64)
@@ -72,21 +81,44 @@ data ContainerManifest = ContainerManifest
   }
   deriving (Eq, Show)
 
--- | 説明・シンボル名・引数を持つマニフェスト ('ProcessManifest' と 'ContainerManifest')
-class HasArguments m where
+-- | 1 つのライブラリにまとめる Process / Container / ContainerProcess のマニフェスト。
+-- ContainerProcess ('pmContainerType' のある 'ProcessManifest') は、juiz に渡すときに
+-- 同じ型名の Container の processes に入れる
+data ComponentManifest = ComponentManifest
+  { compTypeName :: !Text
+  , compDescription :: !Text
+  , compLanguage :: !Text
+  , compContainers :: ![ContainerManifest]
+  -- | Process と ContainerProcess (足した順)
+  , compProcesses :: ![ProcessManifest]
+  }
+  deriving (Eq, Show)
+
+-- | 説明を持つマニフェスト
+class HasDescription m where
   setDescription :: Text -> m -> m
+
+-- | 説明・シンボル名・引数を持つマニフェスト ('ProcessManifest' と 'ContainerManifest')
+class HasDescription m => HasArguments m where
   setFactory :: Text -> m -> m
   appendArgument :: ArgumentManifest -> m -> m
   manifestArguments :: m -> [ArgumentManifest]
 
-instance HasArguments ProcessManifest where
+instance HasDescription ProcessManifest where
   setDescription d m = m { pmDescription = d }
+
+instance HasArguments ProcessManifest where
   setFactory f m = m { pmFactory = f }
   appendArgument a m = m { pmArguments = pmArguments m ++ [a] }
   manifestArguments = pmArguments
 
-instance HasArguments ContainerManifest where
+instance HasDescription ContainerManifest where
   setDescription d m = m { cmDescription = d }
+
+instance HasDescription ComponentManifest where
+  setDescription d m = m { compDescription = d }
+
+instance HasArguments ContainerManifest where
   setFactory f m = m { cmFactory = f }
   appendArgument a m = m { cmArguments = cmArguments m ++ [a] }
   manifestArguments = cmArguments
@@ -120,7 +152,25 @@ containerProcessManifest typeName ctype = (processManifest typeName)
   , pmContainerType = Just ctype
   }
 
-description :: HasArguments m => Text -> m -> m
+-- | Component のマニフェストを作る。名前が設定ファイルの components に書く名前とライブラリの名前になる
+componentManifest :: Text -> ComponentManifest
+componentManifest typeName = ComponentManifest
+  { compTypeName = typeName
+  , compDescription = ""
+  , compLanguage = "haskell"
+  , compContainers = []
+  , compProcesses = []
+  }
+
+-- | Component に Process か ContainerProcess を足す。'pmFactory' は Component の中のシンボル名にしておく
+addProcess :: ProcessManifest -> ComponentManifest -> ComponentManifest
+addProcess p c = c { compProcesses = compProcesses c ++ [p] }
+
+-- | Component に Container を足す。'cmFactory' は Component の中のシンボル名にしておく
+addContainer :: ContainerManifest -> ComponentManifest -> ComponentManifest
+addContainer m c = c { compContainers = compContainers c ++ [m] }
+
+description :: HasDescription m => Text -> m -> m
 description = setDescription
 
 factory :: HasArguments m => Text -> m -> m
@@ -170,14 +220,40 @@ manifestToValue m = object $
 
 -- | juiz に渡す形 (C++ の ContainerManifest::into_value と同じ項目)
 containerManifestToValue :: ContainerManifest -> Value
-containerManifestToValue m = object
+containerManifestToValue = containerWithProcessesToValue []
+
+containerWithProcessesToValue :: [ProcessManifest] -> ContainerManifest -> Value
+containerWithProcessesToValue ps m = object
   [ "type_name" .= cmTypeName m
   , "language" .= cmLanguage m
   , "description" .= cmDescription m
   , "factory" .= cmFactory m
   , "arguments" .= map argumentToValue (cmArguments m)
-  , "processes" .= ([] :: [Value])
+  , "processes" .= map manifestToValue ps
   ]
+
+-- | juiz に渡す形 (C++ の ComponentManifest::into_value と同じ項目)。
+-- ContainerProcess の Container が Component に無い、または型名が重なっていれば Left (説明)
+componentManifestToValue :: ComponentManifest -> Either Text Value
+componentManifestToValue c
+  | (n : _) <- duplicates (map cmTypeName (compContainers c) ++ map pmTypeName (compProcesses c)) =
+      Left ("the type name \"" <> n <> "\" is used twice in the component")
+  | (p : _) <- filter (not . hasContainer) containerProcesses =
+      Left ("the container process \"" <> pmTypeName p <> "\" belongs to the container \""
+        <> maybe "" id (pmContainerType p) <> "\", which is not in the component")
+  | otherwise = Right $ object
+      [ "type_name" .= compTypeName c
+      , "language" .= compLanguage c
+      , "description" .= compDescription c
+      , "containers" .= map containerValue (compContainers c)
+      , "processes" .= map manifestToValue [p | p <- compProcesses c, pmContainerType p == Nothing]
+      ]
+  where
+    containerProcesses = [p | p <- compProcesses c, pmContainerType p /= Nothing]
+    hasContainer p = pmContainerType p `elem` map (Just . cmTypeName) (compContainers c)
+    containerValue m =
+      containerWithProcessesToValue [p | p <- containerProcesses, pmContainerType p == Just (cmTypeName m)] m
+    duplicates xs = [x | (i, x) <- zip [0 :: Int ..] xs, x `elem` take i xs]
 
 argumentToValue :: ArgumentManifest -> Value
 argumentToValue a = object
