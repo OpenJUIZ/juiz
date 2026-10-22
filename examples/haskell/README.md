@@ -1,14 +1,13 @@
 # Haskell の例
 
-手書きの FFI だけで書いた、最小の Haskell の Process です(issue #131)。
-`increment_process_hs` は arg1 に 1 を足し、`decrement_process_hs` は 1 を引きます。
+hsjuiz(`bindings/hsjuiz`)で書いた Haskell の Process です(issue #131, #132)。
 
-- `src/JuizFFI.hs`: libjuiz_sdk の C 関数(`bindings/cjuiz/include/juiz_sdk.h`)を `foreign import ccall` で呼ぶための宣言
-- `src/IncrementProcess.hs`, `src/DecrementProcess.hs`: `manifest_entry_point` と `process_factory_entry_point` を `foreign export ccall` で公開する
-- `cbits/juiz_hs_init.c`: juiz が最初に呼ぶ RTS の初期化関数 `juiz_hs_init`
+- `src/IncrementProcess.hs`: `increment_process_hs`。arg1 に 1 を足す
+- `src/DecrementProcess.hs`: `decrement_process_hs`。arg1 から 1 を引く(結果が IO でない関数の例)
+- `src/ValueTypesProcess.hs`: `value_types_process_hs`。真偽値・整数・小数・文字列・配列・オブジェクトの引数を受け取り、オブジェクトを返す(juiz のテスト用)
 
-プラグインが公開する関数の決まりは `bindings/cjuiz/README.md` にあります。
-利用者向けの Haskell ライブラリ(hsjuiz)は issue #132 以降で用意します。
+どれも `ProcessManifest` でマニフェストを書き、`juizProcess 'func 'manifest` で公開しています。
+書き方は `bindings/hsjuiz/README.md`、プラグインが公開する関数の決まりは `bindings/cjuiz/README.md` にあります。
 
 ## ビルド
 
