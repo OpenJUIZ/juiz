@@ -13,9 +13,19 @@ use crate::containers::{
 use crate::prelude::*;
 use crate::processes::process_factory_create_from_trait;
 
+/// C ABI のプラグイン (C++ など) が公開する関数の型。
+/// プラグイン側は extern "C" で定義するので、Rust ABI ではなく extern "C" の関数ポインタで受ける。
+type ManifestEntryPoint = unsafe extern "C" fn(*mut CapsulePtr) -> i64;
+type ProcessFunction = unsafe extern "C" fn(*mut CapsuleMap, *mut Capsule) -> i64;
+type ContainerCreateFunction = unsafe extern "C" fn(*mut CapsuleMap, *mut *mut c_void) -> i64;
+type ContainerDestroyFunction = unsafe extern "C" fn(*mut c_void);
+type ContainerProcessFunction =
+    unsafe extern "C" fn(*mut c_void, *mut CapsuleMap, *mut Capsule) -> i64;
+
 pub struct CppPlugin {
     path: PathBuf,
-    lib: Library,
+    /// 関数ポインタを使う間はライブラリを閉じないよう、作った Process や Container にも持たせる
+    lib: Arc<Library>,
     manifest: Value,
 }
 
@@ -31,6 +41,21 @@ impl std::fmt::Debug for CppPlugin {
 
 pub struct CppContainerStruct {
     pub cobj: *mut std::ffi::c_void,
+    /// プラグインが <シンボル名>_destroy_entry_point を公開していれば、Drop で呼んで cobj を解放する
+    destroy: Option<ContainerDestroyFunction>,
+    _lib: Arc<Library>,
+}
+
+impl Drop for CppContainerStruct {
+    fn drop(&mut self) {
+        if let Some(destroy) = self.destroy {
+            if !self.cobj.is_null() {
+                log::trace!("CppContainerStruct::drop() calls destroy function");
+                unsafe { destroy(self.cobj) };
+                self.cobj = std::ptr::null_mut();
+            }
+        }
+    }
 }
 
 /*
@@ -58,12 +83,12 @@ impl CppPlugin {
         }
         let entry_point = manifest_entry_point.to_owned() + "_entry_point";
         unsafe {
-            let lib = Library::new(path.clone()).or_else(|e| {
+            let lib = Arc::new(Library::new(path.clone()).or_else(|e| {
                 log::error!("【エラー】Library::new({path:?}) failed. Error ({e:?})");
                 Err(e)
-            })?;
+            })?);
             let mut manif_cap = CapsulePtr::new();
-            let manifest_function: Symbol<unsafe fn(*mut CapsulePtr) -> i64> =
+            let manifest_function: Symbol<ManifestEntryPoint> =
                 lib.get(entry_point.as_bytes()).or_else(|e| {
                     log::error!("【エラー】Library::new({path:?}) failed. Error ({e:?})");
                     Err(e)
@@ -111,10 +136,7 @@ impl CppPlugin {
     ) -> JuizResult<ProcessFactoryPtr> {
         log::trace!("【呼出】load_process_factory({symbol_name:})");
         let full_symbol_name = symbol_name.to_owned() + "_entry_point";
-        type SymbolType = libloading::Symbol<
-            'static,
-            unsafe fn() -> unsafe fn(*mut CapsuleMap, *mut Capsule) -> i64,
-        >;
+        type SymbolType = unsafe extern "C" fn() -> ProcessFunction;
         let f = unsafe {
             let symbol = self.load_symbol::<SymbolType>(full_symbol_name.as_bytes())?;
             (symbol)()
@@ -148,7 +170,7 @@ impl CppPlugin {
                 }?
             }
         };
-        create_cpp_process_factory(manifest, f)
+        create_cpp_process_factory(manifest, f, self.lib.clone())
     }
 
     pub fn load_container_factory(
@@ -162,14 +184,26 @@ impl CppPlugin {
             self.path
         );
         let full_symbol_name = symbol_name.to_owned() + "_entry_point";
-        type SymbolType = libloading::Symbol<
-            'static,
-            unsafe fn() -> unsafe fn(*mut CapsuleMap, *mut *mut std::ffi::c_void) -> i64,
-        >;
+        type SymbolType = unsafe extern "C" fn() -> ContainerCreateFunction;
         let entry_point = unsafe {
             let symbol = self.load_symbol::<SymbolType>(full_symbol_name.as_bytes())?;
             (symbol)()
         };
+        // 解放関数は任意。古いプラグインには無いので、無ければ今まで通り何もしない
+        let destroy_symbol_name = symbol_name.to_owned() + "_destroy_entry_point";
+        let destroy: Option<ContainerDestroyFunction> = unsafe {
+            self.lib
+                .get::<ContainerDestroyFunction>(destroy_symbol_name.as_bytes())
+                .ok()
+                .map(|f| *f)
+        };
+        if destroy.is_none() {
+            log::debug!(
+                "CppPlugin({:?}) does not export {destroy_symbol_name}. Containers will not be freed.",
+                self.path
+            );
+        }
+        let lib = self.lib.clone();
 
         let container_manifest = match type_name_opt {
             Some(type_name) => {
@@ -199,7 +233,11 @@ impl CppPlugin {
                 }
                 Ok(ContainerPtr::new(ContainerImpl::new(
                     cm,
-                    Box::new(CppContainerStruct { cobj: pobj }),
+                    Box::new(CppContainerStruct {
+                        cobj: pobj,
+                        destroy,
+                        _lib: lib.clone(),
+                    }),
                 )?))
             };
         container_factory_create(container_manifest, Arc::new(constructor))
@@ -213,10 +251,7 @@ impl CppPlugin {
     ) -> JuizResult<ContainerProcessFactoryPtr> {
         log::trace!("CppPlugin({:?})::load_container_process_factory({symbol_name}, {type_name_opt:?}) called", self.path);
         let full_symbol_name = symbol_name.to_owned() + "_entry_point";
-        type SymbolType = libloading::Symbol<
-            'static,
-            unsafe fn() -> unsafe fn(*mut std::ffi::c_void, *mut CapsuleMap, *mut Capsule) -> i64,
-        >;
+        type SymbolType = unsafe extern "C" fn() -> ContainerProcessFunction;
         let entry_point = unsafe {
             let symbol = self.load_symbol::<SymbolType>(full_symbol_name.as_bytes())?;
             (symbol)()
@@ -229,9 +264,11 @@ impl CppPlugin {
             None => serde_json::from_value(self.get_manifest().clone())?,
         };
         let type_name = container_process_manifest.type_name.to_owned();
+        let lib = self.lib.clone();
         let constructor = move |c: &mut ContainerImpl<CppContainerStruct>,
                                 mut argument: CapsuleMap|
               -> JuizResult<Capsule> {
+            let _lib = &lib;
             let mut retval = Capsule::empty();
             let return_value = unsafe { (entry_point)(c.t.cobj, &mut argument, &mut retval) };
             if return_value != 0 {
@@ -249,7 +286,7 @@ impl CppPlugin {
         //Ok(ContainerProcessFactoryPtr::new(CppContainerProcessFactoryImpl::new2(self.get_manifest().clone().try_into()?, f)?))
     }
 
-    pub fn load_symbol<T>(&self, symbol_name: &[u8]) -> JuizResult<libloading::Symbol<T>> {
+    pub fn load_symbol<T>(&self, symbol_name: &[u8]) -> JuizResult<libloading::Symbol<'_, T>> {
         log::trace!(
             "CppPlugin::load_symbol({:?}) called",
             std::str::from_utf8(symbol_name)
@@ -292,12 +329,14 @@ fn find_container_process_from_component_manifest(
 
 fn create_cpp_process_factory(
     manifest: ProcessManifest,
-    entry_point: unsafe fn(*mut CapsuleMap, *mut Capsule) -> i64,
+    entry_point: ProcessFunction,
+    lib: Arc<Library>,
 ) -> JuizResult<ProcessFactoryPtr> {
     log::trace!("【呼出】create_cpp_process_factory({manifest}, {entry_point:?}");
     let entry_point_name = "process_entry_point".to_owned();
     let function = move |mut argument: CapsuleMap| -> JuizResult<Capsule> {
         log::trace!("【呼出】func_cpp(argument={argument:?})");
+        let _lib = &lib;
         let mut func_result: Capsule = Capsule::empty();
         unsafe {
             let v = entry_point(&mut argument, &mut func_result);

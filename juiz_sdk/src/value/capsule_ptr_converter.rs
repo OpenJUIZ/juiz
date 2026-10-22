@@ -124,11 +124,15 @@ pub unsafe extern "C" fn capsule_ptr_get_string_with_len(
 pub unsafe extern "C" fn capsule_ptr_lock_as_value(
     capsule_ptr: *mut CapsulePtr,
     callback: extern "C" fn(*mut Value) -> (),
-) -> () {
-    let _ = capsule_ptr
+) -> i64 {
+    match capsule_ptr
         .as_mut()
         .unwrap()
-        .lock_modify_as_value(|v| -> () { callback(v) });
+        .lock_modify_as_value(|v| -> () { callback(v) })
+    {
+        Ok(()) => JUIZ_OK,
+        Err(_) => JUIZ_CAPSULEPTR_LOCK_ERROR,
+    }
 }
 
 #[no_mangle]

@@ -197,24 +197,27 @@ pub unsafe extern "C" fn value_array_foreach(
     value: *mut Value,
     callback: extern "C" fn(*mut std::ffi::c_void, *mut Value) -> (),
     arg: *mut std::ffi::c_void,
-) -> () {
+) -> i64 {
     let obj = value.as_mut().unwrap().as_array_mut().unwrap();
     for v in obj.iter_mut() {
         callback(arg, v);
     }
+    JUIZ_OK
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn value_object_foreach(
     value: *mut Value,
-    callback: extern "C" fn(*mut std::ffi::c_void, *mut std::os::raw::c_char, *mut Value) -> (),
+    callback: extern "C" fn(*mut std::ffi::c_void, *const std::os::raw::c_char, *mut Value) -> (),
     arg: *mut std::ffi::c_void,
-) -> () {
+) -> i64 {
     let obj = value.as_mut().unwrap().as_object_mut().unwrap();
     for (k, v) in obj.iter_mut() {
+        // key は callback の間だけ有効。callback から戻ったら解放する
         let key = CString::new(k.as_str()).unwrap();
-        callback(arg, key.into_raw(), v);
+        callback(arg, key.as_ptr(), v);
     }
+    JUIZ_OK
 }
 
 #[no_mangle]
