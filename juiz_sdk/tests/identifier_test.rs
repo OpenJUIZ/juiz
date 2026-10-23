@@ -9,7 +9,7 @@ use juiz_sdk::identifier::{
 use juiz_sdk::manifests::{BrokerIdentifier, ContainerIdentifier};
 use juiz_sdk::prelude::*;
 use juiz_sdk::process_identifier::ProcessIdentifier;
-use juiz_sdk::topic_identifier::TopicIdentifier;
+use juiz_sdk::topic_identifier::{resolve_topic_name, TopicIdentifier};
 use std::str::FromStr;
 
 #[test]
@@ -300,6 +300,57 @@ fn topic_identifier_conversions() -> JuizResult<()> {
     let s: String = t.clone().try_into()?;
     assert_eq!(s, "topic1");
     assert_eq!(format!("{}", t), "TopicID(name=topic1)");
+    Ok(())
+}
+
+/// Topic 名のネームスペース (issue #149)
+#[test]
+fn topic_identifier_namespace() -> JuizResult<()> {
+    let t = TopicIdentifier::new("robot1/arm/value_topic".to_owned());
+    assert_eq!(t.namespace, "robot1/arm");
+    assert_eq!(t.short_name(), "value_topic");
+    assert_eq!(TopicIdentifier::from("value_topic").namespace, "");
+
+    // list で返す値に namespace が入る。namespace の無い古い値も name から計算して読める
+    assert_eq!(
+        serde_json::to_value(&t)?,
+        jvalue!({"name": "robot1/arm/value_topic", "namespace": "robot1/arm"})
+    );
+    let old: TopicIdentifier = serde_json::from_value(jvalue!({"name": "robot1/value_topic"}))?;
+    assert_eq!(old, TopicIdentifier::from("robot1/value_topic"));
+    Ok(())
+}
+
+#[test]
+fn resolve_topic_name_relative_and_absolute() -> JuizResult<()> {
+    assert_eq!(resolve_topic_name("", "value_topic")?, "value_topic");
+    assert_eq!(
+        resolve_topic_name("robot1", "value_topic")?,
+        "robot1/value_topic"
+    );
+    assert_eq!(
+        resolve_topic_name("robot1", "arm/value_topic")?,
+        "robot1/arm/value_topic"
+    );
+    assert_eq!(resolve_topic_name("robot1", "/value_topic")?, "value_topic");
+    assert_eq!(
+        resolve_topic_name("robot1", "/robot2/value_topic")?,
+        "robot2/value_topic"
+    );
+    for bad in ["", "/", "a:b", "a|b", "a//b", "a/"] {
+        assert!(resolve_topic_name("robot1", bad).is_err(), "{bad}");
+    }
+    Ok(())
+}
+
+/// conf では Topic を文字列で書く。serde でも文字列と {"name": ...} の両方から読める (issue #149)
+#[test]
+fn topic_manifest_from_string_or_object() -> JuizResult<()> {
+    let m: TopicManifest = serde_json::from_value(jvalue!("value_topic"))?;
+    assert_eq!(m.name, "value_topic");
+    let m: TopicManifest = serde_json::from_value(jvalue!({"name": "value_topic"}))?;
+    assert_eq!(m.name, "value_topic");
+    assert_eq!(serde_json::to_value(&m)?, jvalue!({"name": "value_topic"}));
     Ok(())
 }
 
