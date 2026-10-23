@@ -241,6 +241,9 @@ pub enum JuizError {
     ValueMergeError { message: String },
     #[error("Object is already registered Error. (message={message:})")]
     ObjectAlreadyRegisteredError { message: String },
+    /// 同じ ID のオブジェクトがすでに登録されている (名前かネームスペースを変える)
+    #[error("Object of the same identifier ({id:}) is already registered. Change its name or namespace.")]
+    ObjectOfSameIdentifierAlreadyExistsError { id: String },
     #[error("CppPlugin FunctionCall Error")]
     CppProcessFunctionCallError {},
     #[error(

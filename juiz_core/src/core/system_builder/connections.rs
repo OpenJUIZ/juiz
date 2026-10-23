@@ -18,10 +18,15 @@ pub(super) fn setup_connections(system: &System, manifest: &Value) -> JuizResult
             let dst_type_name = dstv.get("type_name").ok_or(anyhow::anyhow!(JuizError::ArgumentError { message: format!("Connectionへの引数にdestinationがありますが、destinationにtype_nameが含まれていません。") }))?.as_str().ok_or(anyhow::anyhow!(JuizError::ArgumentError { message: format!("destinationに含まれるtype_nameが文字列ではありません。")}))?.to_owned();
             let src_name = srcv.get("name").ok_or(anyhow::anyhow!(JuizError::ArgumentError { message: format!("Connectionへの引数にsourceがありますが、sourceにnameが含まれていません。") }))?.as_str().ok_or(anyhow::anyhow!(JuizError::ArgumentError { message: format!("sourceに含まれるnameが文字列ではありません。")}))?.to_owned();
             let dst_name = dstv.get("name").ok_or(anyhow::anyhow!(JuizError::ArgumentError { message: format!("Connectionへの引数にdestinationがありますが、destinationにnameが含まれていません。") }))?.as_str().ok_or(anyhow::anyhow!(JuizError::ArgumentError { message: format!("destinationに含まれるnameが文字列ではありません。")}))?.to_owned();
+            // namespace は system_builder::namespaces で解決済み
+            let src_namespace = srcv.get("namespace").and_then(|v| v.as_str()).unwrap_or("");
+            let dst_namespace = dstv.get("namespace").and_then(|v| v.as_str()).unwrap_or("");
             let spm = ProcessManifest::new(src_type_name.as_str())
-                .name(src_name.as_str());
+                .name(src_name.as_str())
+                .namespace(src_namespace);
             let dpm = ProcessManifest::new(dst_type_name.as_str())
-                .name(dst_name.as_str());
+                .name(dst_name.as_str())
+                .namespace(dst_namespace);
             obj.insert("source_process_id".to_owned(),serde_json::to_value(spm.identifier()?)?);
             obj.insert("destination_process_id".to_owned(),serde_json::to_value(dpm.identifier()?)?);
             log::debug!("【setup_connections】Value({mut_manifest})から接続マニフェストへの変換試行中");

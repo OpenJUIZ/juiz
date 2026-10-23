@@ -8,6 +8,7 @@ use crate::core::system_builder::{
     ecs::setup_ecs,
     http_broker::{setup_http_broker, setup_http_broker_factory},
     local_broker::{setup_local_broker, setup_local_broker_factory},
+    namespaces::resolve_namespaces,
     processes::setup_processes,
 };
 use crate::{
@@ -17,6 +18,9 @@ use crate::{
 
 pub(crate) fn setup_objects(system: &mut System, manifest: &Value) -> JuizResult<()> {
     log::trace!("【呼出】System::setup_objects()");
+    // 各オブジェクトの namespace を、System の既定ネームスペースと相対・絶対の指定から解決しておく (issue #148)
+    let resolved_manifest = resolve_namespaces(manifest).context("resolving namespaces in conf")?;
+    let manifest = &resolved_manifest;
     let manifest_copied = manifest.clone();
 
     let _ = when_contains_do(manifest, "processes", |v| {

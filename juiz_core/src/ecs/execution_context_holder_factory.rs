@@ -38,11 +38,13 @@ impl ExecutionContextHolderFactory {
             Ok(v) => v,
             Err(_) => false,
         };
+        let namespace = juiz_sdk::identifier::namespace_from_manifest(&manifest)?;
         Ok(ExecutionContextHolder::new(
             f.type_name(),
             //self.tokio_runtime,
             f.create(manifest)?,
             auto_start,
+            namespace.as_str(),
         )?)
     }
 }

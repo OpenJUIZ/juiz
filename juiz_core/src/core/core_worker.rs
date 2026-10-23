@@ -240,6 +240,14 @@ impl CoreWorker {
                 Err(e)
             }
         }?;
+        // 作る前に、名前・ネームスペースの検査と同じ ID の二重登録の確認をする (issue #148)
+        if manifest.name.is_some() {
+            let id = manifest.identifier()?;
+            id.validate()?;
+            self.store()
+                .processes
+                .check_not_registered(&id.to_string())?;
+        }
         let p = arc_pf.lock()?.create_process(manifest)?;
         Ok(self
             .store_mut()
@@ -301,6 +309,12 @@ impl CoreWorker {
             },
             Err(_) => {}
         }
+        // 作る前に、名前・ネームスペースの検査と同じ ID の二重登録の確認をする (issue #148)
+        let id = container_identifier_from_args(type_name, name, &args)?;
+        id.validate()?;
+        self.store()
+            .containers
+            .check_not_registered(&id.to_string())?;
         let p = arc_pf
             .lock()?
             .create_container(self, name.to_owned(), args)?;
@@ -369,10 +383,30 @@ impl CoreWorker {
         // 渡された Container から補う。補わないと ContainerProcess の ID が Process の形になり、
         // ID で呼び出せなくなる (issue #46)
         let cid = container.identifier();
+        // ContainerProcess は所属 Container と同じネームスペースに置く (issue #148)
+        if !manifest.namespace.is_empty() && manifest.namespace != cid.namespace {
+            return Err(anyhow!(JuizError::InvalidNameError {
+                message: format!(
+                    "ContainerProcess '{}' must be in the same namespace as its Container '{}' ('{}'), but '{}'",
+                    manifest.name.clone().unwrap_or_default(),
+                    cid.name,
+                    cid.namespace,
+                    manifest.namespace
+                )
+            }));
+        }
         let manifest = &manifest
             .clone()
+            .namespace(cid.namespace.as_str())
             .container_name(manifest.container_name.clone().or(Some(cid.name)))
             .container_type(manifest.container_type.clone().or(Some(cid.type_name)));
+        if manifest.name.is_some() {
+            let id = manifest.identifier()?;
+            id.validate()?;
+            self.store()
+                .container_processes
+                .check_not_registered(&id.to_string())?;
+        }
         let p = arc_pf
             .lock()?
             .create_container_process(container.clone(), manifest)?;
@@ -824,7 +858,9 @@ impl CoreWorker {
             "rust" => JuizObjectPlugin::new_rust(PathBuf::from(filepath))?,
             "python" => JuizObjectPlugin::new_python(PathBuf::from(filepath))?,
             "cpp" => JuizObjectPlugin::new_cpp(PathBuf::from(filepath), "component_manifest")?,
-            "haskell" => JuizObjectPlugin::new_haskell(PathBuf::from(filepath), "component_manifest")?,
+            "haskell" => {
+                JuizObjectPlugin::new_haskell(PathBuf::from(filepath), "component_manifest")?
+            }
             _ => {
                 panic!("invalid langauge {language}")
             }
@@ -953,6 +989,28 @@ fn basename_test() {
     let fps = "./target/debug/increment_process.dylib";
     let fp = PathBuf::from(fps);
     assert!(fp.file_stem().unwrap() == "increment_process");
+}
+
+/// Container を作る前に、作られる Container の ID を引数から求める。
+///
+/// ContainerFactoryImpl::create_container と同じく、引数の `name` があればそれを、無ければ `name` を使う。
+fn container_identifier_from_args(
+    type_name: &str,
+    name: &str,
+    args: &CapsuleMap,
+) -> JuizResult<ContainerIdentifier> {
+    let string_arg = |key: &str| -> JuizResult<Option<String>> {
+        match args.get(key) {
+            Err(_) => Ok(None),
+            Ok(cap) => cap.lock_as_value(|v| v.as_str().map(|s| s.to_owned())),
+        }
+    };
+    let name = string_arg("name")?.unwrap_or_else(|| name.to_owned());
+    let namespace = string_arg("namespace")?.unwrap_or_default();
+    ContainerManifest::new(type_name)
+        .name(name.as_str())
+        .namespace(namespace.as_str())
+        .identifier()
 }
 
 fn precreate_check(manifest: Value) -> JuizResult<Value> {
