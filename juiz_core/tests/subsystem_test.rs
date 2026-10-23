@@ -1,6 +1,7 @@
 //! サブシステムの登録に関するテスト
 
 use juiz_core::prelude::*;
+use juiz_sdk::process_identifier::ProcessIdentifier;
 use uuid::Uuid;
 
 const MASTER_PORT: i64 = 8020;
@@ -164,4 +165,70 @@ fn test_recursive_profile_full_has_subsystem_contents() -> JuizResult<()> {
                     Ok(())
                 })
         })
+}
+
+fn int_of(c: JuizResult<CapsulePtr>) -> i64 {
+    c.expect("execute failed")
+        .lock_as_value(|v| v.as_i64().expect("not an integer"))
+        .unwrap()
+}
+
+/// サブシステム越しの publish / subscribe は、ネームスペースで解決した完全な名前でやり取りする (issue #149)
+#[cfg(test)]
+#[test]
+fn test_namespaced_topic_over_subsystem() -> JuizResult<()> {
+    let _r = env_logger::try_init();
+    let mut publisher = publisher_manifest();
+    publisher["namespace"] = jvalue!("robot1");
+    publisher["processes"] = jvalue!([
+        { "type_name": "increment_process", "name": "pub0", "publishes": ["value_topic"], "p_apply": { "arg1": 10 } }
+    ]);
+    let mut subscriber = subsystem_manifest();
+    subscriber["namespace"] = jvalue!("robot1");
+    subscriber["processes"] = jvalue!([
+        // => robot1/value_topic (1 台目の juiz の pub0 とつながる)
+        { "type_name": "increment_process", "name": "sub0", "subscribes": { "arg1": "value_topic" } },
+        // => robot2/value_topic (つながらない)
+        { "type_name": "increment_process", "name": "sub0", "namespace": "/robot2", "subscribes": { "arg1": "value_topic" } }
+    ]);
+    System::new(publisher)?.setup()?.run_and_do_once(|master| {
+        System::new(subscriber)?.setup()?.run_and_do_once(|sub| {
+            let topic_subsystems = |name: &str| -> JuizResult<usize> {
+                match master
+                    .core_broker()
+                    .lock()?
+                    .worker()
+                    .store()
+                    .topics
+                    .get(name)
+                {
+                    Some(t) => t.num_subscriber_subsystems(),
+                    None => Ok(0),
+                }
+            };
+            assert_eq!(topic_subsystems("robot1/value_topic")?, 1);
+            assert_eq!(topic_subsystems("robot2/value_topic")?, 0);
+            assert_eq!(topic_subsystems("value_topic")?, 0);
+
+            let pub0: ProcessIdentifier =
+                "core://core/process/robot1/pub0::increment_process".try_into()?;
+            let r1_sub0: ProcessIdentifier =
+                "core://core/process/robot1/sub0::increment_process".try_into()?;
+            let r2_sub0: ProcessIdentifier =
+                "core://core/process/robot2/sub0::increment_process".try_into()?;
+            assert_eq!(
+                int_of(master.core_broker().lock_mut()?.process_execute(&pub0)),
+                11
+            );
+            assert_eq!(
+                int_of(sub.core_broker().lock_mut()?.process_execute(&r1_sub0)),
+                12
+            );
+            assert_eq!(
+                int_of(sub.core_broker().lock_mut()?.process_execute(&r2_sub0)),
+                1
+            );
+            Ok(())
+        })
+    })
 }

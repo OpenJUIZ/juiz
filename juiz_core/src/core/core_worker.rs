@@ -698,6 +698,7 @@ impl CoreWorker {
         Ok(self.store().topics.get(&topic_name).unwrap().clone())
     }
 
+    /// `topic_info.name` は解決済みの完全な名前 (ProcessManifest::resolve_topic_names を参照, issue #149)
     pub fn process_publish_topic(
         &mut self,
         process: ProcessPtr,
@@ -710,6 +711,7 @@ impl CoreWorker {
         Ok(())
     }
 
+    /// `topic_info.name` は解決済みの完全な名前 (ProcessManifest::resolve_topic_names を参照, issue #149)
     pub fn process_subscribe_topic(
         &mut self,
         process: ProcessPtr,

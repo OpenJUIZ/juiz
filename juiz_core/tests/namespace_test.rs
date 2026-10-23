@@ -250,3 +250,183 @@ fn test_invalid_name_is_error() {
     }));
     assert!(e.contains("Name is invalid"), "{e}");
 }
+
+fn topic_names(system: &System) -> JuizResult<Vec<(String, String)>> {
+    let cb = system.core_broker().lock()?;
+    let bp: &dyn BrokerProxy = &*cb;
+    let mut names = bp
+        .topic_list()?
+        .into_iter()
+        .map(|t| (t.name, t.namespace))
+        .collect::<Vec<(String, String)>>();
+    names.sort();
+    Ok(names)
+}
+
+/// 2 つのネームスペースで同じ Topic 名を使っても混ざらない (issue #149)
+#[cfg(test)]
+#[test]
+fn test_same_topic_name_in_two_namespaces() -> JuizResult<()> {
+    let manifest = jvalue!({
+        "name": "test_system",
+        "namespace": "robot1",
+        "option": { "http_broker": { "start": false } },
+        "plugins": plugins(),
+        "processes": [
+            // => robot1/value_topic
+            { "type_name": "increment_process", "name": "pub0", "publishes": ["value_topic"], "p_apply": { "arg1": 10 } },
+            { "type_name": "increment_process", "name": "sub0", "subscribes": { "arg1": "value_topic" } },
+            // => robot2/value_topic
+            { "type_name": "increment_process", "name": "pub0", "namespace": "/robot2", "publishes": ["value_topic"], "p_apply": { "arg1": 20 } },
+            { "type_name": "increment_process", "name": "sub0", "namespace": "/robot2", "subscribes": { "arg1": "value_topic" } },
+        ],
+        "containers": [
+            {
+                // Container の中の ContainerProcess も Container のネームスペース (robot2) で解決する
+                "type_name": "example_container", "name": "container0", "namespace": "/robot2", "initial_value": 0,
+                "processes": [ { "type_name": "example_container_increment", "name": "increment0", "publishes": ["count_topic"] } ]
+            },
+        ],
+    });
+
+    let _r = env_logger::try_init();
+    Ok(System::new(manifest)?
+        .setup()?
+        .run_and_do_once(|system| {
+            let id = |s: &str| -> JuizResult<ProcessIdentifier> { s.to_owned().try_into() };
+            let r1_pub = id("core://core/process/robot1/pub0::increment_process")?;
+            let r1_sub = id("core://core/process/robot1/sub0::increment_process")?;
+            let r2_pub = id("core://core/process/robot2/pub0::increment_process")?;
+            let r2_sub = id("core://core/process/robot2/sub0::increment_process")?;
+
+            assert_eq!(
+                topic_names(system)?,
+                vec![
+                    ("robot1/value_topic".to_owned(), "robot1".to_owned()),
+                    ("robot2/count_topic".to_owned(), "robot2".to_owned()),
+                    ("robot2/value_topic".to_owned(), "robot2".to_owned()),
+                ]
+            );
+
+            // robot1 で publish した値は robot1 の sub0 だけに届く
+            assert_eq!(
+                int_of(system.core_broker().lock_mut()?.process_execute(&r1_pub)),
+                11
+            );
+            assert_eq!(
+                int_of(system.core_broker().lock_mut()?.process_execute(&r1_sub)),
+                12
+            );
+            assert_eq!(
+                int_of(system.core_broker().lock_mut()?.process_execute(&r2_sub)),
+                1
+            );
+            // robot2 で publish した値は robot2 の sub0 だけに届く
+            assert_eq!(
+                int_of(system.core_broker().lock_mut()?.process_execute(&r2_pub)),
+                21
+            );
+            assert_eq!(
+                int_of(system.core_broker().lock_mut()?.process_execute(&r2_sub)),
+                22
+            );
+            assert_eq!(
+                int_of(system.core_broker().lock_mut()?.process_execute(&r1_sub)),
+                12
+            );
+
+            // profile の publishes / subscribes は解決後の完全な名前
+            let prof = system.core_broker().lock()?.process_profile_full(&r2_pub)?;
+            assert_eq!(prof.publishes[0].name, "robot2/value_topic");
+            let prof = system.core_broker().lock()?.process_profile_full(&r1_sub)?;
+            assert_eq!(
+                prof.subscribes.get("arg1").unwrap().name,
+                "robot1/value_topic"
+            );
+
+            // Topic の profile は短い名前とネームスペースを持つ
+            let topics = system
+                .core_broker()
+                .lock()?
+                .worker()
+                .store()
+                .topics_profile_full()?;
+            let r2_topic = topics
+                .iter()
+                .find(|t| {
+                    t["identifier"]
+                        .as_str()
+                        .unwrap()
+                        .contains("robot2/value_topic")
+                })
+                .unwrap_or_else(|| panic!("{topics:?}"));
+            assert_eq!(r2_topic["name"], jvalue!("value_topic"));
+            assert_eq!(r2_topic["namespace"], jvalue!("robot2"));
+            Ok(())
+        })
+        .expect("Error in System::run_and_do()"))
+}
+
+/// ネームスペースの中から `/` 始まりでルートの Topic を購読できる (issue #149)
+#[cfg(test)]
+#[test]
+fn test_subscribe_root_topic_from_namespace() -> JuizResult<()> {
+    let manifest = jvalue!({
+        "name": "test_system",
+        "option": { "http_broker": { "start": false } },
+        "plugins": plugins(),
+        "processes": [
+            // 既定のネームスペースはルートなので、今までと同じ value_topic
+            { "type_name": "increment_process", "name": "pub0", "publishes": ["value_topic"], "p_apply": { "arg1": 10 } },
+            // 絶対指定 => value_topic (ルート)
+            { "type_name": "increment_process", "name": "sub0", "namespace": "robot1", "subscribes": { "arg1": "/value_topic" } },
+            // 相対指定 => robot1/value_topic (別の Topic)
+            { "type_name": "increment_process", "name": "sub1", "namespace": "robot1", "subscribes": { "arg1": "value_topic" } },
+        ],
+    });
+
+    let _r = env_logger::try_init();
+    Ok(System::new(manifest)?
+        .setup()?
+        .run_and_do_once(|system| {
+            let id = |s: &str| -> JuizResult<ProcessIdentifier> { s.to_owned().try_into() };
+            assert_eq!(
+                topic_names(system)?,
+                vec![
+                    ("robot1/value_topic".to_owned(), "robot1".to_owned()),
+                    ("value_topic".to_owned(), "".to_owned()),
+                ]
+            );
+            let pub0 = id("core://core/process/pub0::increment_process")?;
+            let sub0 = id("core://core/process/robot1/sub0::increment_process")?;
+            let sub1 = id("core://core/process/robot1/sub1::increment_process")?;
+            assert_eq!(
+                int_of(system.core_broker().lock_mut()?.process_execute(&pub0)),
+                11
+            );
+            assert_eq!(
+                int_of(system.core_broker().lock_mut()?.process_execute(&sub0)),
+                12
+            );
+            assert_eq!(
+                int_of(system.core_broker().lock_mut()?.process_execute(&sub1)),
+                1
+            );
+            Ok(())
+        })
+        .expect("Error in System::run_and_do()"))
+}
+
+/// Topic 名の要素が空、または `:` `|` を含むとエラー (issue #149)
+#[cfg(test)]
+#[test]
+fn test_invalid_topic_name_is_error() {
+    for topic in ["a:b", "a|b", "robot1//value", "value/", ""] {
+        let e = setup_error(jvalue!({
+            "processes": [
+                { "type_name": "increment_process", "name": "pub0", "publishes": [topic] },
+            ]
+        }));
+        assert!(e.contains("topic name"), "{topic}: {e}");
+    }
+}

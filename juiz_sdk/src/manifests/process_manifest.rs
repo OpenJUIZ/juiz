@@ -6,6 +6,7 @@ use crate::{
     manifests::{OutputProfile, PrimitiveProfile},
     prelude::*,
     process_identifier::ProcessIdentifier,
+    topic_identifier::resolve_topic_name,
 };
 use image::Primitive;
 use serde::{Deserialize, Serialize};
@@ -307,6 +308,32 @@ impl ProcessManifest {
         self.subscribes
             .insert(arg_name.to_owned(), TopicManifest::new(topic_name));
         self
+    }
+
+    /// `publishes` / `subscribes` の Topic 名を、この manifest の `namespace` で完全な名前に解決する (issue #149)
+    ///
+    /// 解決した名前は先頭に `/` を付けないので、解決は 1 回だけ行う
+    /// (もう一度解決するとネームスペースが二重に付く)。
+    ///
+    /// ```
+    /// use juiz_sdk::prelude::*;
+    /// let manifest = ProcessManifest::new("hoge_type")
+    ///   .namespace("robot1")
+    ///   .publishes("topic1")
+    ///   .subscribes("arg0", "/topic2")
+    ///   .resolve_topic_names()
+    ///   .unwrap();
+    /// assert_eq!(manifest.publishes[0].name, "robot1/topic1");
+    /// assert_eq!(manifest.subscribes.get("arg0").unwrap().name, "topic2");
+    /// ```
+    pub fn resolve_topic_names(mut self) -> JuizResult<Self> {
+        for topic in self.publishes.iter_mut() {
+            topic.name = resolve_topic_name(&self.namespace, &topic.name)?;
+        }
+        for topic in self.subscribes.values_mut() {
+            topic.name = resolve_topic_name(&self.namespace, &topic.name)?;
+        }
+        Ok(self)
     }
 
     pub fn identifier(&self) -> JuizResult<ProcessIdentifier> {
