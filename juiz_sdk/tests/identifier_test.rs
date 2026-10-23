@@ -1,11 +1,15 @@
 //! 識別子 (Identifier / ProcessIdentifier / ConnectionIdentifier など) のテスト
 
 use juiz_sdk::connection_identifier::ConnectionIdentifier;
-use juiz_sdk::identifier::{connection_identifier_split, identifier_from_manifest, identifier_new};
+use juiz_sdk::identifier::{
+    connection_identifier_split, identifier_from_manifest, identifier_new,
+    identifier_new_with_namespace, is_in_namespace, join_namespace, namespace_from_manifest,
+    split_namespace, validate_name, validate_namespace,
+};
 use juiz_sdk::manifests::{BrokerIdentifier, ContainerIdentifier};
 use juiz_sdk::prelude::*;
 use juiz_sdk::process_identifier::ProcessIdentifier;
-use juiz_sdk::topic_identifier::TopicIdentifier;
+use juiz_sdk::topic_identifier::{resolve_topic_name, TopicIdentifier};
 use std::str::FromStr;
 
 #[test]
@@ -299,6 +303,57 @@ fn topic_identifier_conversions() -> JuizResult<()> {
     Ok(())
 }
 
+/// Topic 名のネームスペース (issue #149)
+#[test]
+fn topic_identifier_namespace() -> JuizResult<()> {
+    let t = TopicIdentifier::new("robot1/arm/value_topic".to_owned());
+    assert_eq!(t.namespace, "robot1/arm");
+    assert_eq!(t.short_name(), "value_topic");
+    assert_eq!(TopicIdentifier::from("value_topic").namespace, "");
+
+    // list で返す値に namespace が入る。namespace の無い古い値も name から計算して読める
+    assert_eq!(
+        serde_json::to_value(&t)?,
+        jvalue!({"name": "robot1/arm/value_topic", "namespace": "robot1/arm"})
+    );
+    let old: TopicIdentifier = serde_json::from_value(jvalue!({"name": "robot1/value_topic"}))?;
+    assert_eq!(old, TopicIdentifier::from("robot1/value_topic"));
+    Ok(())
+}
+
+#[test]
+fn resolve_topic_name_relative_and_absolute() -> JuizResult<()> {
+    assert_eq!(resolve_topic_name("", "value_topic")?, "value_topic");
+    assert_eq!(
+        resolve_topic_name("robot1", "value_topic")?,
+        "robot1/value_topic"
+    );
+    assert_eq!(
+        resolve_topic_name("robot1", "arm/value_topic")?,
+        "robot1/arm/value_topic"
+    );
+    assert_eq!(resolve_topic_name("robot1", "/value_topic")?, "value_topic");
+    assert_eq!(
+        resolve_topic_name("robot1", "/robot2/value_topic")?,
+        "robot2/value_topic"
+    );
+    for bad in ["", "/", "a:b", "a|b", "a//b", "a/"] {
+        assert!(resolve_topic_name("robot1", bad).is_err(), "{bad}");
+    }
+    Ok(())
+}
+
+/// conf では Topic を文字列で書く。serde でも文字列と {"name": ...} の両方から読める (issue #149)
+#[test]
+fn topic_manifest_from_string_or_object() -> JuizResult<()> {
+    let m: TopicManifest = serde_json::from_value(jvalue!("value_topic"))?;
+    assert_eq!(m.name, "value_topic");
+    let m: TopicManifest = serde_json::from_value(jvalue!({"name": "value_topic"}))?;
+    assert_eq!(m.name, "value_topic");
+    assert_eq!(serde_json::to_value(&m)?, jvalue!({"name": "value_topic"}));
+    Ok(())
+}
+
 #[test]
 fn broker_identifier_from_value_defaults() -> JuizResult<()> {
     let b: BrokerIdentifier = (&jvalue!({"type_name": "http"})).try_into()?;
@@ -329,4 +384,281 @@ fn container_identifier_string_round_trip() -> JuizResult<()> {
     assert!(format!("{}", c).starts_with("ContainerIdentifier("));
     assert!(ContainerIdentifier::try_from("invalid".to_owned()).is_err());
     Ok(())
+}
+
+// ---- ネームスペース (issue #147) ----
+
+#[test]
+fn identifier_with_empty_namespace_is_same_as_before() -> JuizResult<()> {
+    assert_eq!(
+        identifier_new_with_namespace("core", "core", "Process", "increment", "", "inc0")?,
+        identifier_new("core", "core", "Process", "increment", "inc0")
+    );
+    assert_eq!(
+        identifier_new_with_namespace("core", "core", "Process", "increment", "", "inc0")?,
+        "core://core/process/inc0::increment"
+    );
+    Ok(())
+}
+
+#[test]
+fn identifier_with_namespace_round_trip() -> JuizResult<()> {
+    let id = identifier_new_with_namespace(
+        "http",
+        "127.0.0.1:8000",
+        "Process",
+        "increment",
+        "robot1/arm",
+        "inc0",
+    )?;
+    assert_eq!(
+        id,
+        "http://127.0.0.1:8000/process/robot1/arm/inc0::increment"
+    );
+
+    let s: IdentifierStruct = id.clone().try_into()?;
+    assert_eq!(s.broker_type_name, "http");
+    assert_eq!(s.broker_name, "127.0.0.1:8000");
+    assert_eq!(s.class_name, "process");
+    assert_eq!(s.namespace, "robot1/arm");
+    assert_eq!(s.object_name, "inc0");
+    assert_eq!(s.type_name, "increment");
+    assert_eq!(s.full_name(), "robot1/arm/inc0");
+    assert_eq!(s.to_identifier(), id);
+    assert_eq!(
+        s.to_manifest(),
+        jvalue!({
+            "broker_type_name": "http",
+            "broker_name": "127.0.0.1:8000",
+            "type_name": "increment",
+            "name": "inc0",
+            "namespace": "robot1/arm"
+        })
+    );
+    let back: Identifier = s.into();
+    assert_eq!(back, id);
+
+    let s = IdentifierStruct::new_object_with_namespace("core", "core", "Process", "t", "ns", "o")?;
+    assert_eq!(s.to_identifier(), "core://core/process/ns/o::t");
+    assert!(IdentifierStruct::new_object_with_namespace(
+        "core", "core", "Process", "t", "ns", "a:b"
+    )
+    .is_err());
+    Ok(())
+}
+
+#[test]
+fn identifier_struct_without_namespace_has_empty_namespace() -> JuizResult<()> {
+    let s: IdentifierStruct = "core://core/process/inc0::increment"
+        .to_owned()
+        .try_into()?;
+    assert_eq!(s.namespace, "");
+    assert_eq!(s.full_name(), "inc0");
+    s.validate()?;
+    Ok(())
+}
+
+#[test]
+fn split_and_join_namespace() {
+    assert_eq!(split_namespace("inc0"), ("".to_owned(), "inc0".to_owned()));
+    assert_eq!(
+        split_namespace("robot1/inc0"),
+        ("robot1".to_owned(), "inc0".to_owned())
+    );
+    assert_eq!(
+        split_namespace("robot1/arm/inc0"),
+        ("robot1/arm".to_owned(), "inc0".to_owned())
+    );
+    assert_eq!(join_namespace("", "inc0"), "inc0");
+    assert_eq!(join_namespace("robot1/arm", "inc0"), "robot1/arm/inc0");
+}
+
+#[test]
+fn validate_name_rejects_forbidden_chars() {
+    assert!(validate_name("inc0").is_ok());
+    assert!(validate_name("inc_0-a.b").is_ok());
+    assert!(validate_name("").is_err());
+    assert!(validate_name("a/b").is_err());
+    assert!(validate_name("a:b").is_err());
+    assert!(validate_name("a|b").is_err());
+}
+
+#[test]
+fn validate_namespace_rejects_forbidden_chars_and_empty_elements() {
+    assert!(validate_namespace("").is_ok());
+    assert!(validate_namespace("robot1").is_ok());
+    assert!(validate_namespace("robot1/arm").is_ok());
+    assert!(validate_namespace("robot1:x").is_err());
+    assert!(validate_namespace("robot1|x").is_err());
+    assert!(validate_namespace("robot1//arm").is_err());
+    assert!(validate_namespace("/robot1").is_err());
+    assert!(validate_namespace("robot1/").is_err());
+}
+
+#[test]
+fn identifier_new_with_namespace_rejects_invalid_names() {
+    assert!(identifier_new_with_namespace("core", "core", "Process", "t", "", "a:b").is_err());
+    assert!(identifier_new_with_namespace("core", "core", "Process", "t", "", "a/b").is_err());
+    assert!(identifier_new_with_namespace("core", "core", "Process", "t", "", "a|b").is_err());
+    assert!(identifier_new_with_namespace("core", "core", "Process", "t", "", "").is_err());
+    assert!(identifier_new_with_namespace("core", "core", "Process", "t", "r|1", "a").is_err());
+    assert!(identifier_new_with_namespace("core", "core", "Process", "t", "r1//arm", "a").is_err());
+}
+
+#[test]
+fn namespace_from_manifest_reads_and_strips_absolute_prefix() -> JuizResult<()> {
+    assert_eq!(namespace_from_manifest(&jvalue!({"name": "a"}))?, "");
+    assert_eq!(
+        namespace_from_manifest(&jvalue!({"namespace": "robot1"}))?,
+        "robot1"
+    );
+    assert_eq!(
+        namespace_from_manifest(&jvalue!({"namespace": "/tools"}))?,
+        "tools"
+    );
+    assert_eq!(namespace_from_manifest(&jvalue!({"namespace": ""}))?, "");
+    assert!(namespace_from_manifest(&jvalue!({"namespace": 1})).is_err());
+    assert!(namespace_from_manifest(&jvalue!({"namespace": "a:b"})).is_err());
+    Ok(())
+}
+
+#[test]
+fn identifier_from_manifest_reads_namespace() -> JuizResult<()> {
+    let m = jvalue!({"name": "p0", "type_name": "p", "namespace": "robot1"});
+    assert_eq!(
+        identifier_from_manifest("core", "core", "Process", &m)?,
+        "core://core/process/robot1/p0::p"
+    );
+    let m = jvalue!({"name": "p0", "type_name": "p", "namespace": "/robot1/arm"});
+    assert_eq!(
+        identifier_from_manifest("core", "core", "Process", &m)?,
+        "core://core/process/robot1/arm/p0::p"
+    );
+    assert!(identifier_from_manifest(
+        "core",
+        "core",
+        "Process",
+        &jvalue!({"name": "p:0", "type_name": "p"})
+    )
+    .is_err());
+    assert!(identifier_from_manifest(
+        "core",
+        "core",
+        "Process",
+        &jvalue!({"name": "p0", "type_name": "p", "namespace": "a|b"})
+    )
+    .is_err());
+    Ok(())
+}
+
+#[test]
+fn process_identifier_with_namespace_round_trip() -> JuizResult<()> {
+    let p = ProcessIdentifier::new_process_id(
+        "core".into(),
+        "core".into(),
+        "inc".into(),
+        "inc0".into(),
+    )
+    .with_namespace("robot1");
+    assert_eq!(p.full_name(), "robot1/inc0");
+    let s = p.to_string();
+    assert_eq!(s, "core://core/process/robot1/inc0::inc");
+    let back: ProcessIdentifier = s.as_str().try_into()?;
+    assert_eq!(back, p);
+    assert!(format!("{}", p).contains("core://core/process/robot1/inc0::inc"));
+
+    // ContainerProcess: 型名の後ろの「:Container 名」にはネームスペースを付けない
+    let cp = ProcessIdentifier::new_container_process_id(
+        "core".into(),
+        "core".into(),
+        "get".into(),
+        "cont0".into(),
+        "get0".into(),
+    )
+    .with_namespace("robot1/arm");
+    let s = cp.to_string();
+    assert_eq!(
+        s,
+        "core://core/container_process/robot1/arm/get0::get:cont0"
+    );
+    let back: ProcessIdentifier = s.try_into()?;
+    assert_eq!(back.namespace, "robot1/arm");
+    assert_eq!(back.name, "get0");
+    assert_eq!(back.container_name.as_deref(), Some("cont0"));
+    assert_eq!(back, cp);
+
+    // ネームスペースなしは今と同じ
+    let p: ProcessIdentifier = "core://core/process/inc0::inc".try_into()?;
+    assert_eq!(p.namespace, "");
+    Ok(())
+}
+
+#[test]
+fn process_identifier_from_value_reads_and_validates_namespace() -> JuizResult<()> {
+    let p = ProcessIdentifier::from_value(
+        &jvalue!({"type_name": "inc", "name": "inc0", "namespace": "robot1"}),
+    )?;
+    assert_eq!(p.namespace, "robot1");
+    assert_eq!(p.to_string(), "core://core/process/robot1/inc0::inc");
+
+    let p = ProcessIdentifier::from_value(&jvalue!({"type_name": "inc"}))?;
+    assert_eq!(p.namespace, "");
+
+    assert!(ProcessIdentifier::from_value(&jvalue!({"type_name": "inc", "name": "a:b"})).is_err());
+    assert!(ProcessIdentifier::from_value(&jvalue!({"type_name": "inc", "name": "a/b"})).is_err());
+    assert!(ProcessIdentifier::from_value(&jvalue!({"type_name": "inc", "name": "a|b"})).is_err());
+    assert!(ProcessIdentifier::from_value(
+        &jvalue!({"type_name": "inc", "name": "a", "namespace": "r1//x"})
+    )
+    .is_err());
+    assert!(ProcessIdentifier::from_value(
+        &jvalue!({"type_name": "get", "name": "g", "container_name": "c:0"})
+    )
+    .is_err());
+    Ok(())
+}
+
+#[test]
+fn process_identifier_deserializes_without_namespace_field() -> JuizResult<()> {
+    // namespace フィールドの無い古い JSON も読める
+    let p: ProcessIdentifier = serde_json::from_value(jvalue!({
+        "broker_name": "core", "broker_type_name": "core", "name": "inc0",
+        "type_name": "inc", "class_name": "process", "container_name": null
+    }))?;
+    assert_eq!(p.namespace, "");
+    Ok(())
+}
+
+#[test]
+fn container_identifier_with_namespace_round_trip() -> JuizResult<()> {
+    let s = "core://core/container/robot1/c0::example_container".to_owned();
+    let c: ContainerIdentifier = s.clone().try_into()?;
+    assert_eq!(c.namespace, "robot1");
+    assert_eq!(c.name, "c0");
+    assert_eq!(c.full_name(), "robot1/c0");
+    assert_eq!(c.to_string(), s);
+    c.validate()?;
+
+    let c: ContainerIdentifier = "core://core/container/c0::example_container"
+        .to_owned()
+        .try_into()?;
+    assert_eq!(c.namespace, "");
+    assert_eq!(c.with_namespace("a|b").validate().is_err(), true);
+    Ok(())
+}
+
+#[test]
+fn is_in_namespace_matches_namespace_and_descendants() {
+    assert!(is_in_namespace("robot1", "robot1"));
+    assert!(is_in_namespace("robot1/arm", "robot1"));
+    assert!(is_in_namespace("robot1/arm", "/robot1"));
+    assert!(is_in_namespace("robot1/arm", "robot1/arm"));
+    // 名前の前方一致ではなく要素単位
+    assert!(!is_in_namespace("robot10", "robot1"));
+    assert!(!is_in_namespace("robot1", "robot1/arm"));
+    assert!(!is_in_namespace("", "robot1"));
+    // ルートならすべて
+    assert!(is_in_namespace("", ""));
+    assert!(is_in_namespace("robot1", ""));
+    assert!(is_in_namespace("robot1", "/"));
 }

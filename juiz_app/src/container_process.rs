@@ -6,6 +6,7 @@ use juiz_core::utils::yaml_conf_load;
 
 use clap::Subcommand;
 
+use crate::namespace::{format_list, ListEntry};
 use crate::Args;
 
 #[derive(Debug, Subcommand, Clone)]
@@ -19,6 +20,15 @@ pub(crate) enum ContProcSubCommands {
             help = "Input system definition file path"
         )]
         filepath: String,
+
+        #[arg(
+            long = "namespace",
+            help = "List only objects in this namespace and below (ex., robot1)"
+        )]
+        namespace: Option<String>,
+
+        #[arg(long = "long", help = "Show namespace, name and type columns")]
+        long: bool,
     },
 
     /// get logs
@@ -55,7 +65,11 @@ pub(crate) fn on_container_process(
     let _recursive = args.recursive;
 
     match subcommand {
-        ContProcSubCommands::List { filepath } => {
+        ContProcSubCommands::List {
+            filepath,
+            namespace,
+            long,
+        } => {
             log::trace!("container-process list command is selected.");
             let manifest2 = yaml_conf_load(filepath.clone())?;
             let server = args.server;
@@ -66,7 +80,7 @@ pub(crate) fn on_container_process(
                 .setup()?
                 .add_systemproxy_by_id(Some(server.clone()))?
                 .run_and_do_once(|system| {
-                    on_container_process_list(system, Some(server), recursive)
+                    on_container_process_list(system, recursive, namespace, long)
                 })
         }
         ContProcSubCommands::Info { identifier } => System::new(manifest)?
@@ -93,19 +107,14 @@ pub(crate) fn on_container_process(
 
 fn on_container_process_list(
     system: &mut System,
-    _server: Option<String>,
     recursive: bool,
+    namespace: Option<String>,
+    long: bool,
 ) -> JuizResult<()> {
     log::trace!("on_container_process_list() called");
-    let proc_manifests = system.container_process_list(recursive)?;
-    //println!("proc_manifests: {proc_manifests:?}");
-    let mut ids: Vec<String> = Vec::new();
-    for v in proc_manifests.iter() {
-        //ids.push(obj_get_str(v, "identifier")?.to_owned());
-        ids.push(v.to_string());
-    }
-    //println!("process list");
-    println!("{ids:?}");
+    let ids = system.container_process_list(recursive)?;
+    let entries = ids.iter().map(ListEntry::from).collect();
+    println!("{}", format_list(entries, namespace.as_deref(), long)?);
     Ok(())
 }
 

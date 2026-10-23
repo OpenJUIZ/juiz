@@ -6,6 +6,7 @@ use crate::{
     manifests::{OutputProfile, PrimitiveProfile},
     prelude::*,
     process_identifier::ProcessIdentifier,
+    topic_identifier::resolve_topic_name,
 };
 use image::Primitive;
 use serde::{Deserialize, Serialize};
@@ -37,6 +38,9 @@ fn default_language() -> String {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProcessManifest {
     pub name: Option<String>,
+    /// ネームスペース (`/` 区切り、空ならルート)。`name` には含まない
+    #[serde(default)]
+    pub namespace: String,
     pub type_name: String,
     #[serde(default = "default_description")]
     pub description: Description,
@@ -152,6 +156,7 @@ impl ProcessManifest {
     pub fn new(type_name: &str) -> Self {
         Self {
             name: None,
+            namespace: String::new(),
             type_name: type_name.to_owned(),
             description: "".into(),
             arguments: Vec::new(),
@@ -170,6 +175,12 @@ impl ProcessManifest {
 
     pub fn name(mut self, name: &str) -> Self {
         self.name = Some(name.to_owned());
+        self
+    }
+
+    /// ネームスペースを設定する (先頭の `/` は付けない。検査は ID の [`ProcessIdentifier::validate`] で行う)
+    pub fn namespace(mut self, namespace: &str) -> Self {
+        self.namespace = namespace.to_owned();
         self
     }
 
@@ -299,6 +310,32 @@ impl ProcessManifest {
         self
     }
 
+    /// `publishes` / `subscribes` の Topic 名を、この manifest の `namespace` で完全な名前に解決する (issue #149)
+    ///
+    /// 解決した名前は先頭に `/` を付けないので、解決は 1 回だけ行う
+    /// (もう一度解決するとネームスペースが二重に付く)。
+    ///
+    /// ```
+    /// use juiz_sdk::prelude::*;
+    /// let manifest = ProcessManifest::new("hoge_type")
+    ///   .namespace("robot1")
+    ///   .publishes("topic1")
+    ///   .subscribes("arg0", "/topic2")
+    ///   .resolve_topic_names()
+    ///   .unwrap();
+    /// assert_eq!(manifest.publishes[0].name, "robot1/topic1");
+    /// assert_eq!(manifest.subscribes.get("arg0").unwrap().name, "topic2");
+    /// ```
+    pub fn resolve_topic_names(mut self) -> JuizResult<Self> {
+        for topic in self.publishes.iter_mut() {
+            topic.name = resolve_topic_name(&self.namespace, &topic.name)?;
+        }
+        for topic in self.subscribes.values_mut() {
+            topic.name = resolve_topic_name(&self.namespace, &topic.name)?;
+        }
+        Ok(self)
+    }
+
     pub fn identifier(&self) -> JuizResult<ProcessIdentifier> {
         // if let Some(name) = self.name.as_ref() {
         //     Ok(identifier_new(
@@ -317,14 +354,16 @@ impl ProcessManifest {
                 self.type_name.clone(),
                 self.container_name.clone().unwrap(),
                 self.name.as_ref().unwrap().clone(),
-            ))
+            )
+            .with_namespace(&self.namespace))
         } else {
             Ok(ProcessIdentifier::new_process_id(
                 self.broker_name.clone(),
                 self.broker_type_name.clone(),
                 self.type_name.clone(),
                 self.name.as_ref().unwrap().clone(),
-            ))
+            )
+            .with_namespace(&self.namespace))
         }
     }
 
@@ -437,6 +476,7 @@ impl TryFrom<Value> for ProcessManifest {
             }
             Err(_) => {}
         }
+        p = p.namespace(crate::identifier::namespace_from_manifest(&value)?.as_str());
         match obj_get_str(&value, "language") {
             Ok(language) => {
                 p = p.language(language);

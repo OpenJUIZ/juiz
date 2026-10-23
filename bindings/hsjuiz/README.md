@@ -288,6 +288,17 @@ juiz のリポジトリの中で(Hackage を使わずに)ビルドするとき�
 cabal build all --extra-lib-dirs=<juiz>/target/debug --ghc-options="-optl-Wl,-rpath,<juiz>/target/debug"
 ```
 
+macOS で、選んでいる Xcode より新しい Command Line Tools が入っている(たとえば Xcode 26 に Command Line Tools 27 の
+MacOSX27.0.sdk)と、リンクが `tapi error: malformed file ... unknown architecture arm64e.x1-macos` で失敗します。
+GHC はリンクのときに Command Line Tools の SDK(`/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk`)を `-L` で渡すので、
+Xcode の古いリンカが新しい SDK の `.tbd` を読めないためです(issue #143)。Command Line Tools のリンカを使えば通ります。
+
+```terminal
+DEVELOPER_DIR=/Library/Developer/CommandLineTools cabal build all ...
+```
+
+Xcode を Command Line Tools と同じ版に上げても直ります。`examples/haskell/build.sh` はこの組み合わせを見つけると自動で `DEVELOPER_DIR` を切り替えます。
+
 できた `lib<名前>.so`(macOS は `.dylib`)を、設定ファイルの `path` のディレクトリに置きます。
 
 ```yaml

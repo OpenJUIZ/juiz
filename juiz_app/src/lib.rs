@@ -9,6 +9,7 @@ mod container;
 mod container_process;
 mod default_juiz_conf;
 mod execution_context;
+mod namespace;
 mod process;
 mod setup;
 
@@ -78,6 +79,12 @@ struct Args {
         help = "Input system definition file path"
     )]
     filepath: String,
+
+    #[arg(
+        long = "namespace",
+        help = "Default namespace of the system. Overrides 'namespace' in the system definition file (ex., robot1). Use '/' for the root."
+    )]
+    namespace: Option<String>,
 
     #[arg(
         short = 's',
@@ -609,7 +616,10 @@ where
 
 fn run(args: Args) -> JuizResult<()> {
     log::trace!("【呼出】juiz_app::run called");
-    let manifest = yaml_conf_load(args.filepath.clone())?;
+    let manifest = namespace::override_namespace(
+        yaml_conf_load(args.filepath.clone())?,
+        args.namespace.as_deref(),
+    )?;
     let flag_start = if args.daemonize {
         true
     } else {

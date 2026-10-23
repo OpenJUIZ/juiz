@@ -1,6 +1,6 @@
 [package]
 name = "juiz_app"
-version = "0.0.20"
+version = "0.0.21"
 edition = "2021"
 description = "JUIZ utility command-line application package"
 license.workspace = true
@@ -35,6 +35,7 @@ python-entry = ["juiz_core/python", "dep:pyo3"]
 clap = {workspace = true}
 home = {workspace = true}
 juiz_core = { workspace = true, default-features = false }
+juiz_sdk = { workspace = true }
 juiz_qmp_broker = { workspace = true, optional = true }
 pyo3 = { workspace = true, optional = true }
 

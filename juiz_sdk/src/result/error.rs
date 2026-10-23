@@ -238,12 +238,18 @@ pub enum JuizError {
     InvalidValueError { message: String },
     #[error("Idnetifier is invalid value ({message})")]
     InvalidIdentifierError { message: String },
+    /// 名前・ネームスペースに使えない文字 (`/` `:` `|`) が入っている、または空の要素がある
+    #[error("Name is invalid ({message})")]
+    InvalidNameError { message: String },
     #[error("Data Conversion Error {message}")]
     DataConversionError { message: String },
     #[error("Value merge Error {message}")]
     ValueMergeError { message: String },
     #[error("Object is already registered Error. (message={message:})")]
     ObjectAlreadyRegisteredError { message: String },
+    /// 同じ ID のオブジェクトがすでに登録されている (名前かネームスペースを変える)
+    #[error("Object of the same identifier ({id:}) is already registered. Change its name or namespace.")]
+    ObjectOfSameIdentifierAlreadyExistsError { id: String },
     #[error("CppPlugin FunctionCall Error")]
     CppProcessFunctionCallError {},
     #[error(

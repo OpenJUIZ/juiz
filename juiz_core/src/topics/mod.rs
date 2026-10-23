@@ -3,7 +3,7 @@ use std::sync::{Arc, RwLock};
 use crate::{
     connections::ConnectionFactoryImpl, core::SubSystemProxy, prelude::*, processes::ProcessImpl,
 };
-use juiz_sdk::anyhow::anyhow;
+use juiz_sdk::{anyhow::anyhow, identifier::split_namespace};
 use uuid::Uuid;
 pub type TopicName = String;
 
@@ -65,8 +65,11 @@ fn capsule_ptr_to_capsule(v: &CapsulePtr) -> JuizResult<Capsule> {
 impl TopicPtr {
     pub fn new(name: &str, system_uuid: Uuid) -> Self {
         log::trace!("new(name={name}, uuid={system_uuid}) called");
+        // name はネームスペースを含めた完全な名前。Topic の Process の ID もネームスペース付きにする (issue #149)
+        let (namespace, short_name) = split_namespace(name);
         let manifest = ProcessManifest::new("topic")
-            .name(name)
+            .namespace(namespace.as_str())
+            .name(short_name.as_str())
             .use_memo(false)
             .add_object_arg("input", "", jvalue!({}));
 

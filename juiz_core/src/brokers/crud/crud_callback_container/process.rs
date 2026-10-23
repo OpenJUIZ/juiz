@@ -5,7 +5,7 @@ use juiz_sdk::{
 };
 use std::str::FromStr;
 
-use super::{rewrite_to_accessed_broker, CallbackContainerType};
+use super::{rewrite_to_accessed_broker, CallbackContainerType, NamespaceFilter};
 use crate::core::process_profile_value;
 
 pub(crate) fn create_create_callbacks() -> CallbackContainerType {
@@ -56,11 +56,13 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
                 .unwrap()
                 .as_str(),
         )?;
+        let filter = NamespaceFilter::from_args(&args)?;
         let profiles: Vec<ProcessIdentifier> =
             cb.lock()?.process_list(recursive, caller_broker_profile)?;
         Ok(Value::from(
             profiles
                 .into_iter()
+                .filter(|id| filter.matches(&id.namespace))
                 .map(|mut id| {
                     rewrite_to_accessed_broker(
                         &args,

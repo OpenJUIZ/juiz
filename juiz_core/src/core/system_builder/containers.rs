@@ -146,7 +146,10 @@ fn setup_container(
         let container_process_manifest = container_process_manifest_original
             .clone()
             .container_name(Some(name.clone()))
-            .container_type(Some(type_name.clone()));
+            .container_type(Some(type_name.clone()))
+            // ContainerProcess は Container のネームスペースに置き、Topic 名もそこで解決する (issue #149)
+            .namespace(container_manifest.namespace.as_str())
+            .resolve_topic_names()?;
         log::debug!(
             "【作成】ContainerProcess ({:?})",
             container_process_manifest

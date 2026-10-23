@@ -62,12 +62,34 @@ impl<T, TF> ObjectCollection<T, TF> {
         }
     }
 
+    /// 同じ ID のオブジェクトが登録されているか
+    pub fn contains(&self, id: &Identifier) -> bool {
+        self.objects.contains_key(id)
+    }
+
+    /// 同じ ID のオブジェクトがあれば登録しないで
+    /// [`JuizError::ObjectOfSameIdentifierAlreadyExistsError`] を返す
+    pub fn check_not_registered(&self, id: &Identifier) -> JuizResult<()> {
+        if self.contains(id) {
+            log::error!(
+                "ObjectCollection({})::register(id={id}) failed. Already registered.",
+                self.name
+            );
+            return Err(anyhow::Error::from(
+                JuizError::ObjectOfSameIdentifierAlreadyExistsError { id: id.clone() },
+            ));
+        }
+        Ok(())
+    }
+
+    /// オブジェクトを登録する。同じ ID がすでにあればエラー (上書きしない)
     pub fn register(&mut self, id: &Identifier, p: T) -> JuizResult<&T> {
         log::trace!(
             "ObjectCollection({})::register(Object(id={:?})) called",
             self.name,
             id
         );
+        self.check_not_registered(id)?;
         self.objects.insert(id.clone(), p);
         log::info!("【登録({})】identifier={id}", self.name);
         self.get(&id)

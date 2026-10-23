@@ -111,6 +111,12 @@ fn construct_capsule_map(
             capsule_map.set_param("topic_name", v.as_str());
         }
     }
+    match query.namespace.clone() {
+        None => {}
+        Some(v) => {
+            capsule_map.set_param("namespace", v.as_str());
+        }
+    }
     // println!("HEADER>>>> {headers:?}");
     match headers.get("host") {
         Some(header) => match header.to_str() {

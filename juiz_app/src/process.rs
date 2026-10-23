@@ -8,6 +8,7 @@ use juiz_core::prelude::*;
 // use juiz_core::opencv::{imgcodecs::imwrite, core::{Mat, Vector}};
 use clap::Subcommand;
 
+use crate::namespace::{format_list, ListEntry};
 use crate::Args;
 
 #[derive(Debug, Subcommand, Clone)]
@@ -17,6 +18,15 @@ pub(crate) enum ProcSubCommands {
     List {
         #[arg(short = 'a', help = "Any process includes")]
         any_process: bool,
+
+        #[arg(
+            long = "namespace",
+            help = "List only objects in this namespace and below (ex., robot1)"
+        )]
+        namespace: Option<String>,
+
+        #[arg(long = "long", help = "Show namespace, name and type columns")]
+        long: bool,
 
         #[arg(
             short = 'f',
@@ -74,6 +84,8 @@ pub(crate) fn on_process_inner(
         ProcSubCommands::List {
             any_process,
             filepath,
+            namespace,
+            long,
         } => {
             log::trace!("process list command is selected. args={args:?}");
             let manifest2 = yaml_conf_load(filepath.clone())?;
@@ -83,11 +95,14 @@ pub(crate) fn on_process_inner(
                 .setup()?
                 .add_systemproxy_by_id(Some(server.clone()))?
                 .run_and_do_once(|system| {
-                    if any_process {
-                        on_any_process_list(system, Some(server), recursive)
+                    let ids = if any_process {
+                        system.any_process_list(recursive)?
                     } else {
-                        on_process_list(system, Some(server), recursive)
-                    }
+                        system.process_list(recursive)?
+                    };
+                    let entries = ids.iter().map(ListEntry::from).collect();
+                    println!("{}", format_list(entries, namespace.as_deref(), long)?);
+                    Ok(())
                 })
         }
         ProcSubCommands::Info { identifier } => System::new(manifest)?
@@ -110,35 +125,6 @@ pub(crate) fn on_process_inner(
                 on_process_call(system, identifier, argument, fileout, print)
             }),
     }
-}
-
-fn on_process_list(
-    system: &mut System,
-    _server: Option<String>,
-    recursive: bool,
-) -> JuizResult<()> {
-    log::info!("on_process_list() called");
-    let proc_manifests = system.process_list(recursive)?;
-    let mut ids: Vec<String> = Vec::new();
-    for v in proc_manifests.iter() {
-        ids.push(v.to_string());
-    }
-    println!("{ids:?}");
-    Ok(())
-}
-
-fn on_any_process_list(
-    system: &mut System,
-    _server: Option<String>,
-    recursive: bool,
-) -> JuizResult<()> {
-    let proc_manifests = system.any_process_list(recursive)?;
-    let mut ids: Vec<String> = Vec::new();
-    for v in proc_manifests.iter() {
-        ids.push(v.to_string());
-    }
-    println!("{ids:?}");
-    Ok(())
 }
 
 fn on_process_info(system: &mut System, id: String) -> JuizResult<()> {

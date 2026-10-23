@@ -1,4 +1,4 @@
-use crate::{brokers::http::http_router::RecursiveQuery, prelude::*};
+use crate::{brokers::http::http_router::ListQuery, prelude::*};
 use utoipa::OpenApi;
 
 use super::IdentifierQuery;
@@ -49,14 +49,14 @@ pub fn openapi_spec_handler_dummy(_query: Query<IdentifierQuery>) {}
     get,
     path = "/api/process/list",
     params(
-        RecursiveQuery
+        ListQuery
     ),
     responses(
         (status = 200, description = "System")
     ),
     tag = "universal.process",
 )]
-pub fn list_dummy(_query: Query<RecursiveQuery>) {}
+pub fn list_dummy(_query: Query<ListQuery>) {}
 
 #[allow(unused)]
 #[utoipa::path(

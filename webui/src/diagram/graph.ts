@@ -147,7 +147,7 @@ function addSystem(sys: SystemModel, nodes: DiagramNode[], edges: DiagramEdge[])
       id: p.key,
       data: {
         kind: p.kind,
-        name: p.name,
+        name: p.fullName,
         typeName: p.typeName,
         args: (p.profile.arguments ?? []).map((a) => ({
           name: a.name,
@@ -156,7 +156,7 @@ function addSystem(sys: SystemModel, nodes: DiagramNode[], edges: DiagramEdge[])
         })),
         outputConnected: p.outputs.length > 0 || (p.profile.publishes ?? []).length > 0,
       },
-      width: fitWidth(p.name, p.typeName, 64, 132, 280),
+      width: fitWidth(p.fullName, p.typeName, 64, 132, 280),
       height: 64,
     };
   };
@@ -167,8 +167,8 @@ function addSystem(sys: SystemModel, nodes: DiagramNode[], edges: DiagramEdge[])
   for (const c of sys.containers) {
     nodes.push({
       id: c.key,
-      data: { kind: "container", name: c.name, typeName: c.typeName },
-      width: fitWidth(c.name, c.typeName, 40, 140, 280),
+      data: { kind: "container", name: c.fullName, typeName: c.typeName },
+      width: fitWidth(c.fullName, c.typeName, 40, 140, 280),
       height: 60,
     });
     // 容器処理は容器の外に置き、容器から道具リンクで結ぶ
@@ -180,8 +180,8 @@ function addSystem(sys: SystemModel, nodes: DiagramNode[], edges: DiagramEdge[])
   for (const ec of sys.ecs) {
     nodes.push({
       id: ec.key,
-      data: { kind: "ec", name: ec.name, typeName: ec.typeName, state: ec.profile.state, rate: ec.profile.rate },
-      width: fitWidth(ec.name, ec.typeName, 40, 150, 260),
+      data: { kind: "ec", name: ec.fullName, typeName: ec.typeName, state: ec.profile.state, rate: ec.profile.rate },
+      width: fitWidth(ec.fullName, ec.typeName, 40, 150, 260),
       height: 96,
     });
     for (const t of ec.targets) {
@@ -192,8 +192,8 @@ function addSystem(sys: SystemModel, nodes: DiagramNode[], edges: DiagramEdge[])
   for (const t of sys.topics) {
     nodes.push({
       id: t.key,
-      data: { kind: "topic", name: t.name, typeName: t.typeName },
-      width: fitWidth(t.name, "", 40, 110, 240),
+      data: { kind: "topic", name: t.fullName, typeName: t.typeName },
+      width: fitWidth(t.fullName, "", 40, 110, 240),
       height: 44,
     });
     for (const p of t.publishers) {

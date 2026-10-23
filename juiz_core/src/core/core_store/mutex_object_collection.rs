@@ -69,6 +69,7 @@ where
         }
     }
 
+    /// オブジェクトを登録する。同じ ID がすでにあればエラー (上書きしない)
     pub fn register(&mut self, p: Arc<Mutex<T>>) -> JuizResult<Arc<Mutex<T>>> {
         let id = juiz_lock(&p)?.identifier().clone();
         log::trace!(
@@ -76,6 +77,15 @@ where
             self.name,
             id
         );
+        if self.objects.contains_key(&id) {
+            log::error!(
+                "StoreWorker({})::register(id={id}) failed. Already registered.",
+                self.name
+            );
+            return Err(anyhow::Error::from(
+                JuizError::ObjectOfSameIdentifierAlreadyExistsError { id },
+            ));
+        }
         self.objects.insert(id.clone(), p);
         self.get(&id)
     }

@@ -5,6 +5,7 @@ mod components;
 mod connections;
 mod containers;
 mod ecs;
+mod namespaces;
 mod processes;
 mod setup_objects;
 mod setup_plugins;

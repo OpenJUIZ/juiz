@@ -20,6 +20,8 @@ pub struct ExecutionContextHolder {
     tokio_runtime: runtime::Runtime,
     end_flag: Arc<Mutex<AtomicBool>>,
     auto_start: bool,
+    /// ネームスペース (`/` 区切り、空ならルート)
+    namespace: String,
 }
 
 impl ExecutionContextHolder {
@@ -27,13 +29,22 @@ impl ExecutionContextHolder {
         type_name: &str,
         ec: Arc<RwLock<dyn ExecutionContext>>,
         auto_start: bool,
+        namespace: &str,
     ) -> JuizResult<Arc<Mutex<ExecutionContextHolder>>> {
+        let name = juiz_borrow(&ec)?.name().to_owned();
+        let class_name = JuizObjectClass::ExecutionContext("ExecutionContext");
+        let mut object_core = ObjectCore::create(class_name.clone(), type_name, name.as_str());
+        // ネームスペースがあれば ID に入れる (名前とネームスペースの検査もここで行う)
+        object_core.set_identifier(juiz_sdk::identifier::identifier_new_with_namespace(
+            "core",
+            "core",
+            class_name.as_str(),
+            type_name,
+            namespace,
+            name.as_str(),
+        )?);
         Ok(Arc::new(Mutex::new(ExecutionContextHolder {
-            object_core: ObjectCore::create(
-                JuizObjectClass::ExecutionContext("ExecutionContext"),
-                type_name,
-                juiz_borrow(&ec)?.name(),
-            ),
+            object_core,
             core: ExecutionContextCore::new(),
             execution_context: ec.clone(),
             tokio_runtime: runtime::Builder::new_multi_thread()
@@ -45,6 +56,7 @@ impl ExecutionContextHolder {
             thread_handle: None,
             end_flag: Arc::new(Mutex::new(AtomicBool::from(false))),
             auto_start,
+            namespace: namespace.to_owned(),
         })))
     }
 
@@ -193,7 +205,8 @@ impl JuizObject for ExecutionContextHolder {
         obj_merge_mut(
             &mut v,
             &jvalue!({
-                "auto_start": self.auto_start
+                "auto_start": self.auto_start,
+                "namespace": self.namespace,
             }),
         )?;
         Ok(v.into())

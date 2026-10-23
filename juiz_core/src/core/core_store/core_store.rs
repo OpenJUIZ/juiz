@@ -32,6 +32,15 @@ pub struct CoreStore {
     pub broker_proxies: Box<BufferObjectCollection<dyn BrokerProxy, dyn BrokerProxyFactory>>,
 }
 
+/// setup の途中で失敗したときなど、cleanup を通らずに捨てられる場合も、
+/// オブジェクトをファクトリ (プラグインのライブラリ) より先に、ContainerProcess を Container より先に捨てる。
+/// フィールドの宣言順に捨てると、ライブラリを閉じた後に Container を捨てて落ちる。
+impl Drop for CoreStore {
+    fn drop(&mut self) {
+        let _ = self.clear();
+    }
+}
+
 impl CoreStore {
     pub fn new(manifest: Value) -> CoreStore {
         CoreStore {
