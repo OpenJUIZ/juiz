@@ -29,6 +29,9 @@ fn default_language() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContainerManifest {
     pub name: Option<String>,
+    /// ネームスペース (`/` 区切り、空ならルート)。`name` には含まない
+    #[serde(default)]
+    pub namespace: String,
     pub type_name: String,
     #[serde(default = "default_language")]
     pub language: String,
@@ -78,6 +81,7 @@ impl ContainerManifest {
     pub fn new(type_name: &str) -> Self {
         Self {
             name: None,
+            namespace: String::new(),
             language: "rust".to_owned(),
             type_name: type_name.to_owned(),
             factory: "container_factory".to_owned(),
@@ -95,6 +99,7 @@ impl ContainerManifest {
     pub fn parent_container_manifest(&self) -> Self {
         Self {
             name: self.parent_name.clone(),
+            namespace: self.namespace.clone(),
             language: "rust".to_owned(),
             type_name: self.parent_type_name.as_ref().unwrap().clone(),
             factory: "component_factory".to_owned(),
@@ -111,6 +116,12 @@ impl ContainerManifest {
 
     pub fn name(mut self, name: &str) -> Self {
         self.name = Some(name.to_owned());
+        self
+    }
+
+    /// ネームスペースを設定する (先頭の `/` は付けない。検査は ID の [`ContainerIdentifier::validate`] で行う)
+    pub fn namespace(mut self, namespace: &str) -> Self {
+        self.namespace = namespace.to_owned();
         self
     }
 
@@ -208,7 +219,8 @@ impl ContainerManifest {
                 })?
                 .clone(),
             self.type_name.clone(),
-        ))
+        )
+        .with_namespace(&self.namespace))
     }
 
     pub fn add_array_arg(

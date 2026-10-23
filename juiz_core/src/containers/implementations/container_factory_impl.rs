@@ -99,6 +99,19 @@ impl ContainerFactory for ContainerFactoryImpl {
         let name_str = name_cap
             .lock_as_value(|v| -> JuizResult<String> { Ok(v.as_str().unwrap().to_owned()) })??;
         manifest = manifest.name(name_str.as_str());
+        // conf で解決したネームスペース (system_builder::namespaces) があれば ID に入れる
+        if let Ok(namespace_cap) = args.get("namespace") {
+            let namespace = namespace_cap.lock_as_value(|v| -> JuizResult<String> {
+                Ok(v.as_str()
+                    .ok_or_else(|| {
+                        juiz_sdk::anyhow::anyhow!(JuizError::InvalidValueError {
+                            message: format!("'namespace' must be a string, but {v}")
+                        })
+                    })?
+                    .to_owned())
+            })??;
+            manifest = manifest.namespace(namespace.as_str());
+        }
         // ファクトリのマニフェストの processes は、この Container 型で使える ContainerProcess の
         // 型の宣言 (Component のマニフェストでは name を持たない) で、インスタンスではない。
         // ContainerProcess のインスタンスは Container を作った後に別途作って登録するので、

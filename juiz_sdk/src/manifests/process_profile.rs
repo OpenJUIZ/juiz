@@ -7,6 +7,9 @@ use std::{collections::HashMap, fmt::Display};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProcessProfile {
     pub name: String,
+    /// ネームスペース (`/` 区切り、空ならルート)。`name` には含まない
+    #[serde(default)]
+    pub namespace: String,
     pub type_name: String,
     pub description: Description,
     pub arguments: Vec<ArgumentProfile>,
@@ -36,6 +39,7 @@ impl TryFrom<ProcessManifest> for ProcessProfile {
         }
         Ok(Self {
             name: value.name.unwrap(),
+            namespace: value.namespace,
             type_name: value.type_name,
             description: value.description,
             arguments: value.arguments.into_iter().map(|a| a.into()).collect(),
@@ -167,6 +171,7 @@ impl ProcessProfile {
     pub fn new(name: &str, type_name: &str) -> Self {
         Self {
             name: name.to_owned(),
+            namespace: String::new(),
             type_name: type_name.to_owned(),
             description: "".into(),
             arguments: Vec::new(),
@@ -329,13 +334,15 @@ impl ProcessProfile {
                 self.type_name.clone(),
                 container_name.clone(),
                 self.name.clone(),
-            ),
+            )
+            .with_namespace(&self.namespace),
             None => ProcessIdentifier::new_process_id(
                 self.broker_name.clone(),
                 self.broker_type_name.clone(),
                 self.type_name.clone(),
                 self.name.clone(),
-            ),
+            )
+            .with_namespace(&self.namespace),
         }
     }
 

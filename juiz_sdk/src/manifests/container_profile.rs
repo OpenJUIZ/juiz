@@ -9,6 +9,9 @@ use crate::prelude::*;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContainerProfile {
     pub name: String,
+    /// ネームスペース (`/` 区切り、空ならルート)。`name` には含まない
+    #[serde(default)]
+    pub namespace: String,
     pub language: String,
     pub type_name: String,
     pub factory: String,
@@ -58,6 +61,7 @@ impl TryFrom<ContainerManifest> for ContainerProfile {
             })?;
         Ok(Self {
             name,
+            namespace: value.namespace,
             language: value.language,
             type_name: value.type_name,
             factory: value.factory,
@@ -85,6 +89,7 @@ impl ContainerProfile {
     pub fn new(type_name: &str, name: &str) -> Self {
         Self {
             name: name.to_owned(),
+            namespace: String::new(),
             language: "rust".to_owned(),
             type_name: type_name.to_owned(),
             factory: "container_factory".to_owned(),
@@ -101,6 +106,7 @@ impl ContainerProfile {
         self.parent_name.as_ref().and_then(|pn| {
             Some(Self {
                 name: pn.clone(),
+                namespace: self.namespace.clone(),
                 language: "rust".to_owned(),
                 type_name: self.parent_type_name.as_ref().unwrap().clone(),
                 factory: "component_factory".to_owned(),
@@ -203,5 +209,6 @@ impl ContainerProfile {
             self.name.clone(),
             self.type_name.clone(),
         )
+        .with_namespace(&self.namespace)
     }
 }

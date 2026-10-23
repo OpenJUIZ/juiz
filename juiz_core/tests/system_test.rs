@@ -290,3 +290,32 @@ fn test_system_p_apply_in_manifest_unknown_arg() -> JuizResult<()> {
     assert!(System::new(manifest)?.setup().is_err());
     Ok(())
 }
+
+/// Container を作った後に setup が失敗しても、System を捨てるときに落ちない。
+/// 以前はプラグインのライブラリを閉じた後に Container を捨てて SIGSEGV になっていた (issue #148)
+#[cfg(test)]
+#[test]
+fn test_system_setup_fails_after_container_created() -> JuizResult<()> {
+    let manifest = jvalue!(
+        {
+            "name": "test_system",
+            "option": { "http_broker" : { "start": false } },
+            "plugins": {
+                "container_factories": {
+                    "example_container": { "path": "../target/debug" }
+                }
+            },
+            "containers": [
+                {
+                    "type_name": "example_container",
+                    "name": "container_a",
+                    // 存在しない ContainerProcess の型で、Container を作った後に setup を失敗させる
+                    "processes": [ { "type_name": "no_such_container_process", "name": "nothing" } ]
+                }
+            ],
+        }
+    );
+    let _r = env_logger::try_init();
+    assert!(System::new(manifest)?.setup().is_err());
+    Ok(())
+}

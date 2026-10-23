@@ -37,6 +37,9 @@ fn default_language() -> String {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProcessManifest {
     pub name: Option<String>,
+    /// ネームスペース (`/` 区切り、空ならルート)。`name` には含まない
+    #[serde(default)]
+    pub namespace: String,
     pub type_name: String,
     #[serde(default = "default_description")]
     pub description: Description,
@@ -152,6 +155,7 @@ impl ProcessManifest {
     pub fn new(type_name: &str) -> Self {
         Self {
             name: None,
+            namespace: String::new(),
             type_name: type_name.to_owned(),
             description: "".into(),
             arguments: Vec::new(),
@@ -170,6 +174,12 @@ impl ProcessManifest {
 
     pub fn name(mut self, name: &str) -> Self {
         self.name = Some(name.to_owned());
+        self
+    }
+
+    /// ネームスペースを設定する (先頭の `/` は付けない。検査は ID の [`ProcessIdentifier::validate`] で行う)
+    pub fn namespace(mut self, namespace: &str) -> Self {
+        self.namespace = namespace.to_owned();
         self
     }
 
@@ -317,14 +327,16 @@ impl ProcessManifest {
                 self.type_name.clone(),
                 self.container_name.clone().unwrap(),
                 self.name.as_ref().unwrap().clone(),
-            ))
+            )
+            .with_namespace(&self.namespace))
         } else {
             Ok(ProcessIdentifier::new_process_id(
                 self.broker_name.clone(),
                 self.broker_type_name.clone(),
                 self.type_name.clone(),
                 self.name.as_ref().unwrap().clone(),
-            ))
+            )
+            .with_namespace(&self.namespace))
         }
     }
 
@@ -437,6 +449,7 @@ impl TryFrom<Value> for ProcessManifest {
             }
             Err(_) => {}
         }
+        p = p.namespace(crate::identifier::namespace_from_manifest(&value)?.as_str());
         match obj_get_str(&value, "language") {
             Ok(language) => {
                 p = p.language(language);
