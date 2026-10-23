@@ -232,6 +232,9 @@ pub enum JuizError {
     InvalidValueError { message: String },
     #[error("Idnetifier is invalid value ({message})")]
     InvalidIdentifierError { message: String },
+    /// 名前・ネームスペースに使えない文字 (`/` `:` `|`) が入っている、または空の要素がある
+    #[error("Name is invalid ({message})")]
+    InvalidNameError { message: String },
     #[error("Data Conversion Error {message}")]
     DataConversionError { message: String },
     #[error("Value merge Error {message}")]
