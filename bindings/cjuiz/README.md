@@ -6,7 +6,7 @@ C の関数を呼べて、C の関数を公開できる言語(C、C++、Haskell 
 
 ## libjuiz_sdk の入手
 
-v0.0.21 以降は、libjuiz_sdk とこのヘッダ(C++ のヘッダも)を OS・CPU ごとのアーカイブ `juiz_sdk-<版>-<ターゲット名>.tar.gz` にして
+v0.0.22 以降は、libjuiz_sdk とこのヘッダ(C++ のヘッダも)を OS・CPU ごとのアーカイブ `juiz_sdk-<版>-<ターゲット名>.tar.gz` にして
 [GitHub Releases](https://github.com/OpenJUIZ/juiz/releases) に置いています(Linux x86_64・aarch64、macOS arm64・x86_64)。
 `scripts/install-juiz-sdk.sh <版>` で取得して `~/.juiz/sdk/<版>` に展開できます。中身は次のとおりで、pkg-config の `juiz_sdk.pc` も入っています。
 

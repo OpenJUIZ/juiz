@@ -261,7 +261,7 @@ libjuiz_sdk は [GitHub Releases](https://github.com/OpenJUIZ/juiz/releases) に
 `scripts/install-juiz-sdk.sh` で取得して `~/.juiz/sdk/<版>` に展開できます。
 
 ```terminal
-curl -fsSL https://raw.githubusercontent.com/OpenJUIZ/juiz/main/scripts/install-juiz-sdk.sh | sh -s -- 0.0.21
+curl -fsSL https://raw.githubusercontent.com/OpenJUIZ/juiz/main/scripts/install-juiz-sdk.sh | sh -s -- 0.0.22
 ```
 
 自分のパッケージの `cabal.project` で、hsjuiz に libjuiz_sdk の場所を渡します。`ghc-options` の rpath は、
@@ -272,8 +272,8 @@ Template Haskell(`juizProcess` など)を実行するときに GHC が hsjuiz �
 packages: .
 
 package hsjuiz
-  extra-lib-dirs: /home/me/.juiz/sdk/0.0.21/lib
-  ghc-options: -optl-Wl,-rpath,/home/me/.juiz/sdk/0.0.21/lib
+  extra-lib-dirs: /home/me/.juiz/sdk/0.0.22/lib
+  ghc-options: -optl-Wl,-rpath,/home/me/.juiz/sdk/0.0.22/lib
 ```
 
 ```terminal

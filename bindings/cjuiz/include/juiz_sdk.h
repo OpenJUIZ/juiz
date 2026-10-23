@@ -145,7 +145,7 @@ value* value_array_push_empty_array(value* v);
 value* value_array_push_empty_object(value* v);
 
 /* ---- ビルド情報 ----
- * この libjuiz_sdk の版とビルドした Rust コンパイラの版 ("juiz_sdk=0.0.21;rustc=rustc 1.xx.x ..." の形)。
+ * この libjuiz_sdk の版とビルドした Rust コンパイラの版 ("juiz_sdk=0.0.22;rustc=rustc 1.xx.x ..." の形)。
  * 文字列は静的で、解放しない。juiz はプラグインを開いたとき、プラグインが読み込んだ libjuiz_sdk の
  * この値を自分の版と比べ、juiz_sdk の版が違えば読み込みをエラーにする。 */
 const char* juiz_sdk_build_info(void);

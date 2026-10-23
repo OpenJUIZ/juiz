@@ -1,6 +1,6 @@
 name: Publish to Hackage
 
-# v* タグ(例: v0.0.21)の push で、Haskell のライブラリ hsjuiz(bindings/hsjuiz)を Hackage に公開する(issue #136)。
+# v* タグ(例: v0.0.22)の push で、Haskell のライブラリ hsjuiz(bindings/hsjuiz)を Hackage に公開する(issue #136)。
 # crates.io(publish.yml)・PyPI(pypi-publish.yml)と同じタグで動き、hsjuiz.cabal の version もタグに揃える。
 # 揃っていない場合は公開しない。Hackage に公開済みの版は飛ばす(タグを打ち直したとき用)。
 #

@@ -3,10 +3,10 @@
 # C++ や Haskell のプラグインを、juiz のソースを取得せずにビルドするために使う。
 #
 # 使い方: install-juiz-sdk.sh <版> [展開先]
-#   版は juiz コマンドと同じもの(juiz --version、例: 0.0.21)。
+#   版は juiz コマンドと同じもの(juiz --version、例: 0.0.22)。
 #   展開先の既定は ~/.juiz/sdk/<版>(環境変数 JUIZ_SDK_HOME で ~/.juiz/sdk を変えられる)。
 #
-#   curl -fsSL https://raw.githubusercontent.com/OpenJUIZ/juiz/main/scripts/install-juiz-sdk.sh | sh -s -- 0.0.21
+#   curl -fsSL https://raw.githubusercontent.com/OpenJUIZ/juiz/main/scripts/install-juiz-sdk.sh | sh -s -- 0.0.22
 #
 # 対応: Linux(x86_64・aarch64)、macOS(arm64・x86_64)
 set -eu
