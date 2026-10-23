@@ -12,6 +12,7 @@ use crate::containers::{
 //use crate::plugin::cpp::cpp_container_factory_impl::CppContainerStruct;
 use crate::prelude::*;
 use crate::processes::process_factory_create_from_trait;
+use juiz_sdk::build_info::{BuildInfo, SDK_BUILD_INFO_SYMBOL};
 
 /// C ABI のプラグイン (C++ など) が公開する関数の型。
 /// プラグイン側は extern "C" で定義するので、Rust ABI ではなく extern "C" の関数ポインタで受ける。
@@ -133,6 +134,7 @@ impl CppPlugin {
                 log::error!("【エラー】Library::new({path:?}) failed. Error ({e:?})");
                 Err(e)
             })?);
+            check_sdk_build_info(&path, &lib)?;
             if language == CAbiLanguage::Haskell {
                 init_haskell_runtime(&path, &lib)?;
             }
@@ -362,6 +364,62 @@ impl CppPlugin {
     }
 }
 
+/// プラグインが読み込んだ libjuiz_sdk の版を、この juiz の juiz_sdk と比べる (issue #136)。
+///
+/// C ABI のプラグインは libjuiz_sdk の C 関数で Capsule などを読み書きするので、libjuiz_sdk の構造体は
+/// juiz と同じでなければならない。ライブラリのハンドルで探す dlsym はライブラリが依存する共有ライブラリも探すので、
+/// プラグインが実際に読み込んだ libjuiz_sdk の `juiz_sdk_build_info` が見つかる。
+/// juiz_sdk の版が違えばエラー、Rust コンパイラの版だけが違えば警告にする (構造体の配置はコンパイラの版で
+/// 変わりうるが、実際に変わることはまれで、配布している libjuiz_sdk と手元でビルドした juiz では版がそろわないため)。
+/// `juiz_sdk_build_info` が無い (0.0.20 以前の libjuiz_sdk) ときは確かめずに続ける。
+unsafe fn check_sdk_build_info(path: &PathBuf, lib: &Library) -> JuizResult<()> {
+    type BuildInfoFunction = unsafe extern "C" fn() -> *const std::os::raw::c_char;
+    let host_info = BuildInfo::current();
+    let Ok(func) = lib.get::<BuildInfoFunction>(SDK_BUILD_INFO_SYMBOL.as_bytes()) else {
+        log::warn!(
+            "CppPlugin({}) uses a libjuiz_sdk without '{SDK_BUILD_INFO_SYMBOL}', so its version can not be checked. \
+             Rebuild the plugin with libjuiz_sdk {} to enable the check.",
+            path.display(),
+            host_info.juiz_sdk_str()
+        );
+        return Ok(());
+    };
+    let ptr = func();
+    if ptr.is_null() {
+        return Ok(());
+    }
+    let plugin_info = BuildInfo::parse(&std::ffi::CStr::from_ptr(ptr).to_string_lossy());
+    compare_sdk_build_info(&path.display().to_string(), &plugin_info, &host_info)
+}
+
+fn compare_sdk_build_info(
+    plugin_path: &str,
+    plugin_info: &BuildInfo,
+    host_info: &BuildInfo,
+) -> JuizResult<()> {
+    if plugin_info.juiz_sdk != host_info.juiz_sdk {
+        log::error!(
+            "【失敗】CppPlugin({plugin_path}) の libjuiz_sdk の版がホストと食い違います (plugin: {plugin_info}, juiz: {host_info})"
+        );
+        return Err(anyhow::Error::from(
+            JuizError::CAbiPluginSdkVersionMismatchError {
+                plugin_path: plugin_path.to_owned(),
+                plugin_juiz_sdk: plugin_info.juiz_sdk_str().to_owned(),
+                host_juiz_sdk: host_info.juiz_sdk_str().to_owned(),
+            },
+        ));
+    }
+    if plugin_info.rustc != host_info.rustc {
+        log::warn!(
+            "CppPlugin({plugin_path}) uses a libjuiz_sdk built with {} but this juiz was built with {}. \
+             It usually works, but if the plugin crashes, use a libjuiz_sdk built with the same compiler as juiz.",
+            plugin_info.rustc_str(),
+            host_info.rustc_str()
+        );
+    }
+    Ok(())
+}
+
 /// Haskell のプラグインの juiz_hs_init を呼び、ライブラリを閉じないようにする
 unsafe fn init_haskell_runtime(path: &PathBuf, lib: &Arc<Library>) -> JuizResult<()> {
     type InitFunction = unsafe extern "C" fn() -> i64;
@@ -430,4 +488,36 @@ fn create_cpp_process_factory(
     };
 
     process_factory_create_from_trait(manifest, function)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sdk_build_info_same_version_is_ok() {
+        let host = BuildInfo::parse("juiz_sdk=0.0.21;rustc=rustc 1.90.0");
+        assert!(compare_sdk_build_info("p", &host, &host).is_ok());
+        // コンパイラの版だけが違うときは警告だけで読み込む
+        let plugin = BuildInfo::parse("juiz_sdk=0.0.21;rustc=rustc 1.91.0");
+        assert!(compare_sdk_build_info("p", &plugin, &host).is_ok());
+    }
+
+    #[test]
+    fn sdk_build_info_different_version_is_error() {
+        let host = BuildInfo::parse("juiz_sdk=0.0.21;rustc=rustc 1.90.0");
+        let plugin = BuildInfo::parse("juiz_sdk=0.0.20;rustc=rustc 1.90.0");
+        let err = compare_sdk_build_info("p", &plugin, &host).unwrap_err();
+        match err.downcast_ref::<JuizError>() {
+            Some(JuizError::CAbiPluginSdkVersionMismatchError {
+                plugin_juiz_sdk,
+                host_juiz_sdk,
+                ..
+            }) => {
+                assert_eq!(plugin_juiz_sdk, "0.0.20");
+                assert_eq!(host_juiz_sdk, "0.0.21");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
 }
