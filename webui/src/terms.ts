@@ -10,6 +10,7 @@ export const TERMS = {
   connection: { ja: "接続", en: "Connection" },
   topic: { ja: "話題", en: "Topic" },
   factory: { ja: "生成器", en: "Factory" },
+  namespace: { ja: "名前空間", en: "Namespace" },
 } as const;
 
 export type TermKey = keyof typeof TERMS;

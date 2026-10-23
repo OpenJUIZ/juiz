@@ -26,7 +26,12 @@ export type ElementKind =
 interface ElementBase {
   /** 画面の中で要素を指す鍵。選択状態などに使う */
   key: string;
+  /** ネームスペースを含まない短い名前 */
   name: string;
+  /** ネームスペース(`/` 区切り、空ならルート)。ネームスペースの無い要素(系、接続、仲介)は空 */
+  namespace: string;
+  /** ネームスペースを含めた名前(`<namespace>/<name>`、ルートなら name と同じ) */
+  fullName: string;
   typeName: string;
   /** juiz の識別子(API に渡す形) */
   identifier: string;
@@ -124,8 +129,45 @@ function baseTypeName(typeName: string): string {
   return i < 0 ? typeName : typeName.slice(0, i);
 }
 
-function elementKey(systemKey: string, kind: ElementKind, name: string, typeName: string, extra = ""): string {
-  return `${systemKey}/${kind}/${extra}${name}::${baseTypeName(typeName)}`;
+function elementKey(systemKey: string, kind: ElementKind, fullName: string, typeName: string, extra = ""): string {
+  return `${systemKey}/${kind}/${extra}${fullName}::${baseTypeName(typeName)}`;
+}
+
+/** ネームスペースと名前をつなぐ。ネームスペースが空なら名前だけ(juiz_sdk の join_namespace と同じ) */
+export function joinNamespace(namespace: string, name: string): string {
+  return namespace ? `${namespace}/${name}` : name;
+}
+
+/** "robot1/arm/inc0" を ["robot1/arm", "inc0"] に分ける。`/` が無ければネームスペースは空 */
+export function splitNamespace(path: string): [string, string] {
+  const i = path.lastIndexOf("/");
+  return i < 0 ? ["", path] : [path.slice(0, i), path.slice(i + 1)];
+}
+
+/**
+ * profile のネームスペース。古い juiz(namespace を返さない)ではルートとみなす。
+ * 識別子があれば、そこからも取れる(<種類>://<名前>/<class>/<namespace>/<name>::<type>)
+ */
+function namespaceOf(p: { namespace?: string; identifier?: string }): string {
+  if (p.namespace !== undefined) return p.namespace;
+  const m = p.identifier ? /^.+?:\/\/.+?\/.+?\/(.+?)::.+$/.exec(p.identifier) : null;
+  return m?.[1] ? splitNamespace(m[1])[0] : "";
+}
+
+/** 接続の端や実行文脈の対象を、画面に出す名前にする */
+export function refName(ref: ProcessRef): string {
+  return joinNamespace(ref.namespace ?? "", ref.name);
+}
+
+/** ネームスペースの無い要素の名前の項目 */
+function plainName(name: string): Pick<ElementBase, "name" | "namespace" | "fullName"> {
+  return { name, namespace: "", fullName: name };
+}
+
+/** profile からネームスペース付きの名前の項目を作る */
+function nsName(p: { name: string; namespace?: string; identifier?: string }): Pick<ElementBase, "name" | "namespace" | "fullName"> {
+  const namespace = namespaceOf(p);
+  return { name: p.name, namespace, fullName: joinNamespace(namespace, p.name) };
 }
 
 /** ツリーで系の下に並べる分類の鍵 */
@@ -139,8 +181,8 @@ export function descriptionText(d: ProcessProfile["description"]): string {
 }
 
 /** 名前順に並べる。API の返す順は呼ぶたびに変わることがあるので、更新でツリーが並び替わらないように */
-function byName<T extends { name: string; typeName: string }>(list: T[]): T[] {
-  return list.sort((a, b) => a.name.localeCompare(b.name) || a.typeName.localeCompare(b.typeName));
+function byName<T extends { name: string; fullName: string; typeName: string }>(list: T[]): T[] {
+  return list.sort((a, b) => a.fullName.localeCompare(b.fullName) || a.typeName.localeCompare(b.typeName));
 }
 
 /** 仲介の名前(host:port)の、同じ機械を指す書き方をそろえる */
@@ -209,47 +251,54 @@ function buildSystem(
     return e;
   };
 
-  const processes = (store?.processes ?? []).map((p) =>
-    reg<ProcessElement>({
+  const processes = (store?.processes ?? []).map((p) => {
+    const n = nsName(p);
+    return reg<ProcessElement>({
       kind: "process",
-      key: elementKey(systemKey, "process", p.name, p.type_name),
-      name: p.name,
+      key: elementKey(systemKey, "process", n.fullName, p.type_name),
+      ...n,
       typeName: p.type_name,
-      identifier: gid(p.identifier ?? `core://core/process/${p.name}::${p.type_name}`),
+      identifier: gid(p.identifier ?? `core://core/process/${n.fullName}::${p.type_name}`),
       systemKey,
       profile: p,
       containerKey: null,
       inputs: [],
       outputs: [],
       ecs: [],
-    }),
-  );
+    });
+  });
 
-  const containers = (store?.containers ?? []).map((c) =>
-    reg<ContainerElement>({
+  const containers = (store?.containers ?? []).map((c) => {
+    const n = nsName(c);
+    return reg<ContainerElement>({
       kind: "container",
-      key: elementKey(systemKey, "container", c.name, c.type_name),
-      name: c.name,
+      key: elementKey(systemKey, "container", n.fullName, c.type_name),
+      ...n,
       typeName: c.type_name,
-      identifier: gid(c.identifier ?? `core://core/container/${c.name}::${c.type_name}`),
+      identifier: gid(c.identifier ?? `core://core/container/${n.fullName}::${c.type_name}`),
       systemKey,
       profile: c,
       processes: [],
-    }),
-  );
+    });
+  });
 
   const containerProcesses = (store?.container_processes ?? []).map((p) => {
     const typeName = baseTypeName(p.type_name);
+    const n = nsName(p);
+    // 容器処理は所属容器と同じネームスペースに置かれる
     const container = containers.find(
-      (c) => c.name === p.container_name && (!p.container_type || c.typeName === p.container_type),
+      (c) =>
+        c.name === p.container_name &&
+        c.namespace === n.namespace &&
+        (!p.container_type || c.typeName === p.container_type),
     );
     const e = reg<ProcessElement>({
       kind: "containerProcess",
-      key: elementKey(systemKey, "containerProcess", p.name, typeName, `${p.container_name ?? ""}/`),
-      name: p.name,
+      key: elementKey(systemKey, "containerProcess", n.fullName, typeName, `${p.container_name ?? ""}/`),
+      ...n,
       typeName,
       identifier: gid(
-        p.identifier ?? `core://core/container_process/${p.name}::${typeName}:${p.container_name ?? ""}`,
+        p.identifier ?? `core://core/container_process/${n.fullName}::${typeName}:${p.container_name ?? ""}`,
       ),
       systemKey,
       profile: p,
@@ -269,16 +318,18 @@ function buildSystem(
     return list.find(
       (p) =>
         p.name === ref.name &&
+        p.namespace === (ref.namespace ?? "") &&
         p.typeName === typeName &&
         (!isCp || !ref.container_name || p.profile.container_name === ref.container_name),
     );
   };
 
   const ecs = Object.entries(store?.ecs ?? {}).map(([id, ec]) => {
+    const n = nsName({ identifier: id, ...ec });
     const e = reg<EcElement>({
       kind: "ec",
-      key: elementKey(systemKey, "ec", ec.name, ec.type_name),
-      name: ec.name,
+      key: elementKey(systemKey, "ec", n.fullName, ec.type_name),
+      ...n,
       typeName: ec.type_name,
       identifier: gid(ec.identifier ?? id),
       systemKey,
@@ -294,29 +345,31 @@ function buildSystem(
   });
 
   const allProcesses = [...processes, ...containerProcesses];
-  const topics = (store?.topics ?? []).map((t) =>
-    reg<TopicElement>({
+  // 話題の profile は短い名前と namespace、処理の publishes / subscribes はネームスペースを含めた名前で返る
+  const topics = (store?.topics ?? []).map((t) => {
+    const n = nsName(t);
+    return reg<TopicElement>({
       kind: "topic",
-      key: elementKey(systemKey, "topic", t.name, t.type_name ?? "topic"),
-      name: t.name,
+      key: elementKey(systemKey, "topic", n.fullName, t.type_name ?? "topic"),
+      ...n,
       typeName: t.type_name ?? "topic",
-      identifier: gid(t.identifier ?? t.name),
+      identifier: gid(t.identifier ?? n.fullName),
       systemKey,
       profile: t,
-      publishers: allProcesses.filter((p) => (p.profile.publishes ?? []).some((r) => r.name === t.name)),
+      publishers: allProcesses.filter((p) => (p.profile.publishes ?? []).some((r) => r.name === n.fullName)),
       subscribers: allProcesses.flatMap((p) =>
         Object.entries(p.profile.subscribes ?? {})
-          .filter(([, r]) => r.name === t.name)
+          .filter(([, r]) => r.name === n.fullName)
           .map(([argName]) => ({ process: p, argName })),
       ),
-    }),
-  );
+    });
+  });
 
   const brokers = (store?.brokers ?? []).map((b) =>
     reg<BrokerElement>({
       kind: "broker",
       key: elementKey(systemKey, "broker", b.name, b.type_name),
-      name: b.name,
+      ...plainName(b.name),
       typeName: b.type_name,
       identifier: gid(b.identifier ?? `core://core/broker/${b.name}::${b.type_name}`),
       systemKey,
@@ -339,7 +392,7 @@ function buildSystem(
   const system = reg<SystemModel>({
     kind: "system",
     key: systemKey,
-    name: systemLabel(profile, url, via),
+    ...plainName(systemLabel(profile, url, via)),
     typeName: profile.type_name,
     identifier: profile.identifier ?? "",
     systemKey,
@@ -391,13 +444,13 @@ function linkConnections(index: SystemIndex[], elements: Map<string, Element>): 
         src && dst
           ? `${src.key}|${c.arg_name}|${dst.key}`
           : (c.identifier ??
-            `connection://${src?.identifier ?? c.source_process_id.name}|${c.arg_name}|${dst?.identifier ?? c.destination_process_id.name}`);
+            `connection://${src?.identifier ?? refName(c.source_process_id)}|${c.arg_name}|${dst?.identifier ?? refName(c.destination_process_id)}`);
       const key = `${owner.system.key}/connection/${identifier}`;
       if (elements.has(key)) continue;
       const e: ConnectionElement = {
         kind: "connection",
         key,
-        name: `${c.source_process_id.name} → ${c.destination_process_id.name}.${c.arg_name}`,
+        ...plainName(`${refName(c.source_process_id)} → ${refName(c.destination_process_id)}.${c.arg_name}`),
         typeName: c.connection_type,
         identifier: c.identifier ?? identifier,
         systemKey: owner.system.key,

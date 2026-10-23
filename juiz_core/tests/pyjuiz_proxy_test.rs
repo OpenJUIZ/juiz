@@ -2,6 +2,7 @@
 //!
 //! System を起動したまま別プロセスの Python で bindings/pyjuiz/test/proxy_test.py を実行し、
 //! ProcessProxy(name, host, port) / ContainerProxy の call / execute / p_apply を確かめる。
+//! ネームスペース robot1 にも同じ名前の inc0 と c0 を置き、名前の取り違えが無いことも確かめる (issue #152)。
 
 mod broker_api;
 
@@ -13,7 +14,17 @@ const PORT: i64 = 8014;
 #[test]
 fn pyjuiz_proxy_over_http_broker() -> JuizResult<()> {
     let _ = env_logger::try_init();
-    System::new(system_manifest("pyjuiz_proxy_test", PORT))?
+    let mut manifest = system_manifest("pyjuiz_proxy_test", PORT);
+    manifest["processes"].as_array_mut().unwrap().push(jvalue!(
+        { "type_name": "increment_process", "name": "inc0", "namespace": "robot1" }
+    ));
+    manifest["containers"].as_array_mut().unwrap().push(jvalue!(
+        { "type_name": "example_container", "name": "c0", "namespace": "robot1",
+          "processes": [
+              { "type_name": "example_container_increment", "name": "c0inc" },
+              { "type_name": "example_container_get", "name": "c0get" } ] }
+    ));
+    System::new(manifest)?
         .setup()?
         .run_and_do_once(|_system| {
             let python = std::env::var("PYO3_PYTHON").unwrap_or_else(|_| "python3".to_owned());

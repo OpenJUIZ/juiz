@@ -37,3 +37,7 @@ jobs:
       - name: Run pyjuiz decorator test
         working-directory: bindings/pyjuiz
         run: python test/decorator_test.py
+
+      - name: Run pyjuiz identifier test
+        working-directory: bindings/pyjuiz
+        run: python test/identifier_test.py

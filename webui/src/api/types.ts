@@ -8,7 +8,10 @@ export type Description = { text?: string } | string;
 export interface ObjectProfile {
   identifier?: string;
   type_name: string;
+  /** ネームスペースを含まない短い名前 */
   name: string;
+  /** ネームスペース(`/` 区切り、空ならルート)。ネームスペース対応前の juiz では無い */
+  namespace?: string;
   class_name?: string;
   broker_type_name?: string;
   broker_name?: string;
@@ -25,6 +28,7 @@ export interface ArgumentProfile {
 
 /** 話題の参照(処理の publishes / subscribes) */
 export interface TopicRef {
+  /** ネームスペースを含めた名前(robot1/value_topic) */
   name: string;
 }
 
@@ -32,6 +36,7 @@ export interface TopicRef {
 export interface ProcessRef {
   class_name?: string;
   name: string;
+  namespace?: string;
   type_name: string;
   container_name?: string | null;
   broker_name?: string;
