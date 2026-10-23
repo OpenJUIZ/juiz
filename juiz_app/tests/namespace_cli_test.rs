@@ -29,10 +29,13 @@ fn juiz() -> Command {
     Command::cargo_bin("juiz").unwrap()
 }
 
-/// juiz の実行ファイルと同じ場所 (target/debug) にプラグインがある
+/// ワークスペースの cargo build でできるプラグインの場所 (他のテストの "../target/debug" と同じ)。
+/// cargo llvm-cov ではテストの実行ファイルが別の target にできるが、プラグインはここを使う
 fn plugin_dir() -> PathBuf {
-    let bin = juiz().get_program().to_owned();
-    Path::new(&bin).parent().unwrap().to_owned()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("target")
+        .join("debug")
 }
 
 fn temp_dir(name: &str) -> PathBuf {
