@@ -3,7 +3,9 @@
 //! - qmp のサブシステム越しに、ネームスペース付きの Process / ContainerProcess を呼べる
 //! - list の param `namespace` で、そのネームスペースとその下だけに絞り込める
 //!
-//! プラグイン (qmp_broker, increment_process, example_container) は
+//! qmp は組み込み (qmp_broker::register) で使う。テストから直接作る QuicBrokerProxy と
+//! System が使う qmp を同じコードにするため (プラグインの DLL と混ぜると Windows で落ちた)。
+//! プラグイン (increment_process, example_container, timer_ec) は
 //! cargo build で ../../target/debug にビルドされている前提 (CI の test.yml と同じ)。
 
 mod common;
@@ -21,7 +23,7 @@ const MASTER_PORT: i64 = 5018;
 
 /// qmp ブローカーを持ち、robot1 (既定)・robot1/arm・robot2・ルートに Process を置いた System
 fn sub_manifest() -> Value {
-    let mut manifest = server_manifest("qmp_namespace_sub", PORT, 8037, true);
+    let mut manifest = server_manifest("qmp_namespace_sub", PORT, 8037, false);
     manifest["namespace"] = jvalue!("robot1");
     manifest["processes"] = jvalue!([
         { "type_name": "increment_process", "name": "inc0" },
@@ -42,7 +44,7 @@ fn sub_manifest() -> Value {
 /// qmp のサブシステムとして sub を登録する System。
 /// 登録するとき相手に自分の qmp ブローカーを教えるので、自分も qmp ブローカーを持つ
 fn master_manifest() -> Value {
-    let mut manifest = client_manifest("qmp_namespace_master", true);
+    let mut manifest = client_manifest("qmp_namespace_master", false);
     manifest["brokers"] = jvalue!([
         { "type_name": "qmp", "name": format!("127.0.0.1:{MASTER_PORT}"), "host": "127.0.0.1", "port": MASTER_PORT }
     ]);
@@ -158,6 +160,7 @@ fn check_list_filter() -> JuizResult<()> {
 #[test]
 fn qmp_namespaced_objects_over_subsystem() -> JuizResult<()> {
     let _ = env_logger::try_init();
+    qmp_broker::register();
     System::new(sub_manifest())?
         .setup()?
         .run_and_do_once(|_sub| {
