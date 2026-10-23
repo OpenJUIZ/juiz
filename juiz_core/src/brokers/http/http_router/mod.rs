@@ -60,6 +60,14 @@ pub struct RecursiveQuery {
     recursive: Option<String>,
 }
 
+/// list の引数。namespace を指定すると、そのネームスペースとその下だけを返す (issue #150)
+#[allow(unused)]
+#[derive(Deserialize, IntoParams, Debug)]
+pub struct ListQuery {
+    recursive: Option<String>,
+    namespace: Option<String>,
+}
+
 #[derive(Deserialize, IntoParams, Debug)]
 pub struct IdAndRecurQuery {
     identifier: Option<String>,
@@ -86,6 +94,7 @@ pub struct FullQuery {
     recursive: Option<String>,
     system_uuid: Option<String>,
     topic_name: Option<String>,
+    namespace: Option<String>,
 }
 
 #[allow(unused)]
@@ -178,6 +187,12 @@ pub fn full_query_to_map(query: &Query<FullQuery>) -> HashMap<String, String> {
         None => {}
         Some(v) => {
             map.insert("topic_name".to_owned(), v);
+        }
+    }
+    match query.namespace.clone() {
+        None => {}
+        Some(v) => {
+            map.insert("namespace".to_owned(), v);
         }
     }
     map

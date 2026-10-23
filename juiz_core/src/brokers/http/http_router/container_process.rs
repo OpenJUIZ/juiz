@@ -1,6 +1,6 @@
 use utoipa::OpenApi;
 
-use super::{IdentifierQuery, RecursiveQuery};
+use super::{IdentifierQuery, ListQuery};
 use crate::prelude::*;
 use axum::{extract::Query, Json};
 
@@ -37,14 +37,14 @@ pub fn openapi_spec_handler_dummy(_query: Query<IdentifierQuery>) {}
     get,
     path = "/api/container_process/list",
     params(
-        RecursiveQuery
+        ListQuery
     ),
     responses(
         (status = 200, description = "System")
     ),
     tag = "universal.container_process",
 )]
-pub fn list_dummy(_query: Query<RecursiveQuery>) {}
+pub fn list_dummy(_query: Query<ListQuery>) {}
 
 #[allow(unused)]
 #[utoipa::path(

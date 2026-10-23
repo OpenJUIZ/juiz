@@ -9,6 +9,9 @@ use juiz_core::{
 mod qmp_broker;
 mod qmp_broker_proxy;
 
+/// qmp の CRUD を直接使うとき (list の namespace 絞り込みなど BrokerProxy に無い引数を渡すとき) に使う
+pub use qmp_broker_proxy::QuicBrokerProxy;
+
 /// 1 回のリクエスト/応答で読み取る最大バイト数
 pub(crate) const MAX_MESSAGE_SIZE: usize = 64 * 1024 * 1024;
 

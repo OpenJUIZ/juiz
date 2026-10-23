@@ -4,7 +4,7 @@ use juiz_sdk::{
 };
 use std::str::FromStr;
 
-use super::{rewrite_to_accessed_broker, CallbackContainerType};
+use super::{rewrite_to_accessed_broker, CallbackContainerType, NamespaceFilter};
 use crate::core::container_profile_value;
 
 pub(crate) fn create_create_callbacks() -> CallbackContainerType {
@@ -44,9 +44,11 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
                 .unwrap()
                 .as_str(),
         )?;
+        let filter = NamespaceFilter::from_args(&args)?;
         let profiles = cb.lock()?.container_list(recursive, None)?;
         Ok(profiles
             .into_iter()
+            .filter(|id| filter.matches(&id.namespace))
             .map(|mut id| {
                 rewrite_to_accessed_broker(&args, &mut id.broker_name, &mut id.broker_type_name);
                 serde_json::to_value(id)

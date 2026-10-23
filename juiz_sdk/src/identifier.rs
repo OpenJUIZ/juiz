@@ -87,6 +87,17 @@ pub fn join_namespace(namespace: &str, name: &str) -> String {
     }
 }
 
+/// list の絞り込みに使う。`namespace` が `filter` と同じか、その下 (`<filter>/...`) にあれば true。
+/// `filter` が空 (ルート) ならすべて true。`filter` の先頭 `/` は無視する。
+pub fn is_in_namespace(namespace: &str, filter: &str) -> bool {
+    let filter = filter.strip_prefix('/').unwrap_or(filter);
+    filter.is_empty()
+        || namespace == filter
+        || namespace
+            .strip_prefix(filter)
+            .is_some_and(|rest| rest.starts_with('/'))
+}
+
 /// 名前とネームスペースを検査してから、ネームスペース付きの ID を組み立てる。
 ///
 /// 形式は `<broker_type>://<broker_name>/<class>/<namespace>/<name>::<type>`。

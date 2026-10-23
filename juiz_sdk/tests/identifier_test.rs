@@ -3,8 +3,8 @@
 use juiz_sdk::connection_identifier::ConnectionIdentifier;
 use juiz_sdk::identifier::{
     connection_identifier_split, identifier_from_manifest, identifier_new,
-    identifier_new_with_namespace, join_namespace, namespace_from_manifest, split_namespace,
-    validate_name, validate_namespace,
+    identifier_new_with_namespace, is_in_namespace, join_namespace, namespace_from_manifest,
+    split_namespace, validate_name, validate_namespace,
 };
 use juiz_sdk::manifests::{BrokerIdentifier, ContainerIdentifier};
 use juiz_sdk::prelude::*;
@@ -645,4 +645,20 @@ fn container_identifier_with_namespace_round_trip() -> JuizResult<()> {
     assert_eq!(c.namespace, "");
     assert_eq!(c.with_namespace("a|b").validate().is_err(), true);
     Ok(())
+}
+
+#[test]
+fn is_in_namespace_matches_namespace_and_descendants() {
+    assert!(is_in_namespace("robot1", "robot1"));
+    assert!(is_in_namespace("robot1/arm", "robot1"));
+    assert!(is_in_namespace("robot1/arm", "/robot1"));
+    assert!(is_in_namespace("robot1/arm", "robot1/arm"));
+    // 名前の前方一致ではなく要素単位
+    assert!(!is_in_namespace("robot10", "robot1"));
+    assert!(!is_in_namespace("robot1", "robot1/arm"));
+    assert!(!is_in_namespace("", "robot1"));
+    // ルートならすべて
+    assert!(is_in_namespace("", ""));
+    assert!(is_in_namespace("robot1", ""));
+    assert!(is_in_namespace("robot1", "/"));
 }

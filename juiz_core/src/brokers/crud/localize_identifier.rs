@@ -92,6 +92,32 @@ mod tests {
     }
 
     #[test]
+    fn localize_identifier_keeps_namespace() {
+        // ネームスペース付きの識別子でも住所の部分だけを見て書き換える (issue #150)
+        assert_eq!(
+            localize_identifier(
+                "http://127.0.0.1:8000/process/robot1/arm/inc0::inc",
+                "http",
+                Some("localhost:8000")
+            ),
+            "core://core/process/robot1/arm/inc0::inc"
+        );
+        assert_eq!(
+            localize_identifier(
+                "qmp://127.0.0.1:5000/container_process/robot1/get0::get:counter0",
+                "qmp",
+                Some("127.0.0.1:5000")
+            ),
+            "core://core/container_process/robot1/get0::get:counter0"
+        );
+        let other = "http://127.0.0.1:8001/process/robot1/inc0::inc";
+        assert_eq!(
+            localize_identifier(other, "http", Some("127.0.0.1:8000")),
+            other
+        );
+    }
+
+    #[test]
     fn localize_identifier_keeps_other_identifiers() {
         let other_port = "http://127.0.0.1:8001/process/inc0::inc";
         assert_eq!(

@@ -2,7 +2,7 @@ use crate::brokers::ExecutionContextBrokerProxy;
 use juiz_sdk::{anyhow::anyhow, log, prelude::*};
 use std::str::FromStr;
 
-use super::CallbackContainerType;
+use super::{CallbackContainerType, NamespaceFilter};
 
 pub(crate) fn create_create_callbacks() -> CallbackContainerType {
     let mut ec_callbacks = CallbackContainerType::new();
@@ -33,7 +33,19 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
             .or_else(|| Some("false".to_owned()))
             .unwrap();
         let recursive: bool = FromStr::from_str(recursive_str.as_str())?;
-        Ok(value_to_capsule(cb.lock()?.ec_list(recursive)?))
+        let filter = NamespaceFilter::from_args(&args)?;
+        let ids = cb.lock()?.ec_list(recursive)?;
+        let ids = get_array(&ids)?
+            .iter()
+            .filter(|v| {
+                // 識別子として読めないものは絞り込むときだけ落とす
+                v.as_str()
+                    .and_then(|id| IdentifierStruct::try_from(id.to_owned()).ok())
+                    .map_or(!filter.is_active(), |id| filter.matches(&id.namespace))
+            })
+            .cloned()
+            .collect::<Vec<Value>>();
+        Ok(value_to_capsule(Value::from(ids)))
     });
     ec_cbs.insert("get_state", |_crud, cb, args| {
         log::debug!("[READ  ] ec/get_state called");
