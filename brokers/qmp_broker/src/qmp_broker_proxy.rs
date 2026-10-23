@@ -49,7 +49,7 @@ pub(crate) fn create_broker_proxy_function(
 //use juiz_core::futures;
 
 #[allow(unused)]
-struct QuicBrokerProxy {
+pub struct QuicBrokerProxy {
     //base_url: String,
     name: String,
     rt: Arc<tokio::runtime::Runtime>,

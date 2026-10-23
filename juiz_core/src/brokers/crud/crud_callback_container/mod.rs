@@ -33,6 +33,37 @@ pub(crate) fn rewrite_to_accessed_broker(
     }
 }
 
+/// list の `namespace` パラメータで絞り込む (issue #150)。
+///
+/// HTTP はクエリ `?namespace=robot1`、QMP などは param の `namespace`。指定したネームスペースとその下が残る。
+/// 無い・空・`/` なら絞り込まない。不正なネームスペースはエラー。
+pub(crate) struct NamespaceFilter(Option<String>);
+
+impl NamespaceFilter {
+    pub(crate) fn from_args(args: &CapsuleMap) -> JuizResult<Self> {
+        let Some(ns) = args.get_param("namespace") else {
+            return Ok(NamespaceFilter(None));
+        };
+        let ns = ns.strip_prefix('/').unwrap_or(ns);
+        if ns.is_empty() {
+            return Ok(NamespaceFilter(None));
+        }
+        juiz_sdk::identifier::validate_namespace(ns)?;
+        Ok(NamespaceFilter(Some(ns.to_owned())))
+    }
+
+    pub(crate) fn is_active(&self) -> bool {
+        self.0.is_some()
+    }
+
+    pub(crate) fn matches(&self, namespace: &str) -> bool {
+        match &self.0 {
+            None => true,
+            Some(filter) => juiz_sdk::identifier::is_in_namespace(namespace, filter),
+        }
+    }
+}
+
 pub type CBFnType = fn(&CRUDBroker, CoreBrokerPtr, CapsuleMap) -> JuizResult<CapsulePtr>;
 pub type CallbackContainerType = HashMap<&'static str, CBFnType>;
 pub type ClassCallbackContainerType = HashMap<&'static str, CallbackContainerType>;
