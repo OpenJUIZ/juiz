@@ -13,6 +13,7 @@ fn digest_identifier_test() {
             identifier: identifier.to_string(),
             class_name: "process".to_string(),
             type_name: "hoge_function".to_string(),
+            namespace: "".to_string(),
             object_name: "hoge_func0".to_string(),
             broker_name: "core".to_string(),
             broker_type_name: "core_broker".to_string()

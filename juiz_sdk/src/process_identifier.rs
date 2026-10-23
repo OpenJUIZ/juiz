@@ -4,6 +4,9 @@ use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    identifier::{
+        join_namespace, namespace_from_manifest, split_namespace, validate_name, validate_namespace,
+    },
     result::{JuizError, JuizResult},
     value::Value,
 };
@@ -12,6 +15,10 @@ use crate::{
 pub struct ProcessIdentifier {
     pub broker_name: String,
     pub broker_type_name: String,
+    /// ネームスペース (`/` 区切り、空ならルート)。ContainerProcess は所属 Container と同じネームスペースに置く
+    #[serde(default)]
+    pub namespace: String,
+    /// ネームスペースを含まない短い名前
     pub name: String,
     pub type_name: String,
     pub class_name: String,
@@ -34,6 +41,7 @@ impl ProcessIdentifier {
             },
             broker_name,
             broker_type_name,
+            namespace: String::new(),
             name,
             type_name,
             container_name: container_name,
@@ -50,6 +58,7 @@ impl ProcessIdentifier {
             class_name: "process".to_owned(),
             broker_name,
             broker_type_name,
+            namespace: String::new(),
             name,
             type_name,
             container_name: None,
@@ -67,12 +76,35 @@ impl ProcessIdentifier {
             class_name: "container_process".to_owned(),
             broker_name,
             broker_type_name,
+            namespace: String::new(),
             name,
             type_name: format!("{}:{}", type_name, container_name),
             container_name: Some(container_name),
         }
     }
 
+    /// ネームスペースを設定する (検査は [`ProcessIdentifier::validate`] で行う)
+    pub fn with_namespace(mut self, namespace: &str) -> Self {
+        self.namespace = namespace.to_owned();
+        self
+    }
+
+    /// ネームスペースを含めた名前 (`<namespace>/<name>`)
+    pub fn full_name(&self) -> String {
+        join_namespace(&self.namespace, &self.name)
+    }
+
+    /// 名前・ネームスペース・所属 Container 名に `/` `:` `|` が無いかを検査する
+    pub fn validate(&self) -> JuizResult<()> {
+        validate_namespace(&self.namespace)?;
+        validate_name(&self.name)?;
+        if let Some(container_name) = &self.container_name {
+            validate_name(container_name)?;
+        }
+        Ok(())
+    }
+
+    /// 文字列 (ID) か manifest から作る。manifest のときは名前とネームスペースを検査する
     pub fn from_value(value: &Value) -> JuizResult<Self> {
         if value.is_string() {
             // もしstringならそれはIdentifier
@@ -111,13 +143,11 @@ impl ProcessIdentifier {
                 .get("container_name")
                 .and_then(|v| v.as_str())
                 .and_then(|s| Some(s.to_owned()));
-            Ok(Self::new(
-                broker_name,
-                broker_type,
-                type_name,
-                container_name,
-                name,
-            ))
+            let namespace = namespace_from_manifest(value)?;
+            let id = Self::new(broker_name, broker_type, type_name, container_name, name)
+                .with_namespace(&namespace);
+            id.validate()?;
+            Ok(id)
         } else {
             Err(anyhow!(JuizError::InvalidValueError {
                 message: format!("Value is not valid ProcessIdentifier.")
@@ -134,7 +164,11 @@ impl Display for ProcessIdentifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!(
             "ProcessIdentifier({}://{}/{}/{}::{}",
-            self.broker_type_name, self.broker_name, self.class_name, self.name, self.type_name
+            self.broker_type_name,
+            self.broker_name,
+            self.class_name,
+            self.full_name(),
+            self.type_name
         ))
     }
 }
@@ -149,7 +183,7 @@ impl TryFrom<&str> for ProcessIdentifier {
                     Some(caps) => {
                         let class_name = caps[3].to_owned();
                         let type_name = caps[5].to_owned();
-                        let name = caps[4].to_owned();
+                        let (namespace, name) = split_namespace(&caps[4]);
                         let broker_name = caps[2].to_owned();
                         let broker_type_name = caps[1].to_owned();
                         match class_name.as_str() {
@@ -158,7 +192,8 @@ impl TryFrom<&str> for ProcessIdentifier {
                                 broker_type_name,
                                 type_name,
                                 name,
-                            )),
+                            )
+                            .with_namespace(&namespace)),
                             "container_process" => {
                                 let tokens = type_name.split(":").collect::<Vec<&str>>();
                                 if tokens.len() != 2 {
@@ -172,7 +207,8 @@ impl TryFrom<&str> for ProcessIdentifier {
                                     container_process_type_name,
                                     container_name,
                                     name,
-                                ))
+                                )
+                                .with_namespace(&namespace))
                             }
                             _ => Err(anyhow!(JuizError::InvalidIdentifierError {
                                 message: format!("Invalid Class Name {class_name}")
@@ -202,16 +238,14 @@ impl TryFrom<String> for ProcessIdentifier {
 
 impl Into<String> for ProcessIdentifier {
     fn into(self) -> String {
-        if self.container_name.is_some() {
-            format!(
-                "{}://{}/{}/{}::{}",
-                self.broker_type_name, self.broker_name, self.class_name, self.name, self.type_name
-            )
-        } else {
-            format!(
-                "{}://{}/{}/{}::{}",
-                self.broker_type_name, self.broker_name, self.class_name, self.name, self.type_name
-            )
-        }
+        // ContainerProcess の型名の後ろの「:Container 名」にはネームスペースを付けない
+        format!(
+            "{}://{}/{}/{}::{}",
+            self.broker_type_name,
+            self.broker_name,
+            self.class_name,
+            self.full_name(),
+            self.type_name
+        )
     }
 }
