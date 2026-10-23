@@ -35,6 +35,7 @@ python-entry = ["juiz_core/python", "dep:pyo3"]
 clap = {workspace = true}
 home = {workspace = true}
 juiz_core = { workspace = true, default-features = false }
+juiz_sdk = { workspace = true }
 juiz_qmp_broker = { workspace = true, optional = true }
 pyo3 = { workspace = true, optional = true }
 
