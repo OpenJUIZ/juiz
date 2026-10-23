@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, type MouseEvent, type ReactNode } from "react";
 import { MARK_CLASS } from "../marks.ts";
-import { categoryKey, type Element, type Model, type SystemModel } from "../model.ts";
+import { categoryKey, joinNamespace, splitNamespace, type Element, type Model, type SystemModel } from "../model.ts";
 import type { TermKey } from "../terms.ts";
 import { connectionTypeLabel, ecStateLabel } from "../labels.ts";
 import { Term } from "./Term.tsx";
@@ -155,16 +155,78 @@ function Category({
       </div>
       {open && items.length > 0 && (
         <ul role="group">
-          {items.map((e) =>
-            children ? (
-              <Fragment key={e.key}>{children(e)}</Fragment>
-            ) : (
-              <TreeNode {...p} key={e.key} element={e} label={e.name} sub={e.typeName} />
-            ),
-          )}
+          <NamespaceGroup {...p} parentKey={k} namespace="" items={items}>
+            {(e) =>
+              children ? (
+                <Fragment key={e.key}>{children(e)}</Fragment>
+              ) : (
+                <TreeNode {...p} key={e.key} element={e} label={e.name} sub={e.typeName} />
+              )
+            }
+          </NamespaceGroup>
         </ul>
       )}
     </li>
+  );
+}
+
+/**
+ * ネームスペースをフォルダとして並べる。namespace の直下の要素はそのまま、
+ * その下のネームスペースは 1 段ずつフォルダにする(robot1/arm なら robot1 の中に arm)。
+ * ネームスペースを使っていなければ、要素をそのまま並べる。
+ */
+function NamespaceGroup({
+  parentKey,
+  namespace,
+  items,
+  children,
+  ...p
+}: NodeProps & {
+  parentKey: string;
+  namespace: string;
+  items: Element[];
+  children: (e: Element) => ReactNode;
+}) {
+  const direct: Element[] = [];
+  const folders = new Map<string, Element[]>();
+  for (const e of items) {
+    if (e.namespace === namespace) {
+      direct.push(e);
+      continue;
+    }
+    const rest = namespace ? e.namespace.slice(namespace.length + 1) : e.namespace;
+    const child = joinNamespace(namespace, rest.split("/")[0] ?? rest);
+    folders.set(child, [...(folders.get(child) ?? []), e]);
+  }
+  return (
+    <>
+      {[...folders.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([ns, list]) => {
+          const key = `${parentKey}@${ns}`;
+          const open = !p.collapsed.has(key);
+          return (
+            <li key={key} role="treeitem" aria-expanded={open}>
+              <div className="row namespace" title={`ネームスペース ${ns}`}>
+                <Twisty open={open} hidden={false} onClick={() => p.onToggle(key)} />
+                <span className="mark namespace" />
+                <span className="label" onClick={() => p.onToggle(key)}>
+                  {splitNamespace(ns)[1]}
+                </span>
+                <span className="count">{list.length}</span>
+              </div>
+              {open && (
+                <ul role="group">
+                  <NamespaceGroup {...p} parentKey={parentKey} namespace={ns} items={list}>
+                    {children}
+                  </NamespaceGroup>
+                </ul>
+              )}
+            </li>
+          );
+        })}
+      {direct.map(children)}
+    </>
   );
 }
 

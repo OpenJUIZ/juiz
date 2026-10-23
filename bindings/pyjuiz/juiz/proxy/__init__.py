@@ -1,3 +1,4 @@
+import re
 import httpx
 import json, io
 from PIL import Image
@@ -10,6 +11,7 @@ class ForbiddenError(Exception): pass
 class NotFoundError(Exception): pass
 class RequestTimeoutError(Exception): pass
 class InternalServerError(Exception): pass
+class AmbiguousNameError(Exception): pass
 
 
 error_code_and_ex={
@@ -154,9 +156,13 @@ class SystemProxy():
             "name": name,
             "use_memo": use_memo})
         
-    def processes(self):
-        ps = self.crud.read('process', 'list')
-        self._processes = [ProcessProxy.new(self, to_identifier(pid, 'process')) for pid in ps]
+    def _list(self, class_name, namespace=None):
+        # namespace を渡すと、そのネームスペースとその下だけを返す (list API の namespace クエリ)
+        params = {} if namespace is None else {'namespace': namespace}
+        return [to_identifier(i, class_name) for i in self.crud.read(class_name, 'list', params)]
+
+    def processes(self, namespace=None):
+        self._processes = [ProcessProxy.new(self, pid) for pid in self._list('process', namespace)]
         return self._processes.copy()
 
     def process(self, id):
@@ -167,9 +173,8 @@ class SystemProxy():
                 return ProcessProxy.new(self, pid)
         return None            
         
-    def containers(self, update=False):
-        ps = self.crud.read('container', 'list')
-        self._containers = [ContainerProxy.new(self, to_identifier(pid, 'container')) for pid in ps]
+    def containers(self, update=False, namespace=None):
+        self._containers = [ContainerProxy.new(self, cid) for cid in self._list('container', namespace)]
         return self._containers
 
     def container(self, id):
@@ -180,10 +185,11 @@ class SystemProxy():
                 return ContainerProxy.new(self, pid)
         return None            
     
-    def container_processes(self, update=False):
+    def container_processes(self, update=False, namespace=None):
+        if namespace is not None:
+            return [ContainerProcessProxy(self, p) for p in self._list('container_process', namespace)]
         if self._container_processes is None or update:
-            ps = self.crud.read('container_process','list')
-            self._container_processes = [ContainerProcessProxy(self, to_identifier(p, 'container_process')) for p in ps]
+            self._container_processes = [ContainerProcessProxy(self, p) for p in self._list('container_process')]
         return self._container_processes
 
     
@@ -195,6 +201,7 @@ class ObjectProxy(object):
         self._cn = class_name
         self._profile = None
         self._name = id_to_name(identifier) if identifier is not None else None
+        self._namespace = None
         self._type_name = None
         
     def profile_full(self, update=False):
@@ -210,6 +217,16 @@ class ObjectProxy(object):
             self._name = id_to_name(self._id)
         return self._name
     
+    def namespace(self):
+        """ネームスペース (ルートなら空文字列)"""
+        if self._namespace is None:
+            self._namespace = id_to_namespace(self._id)
+        return self._namespace
+
+    def full_name(self):
+        """ネームスペースを含めた名前 (<namespace>/<name>)"""
+        return join_namespace(self.namespace(), self.name())
+
     def type_name(self):
         if self._type_name is None:
             self._type_name = id_to_type_name(self._id)
@@ -219,19 +236,43 @@ class ObjectProxy(object):
     def destroy(self):
         return self._system_proxy.delete('/api/' + self._class_name + '/destroy?identifier=' + self._identifier)
 
+def _find_by_name(objs, name, namespace=None):
+    """名前で探す。
+
+    - namespace を渡すと、そのネームスペースの name だけを探す ('/' か '' でルート)。
+    - name が 'robot1/inc0' のように / を含めば、ネームスペースを含めた名前として探す。
+    - どちらでもなければ、ルートの name を優先し、無ければネームスペースを問わず探す。
+      複数のネームスペースに同じ名前があれば AmbiguousNameError。
+    見つからなければ None。
+    """
+    if namespace is not None or '/' in name:
+        ns = (namespace or '').strip('/')
+        full_name = join_namespace(ns, name).lstrip('/')
+        return next((o for o in objs if o.full_name() == full_name), None)
+    found = [o for o in objs if o.name() == name]
+    root = [o for o in found if o.namespace() == '']
+    if root:
+        return root[0]
+    if len(found) > 1:
+        raise AmbiguousNameError(
+            f'"{name}" exists in several namespaces: {sorted(o.full_name() for o in found)}. '
+            'Pass namespace= or a name like "<namespace>/<name>".')
+    return found[0] if found else None
+
+
 class ProcessProxy(ObjectProxy):
-    def __init__(self, name, host, port, protocol='http'):
+    def __init__(self, name, host, port, protocol='http', namespace=None):
         if protocol is None:
             super().__init__(None, 'process', None)
             self._name = name
         elif protocol == 'http':
             super().__init__(SystemProxy(HttpProxy(host,port)), 'process', None)
             self._name = None
-            for p in self.system.processes():
-                if p.name() == name:
-                    self._id = p.identifier()
-                    return
-            raise NotFoundError(f'process "{name}" not found in http://{host}:{port}')
+            p = _find_by_name(self.system.processes(), name, namespace)
+            if p is not None:
+                self._id = p.identifier()
+                return
+            raise NotFoundError(f'process "{join_namespace(namespace or "", name)}" not found in http://{host}:{port}')
             
     def __repr__(self):
         return f'ProcessProxy("{self.identifier()}")'
@@ -275,7 +316,7 @@ class ProcessProxy(ObjectProxy):
 
 class ContainerProxy(ObjectProxy):
         
-    def __init__(self, name, host, port, protocol='http'):
+    def __init__(self, name, host, port, protocol='http', namespace=None):
         if protocol is None:
             super().__init__(None, 'container', None)
             self._name = name
@@ -284,15 +325,16 @@ class ContainerProxy(ObjectProxy):
             self._name = None
             cs = self.system.containers()
             # 名前で探し、見つからなければ従来どおり型名で探す
-            for c in cs:
-                if c.name() == name:
-                    self._id = c.identifier()
-                    return
-            for c in cs:
-                if c.type_name() == name:
-                    self._id = c.identifier()
-                    return
-            raise NotFoundError(f'container "{name}" not found in http://{host}:{port}')
+            c = _find_by_name(cs, name, namespace)
+            if c is not None:
+                self._id = c.identifier()
+                return
+            if namespace is None:
+                for c in cs:
+                    if c.type_name() == name:
+                        self._id = c.identifier()
+                        return
+            raise NotFoundError(f'container "{join_namespace(namespace or "", name)}" not found in http://{host}:{port}')
                 
     @classmethod
     def new(cls, system_proxy, identifier):
@@ -307,10 +349,12 @@ class ContainerProxy(ObjectProxy):
     def processes(self):
         # Container の profile_full の processes は空のことがあるので、
         # container_process/list からこの Container に属するものを選ぶ
+        # ContainerProcess は所属 Container と同じネームスペースに置かれる
         ps = self.system.crud.read('container_process', 'list')
         return [ContainerProcessProxy(self.system, to_identifier(p, 'container_process'))
                 for p in ps
-                if isinstance(p, dict) and p.get('container_name') == self.name()]
+                if isinstance(p, dict) and p.get('container_name') == self.name()
+                and (p.get('namespace') or '') == self.namespace()]
         
     def process(self, id):
         for p in self.processes():
@@ -372,34 +416,66 @@ class ContainerProcessProxy(ObjectProxy):
 
 class IdentifierStruct(object):
 
-    def __init__(self, broker_type, broker_name, class_name, type_name, name):
+    def __init__(self, broker_type, broker_name, class_name, type_name, name, namespace=''):
         self.broker_type = broker_type
         self.broker_name = broker_name
         self.class_name = class_name
         self.type_name = type_name
+        self.namespace = namespace
         self.name = name
 
     @classmethod
-    def fromIdentifier(self, id):
-        s, type_name = id.split('::')
-        broker_type, s2 = s.split('://')
-        broker_name, class_name, name = s2.split('/')
-        return IdentifierStruct(broker_type, broker_name, class_name, type_name, name)
+    def fromIdentifier(cls, id):
+        m = _IDENTIFIER_REGEX.match(id)
+        if m is None:
+            raise ValueError(f'invalid identifier: {id!r}')
+        broker_type, broker_name, class_name, full_name, type_name = m.groups()
+        namespace, name = split_namespace(full_name)
+        return IdentifierStruct(broker_type, broker_name, class_name, type_name, name, namespace)
+
+    def full_name(self):
+        """ネームスペースを含めた名前 (<namespace>/<name>)"""
+        return join_namespace(self.namespace, self.name)
 
     def to_id(self):
-        return f'{self.broker_type}://{self.broker_name}/{self.class_name}/{self.name}::{self.type_name}'
+        return f'{self.broker_type}://{self.broker_name}/{self.class_name}/{self.full_name()}::{self.type_name}'
 
     def __repr__(self):
-        return f'IdentifierStruct(broker_type="{self.broker_type}",broker_name="{self.broker_name}",class_name="{self.class_name}",type_name="{self.type_name}",name="{self.name}")'
+        return f'IdentifierStruct(broker_type="{self.broker_type}",broker_name="{self.broker_name}",class_name="{self.class_name}",type_name="{self.type_name}",namespace="{self.namespace}",name="{self.name}")'
+
+
+# <broker_type>://<broker_name>/<class>/<namespace>/<name>::<type> (juiz_sdk の OBJECT_IDENTIFIER_REGEX と同じ)。
+# ネームスペースは / 区切りの階層で、空ならルート (<class>/<name>)。
+# ContainerProcess の型名は "型:所属 Container 名" なので、型名には : が入る。
+_IDENTIFIER_REGEX = re.compile(r'^(.+?)://(.+?)/(.+?)/(.+?)::(.+?)$')
+
+
+def split_namespace(path: str):
+    """'robot1/arm/inc0' を ('robot1/arm', 'inc0') に分ける。/ が無ければネームスペースは空 (ルート)。"""
+    namespace, sep, name = path.rpartition('/')
+    return (namespace, name) if sep else ('', path)
+
+
+def join_namespace(namespace: str, name: str):
+    """ネームスペースと名前をつなぐ。ネームスペースが空なら名前だけ。"""
+    return f'{namespace}/{name}' if namespace else name
+
+
+def is_in_namespace(namespace: str, filter: str):
+    """namespace が filter と同じか、その下 (<filter>/...) にあれば True。filter が空か '/' ならすべて True。"""
+    filter = filter[1:] if filter.startswith('/') else filter
+    return (not filter
+            or namespace == filter
+            or namespace.startswith(filter + '/'))
 
 
 def to_identifier(value, class_name=None):
     """list API の各要素を識別子の文字列にする。
 
     /api/process/list などは各要素を
-    {"broker_type_name": ..., "broker_name": ..., "class_name": ..., "name": ..., "type_name": ...}
-    のオブジェクトで返すので、broker_type_name://broker_name/class_name/name::type_name に組み立てる。
-    文字列ならそのまま返す。
+    {"broker_type_name": ..., "broker_name": ..., "class_name": ..., "namespace": ..., "name": ..., "type_name": ...}
+    のオブジェクトで返すので、broker_type_name://broker_name/class_name/namespace/name::type_name に組み立てる
+    (namespace が空ならルートで、/namespace は付かない)。文字列ならそのまま返す。
     """
     if isinstance(value, str):
         return value
@@ -409,29 +485,33 @@ def to_identifier(value, class_name=None):
         broker_type = value.get('broker_type_name') or 'core'
         broker_name = value.get('broker_name') or 'core'
         cn = value.get('class_name') or class_name
-        return f"{broker_type}://{broker_name}/{cn}/{value['name']}::{value['type_name']}"
+        full_name = join_namespace(value.get('namespace') or '', value['name'])
+        return f"{broker_type}://{broker_name}/{cn}/{full_name}::{value['type_name']}"
     raise TypeError(f'invalid identifier: {value!r}')
 
 
+def _parse(id):
+    return IdentifierStruct.fromIdentifier(to_identifier(id))
+
+
 def id_to_name(id: str):
-    id = to_identifier(id)
-    if id.find('://') > 0: # 通常IDフォーマット。プロトコルあり
-        # print('id=', id)
-        broker_type, id_body = id.split('://')
-        broker_name, class_name, name_and_type = id_body.split('/')
-        name, type_name = name_and_type.split('::')
-        return name
-    
+    """ID からネームスペースを含まない短い名前を取り出す"""
+    return _parse(id).name
+
+
+def id_to_namespace(id: str):
+    """ID からネームスペースを取り出す (ルートなら空文字列)"""
+    return _parse(id).namespace
+
+
+def id_to_full_name(id: str):
+    """ID からネームスペースを含めた名前 (<namespace>/<name>) を取り出す"""
+    return _parse(id).full_name()
+
 
 def id_to_type_name(id: str):
-    id = to_identifier(id)
-    if id.find('://') > 0: # 通常IDフォーマット。プロトコルあり
-        # print('id=', id)
-        broker_type, id_body = id.split('://')
-        broker_name, class_name, name_and_type = id_body.split('/')
-        name, type_name = name_and_type.split('::')
-        return type_name
+    return _parse(id).type_name
 
 if __name__ == '__main__':
-    i = 'core://core/process/hoge_process_name0::hoge_process'
-    print(id_to_name(i))
+    i = 'core://core/process/robot1/hoge_process_name0::hoge_process'
+    print(id_to_namespace(i), id_to_name(i))

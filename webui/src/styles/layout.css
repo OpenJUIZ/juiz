@@ -116,6 +116,12 @@
   color: var(--text-dim);
 }
 
+.tree .row.namespace .label {
+  cursor: pointer;
+  color: var(--kind-system);
+  font-family: var(--font-mono);
+}
+
 .tree .twisty {
   display: inline-block;
   width: 1em;
@@ -192,6 +198,13 @@
 .mark.system,
 .mark.other {
   color: var(--kind-system);
+}
+
+/* ネームスペースのフォルダ。中身の種類と区別できるよう、点線の枠で光らせない */
+.mark.namespace {
+  color: var(--text-dim);
+  border-style: dashed;
+  box-shadow: none;
 }
 
 .ec-state {

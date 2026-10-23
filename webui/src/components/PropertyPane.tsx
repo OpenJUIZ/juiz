@@ -4,6 +4,7 @@ import { MARK_CLASS } from "../marks.ts";
 import { connectionTypeLabel, ecStateLabel, formatValue } from "../labels.ts";
 import {
   descriptionText,
+  refName,
   type BrokerElement,
   type ConnectionElement,
   type ContainerElement,
@@ -54,7 +55,7 @@ export function PropertyPane({ model, selectedKey, onSelect }: Props) {
             <span className="kind">
               <Term k={element.kind === "system" && element.key !== model.root.key ? "subsystem" : KIND_TERM[element.kind]} />
             </span>
-            <div className="name">{element.name}</div>
+            <div className="name">{element.fullName}</div>
           </div>
           <Body element={element} model={model} onSelect={onSelect} />
         </div>
@@ -146,7 +147,7 @@ function ElementLink({
   return (
     <button type="button" className="elem-link" onClick={() => onSelect(e.key)} title={e.identifier}>
       <span className={`mark ${MARK_CLASS[e.kind]}`} />
-      {e.name}
+      {e.fullName}
     </button>
   );
 }
@@ -165,6 +166,11 @@ function Description({ text }: { text: string }) {
   return text ? <span className="description">{text}</span> : null;
 }
 
+/** ネームスペースの欄。ルートはそう書く */
+function Namespace({ element: e }: { element: Element }) {
+  return e.namespace ? <Mono>{e.namespace}</Mono> : <span className="dim">ルート</span>;
+}
+
 function YesNo({ v }: { v: boolean | undefined }) {
   return v === undefined ? null : <>{v ? "する" : "しない"}</>;
 }
@@ -173,7 +179,7 @@ function YesNo({ v }: { v: boolean | undefined }) {
 function topicKey(model: Model, systemKey: string, name: string): string | null {
   const sys = model.elements.get(systemKey);
   if (sys?.kind !== "system") return null;
-  return sys.topics.find((t) => t.name === name)?.key ?? null;
+  return sys.topics.find((t) => t.fullName === name)?.key ?? null;
 }
 
 function ArgumentTable({
@@ -226,6 +232,7 @@ function ProcessBody({ element: e, model, onSelect }: BodyProps<ProcessElement>)
         <Fields
           rows={[
             ["型", <Mono>{e.typeName}</Mono>],
+            [<Term k="namespace" />, <Namespace element={e} />],
             ["識別子", <Mono>{e.identifier}</Mono>],
             ["説明", <Description text={descriptionText(p.description)} />],
             ["言語", p.language],
@@ -274,7 +281,7 @@ function ProcessBody({ element: e, model, onSelect }: BodyProps<ProcessElement>)
             {e.inputs.map((c) => (
               <span key={c.key}>
                 <Mono>{c.profile.arg_name}</Mono> ←{" "}
-                <ElementLink model={model} elementKey={c.sourceKey} fallback={c.profile.source_process_id.name} onSelect={onSelect} />{" "}
+                <ElementLink model={model} elementKey={c.sourceKey} fallback={refName(c.profile.source_process_id)} onSelect={onSelect} />{" "}
                 <ConnTypeLink c={c} onSelect={onSelect} />
               </span>
             ))}
@@ -292,7 +299,7 @@ function ProcessBody({ element: e, model, onSelect }: BodyProps<ProcessElement>)
                 <ElementLink
                   model={model}
                   elementKey={c.destinationKey}
-                  fallback={c.profile.destination_process_id.name}
+                  fallback={refName(c.profile.destination_process_id)}
                   onSelect={onSelect}
                 />
                 .<Mono>{c.profile.arg_name}</Mono> <ConnTypeLink c={c} onSelect={onSelect} />
@@ -368,6 +375,7 @@ function ContainerBody({ element: e, model, onSelect }: BodyProps<ContainerEleme
         <Fields
           rows={[
             ["型", <Mono>{e.typeName}</Mono>],
+            [<Term k="namespace" />, <Namespace element={e} />],
             ["識別子", <Mono>{e.identifier}</Mono>],
             ["説明", <Description text={descriptionText(p.description)} />],
             ["言語", p.language],
@@ -409,6 +417,7 @@ function EcBody({ element: e, model, onSelect }: BodyProps<EcElement>) {
         <Fields
           rows={[
             ["型", <Mono>{e.typeName}</Mono>],
+            [<Term k="namespace" />, <Namespace element={e} />],
             ["識別子", <Mono>{e.identifier}</Mono>],
             ["状態", <EcState ec={e} />],
             ["周期", p.rate === undefined ? null : <>{p.rate} Hz</>],
@@ -422,7 +431,7 @@ function EcBody({ element: e, model, onSelect }: BodyProps<EcElement>) {
         ) : (
           <LinkList>
             {e.targets.map((t, i) => (
-              <ElementLink key={i} model={model} elementKey={t.key} fallback={t.ref.name} onSelect={onSelect} />
+              <ElementLink key={i} model={model} elementKey={t.key} fallback={refName(t.ref)} onSelect={onSelect} />
             ))}
           </LinkList>
         )}
@@ -438,8 +447,8 @@ function ConnectionBody({ element: e, model, onSelect }: BodyProps<ConnectionEle
       <Fields
         rows={[
           ["種類", <>{connectionTypeLabel(p.connection_type)} <span className="term-en">{p.connection_type}</span></>],
-          ["送り元", <ElementLink model={model} elementKey={e.sourceKey} fallback={p.source_process_id.name} onSelect={onSelect} />],
-          ["送り先", <ElementLink model={model} elementKey={e.destinationKey} fallback={p.destination_process_id.name} onSelect={onSelect} />],
+          ["送り元", <ElementLink model={model} elementKey={e.sourceKey} fallback={refName(p.source_process_id)} onSelect={onSelect} />],
+          ["送り先", <ElementLink model={model} elementKey={e.destinationKey} fallback={refName(p.destination_process_id)} onSelect={onSelect} />],
           ["引数", <Mono>{p.arg_name}</Mono>],
           ["識別子", <Mono>{e.identifier}</Mono>],
         ]}
@@ -451,6 +460,14 @@ function ConnectionBody({ element: e, model, onSelect }: BodyProps<ConnectionEle
 function TopicBody({ element: e, model, onSelect }: BodyProps<TopicElement>) {
   return (
     <>
+      <Section title="基本">
+        <Fields
+          rows={[
+            [<Term k="namespace" />, <Namespace element={e} />],
+            ["識別子", <Mono>{e.identifier}</Mono>],
+          ]}
+        />
+      </Section>
       <Section title="発行する処理">
         {e.publishers.length === 0 ? (
           <Empty>なし</Empty>
