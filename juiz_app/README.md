@@ -35,3 +35,33 @@ juiz --process target/debug/libtalker.dylib -l cpp -d -1
 
 
 #### yamlファイルを使ったプロジェクトの記述とロード
+
+#### ネームスペースを指定して起動する
+
+`--namespace` で設定ファイルのトップレベル `namespace`(System の既定ネームスペース)を置き換えて起動できる。
+同じ設定ファイルを別のネームスペースで 2 つ起動すれば、同じ名前の Process を並べて動かせる。
+2 つ目は 1 つ目と同じポートを指定しているので、1 つ目のサブシステムになり次のポートで待ち受ける。
+
+```
+juiz -f robot.conf --namespace robot1 -d
+juiz -f robot.conf --namespace robot2 -d
+```
+
+`/` を指定するとルートになる。名前に `:` `|` を含むネームスペースや空の要素(`robot1//arm`)はエラーになる。
+
+#### 一覧の絞り込みと表示
+
+`process list` / `container list` / `container-process list` / `ec list` は `--namespace` で、
+そのネームスペースとその下のオブジェクトだけに絞り込める。`--long` でネームスペース・名前・型の列を付けた表になる。
+
+```
+$ juiz process list --namespace robot2 --long
+NAMESPACE  NAME  TYPE               ID
+/robot2    inc0  increment_process  http://127.0.0.1:8001/process/robot2/inc0::increment_process
+```
+
+ネームスペース付きの ID はそのまま `process call` などに渡せる。
+
+```
+juiz process call http://127.0.0.1:8001/process/robot2/inc0::increment_process '{"arg1": 1}' -p
+```

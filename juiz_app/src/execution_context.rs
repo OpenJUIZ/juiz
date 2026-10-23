@@ -1,3 +1,4 @@
+use juiz_core::anyhow::anyhow;
 use juiz_core::log;
 use juiz_core::prelude::juiz_lock;
 use juiz_core::utils::yaml_conf_load;
@@ -6,6 +7,7 @@ use std::path::Path;
 use clap::Subcommand;
 use juiz_core::prelude::*;
 
+use crate::namespace::{format_list, ListEntry};
 use crate::Args;
 
 #[derive(Debug, Subcommand, Clone)]
@@ -19,6 +21,15 @@ pub(crate) enum EcSubCommands {
             help = "Input system definition file path"
         )]
         filepath: String,
+
+        #[arg(
+            long = "namespace",
+            help = "List only objects in this namespace and below (ex., robot1)"
+        )]
+        namespace: Option<String>,
+
+        #[arg(long = "long", help = "Show namespace, name and type columns")]
+        long: bool,
     },
 
     #[clap(arg_required_else_help = false)]
@@ -68,7 +79,11 @@ pub(crate) fn on_ec_inner(
     args: Args,
 ) -> JuizResult<()> {
     match subcommand {
-        EcSubCommands::List { filepath } => {
+        EcSubCommands::List {
+            filepath,
+            namespace,
+            long,
+        } => {
             log::trace!("ec list command is selected.");
             let manifest2 = yaml_conf_load(filepath.clone())?;
             let server = args.server;
@@ -78,7 +93,7 @@ pub(crate) fn on_ec_inner(
                 .start_http_broker(args.start_http_broker)
                 .setup()?
                 .add_systemproxy_by_id(Some(server.clone()))?
-                .run_and_do_once(|system| on_ec_list(system, Some(server), recursive))
+                .run_and_do_once(|system| on_ec_list(system, recursive, namespace, long))
         }
 
         EcSubCommands::Start {
@@ -113,14 +128,24 @@ pub(crate) fn on_ec_inner(
     }
 }
 
-fn on_ec_list(system: &mut System, _server: Option<String>, recursive: bool) -> JuizResult<()> {
+fn on_ec_list(
+    system: &mut System,
+    recursive: bool,
+    namespace: Option<String>,
+    long: bool,
+) -> JuizResult<()> {
     log::info!("on_ec_list() called");
-    let ec_manifests: Vec<Value> = system.ec_list(recursive)?;
-    let mut ids: Vec<String> = Vec::new();
-    for v in ec_manifests.iter() {
-        ids.push(v.as_str().unwrap().to_owned());
+    let ec_ids: Vec<Value> = system.ec_list(recursive)?;
+    let mut entries: Vec<ListEntry> = Vec::new();
+    for v in ec_ids.iter() {
+        let id = v.as_str().ok_or_else(|| {
+            anyhow!(JuizError::InvalidValueError {
+                message: format!("execution context identifier must be a string, but {v}"),
+            })
+        })?;
+        entries.push(id.try_into()?);
     }
-    println!("{ids:?}");
+    println!("{}", format_list(entries, namespace.as_deref(), long)?);
     Ok(())
 }
 

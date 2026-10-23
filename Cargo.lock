@@ -1529,6 +1529,7 @@ dependencies = [
  "home",
  "juiz_core",
  "juiz_qmp_broker",
+ "juiz_sdk",
  "predicates",
  "pyo3",
 ]
