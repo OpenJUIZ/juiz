@@ -22,6 +22,25 @@ if [[ ! -e "$sdk_dir/libjuiz_sdk.$ext" ]]; then
 fi
 
 cd "$here"
+# macOS では、GHC がリンクのときに Command Line Tools の SDK (/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk)
+# を -L で渡す。選ばれている Xcode より Command Line Tools の SDK の版が新しいと、Xcode のリンカがその SDK の
+# .tbd を読めずにリンクが失敗する (tapi error: unknown architecture、issue #143)。
+# そのときは DEVELOPER_DIR で Command Line Tools のリンカと SDK を使う。DEVELOPER_DIR を指定済みなら何もしない
+if [[ "$(uname -s)" == Darwin && -z "${DEVELOPER_DIR:-}" ]]; then
+    clt_dir=/Library/Developer/CommandLineTools
+    selected_dir="$(xcode-select -p 2>/dev/null || true)"
+    if [[ -d "$clt_dir/SDKs/MacOSX.sdk" && "$selected_dir" != "$clt_dir" ]]; then
+        clt_sdk="$(basename "$(cd "$clt_dir/SDKs/MacOSX.sdk" && pwd -P)" .sdk)"
+        clt_sdk="${clt_sdk#MacOSX}"
+        selected_sdk="$(xcrun --sdk macosx --show-sdk-version 2>/dev/null || true)"
+        if [[ "${clt_sdk%%.*}" =~ ^[0-9]+$ && "${selected_sdk%%.*}" =~ ^[0-9]+$ \
+            && "${clt_sdk%%.*}" -gt "${selected_sdk%%.*}" ]]; then
+            echo "Command Line Tools の SDK ($clt_sdk) が $selected_dir の SDK ($selected_sdk) より新しいので、"
+            echo "DEVELOPER_DIR=$clt_dir でビルドします (issue #143)"
+            export DEVELOPER_DIR="$clt_dir"
+        fi
+    fi
+fi
 # libjuiz_sdk はビルドしたディレクトリから読み込めるよう rpath を入れる (C++ の例の cmake と同じ)
 cabal build all \
     --extra-lib-dirs="$sdk_dir" \

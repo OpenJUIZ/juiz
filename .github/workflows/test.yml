@@ -75,6 +75,56 @@ jobs:
       - name: Test python-entry
         run: scripts/test.sh -p juiz_app --features python-entry --test python_entry_test
 
+  # macOS での Haskell のプラグインのビルドとテスト(issue #143)。macos-latest は Xcode 26 に
+  # Command Line Tools 27 (MacOSX27.0.sdk) が入っていて、GHC のリンクでその SDK を読む組み合わせを確かめる。
+  # examples/haskell/build.sh が DEVELOPER_DIR を切り替える。Haskell 以外のテストは Linux のジョブで確かめる。
+  haskell-macos:
+    name: Haskell plugin test (macOS)
+    runs-on: macos-latest
+    env:
+      # macOS の python3 は新しすぎて PyO3 が対応していないので、setup-python の 3.13 を使う(issue #100)
+      PYO3_PYTHON: python3.13
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install pyjuiz dependencies (used by the embedded Python)
+        run: python3.13 -m pip install pyyaml httpx pillow docstring_parser
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: "9.6"
+          cabal-version: latest
+
+      - name: Build libjuiz_sdk
+        run: cargo build -p juiz_sdk
+
+      # haskell_container_test は C++ の Container (example_container_cpp) も読み込む
+      - name: Build C++ examples
+        run: |
+          cmake -S examples/cpp -B examples/cpp/build -DCMAKE_BUILD_TYPE=Debug
+          cmake --build examples/cpp/build --config Debug --parallel
+
+      - name: Build Haskell examples
+        run: examples/haskell/build.sh
+
+      - name: Test
+        env:
+          PYTHONPATH: ${{ github.workspace }}/bindings/pyjuiz
+          # Haskell の例が無いときにテストを飛ばさない
+          JUIZ_REQUIRE_HASKELL: "1"
+        run: >-
+          cargo test -p juiz_core --no-fail-fast
+          --test haskell_plugin_test --test haskell_container_test --test haskell_component_test
+          -- --test-threads=1
+
   # OpenCV を使うコンポーネント(examples/rust/component/juiz_opencv)のビルドとテスト。
   # opencv クレートはビルド時に libclang でシステムの OpenCV のヘッダからバインディングを生成するので、
   # libopencv-dev と libclang-dev を入れる。通常のテストと独立させ、失敗しても他のジョブに影響しない。
