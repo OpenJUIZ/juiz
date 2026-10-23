@@ -251,7 +251,38 @@ foreign-library increment_process_hs
     ghc-options:      -threaded
 ```
 
-libjuiz_sdk(juiz のリポジトリで `cargo build` すると `target/debug` にできる)の場所を `--extra-lib-dirs` で渡します。
+### libjuiz_sdk と hsjuiz を用意する
+
+hsjuiz は [Hackage](https://hackage.haskell.org/package/hsjuiz) で公開しています。ビルドには、使う `juiz` と **同じ版** の
+libjuiz_sdk が必要です。版の違う libjuiz_sdk でビルドしたライブラリは、juiz が読み込むときにエラーにします。
+
+libjuiz_sdk は [GitHub Releases](https://github.com/OpenJUIZ/juiz/releases) に OS・CPU ごとのアーカイブ
+(`juiz_sdk-<版>-<ターゲット名>.tar.gz`、Linux x86_64・aarch64 と macOS arm64・x86_64)を置いています。
+`scripts/install-juiz-sdk.sh` で取得して `~/.juiz/sdk/<版>` に展開できます。
+
+```terminal
+curl -fsSL https://raw.githubusercontent.com/OpenJUIZ/juiz/main/scripts/install-juiz-sdk.sh | sh -s -- 0.0.22
+```
+
+自分のパッケージの `cabal.project` で、hsjuiz に libjuiz_sdk の場所を渡します。`ghc-options` の rpath は、
+Template Haskell(`juizProcess` など)を実行するときに GHC が hsjuiz を読み込むのに必要です。
+できたライブラリにも libjuiz_sdk の場所が rpath として入ります。
+
+```cabal
+packages: .
+
+package hsjuiz
+  extra-lib-dirs: /home/me/.juiz/sdk/0.0.22/lib
+  ghc-options: -optl-Wl,-rpath,/home/me/.juiz/sdk/0.0.22/lib
+```
+
+```terminal
+cabal update
+cabal build all
+```
+
+juiz のリポジトリの中で(Hackage を使わずに)ビルドするときは、`cargo build` でできる `target/debug` の libjuiz_sdk を
+`--extra-lib-dirs` で渡します(`examples/haskell/build.sh` がこの方法です)。
 
 ```terminal
 cabal build all --extra-lib-dirs=<juiz>/target/debug --ghc-options="-optl-Wl,-rpath,<juiz>/target/debug"

@@ -23,6 +23,12 @@ pub enum JuizError {
         host_build_info: String,
         host_juiz_sdk: String,
     },
+    #[error("Plugin({plugin_path:}) uses libjuiz_sdk {plugin_juiz_sdk:}, but this juiz uses juiz_sdk {host_juiz_sdk:}. C++ / Haskell plugins pass values through libjuiz_sdk, so it must be the same version as juiz. Rebuild the plugin with libjuiz_sdk {host_juiz_sdk:} (juiz_sdk-{host_juiz_sdk:}-<target>.tar.gz on https://github.com/OpenJUIZ/juiz/releases, or `cargo build -p juiz_sdk` in juiz {host_juiz_sdk:}), or use juiz {plugin_juiz_sdk:}.")]
+    CAbiPluginSdkVersionMismatchError {
+        plugin_path: String,
+        plugin_juiz_sdk: String,
+        host_juiz_sdk: String,
+    },
     #[error("Plugin({plugin_path:}) tried to load symbol({symbol_name:}) but failed.")]
     PluginLoadSymbolFailedError {
         plugin_path: String,
