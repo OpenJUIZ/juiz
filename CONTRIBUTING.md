@@ -152,6 +152,13 @@ HTTP ブローカーの 8000 番ポートはホストに転送されるので、
 | `examples` | Rust / C++ / Python のサンプル |
 | `juiz_tutorial` | チュートリアル |
 | `webui` | ブラウザで系を確認する管理画面 (TypeScript + React)。[webui/README.md](webui/README.md) |
+| `docs/spec` | 実装の基準にする仕様書 (下の「仕様書」) |
+
+## 仕様書
+
+複数の Step に分けて実装する機能は、最初に仕様を `docs/spec/` に書き、各 Step の実装はそれに従います。実装で仕様を変えるときは、同じ PR で仕様書も直します。
+
+- [Composition(Composite Process / CompositeContainerProcess)](docs/spec/composition.md)(issue #164)
 
 ## ライセンス
 
