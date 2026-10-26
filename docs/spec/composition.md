@@ -195,6 +195,9 @@ processes:
 - 参照先はこの juiz プロセスの Container でなければならない(副系の Container は使えない)。見つからなければエラー。
 - `processes` に書いた CompositeContainerProcess を作るとき、その Composite が宣言したスロットがすべて `slots` にあり、参照先の Container の `type_name` が宣言と一致しなければエラーにする。`slots` に余分なスロットがあってもよい(1 つの CompositeContainer に、異なるスロットを使う複数の Composite を載せられる)。
 - CompositeContainerProcess は、今の ContainerProcess と同じく CompositeContainer のネームスペースに置く(issue #149 と同じ)。
+- 名前で参照したとき、同じネームスペースに同じ名前で型の違う Container が複数あれば、どれか決められないのでエラーにする(ID で書けば区別できる)。
+- CompositeContainer をスロットの参照先にすることはできない(エラー)。
+- CompositeContainer は Container の Factory を持たない(`container_factories` に `composite_container` は現れない)。コードからは `CoreWorker::create_composite_container`、conf からは `composite_containers:`(C4)で作る。
 
 ### 7.2 実体
 
@@ -299,8 +302,9 @@ Composition が向くもの:
 ## 11. 互換性
 
 - 変えないもの: `Process` トレイト、`ProcessImpl`、接続の仕組み、通信形式、ID の形式、既存の C ABI 関数、既存の conf のキー。
-- 足すもの: conf の `composites:` / `composite_containers:`、`ProcessManifest` / `ProcessProfile` の任意の項目 `composition`、`ProcessManifest` の任意の項目 `trace`、`ContainerProfile` の `slots`、`ProcessFactory::body()`(子の本体関数を取り出す)と `ProcessFactory::manifest()`(子の型の情報を取り出す)、エラーの種類 `CompositeManifestInvalidError` / `CompositeNodeError` / `ContainerInUseError`。
+- 足すもの: conf の `composites:` / `composite_containers:`、`ProcessManifest` / `ProcessProfile` の任意の項目 `composition`、`ProcessManifest` の任意の項目 `trace`、`ContainerProfile` の `slots`、`ProcessFactory::body()`(子の本体関数を取り出す)と `ProcessFactory::manifest()`(子の型の情報を取り出す)、`ContainerProcessFactory` の同名のメソッド、エラーの種類 `CompositeManifestInvalidError` / `CompositeNodeError` / `ContainerInUseError`。
 - `ProcessFactory` トレイトに必須のメソッドが 2 つ増えるので、juiz_core の外で `ProcessFactory` を実装しているコードは対応が要る(juiz の中の実装 `ProcessFactoryImpl` / `ProcessFactoryWrapper` は対応済み。Python / C++ / Haskell のプラグインの Factory はすべて `ProcessFactoryImpl` で作るので、そのまま子に使える)。
+- 同じく `ContainerProcessFactory` トレイトにも必須の `manifest()` と `body()`(Container を受け取る本体関数 `Fn(ContainerPtr, CapsuleMap)`)が増える(C3)。juiz の中の実装 `ContainerProcessFactoryImpl` / `ContainerProcessFactoryWrapper` は対応済みで、各言語のプラグインの ContainerProcess はそのまま子に使える。
 
 ## 12. Step との対応
 
@@ -308,7 +312,7 @@ Composition が向くもの:
 |---|---|---|
 | C1 SDK | #166 | §3.2 の式の木の型(`CompositeManifest`)、§4 の公開引数を作る関数と衝突検出、§8.2 の `composition`。juiz_sdk の `manifests::composite_manifest`(`CompositeManifest::build_process_manifest`) |
 | C2 core(Container なし) | #167 | `ProcessFactory::body()` / `manifest()`、§5 の評価、§6 のエラー、§3.2 の入れ子と循環の検出。juiz_core の `CompositeProcessFactory`、`composite_process_factory_create`、`CoreWorker::register_composite`(conf を使わずにコードから登録する入口)。スロットを持つ Composite はエラーにする(C3 まで) |
-| C3 core(Container あり) | #168 | §7 の CompositeContainer、ロック、寿命 |
+| C3 core(Container あり) | #168 | §7 の CompositeContainer、ロック、寿命。`ContainerProcessFactory::body()` / `manifest()`、juiz_core の `CompositeContainerProcessFactory`、`composite_container_process_factory_create`、`CoreWorker::register_composite_container`(スロットを持つ Composite の登録)と `CoreWorker::create_composite_container`(CompositeContainer を作る入口)。conf を使わずにコードから作る |
 | C4 conf とベンチマーク | #169 | §3.1 / §3.3 / §7.1 の conf の読み込み、ネームスペース、ベンチマーク |
 | C5 表示 | #170 | §8.2 の `composition` と `slots` の表示 |
 | C8 型検査 | #172 | ノードの戻り値の型と親の引数の型の定義時検査(#163 Step 4 の比較関数を使う) |

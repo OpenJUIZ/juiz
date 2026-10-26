@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     env::current_dir,
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -10,7 +10,9 @@ use juiz_sdk::{
     connection_identifier::ConnectionIdentifier,
     connections::{ConnectionManifest, ConnectionProfile},
     manifests::ContainerIdentifier,
-    manifests::{CompositeManifest, ContainerProfile, ProcessProfile},
+    manifests::{
+        CompositeManifest, ContainerProfile, ProcessProfile, COMPOSITE_CONTAINER_TYPE_NAME,
+    },
     process_identifier::ProcessIdentifier,
     utils::manifest_util::{construct_id, type_name},
 };
@@ -18,7 +20,10 @@ use uuid::Uuid;
 
 use crate::{
     connections::connection_builder::connection_builder,
-    containers::ContainerProxy,
+    containers::{
+        composite_container_new, composite_container_process_factory_create, CompositeContainer,
+        ContainerProxy,
+    },
     core::system_builder::register_component,
     ecs::{
         execution_context_function::ExecutionContextFunction,
@@ -234,11 +239,15 @@ impl CoreWorker {
     ///
     /// 子はこの juiz プロセスに登録された ProcessFactory (先に登録した Composite を含む) から探す。
     /// ProcessFactory / ContainerProcessFactory と同じ type_name があればエラーにする。
+    /// スロットを持つ Composite は [`CoreWorker::register_composite_container`] で登録する。
     pub fn register_composite(
         &mut self,
         composite: &CompositeManifest,
     ) -> JuizResult<ProcessFactoryPtr> {
-        log::trace!("【呼出】register_composite(type_name={})", composite.type_name);
+        log::trace!(
+            "【呼出】register_composite(type_name={})",
+            composite.type_name
+        );
         let type_name = composite.type_name.as_str();
         if self.store().container_processes.factory(type_name).is_ok() {
             return Err(anyhow::Error::from(
@@ -258,6 +267,165 @@ impl CoreWorker {
             .register_factory(type_name, pf.clone())?;
         log::info!("【作成】CompositeProcessFactory(type_name={type_name})");
         Ok(pf)
+    }
+
+    /// スロットを持つ Composite の Factory (CompositeContainerProcess の型) を作って登録する (issue #168)
+    ///
+    /// 子はこの juiz プロセスに登録された ProcessFactory (先に登録した、スロットを持たない Composite を含む)
+    /// と ContainerProcessFactory から探す。
+    /// ProcessFactory / ContainerProcessFactory と同じ type_name があればエラーにする。
+    pub fn register_composite_container(
+        &mut self,
+        composite: &CompositeManifest,
+    ) -> JuizResult<ContainerProcessFactoryPtr> {
+        log::trace!(
+            "【呼出】register_composite_container(type_name={})",
+            composite.type_name
+        );
+        let type_name = composite.type_name.as_str();
+        if self.store().processes.factory(type_name).is_ok() {
+            return Err(anyhow::Error::from(
+                JuizError::FactoryOfSameTypeNameAlreadyExistsError {
+                    type_name: type_name.to_owned(),
+                },
+            ));
+        }
+        let cpf = {
+            let store = self.store();
+            composite_container_process_factory_create(composite, |name| {
+                if let Ok(pf) = store.processes.factory(name) {
+                    return Some(CompositeChildFactory::Process(pf.clone()));
+                }
+                store
+                    .container_processes
+                    .factory(name)
+                    .ok()
+                    .map(|cpf| CompositeChildFactory::ContainerProcess(cpf.clone()))
+            })?
+        };
+        self.store_mut()
+            .container_processes
+            .register_factory(type_name, cpf.clone())?;
+        log::info!("【作成】CompositeContainerProcessFactory(type_name={type_name})");
+        Ok(cpf)
+    }
+
+    /// CompositeContainer を作って登録する (issue #168、仕様 §7.1)
+    ///
+    /// `slots` はスロット名 → 参照先の Container。値は ID 文字列 (`://` を含む) か名前で、
+    /// 名前は `namespace` (CompositeContainer のネームスペース) から解決する (先頭 `/` は絶対)。
+    /// 参照先はこの juiz プロセスの Container でなければならない。
+    pub fn create_composite_container(
+        &mut self,
+        name: &str,
+        namespace: &str,
+        slots: &BTreeMap<String, String>,
+    ) -> JuizResult<ContainerPtr> {
+        log::trace!(
+            "【呼出】create_composite_container(name={name}, namespace={namespace}, slots={slots:?})"
+        );
+        let id = ContainerManifest::new(COMPOSITE_CONTAINER_TYPE_NAME)
+            .name(name)
+            .namespace(namespace)
+            .identifier()?;
+        id.validate()?;
+        self.store()
+            .containers
+            .check_not_registered(&id.to_string())?;
+        let mut resolved = BTreeMap::new();
+        for (slot, reference) in slots.iter() {
+            let c = self
+                .resolve_slot_container(namespace, reference)
+                .with_context(|| {
+                    format!("resolving slot '{slot}' of CompositeContainer({name})")
+                })?;
+            resolved.insert(slot.clone(), c);
+        }
+        let c = composite_container_new(name, namespace, resolved)?;
+        log::info!("【作成】CompositeContainer({})", id);
+        Ok(self
+            .store_mut()
+            .containers
+            .register(&id.to_string(), c)?
+            .clone())
+    }
+
+    /// スロットの参照先の Container を探す。ID 文字列か、`namespace` から解決する名前
+    fn resolve_slot_container(&self, namespace: &str, reference: &str) -> JuizResult<ContainerPtr> {
+        let not_found = || {
+            anyhow!(JuizError::ObjectCanNotFoundByIdError {
+                id: reference.to_owned(),
+            })
+        };
+        let container = if reference.contains("://") {
+            let id = ContainerIdentifier::try_from(reference.to_owned())?;
+            if id.broker_type_name != "core" {
+                return Err(anyhow!(JuizError::InvalidValueError {
+                    message: format!(
+                        "slot container must be in this juiz process, but '{reference}'"
+                    ),
+                }));
+            }
+            self.store()
+                .containers
+                .get(&id.to_string())
+                .map_err(|_| not_found())?
+                .clone()
+        } else {
+            let full = juiz_sdk::topic_identifier::resolve_topic_name(namespace, reference)?;
+            let (ns, n) = full.rsplit_once('/').unwrap_or(("", full.as_str()));
+            let found = self
+                .store()
+                .containers
+                .objects()
+                .values()
+                .filter(|c| {
+                    let cid = c.identifier();
+                    cid.name == n && cid.namespace == ns
+                })
+                .cloned()
+                .collect::<Vec<ContainerPtr>>();
+            match found.len() {
+                0 => return Err(not_found()),
+                1 => found[0].clone(),
+                _ => {
+                    return Err(anyhow!(JuizError::InvalidValueError {
+                        message: format!(
+                            "slot container name '{reference}' is ambiguous. Use the identifier instead."
+                        ),
+                    }))
+                }
+            }
+        };
+        if container.identifier().type_name == COMPOSITE_CONTAINER_TYPE_NAME {
+            return Err(anyhow!(JuizError::InvalidValueError {
+                message: format!(
+                    "slot container must not be a {COMPOSITE_CONTAINER_TYPE_NAME} ('{reference}')"
+                ),
+            }));
+        }
+        Ok(container)
+    }
+
+    /// `id` の Container をスロットで参照している CompositeContainer の ID
+    fn composite_containers_referring_to(
+        &self,
+        id: &ContainerIdentifier,
+    ) -> JuizResult<Vec<String>> {
+        let mut ids = Vec::new();
+        for c in self.store().containers.objects().values() {
+            if c.identifier().type_name != COMPOSITE_CONTAINER_TYPE_NAME {
+                continue;
+            }
+            let guard = c.lock()?;
+            if let Some(cc) = guard.downcast_ref::<CompositeContainer>() {
+                if cc.refers_to(id) {
+                    ids.push(c.identifier().into());
+                }
+            }
+        }
+        ids.sort();
+        Ok(ids)
     }
 
     pub fn create_process_ref(&mut self, manifest: &ProcessManifest) -> JuizResult<ProcessPtr> {
@@ -369,6 +537,14 @@ impl CoreWorker {
             .containers
             .get(&identifier.to_string())?
             .clone();
+        // CompositeContainer のスロットが参照している Container は消せない (issue #168、仕様 §7.4)
+        let referenced_by = self.composite_containers_referring_to(&cont.identifier())?;
+        if !referenced_by.is_empty() {
+            return Err(anyhow!(JuizError::ContainerInUseError {
+                id: cont.identifier().into(),
+                referenced_by,
+            }));
+        }
         let ids = cont
             .lock_mut()?
             .processes()
@@ -382,6 +558,12 @@ impl CoreWorker {
         self.store_mut()
             .containers
             .deregister_by_id(&identifier.to_string())?;
+        // CompositeContainer は Factory を持たない。消すとスロットの参照を放す (参照先は消さない)
+        if cont.identifier().type_name == COMPOSITE_CONTAINER_TYPE_NAME {
+            let profile = cont.lock()?.profile()?;
+            log::trace!("container_destroy({}) exit", identifier);
+            return Ok(profile);
+        }
         let f = self
             .store()
             .containers

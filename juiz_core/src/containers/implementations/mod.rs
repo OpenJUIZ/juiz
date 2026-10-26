@@ -1,3 +1,4 @@
+mod composite_container;
 mod container_factory_impl;
 mod container_factory_wrapper;
 mod container_process_factory_impl;
@@ -21,6 +22,10 @@ use juiz_sdk::prelude::*;
 use super::{ContainerFactoryPtr, ContainerProcessFactoryPtr};
 pub use container_process_factory_impl::BindedContainerFunctionType;
 
+pub use composite_container::{
+    composite_container_new, CompositeContainer, CompositeContainerProcessFactory,
+};
+
 pub fn container_factory_create(
     manifest: ContainerManifest,
     constructor: Arc<ContainerConstructor>,
@@ -37,5 +42,21 @@ pub fn container_process_factory_create(
 ) -> JuizResult<ContainerProcessFactoryPtr> {
     Ok(ContainerProcessFactoryPtr::new(
         ContainerProcessFactoryImpl::new_t(manifest, constructor)?,
+    ))
+}
+
+/// スロットを持つ Composite の Factory を作る (issue #168)
+///
+/// `lookup` は子の type_name から、同じ juiz プロセスに登録された ProcessFactory か ContainerProcessFactory を返す。
+/// システムに登録するときは [`CoreWorker::register_composite_container`] を使う。
+pub fn composite_container_process_factory_create<F>(
+    composite: &juiz_sdk::manifests::CompositeManifest,
+    lookup: F,
+) -> JuizResult<ContainerProcessFactoryPtr>
+where
+    F: Fn(&str) -> Option<crate::processes::CompositeChildFactory>,
+{
+    Ok(ContainerProcessFactoryPtr::new(
+        CompositeContainerProcessFactory::new(composite, lookup)?,
     ))
 }

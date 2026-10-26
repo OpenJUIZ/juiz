@@ -1,3 +1,4 @@
+use crate::containers::BindedContainerFunctionType;
 use crate::prelude::*;
 use juiz_sdk::{anyhow::anyhow, manifests::ProcessProfile};
 use std::fmt::Debug;
@@ -15,6 +16,12 @@ pub trait ContainerProcessFactory: JuizObject + Debug + 'static {
     ) -> JuizResult<ProcessPtr>;
 
     fn destroy_container_process(&mut self, p: ProcessPtr) -> JuizResult<ProcessProfile>;
+
+    /// Factory の manifest (型の情報)。Composite の子の検査に使う (issue #168)
+    fn manifest(&self) -> JuizResult<ProcessManifest>;
+
+    /// Container を受け取る本体関数。CompositeContainerProcess が子の本体を合成するときに取り出す (issue #168)
+    fn body(&self) -> JuizResult<BindedContainerFunctionType>;
 }
 
 // pub type ContainerProcessFactoryPtr = Arc<Mutex<dyn ContainerProcessFactory>>;

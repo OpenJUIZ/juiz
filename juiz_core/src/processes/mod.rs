@@ -11,7 +11,9 @@ pub use juiz_sdk::processes::ProcessPtr;
 pub use juiz_sdk::processes::{Process, ProcessBodyFunctionTrait, ProcessBodyFunctionType};
 pub use process_factory::{ProcessFactory, ProcessFactoryPtr};
 
+pub(crate) use implementations::{composite_invalid, CompositeBody, CompositeSlotMap};
 pub use implementations::{
+    CompositeChildFactory,
     CompositeProcessFactory,
     ProcessProxy,
     // process_new,

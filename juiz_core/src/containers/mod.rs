@@ -9,10 +9,13 @@ use crate::prelude::*;
 pub use container_factory::{ContainerFactory, ContainerFactoryPtr};
 pub use container_process_factory::{ContainerProcessFactory, ContainerProcessFactoryPtr};
 
-use implementations::{BindedContainerFunctionType, ContainerProcessFactoryImpl};
+pub use implementations::BindedContainerFunctionType;
+use implementations::ContainerProcessFactoryImpl;
 pub(crate) use implementations::{ContainerFactoryWrapper, ContainerProcessFactoryWrapper};
 
 pub use implementations::{ContainerImpl, ContainerProxy};
+pub use implementations::composite_container_process_factory_create;
+pub(crate) use implementations::{composite_container_new, CompositeContainer};
 
 // pub fn container_factory_create<S: 'static>(manifest: ContainerManifest, constructor: ContainerConstructFunction<S>) -> JuizResult<ContainerFactoryPtr> {
 
