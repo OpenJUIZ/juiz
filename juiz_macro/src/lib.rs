@@ -146,6 +146,7 @@ extern crate proc_macro;
 mod component;
 mod container;
 mod container_process;
+mod juiz_type;
 mod process;
 mod util;
 
@@ -327,4 +328,30 @@ pub fn juiz_component_container(attr: TokenStream, item: TokenStream) -> TokenSt
 #[proc_macro_attribute]
 pub fn juiz_component_container_process(attr: TokenStream, item: TokenStream) -> TokenStream {
     container_process::juiz_component_container_process_inner(attr, item)
+}
+
+/// juiz の型 (`juiz_sdk::types::JuizType`) を struct / enum に実装するマクロ (issue #190)
+///
+/// 名前空間 `#[juiz(namespace = "...")]` は必須。フィールドの順番は宣言順で、指紋に入る。
+/// フィールドの既定値は `#[juiz(default = 値)]` (辞書の表し方)、列挙の既定値は変種に `#[juiz(default)]` で付ける。
+/// `///` のコメントはスキーマの `doc` になる。
+///
+/// # Examples
+///
+/// ```ignore
+/// #[derive(JuizType)]
+/// #[juiz(namespace = "robot.geometry")]
+/// struct Pose2D {
+///     position: Point2D,
+///     #[juiz(default = 0.0)]
+///     theta: f64,
+/// }
+///
+/// #[derive(JuizType)]
+/// #[juiz(namespace = "robot.geometry")]
+/// enum MotorMode { #[juiz(default)] Idle, Velocity, Position }
+/// ```
+#[proc_macro_derive(JuizType, attributes(juiz))]
+pub fn derive_juiz_type(item: TokenStream) -> TokenStream {
+    juiz_type::derive_juiz_type_inner(item)
 }

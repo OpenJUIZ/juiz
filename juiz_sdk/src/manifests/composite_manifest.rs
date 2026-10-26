@@ -310,6 +310,8 @@ impl CompositeManifest {
             .language(&language)
             .factory(factory)
             .set_outputs(root.outputs.clone());
+        // 型の検査 (子どうし・既定値) は C8 (#172) で行う。ここでは子の型参照を引き継ぐだけ
+        manifest.output_schema = root.output_schema.clone();
         if self.has_containers() {
             manifest = manifest.container_type(Some(COMPOSITE_CONTAINER_TYPE_NAME.to_owned()));
         }
@@ -528,13 +530,15 @@ where
             Some(d) => d.as_str().into(),
             None => child_arg.description.clone(),
         };
+        let mut arg = ArgumentManifest::new(
+            child_arg.type_name.clone(),
+            &spec.name,
+            description,
+            spec.default.clone().unwrap_or(child_arg.default.clone()),
+        );
+        arg.schema = child_arg.schema.clone();
         self.exposed.push(Exposed {
-            arg: ArgumentManifest::new(
-                child_arg.type_name.clone(),
-                &spec.name,
-                description,
-                spec.default.clone().unwrap_or(child_arg.default.clone()),
-            ),
+            arg,
             first_at: here,
             explicit_default: spec.default.is_some(),
             explicit_description: spec.description.is_some(),

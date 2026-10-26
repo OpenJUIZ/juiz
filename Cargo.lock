@@ -1606,6 +1606,7 @@ version = "0.0.22"
 dependencies = [
  "anyhow",
  "approx",
+ "base64 0.22.1",
  "env_logger",
  "image",
  "juiz_macro",
@@ -1617,6 +1618,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 1.0.69",
  "yaml-rust2",
 ]

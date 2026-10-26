@@ -22,6 +22,7 @@ pub use crate::{
     },
     object::{JuizObject, JuizObjectClass, JuizObjectCoreHolder, ObjectCore},
     result::{JuizError, JuizResult},
+    types::{JuizType, TypeSchema},
     utils::{
         check_connection_manifest, get_array, get_array_mut, get_hashmap, get_hashmap_mut, get_str,
         get_value, juiz_borrow, juiz_borrow_mut, juiz_lock, juiz_try_lock, when_contains_do,
@@ -40,6 +41,6 @@ pub use image;
 pub use env_logger;
 pub use juiz_macro::{
     juiz_component_container, juiz_component_container_process, juiz_component_manifest,
-    juiz_component_process, juiz_container, juiz_container_process, juiz_process,
+    juiz_component_process, juiz_container, juiz_container_process, juiz_process, JuizType,
 };
 pub use serde_json;

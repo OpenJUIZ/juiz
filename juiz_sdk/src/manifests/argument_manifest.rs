@@ -3,6 +3,8 @@ use std::fmt::Display;
 use super::argument_type::{type_check, ArgumentType};
 use super::manifest_description::Description;
 use crate::prelude::*;
+use crate::types::{validate_type_name, DataType, JuizType, TypeSchema};
+use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 
 fn default_description() -> Description {
@@ -20,6 +22,9 @@ pub struct ArgumentManifest {
     /// 省略時は null。pyjuiz は既定値のない Image 引数で default を出力しない (issue #169 で判明)
     #[serde(default)]
     pub default: Value,
+    /// 型参照 (型付きの引数だけ、仕様 docs/spec/datatype.md §6、issue #190)。型なしなら `None` で、JSON には出さない
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema: Option<TypeSchema>,
 }
 
 impl Display for ArgumentManifest {
@@ -43,6 +48,52 @@ impl ArgumentManifest {
             name: name.to_owned(),
             description,
             default,
+            schema: None,
+        }
+    }
+
+    /// 型付きの引数を作る (仕様 §6)。
+    ///
+    /// `type_name` は型から決める。引数名は Avro の名前の規則に従わなければならない。
+    /// `default` は辞書の表し方 (§4) で検査する。`null` は「既定値なし」として扱う (`T?` なら既定値 `null`)。
+    ///
+    /// ```
+    /// use juiz_sdk::prelude::*;
+    /// use juiz_sdk::types::{DataType, TypeSchema};
+    /// let schema = TypeSchema::from_data_type(&DataType::array(DataType::Long)).unwrap();
+    /// let arg = ArgumentManifest::new_typed("values", schema, jvalue!([1, 2])).unwrap();
+    /// assert_eq!(arg.type_name.as_str(), "Array");
+    /// assert!(ArgumentManifest::new_typed("values", arg.schema.clone().unwrap(), jvalue!(["a"])).is_err());
+    /// ```
+    pub fn new_typed(name: &str, schema: TypeSchema, default: Value) -> JuizResult<Self> {
+        let data_type = schema.validate()?;
+        check_typed_argument(name, &data_type, &default)?;
+        Ok(ArgumentManifest {
+            type_name: data_type.argument_type(),
+            name: name.to_owned(),
+            description: default_description(),
+            default,
+            schema: Some(schema),
+        })
+    }
+
+    /// Rust の型 `T` の引数を作る。`default` が `None` なら既定値なし
+    pub fn new_juiz_type<T: JuizType>(name: &str, default: Option<&T>) -> JuizResult<Self> {
+        let default = match default {
+            Some(d) => d.to_value()?,
+            None => Value::Null,
+        };
+        Self::new_typed(name, T::type_schema()?, default)
+    }
+
+    /// 型付きなら、`schema` を検査し、`default` が型に合うかを検査する (型なしなら何もしない)
+    pub fn check_schema(&self) -> JuizResult<()> {
+        match self.schema.as_ref() {
+            Some(schema) => {
+                let data_type = schema.validate()?;
+                check_typed_argument(&self.name, &data_type, &self.default)
+            }
+            None => Ok(()),
         }
     }
 
@@ -58,6 +109,7 @@ impl ArgumentManifest {
             name: name.to_owned(),
             description,
             default,
+            schema: None,
         })
     }
 
@@ -83,7 +135,7 @@ impl ArgumentManifest {
     }
 
     pub fn new_array(name: &str, default: Vec<Value>) -> Self {
-        Self::new(ArgumentType::Object, name, "".into(), default.into())
+        Self::new(ArgumentType::Array, name, "".into(), default.into())
     }
 
     pub fn new_object(name: &str, default: Value) -> Self {
@@ -91,8 +143,24 @@ impl ArgumentManifest {
     }
 
     pub fn new_image(name: &str) -> Self {
-        Self::new(ArgumentType::String, name, "".into(), jvalue!({}))
+        Self::new(ArgumentType::Image, name, "".into(), jvalue!({}))
     }
+}
+
+/// 型付きの引数の規則 (仕様 §3.1、§6、§8)
+pub(crate) fn check_typed_argument(name: &str, data_type: &DataType, default: &Value) -> JuizResult<()> {
+    validate_type_name(name, name)?;
+    if *data_type == DataType::Null {
+        return Err(anyhow!(JuizError::TypeSchemaInvalidError {
+            path: name.to_owned(),
+            message: "null cannot be the type of an argument".to_owned()
+        }));
+    }
+    // image は辞書の外の値で、既定値を持たない (今の Image 引数は `{}` か `null`)
+    if *data_type == DataType::Image || (default.is_null() && !data_type.is_nullable()) {
+        return Ok(());
+    }
+    crate::types::read_value(data_type, default, name).map(|_| ())
 }
 
 // impl Into<Value> for ArgumentManifest {
