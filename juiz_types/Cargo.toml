@@ -5,6 +5,7 @@ version = "0.0.22"
 edition = "2021"
 description = "Data type model (Avro schemas, fingerprints, compatibility) for juiz."
 license.workspace = true
+repository = "https://github.com/OpenJUIZ/juiz"
 
 [dependencies]
 base64 = {workspace = true}

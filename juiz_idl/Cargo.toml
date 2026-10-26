@@ -5,6 +5,10 @@ version = "0.0.22"
 edition = "2021"
 description = "IDL (JIDL) compiler for juiz: generates Avro schemas, JSON Schema and Rust code."
 license.workspace = true
+repository = "https://github.com/OpenJUIZ/juiz"
+readme = "README.md"
+keywords = ["juiz", "idl", "avro", "codegen", "robotics"]
+categories = ["development-tools::build-utils", "encoding"]
 
 [[bin]]
 name = "juiz-idl"
