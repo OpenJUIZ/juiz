@@ -281,6 +281,14 @@ pub enum JuizError {
         error: String,
     },
 
+    /// CompositeContainer のスロットが参照している Container は消せない (issue #168)。
+    /// `referenced_by` は参照している CompositeContainer の ID
+    #[error("Container({id}) is in use by CompositeContainer({}). Destroy them first.", referenced_by.join(", "))]
+    ContainerInUseError {
+        id: String,
+        referenced_by: Vec<String>,
+    },
+
     #[error("Poison Error (error={error})")]
     PoisonError { error: String },
 }

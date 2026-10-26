@@ -8,12 +8,14 @@ pub use crate::{
     },
     connections::connect,
     containers::{
-        ContainerFactory, ContainerFactoryPtr, ContainerImpl, ContainerProcessFactory,
+        composite_container_process_factory_create, container_factory_create,
+        container_process_factory_create, ContainerFactory, ContainerFactoryPtr, ContainerImpl, ContainerProcessFactory,
         ContainerProcessFactoryPtr,
     },
     core::{CoreWorker, System},
     processes::{
         composite_process_factory_create,
+        CompositeChildFactory,
         process_factory_create,
         //create_process_factory
         process_new,

@@ -162,4 +162,12 @@ impl ContainerProcessFactory for ContainerProcessFactoryImpl {
         );
         Ok(prof)
     }
+
+    fn manifest(&self) -> JuizResult<ProcessManifest> {
+        Ok(self.manifest.clone())
+    }
+
+    fn body(&self) -> JuizResult<BindedContainerFunctionType> {
+        Ok(self.binded_function.clone())
+    }
 }

@@ -65,6 +65,11 @@ impl<S: 'static> ContainerImpl<S> {
             parent_container: Some(parent_container),
         })
     }
+
+    /// profile を書き換える。CompositeContainer がスロットを profile に載せるのに使う (issue #168)
+    pub fn profile_mut(&mut self) -> &mut ContainerProfile {
+        &mut self.profile
+    }
 }
 
 impl<S: 'static> Deref for ContainerImpl<S> {

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fmt::Display;
 
 use anyhow::{anyhow, Context};
@@ -21,6 +22,10 @@ pub struct ContainerProfile {
     pub parent_name: Option<String>,
     pub processes: Vec<ProcessProfile>,
     pub args: Value,
+    /// CompositeContainer のスロット名 → 参照先の Container の ID (issue #168)。
+    /// CompositeContainer 以外では `None` で、出力しない
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slots: Option<BTreeMap<String, String>>,
 }
 
 impl Display for ContainerProfile {
@@ -71,6 +76,7 @@ impl TryFrom<ContainerManifest> for ContainerProfile {
             parent_name: value.parent_name,
             processes,
             args: value.args,
+            slots: None,
         })
     }
 
@@ -99,6 +105,7 @@ impl ContainerProfile {
             processes: Vec::new(),
             args: jvalue!({}),
             arguments: Vec::new(),
+            slots: None,
         }
     }
 
@@ -116,6 +123,7 @@ impl ContainerProfile {
                 processes: Vec::new(),
                 args: jvalue!({}),
                 arguments: Vec::new(),
+                slots: None,
             })
         })
     }

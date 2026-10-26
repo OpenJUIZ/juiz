@@ -14,4 +14,5 @@ pub use process_proxy::ProcessProxy;
 pub use process_factory_impl::ProcessFactoryImpl;
 pub use process_impl::process_new;
 pub(crate) use process_impl::ProcessImpl;
-pub use composite_process_factory::CompositeProcessFactory;
+pub use composite_process_factory::{CompositeChildFactory, CompositeProcessFactory};
+pub(crate) use composite_process_factory::{invalid as composite_invalid, CompositeBody, CompositeSlotMap};
