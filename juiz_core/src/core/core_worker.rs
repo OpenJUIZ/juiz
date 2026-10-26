@@ -428,6 +428,114 @@ impl CoreWorker {
         Ok(ids)
     }
 
+    /// Composite の Factory を登録し、その manifest を返す (issue #171)
+    ///
+    /// スロット (`containers`) が無ければ [`CoreWorker::register_composite`]、あれば
+    /// [`CoreWorker::register_composite_container`] で登録する。conf の `composites:` と API の composite/create で使う。
+    pub fn register_composite_any(
+        &mut self,
+        composite: &CompositeManifest,
+    ) -> JuizResult<ProcessManifest> {
+        if composite.containers.is_empty() {
+            self.register_composite(composite)?.lock()?.manifest()
+        } else {
+            self.register_composite_container(composite)?
+                .lock()?
+                .manifest()
+        }
+    }
+
+    /// 登録済みの Composite の Factory の型名 (スロットの有無を問わず、名前順。issue #171)
+    pub fn composite_type_names(&self) -> JuizResult<Vec<String>> {
+        Ok(self
+            .composite_manifests()?
+            .into_iter()
+            .map(|m| m.type_name)
+            .collect())
+    }
+
+    /// 登録済みの Composite の Factory の manifest (型名の順)
+    fn composite_manifests(&self) -> JuizResult<Vec<ProcessManifest>> {
+        let mut manifests = Vec::new();
+        for pf in self.store().processes.factories().values() {
+            let m = pf.lock()?.manifest()?;
+            if m.composition.is_some() {
+                manifests.push(m);
+            }
+        }
+        for cpf in self.store().container_processes.factories().values() {
+            let m = cpf.lock()?.manifest()?;
+            if m.composition.is_some() {
+                manifests.push(m);
+            }
+        }
+        manifests.sort_by(|a, b| a.type_name.cmp(&b.type_name));
+        Ok(manifests)
+    }
+
+    /// Composite の Factory の manifest (issue #171)。Composite でない Factory なら [`JuizError::NotCompositeError`]
+    pub fn composite_manifest(&self, type_name: &str) -> JuizResult<ProcessManifest> {
+        let manifest = match self.store().processes.factory(type_name) {
+            Ok(pf) => pf.lock()?.manifest()?,
+            Err(_) => self
+                .store()
+                .container_processes
+                .factory(type_name)?
+                .lock()?
+                .manifest()?,
+        };
+        if manifest.composition.is_none() {
+            return Err(anyhow!(JuizError::NotCompositeError {
+                type_name: type_name.to_owned(),
+            }));
+        }
+        Ok(manifest)
+    }
+
+    /// Composite の Factory の登録を外し、その manifest を返す (issue #171)
+    ///
+    /// その型のインスタンス (Process / ContainerProcess) があるか、他の Composite が子として使っていれば
+    /// [`JuizError::CompositeInUseError`]。先にそちらを消す。Composite でない Factory は消せない。
+    pub fn deregister_composite(&mut self, type_name: &str) -> JuizResult<ProcessManifest> {
+        log::trace!("【呼出】deregister_composite(type_name={type_name})");
+        let manifest = self.composite_manifest(type_name)?;
+        let mut used_by = Vec::new();
+        let store = self.store();
+        for p in store
+            .processes
+            .objects()
+            .values()
+            .chain(store.container_processes.objects().values())
+        {
+            if p.lock()?.profile()?.type_name == type_name {
+                used_by.push(p.identifier().to_string());
+            }
+        }
+        used_by.sort();
+        for m in self.composite_manifests()? {
+            if let Some(composition) = m.composition.as_ref() {
+                if m.type_name != type_name && composite_node_uses(&composition.body, type_name) {
+                    used_by.push(format!("Composite({})", m.type_name));
+                }
+            }
+        }
+        if !used_by.is_empty() {
+            return Err(anyhow!(JuizError::CompositeInUseError {
+                type_name: type_name.to_owned(),
+                used_by,
+            }));
+        }
+        if self.store().processes.factory(type_name).is_ok() {
+            self.store_mut().processes.deregister_factory(type_name)?;
+        } else {
+            self.store_mut()
+                .container_processes
+                .deregister_factory(type_name)?;
+        }
+        log::info!("【削除】Composite(type_name={type_name})");
+        Ok(manifest)
+    }
+
     pub fn create_process_ref(&mut self, manifest: &ProcessManifest) -> JuizResult<ProcessPtr> {
         log::trace!("【呼出】create_process_ref(manifest={:}) called", manifest);
         let arc_pf = match self.store().processes.factory(manifest.type_name.as_str())
@@ -1280,4 +1388,15 @@ fn check_has_type_name(manifest: Value) -> JuizResult<Value> {
     // let _ = obj_get_str(&manifest,"name")?;
     let _ = obj_get_str(&manifest, "type_name")?;
     return Ok(manifest_updated);
+}
+
+/// Composite の式の木が `type_name` の Factory を子として使っているか (issue #171)
+fn composite_node_uses(node: &juiz_sdk::manifests::CompositeNode, type_name: &str) -> bool {
+    node.process == type_name
+        || node.args.values().any(|arg| match arg {
+            juiz_sdk::manifests::CompositeArgument::Node(child) => {
+                composite_node_uses(child, type_name)
+            }
+            _ => false,
+        })
 }

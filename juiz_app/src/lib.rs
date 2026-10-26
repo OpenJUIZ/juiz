@@ -4,6 +4,7 @@
 //! Python から起動する `juiz`(pip で入る版、issue #88)も同じ関数を使い、
 //! そのときは feature `python-entry` の [`python::main_with_args`] から GIL を解放して呼ぶ。
 
+mod composite;
 mod composition;
 mod connection;
 mod container;
@@ -20,6 +21,7 @@ pub mod python;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use composite::{on_composite, CompositeSubCommands};
 use connection::{on_connection, ConnectionSubCommands};
 use container::{on_container, ContSubCommands};
 use container_process::{on_container_process, ContProcSubCommands};
@@ -204,6 +206,13 @@ enum SubCommands {
     Connection {
         #[clap(subcommand)]
         subcommand: ConnectionSubCommands,
+    },
+
+    // Composite tools (issue #171)
+    #[clap(arg_required_else_help = false)]
+    Composite {
+        #[clap(subcommand)]
+        subcommand: CompositeSubCommands,
     },
 }
 
@@ -664,6 +673,9 @@ fn run(args: Args) -> JuizResult<()> {
         }
         SubCommands::Connection { subcommand } => {
             on_connection(manifest, working_dir, subcommand, args)
+        }
+        SubCommands::Composite { subcommand } => {
+            on_composite(manifest, working_dir, subcommand, args)
         } /* _ => {
               return Ok(())
           } */

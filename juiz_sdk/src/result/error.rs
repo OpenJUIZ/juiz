@@ -289,6 +289,19 @@ pub enum JuizError {
         referenced_by: Vec<String>,
     },
 
+    /// インスタンスか他の Composite が使っている Composite の Factory は消せない (issue #171)。
+    /// `used_by` はインスタンスの ID と、子として使っている Composite の型名
+    #[error("Composite({type_name}) is in use by {}. Destroy them first.", used_by.join(", "))]
+    CompositeInUseError {
+        type_name: String,
+        used_by: Vec<String>,
+    },
+    /// 実行中に消せるのは Composite の Factory だけ (issue #171)
+    #[error(
+        "Factory({type_name}) is not a Composite. Only Composites can be destroyed at runtime."
+    )]
+    NotCompositeError { type_name: String },
+
     #[error("Poison Error (error={error})")]
     PoisonError { error: String },
 }

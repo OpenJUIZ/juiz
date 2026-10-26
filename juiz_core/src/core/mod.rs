@@ -13,4 +13,5 @@ pub use core_worker::CoreWorker;
 pub(crate) use profile_value::{container_profile_value, process_profile_value};
 pub use subsystem_proxy::SubSystemProxy;
 pub use system::System;
+pub(crate) use system_builder::create_composite_container_from_value;
 pub use system_store::{SystemStore, SystemStorePtr};

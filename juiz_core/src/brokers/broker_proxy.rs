@@ -2,7 +2,7 @@ use juiz_sdk::{
     connection_identifier::ConnectionIdentifier,
     connections::ConnectionProfile,
     manifests::ContainerIdentifier,
-    manifests::{ContainerProfile, ProcessProfile},
+    manifests::{CompositeManifest, ContainerProfile, ProcessProfile},
     process_identifier::ProcessIdentifier,
     topic_identifier::TopicIdentifier,
 };
@@ -276,6 +276,29 @@ pub trait TopicBrokerProxy {
         -> JuizResult<Value>;
 }
 
+/// 実行中に Composite を定義する API (issue #171、仕様 docs/spec/composition.md §9)
+///
+/// Composite の Factory はその juiz プロセスだけのもので、サブシステムはたどらない。
+/// CompositeContainer の削除と一覧は Container と同じ (`container_destroy` / `container_list`)。
+pub trait CompositeBrokerProxy {
+    /// Composite の Factory を登録し、Factory の manifest (`composition` を含む) を返す。
+    /// スロット (`containers`) があれば CompositeContainerProcess の型になる
+    fn composite_create(&mut self, manifest: &CompositeManifest) -> JuizResult<ProcessManifest>;
+
+    /// 登録済みの Composite の型名 (名前順)
+    fn composite_list(&self) -> JuizResult<Vec<String>>;
+
+    /// Composite の Factory の manifest
+    fn composite_profile_full(&self, type_name: &str) -> JuizResult<ProcessManifest>;
+
+    /// Composite の Factory の登録を外す。インスタンスや、子として使う Composite があればエラー
+    fn composite_destroy(&mut self, type_name: &str) -> JuizResult<ProcessManifest>;
+
+    /// CompositeContainer とその上の CompositeContainerProcess を作る。
+    /// `manifest` は conf の `composite_containers:` の 1 件と同じ形 (`name`, `namespace`, `slots`, `processes`)
+    fn composite_container_create(&mut self, manifest: &Value) -> JuizResult<ContainerProfile>;
+}
+
 pub trait BrokerProxy:
     Send
     + JuizObject
@@ -287,6 +310,7 @@ pub trait BrokerProxy:
     + BrokerBrokerProxy
     + ConnectionBrokerProxy
     + TopicBrokerProxy
+    + CompositeBrokerProxy
 {
     fn is_in_charge_for_process(&self, _id: &Identifier) -> JuizResult<bool>;
 
