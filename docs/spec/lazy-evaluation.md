@@ -1,6 +1,6 @@
 # 遅延評価(Capsule::Native)仕様
 
-- 状態: 確定(L0、issue #174、2026-10-26)。§9 の型タグと照合は、データ型の仕様 docs/spec/datatype.md(#163 Step 0、#189)に合わせた
+- 状態: 確定(L0、issue #174、2026-10-26)。§9 の型タグと照合は、データ型の仕様 docs/spec/datatype.md(#163 Step 0、#189)に合わせた。L1(#175)の実装に合わせて §3.2・§6 を直した
 - 親 issue: #3。関連: #164(Composition)、#163(データ型)。計画と経緯はプロジェクトの計画書 composition-plan.md の §3.6・§7
 - この文書は L1(#175、Python)・L2(#176、Rust)・L3(#177、C++)の実装の基準になる。実装で仕様を変えるときは、同じ PR でこの文書を直す
 - 「しなければならない」「エラーにする」は必須の規則、「してよい」は任意を表す
@@ -96,6 +96,9 @@ pub trait NativeValue: Send + Sync + std::fmt::Debug {
 | `CapsulePtr::native_cell() -> JuizResult<Option<NativeCell>>` | ロックの外で使うために、中身の `NativeCell` を複製して返す(§6 の規則) |
 | `Capsule::try_as_value() -> JuizResult<Option<&Value>>` | `as_value()` と同じだが、encode に失敗したらエラーを返す |
 | `Capsule::try_as_image() -> JuizResult<Option<&DynamicImage>>` | 同上、Image 版 |
+| `Capsule::try_to_value()` / `try_to_image()` | `to_value()` / `to_image()` と同じだが、encode に失敗したらエラーを返す |
+| `Capsule::native_cell() -> Option<&NativeCell>` | 中身の `NativeCell`。trace などで `describe()`(`<language>:<type_name>`)を出すのに使う |
+| `lock_encoded(&Arc<Mutex<Capsule>>, name) -> JuizResult<MutexGuard<Capsule>>` | §6 の順序でロックする。返したガードの中の Capsule は、`as_value()` などを呼んでも encode が起きない。`CapsulePtr` の `lock_as_*` と C ABI の `arc_capsule_*` はこれを使う |
 
 ### 3.3 既存の API の振る舞い
 
@@ -153,7 +156,7 @@ encode は「共通形式を読む API」(§3.3)を呼んだときにだけ起�
 ネイティブ値の encode は言語の実行環境の資源(Python なら GIL)を取る。一方、Python の Process は GIL を持ったまま引数の `CapsulePtr` をロックする。`CapsulePtr` のロックを持ったまま GIL を取ると、逆順で待つスレッドと相互待ちになる。そのため次を守らなければならない。
 
 1. **encode は `CapsulePtr` の `Mutex` を持たずに行う。** `lock_as_value` などは、ロックして `NativeCell` を複製 → ロックを放す → encode(`OnceLock` に入れる)→ もう一度ロックしてキャッシュを読む、の順にする。
-2. キャッシュは `NativeCell` の中(`OnceLock`)に持つので、`Capsule` のロックなしで書ける。同じ値を 2 つのスレッドが同時に encode しようとしても、`OnceLock` が 1 回にまとめる。
+2. キャッシュは `NativeCell` の中(`OnceLock`)に持つので、`Capsule` のロックなしで書ける。`OnceLock::get_or_init` で他のスレッドの encode の終わりを待つことはしない(GIL を持ったまま待つと、encode 側が GIL を待って相互待ちになるため)。encode してから `set` するので、同じ値を 2 つのスレッドが同時に encode すると 2 回走りうるが、覚えるのは先に終わった方の結果だけで、どちらのスレッドもその結果を読む。
 3. 2 回目のロックの間に中身が差し替わっていたら(`CapsulePtr::replace`)、差し替わった後の中身で最初からやり直す。
 4. `Capsule`(生ポインタ、C ABI の `capsule_*`)の `as_value()` は `CapsulePtr` のロックの外で呼ばれるので、その場で encode してよい。
 5. `NativeValue::drop` は GIL なしで呼ばれてもよくなければならない。pyo3 の `Py<T>` は GIL が無いときは参照の減算を後回しにするので、そのままでよい。
