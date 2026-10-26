@@ -159,6 +159,7 @@ HTTP ブローカーの 8000 番ポートはホストに転送されるので、
 複数の Step に分けて実装する機能は、最初に仕様を `docs/spec/` に書き、各 Step の実装はそれに従います。実装で仕様を変えるときは、同じ PR で仕様書も直します。
 
 - [Composition(Composite Process / CompositeContainerProcess)](docs/spec/composition.md)(issue #164)
+- [データ型(IDL・データモデル・指紋・互換性)](docs/spec/datatype.md)(issue #163)
 
 ## ライセンス
 
