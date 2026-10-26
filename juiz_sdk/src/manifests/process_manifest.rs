@@ -69,6 +69,9 @@ pub struct ProcessManifest {
     /// Composite の式の木とスロット (Composite でなければ `None`、issue #166)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub composition: Option<Composition>,
+    /// Composite のインスタンスで、各ノードの戻り値をログに出す (仕様 §5.4、issue #167)
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub trace: bool,
 }
 
 impl Display for ProcessManifest {
@@ -175,7 +178,14 @@ impl ProcessManifest {
             language: "rust".to_owned(),
             outputs: None, // OutputProfile::default()
             composition: None,
+            trace: false,
         }
+    }
+
+    /// Composite のインスタンスで、各ノードの戻り値をログに出すか (仕様 §5.4)
+    pub fn trace(mut self, trace: bool) -> Self {
+        self.trace = trace;
+        self
     }
 
     pub fn name(mut self, name: &str) -> Self {
@@ -508,6 +518,9 @@ impl TryFrom<Value> for ProcessManifest {
                 p = p.use_memo(flag);
             }
             Err(_) => {}
+        }
+        if let Ok(flag) = obj_get_bool(&value, "trace") {
+            p = p.trace(flag);
         }
         match obj_get_str(&value, "container_type") {
             Ok(container_type) => {

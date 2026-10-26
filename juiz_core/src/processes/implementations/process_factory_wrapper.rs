@@ -1,6 +1,8 @@
 use crate::plugin::JuizObjectPlugin;
 use crate::prelude::*;
+use crate::processes::ProcessBodyFunctionTrait;
 use std::cell::RefCell;
+use std::sync::Arc;
 
 #[allow(dead_code)]
 pub struct ProcessFactoryWrapper {
@@ -62,6 +64,14 @@ impl ProcessFactory for ProcessFactoryWrapper {
         let p = self.process_factory.lock()?.create_process(manifest)?;
         self.processes.borrow_mut().push(p.clone());
         Ok(p)
+    }
+
+    fn manifest(&self) -> JuizResult<ProcessManifest> {
+        self.process_factory.lock()?.manifest()
+    }
+
+    fn body(&self) -> JuizResult<Arc<ProcessBodyFunctionTrait>> {
+        self.process_factory.lock()?.body()
     }
 }
 

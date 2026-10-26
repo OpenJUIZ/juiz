@@ -6,11 +6,11 @@ use std::{
 };
 
 use juiz_sdk::{
-    anyhow::Context,
+    anyhow::{self, Context},
     connection_identifier::ConnectionIdentifier,
     connections::{ConnectionManifest, ConnectionProfile},
     manifests::ContainerIdentifier,
-    manifests::{ContainerProfile, ProcessProfile},
+    manifests::{CompositeManifest, ContainerProfile, ProcessProfile},
     process_identifier::ProcessIdentifier,
     utils::manifest_util::{construct_id, type_name},
 };
@@ -228,6 +228,36 @@ impl CoreWorker {
             }
         };
         self.broker_proxy(type_name, name.as_str(), create_when_not_found)
+    }
+
+    /// Container を含まない Composite の Factory を作って登録する (issue #167)
+    ///
+    /// 子はこの juiz プロセスに登録された ProcessFactory (先に登録した Composite を含む) から探す。
+    /// ProcessFactory / ContainerProcessFactory と同じ type_name があればエラーにする。
+    pub fn register_composite(
+        &mut self,
+        composite: &CompositeManifest,
+    ) -> JuizResult<ProcessFactoryPtr> {
+        log::trace!("【呼出】register_composite(type_name={})", composite.type_name);
+        let type_name = composite.type_name.as_str();
+        if self.store().container_processes.factory(type_name).is_ok() {
+            return Err(anyhow::Error::from(
+                JuizError::FactoryOfSameTypeNameAlreadyExistsError {
+                    type_name: type_name.to_owned(),
+                },
+            ));
+        }
+        let pf = {
+            let processes = &self.store().processes;
+            composite_process_factory_create(composite, |name| {
+                processes.factory(name).ok().cloned()
+            })?
+        };
+        self.store_mut()
+            .processes
+            .register_factory(type_name, pf.clone())?;
+        log::info!("【作成】CompositeProcessFactory(type_name={type_name})");
+        Ok(pf)
     }
 
     pub fn create_process_ref(&mut self, manifest: &ProcessManifest) -> JuizResult<ProcessPtr> {

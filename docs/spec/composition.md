@@ -148,12 +148,13 @@ eval(node):
 ### 5.3 memo
 
 - memo は **Composite 単位**。Composite のインスタンスの `use_memo` が今の Process と同じ意味で働く(outlet に 1 つ)。
+  - 今の Process はインスタンスの `use_memo` を Factory の値で上書きするが、Composite の Factory は `use_memo` を持たないので、**インスタンスの manifest の `use_memo` をそのまま使う**(省略時は `false`)。
 - 中間値(根以外のノードの戻り値)は memo しない。子の Factory の `use_memo` の設定は使わない。
 - そのため、入力の一部だけ変わっても全ノードを計算し直す。
 
 ### 5.4 中間値のトレース
 
-- Composite のインスタンスの manifest に `trace: true`(既定は `false`)を書くと、各ノードを評価するたびに、ノードの位置(§6)と戻り値の要約をログ(`log::info`)に出す。
+- Composite のインスタンスの manifest に `trace: true`(既定は `false`、`ProcessManifest::trace`)を書くと、各ノードを評価するたびに、ノードの位置(§6)と戻り値の要約をログ(`log::info`)に出す。
 - 中間値を profile や API から読めるようにはしない。
 
 ## 6. エラーの位置情報
@@ -164,6 +165,9 @@ eval(node):
 - エラーには少なくとも、Composite の `type_name`、ノードの位置、そのノードの子の `type_name`、元のエラーを含める。
   - 例: `Composite(capture_gray_save) failed at body.img.img (video_capture_readandget): <元のエラー>`
 - 新しいエラーの種類 `JuizError::CompositeNodeError { type_name, path, child_type_name, error }` を足す(C2)。元のエラーは `anyhow` の context として残す。
+  - `error` は元のエラーの一番外側のメッセージ。元のエラー自体は context の下にあり、`root_cause()` などで取り出せる。
+  - 入れ子の Composite の中で失敗したときは、外側と内側の両方の位置が付く。例: `Composite(outer) failed at body.arg1 (inner): Composite(inner) failed at body.arg1 (fail_if_negative): <元のエラー>`
+  - 子を呼ぶ前の引数の検査(`check_manifest_before_call`)で失敗したときも、そのノードの位置を付ける。
 - 定義時のエラー(§3、§4 の規則違反)も同じ位置の書き方で、どのノードの何が悪いかを示す。種類は `JuizError::CompositeManifestInvalidError { type_name, path, message }`(C1 で追加)。`path` は規則違反が見つかったノードの位置で、定義全体の規則(使っていないスロットなど)では空にする。
 
 ## 7. CompositeContainer(conf の `composite_containers:`)
@@ -295,14 +299,15 @@ Composition が向くもの:
 ## 11. 互換性
 
 - 変えないもの: `Process` トレイト、`ProcessImpl`、接続の仕組み、通信形式、ID の形式、既存の C ABI 関数、既存の conf のキー。
-- 足すもの: conf の `composites:` / `composite_containers:`、`ProcessManifest` / `ProcessProfile` の任意の項目 `composition`、`ContainerProfile` の `slots`、`ProcessFactory::body()`(子の本体関数を取り出す)、エラーの種類 `CompositeManifestInvalidError` / `CompositeNodeError` / `ContainerInUseError`。
+- 足すもの: conf の `composites:` / `composite_containers:`、`ProcessManifest` / `ProcessProfile` の任意の項目 `composition`、`ProcessManifest` の任意の項目 `trace`、`ContainerProfile` の `slots`、`ProcessFactory::body()`(子の本体関数を取り出す)と `ProcessFactory::manifest()`(子の型の情報を取り出す)、エラーの種類 `CompositeManifestInvalidError` / `CompositeNodeError` / `ContainerInUseError`。
+- `ProcessFactory` トレイトに必須のメソッドが 2 つ増えるので、juiz_core の外で `ProcessFactory` を実装しているコードは対応が要る(juiz の中の実装 `ProcessFactoryImpl` / `ProcessFactoryWrapper` は対応済み。Python / C++ / Haskell のプラグインの Factory はすべて `ProcessFactoryImpl` で作るので、そのまま子に使える)。
 
 ## 12. Step との対応
 
 | Step | issue | この文書の範囲 |
 |---|---|---|
 | C1 SDK | #166 | §3.2 の式の木の型(`CompositeManifest`)、§4 の公開引数を作る関数と衝突検出、§8.2 の `composition`。juiz_sdk の `manifests::composite_manifest`(`CompositeManifest::build_process_manifest`) |
-| C2 core(Container なし) | #167 | `ProcessFactory::body()`、§5 の評価、§6 のエラー、§3.2 の入れ子と循環の検出 |
+| C2 core(Container なし) | #167 | `ProcessFactory::body()` / `manifest()`、§5 の評価、§6 のエラー、§3.2 の入れ子と循環の検出。juiz_core の `CompositeProcessFactory`、`composite_process_factory_create`、`CoreWorker::register_composite`(conf を使わずにコードから登録する入口)。スロットを持つ Composite はエラーにする(C3 まで) |
 | C3 core(Container あり) | #168 | §7 の CompositeContainer、ロック、寿命 |
 | C4 conf とベンチマーク | #169 | §3.1 / §3.3 / §7.1 の conf の読み込み、ネームスペース、ベンチマーク |
 | C5 表示 | #170 | §8.2 の `composition` と `slots` の表示 |
