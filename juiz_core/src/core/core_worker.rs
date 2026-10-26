@@ -435,6 +435,15 @@ impl CoreWorker {
             Ok(v) => Ok(v),
             Err(e) => {
                 log::error!("process_factory({}) not found", manifest.type_name);
+                // ContainerProcess の型 (スロットを持つ Composite を含む) を processes: に書いた場合 (issue #169)
+                if self.store().container_processes.factory(manifest.type_name.as_str()).is_ok() {
+                    return Err(anyhow!(JuizError::InvalidSettingError {
+                        message: format!(
+                            "'{}' is a container process type. Create it in 'processes' of its container (or composite_containers), not as a process.",
+                            manifest.type_name
+                        ),
+                    }));
+                }
                 Err(e)
             }
         }?;

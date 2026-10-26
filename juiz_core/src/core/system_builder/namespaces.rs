@@ -88,24 +88,27 @@ pub(super) fn resolve_namespaces(manifest: &Value) -> JuizResult<Value> {
         resolve_object(p, &default_namespace).map(|_| ())
     })?;
 
-    for_each_in_array(&mut manifest, "containers", |c| {
-        let container_namespace = resolve_object(c, &default_namespace)?;
-        // ContainerProcess は所属 Container と同じネームスペースに置く
-        for_each_in_array(c, "processes", |cp| {
-            let cp_namespace = resolve(&default_namespace, namespace_of(cp)?)?;
-            if namespace_of(cp)?.is_some() && cp_namespace != container_namespace {
-                return Err(anyhow!(JuizError::InvalidNameError {
+    // CompositeContainer も Container と同じ規則。スロットの名前は作るときに CompositeContainer のネームスペースで解決する (issue #169)
+    for key in ["containers", "composite_containers"] {
+        for_each_in_array(&mut manifest, key, |c| {
+            let container_namespace = resolve_object(c, &default_namespace)?;
+            // ContainerProcess は所属 Container と同じネームスペースに置く
+            for_each_in_array(c, "processes", |cp| {
+                let cp_namespace = resolve(&default_namespace, namespace_of(cp)?)?;
+                if namespace_of(cp)?.is_some() && cp_namespace != container_namespace {
+                    return Err(anyhow!(JuizError::InvalidNameError {
                     message: format!(
                         "ContainerProcess must be in the same namespace as its Container ('{container_namespace}'), but '{cp_namespace}' ({cp})"
                     )
                 }));
-            }
-            if let Some(map) = cp.as_object_mut() {
-                map.insert("namespace".to_owned(), jvalue!(container_namespace));
-            }
-            Ok(())
-        })
-    })?;
+                }
+                if let Some(map) = cp.as_object_mut() {
+                    map.insert("namespace".to_owned(), jvalue!(container_namespace));
+                }
+                Ok(())
+            })
+        })?;
+    }
 
     for_each_in_array(&mut manifest, "ecs", |ec| {
         let ec_namespace = resolve_object(ec, &default_namespace)?;
@@ -208,6 +211,33 @@ mod tests {
             m["connections"][0]["destination"]["namespace"],
             jvalue!("robot1")
         );
+    }
+
+    #[test]
+    fn resolve_namespaces_of_composite_containers() {
+        let manifest = jvalue!({
+            "namespace": "robot1",
+            "composite_containers": [
+                {"name": "cc0", "slots": {"s": "c0"},
+                 "processes": [{"type_name": "cp", "name": "cp0"}]},
+                {"name": "cc1", "namespace": "/tools", "slots": {"s": "c0"}},
+            ],
+        });
+        let m = resolve_namespaces(&manifest).unwrap();
+        let cc = &m["composite_containers"];
+        assert_eq!(cc[0]["namespace"], jvalue!("robot1"));
+        assert_eq!(cc[0]["processes"][0]["namespace"], jvalue!("robot1"));
+        assert_eq!(cc[1]["namespace"], jvalue!("tools"));
+        // スロットの名前はここでは書き換えない
+        assert_eq!(cc[0]["slots"]["s"], jvalue!("c0"));
+
+        let other = jvalue!({
+            "composite_containers": [
+                {"name": "cc0", "namespace": "robot1", "slots": {},
+                 "processes": [{"type_name": "cp", "name": "cp0", "namespace": "robot2"}]},
+            ],
+        });
+        assert!(resolve_namespaces(&other).is_err());
     }
 
     #[test]
