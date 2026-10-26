@@ -38,6 +38,13 @@ pub(crate) enum ContSubCommands {
         #[arg(help = "ID of container")]
         identifier: String,
     },
+
+    /// Destroy a container (CompositeContainer included, issue #171)
+    #[clap(arg_required_else_help = true)]
+    Destroy {
+        #[arg(help = "ID of container")]
+        identifier: String,
+    },
 }
 
 pub(crate) fn on_container(
@@ -85,6 +92,15 @@ pub(crate) fn on_container_inner(
                 .add_systemproxy_by_id(Some(server.clone()))?
                 .run_and_do_once(|system| on_container_info(system, identifier))
         }
+        ContSubCommands::Destroy { identifier } => {
+            let server = args.server;
+            System::new(manifest)?
+                .set_working_dir(working_dir)
+                .start_http_broker(args.start_http_broker)
+                .setup()?
+                .add_systemproxy_by_id(Some(server.clone()))?
+                .run_and_do_once(|system| on_container_destroy(system, identifier))
+        }
     }
 }
 
@@ -127,5 +143,27 @@ fn on_container_info(system: &mut System, id: String) -> JuizResult<()> {
         }
         Err(e) => println!("Error: {e:?}"),
     }
+    Ok(())
+}
+
+/// Container を消す。ID の broker が指すサーバーで消す (issue #171)
+fn on_container_destroy(system: &mut System, id: String) -> JuizResult<()> {
+    let cid: ContainerIdentifier = id.try_into()?;
+    let profile = if cid.broker_type_name == "core" {
+        system.core_broker().lock_mut()?.container_destroy(&cid)?
+    } else {
+        let proxy = system.core_broker().lock_mut()?.worker_mut().broker_proxy(
+            &cid.broker_type_name,
+            &cid.broker_name,
+            false,
+        )?;
+        let mut local = cid.clone();
+        local.broker_type_name = "core".to_owned();
+        local.broker_name = "core".to_owned();
+        let p = juiz_lock(&proxy)?.container_destroy(&local)?;
+        p
+    };
+    let id: String = profile.identifier().into();
+    println!("destroyed: {id}");
     Ok(())
 }

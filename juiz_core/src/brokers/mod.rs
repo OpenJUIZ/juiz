@@ -22,8 +22,9 @@ pub use broker_factory::BrokerFactory;
 pub use broker_factory_impl::create_broker_factory_impl;
 pub use broker_proxy::BrokerProxy;
 pub use broker_proxy::{
-    BrokerBrokerProxy, ConnectionBrokerProxy, ContainerBrokerProxy, ContainerProcessBrokerProxy,
-    ExecutionContextBrokerProxy, ProcessBrokerProxy, SystemBrokerProxy,
+    BrokerBrokerProxy, CompositeBrokerProxy, ConnectionBrokerProxy, ContainerBrokerProxy,
+    ContainerProcessBrokerProxy, ExecutionContextBrokerProxy, ProcessBrokerProxy,
+    SystemBrokerProxy,
 };
 pub use broker_proxy_factory::create_broker_proxy_factory_impl;
 pub use broker_proxy_factory::BrokerProxyFactory;

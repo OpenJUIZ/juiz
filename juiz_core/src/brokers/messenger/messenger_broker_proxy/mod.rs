@@ -6,8 +6,8 @@ use std::{
 
 use super::super::broker_proxy::{ProcessBrokerProxy, SystemBrokerProxy};
 use crate::brokers::broker_proxy::{
-    BrokerBrokerProxy, ConnectionBrokerProxy, ContainerBrokerProxy, ContainerProcessBrokerProxy,
-    ExecutionContextBrokerProxy,
+    BrokerBrokerProxy, CompositeBrokerProxy, ConnectionBrokerProxy, ContainerBrokerProxy,
+    ContainerProcessBrokerProxy, ExecutionContextBrokerProxy,
 };
 use crate::{brokers::broker_proxy::TopicBrokerProxy, prelude::*};
 use juiz_sdk::{
@@ -15,7 +15,7 @@ use juiz_sdk::{
     connection_identifier::ConnectionIdentifier,
     connections::{ConnectionManifest, ConnectionProfile},
     manifests::ContainerIdentifier,
-    manifests::{ContainerProfile, ProcessProfile},
+    manifests::{CompositeManifest, ContainerProfile, ProcessProfile},
     process_identifier::ProcessIdentifier,
     topic_identifier::TopicIdentifier,
 };
@@ -927,6 +927,53 @@ impl ConnectionBrokerProxy for MessengerBrokerProxy {
             "connection",
             "destroy",
             &id_str,
+        )?)?)?)
+    }
+}
+
+impl CompositeBrokerProxy for MessengerBrokerProxy {
+    fn composite_create(&mut self, manifest: &CompositeManifest) -> JuizResult<ProcessManifest> {
+        let mut cm = CapsuleMap::new();
+        cm.insert(
+            "__manifest__".to_owned(),
+            serde_json::to_value(manifest)?.into(),
+        );
+        Ok(serde_json::from_value(capsule_value(self.create(
+            "composite",
+            "create",
+            cm,
+        )?)?)?)
+    }
+
+    fn composite_list(&self) -> JuizResult<Vec<String>> {
+        Ok(serde_json::from_value(capsule_value(
+            self.read("composite", "list")?,
+        )?)?)
+    }
+
+    fn composite_profile_full(&self, type_name: &str) -> JuizResult<ProcessManifest> {
+        Ok(serde_json::from_value(capsule_value(self.read_by_id(
+            "composite",
+            "profile_full",
+            &type_name.to_owned(),
+        )?)?)?)
+    }
+
+    fn composite_destroy(&mut self, type_name: &str) -> JuizResult<ProcessManifest> {
+        Ok(serde_json::from_value(capsule_value(self.delete_by_id(
+            "composite",
+            "destroy",
+            &type_name.to_owned(),
+        )?)?)?)
+    }
+
+    fn composite_container_create(&mut self, manifest: &Value) -> JuizResult<ContainerProfile> {
+        let mut cm = CapsuleMap::new();
+        cm.insert("__manifest__".to_owned(), manifest.clone().into());
+        Ok(serde_json::from_value(capsule_value(self.create(
+            "composite_container",
+            "create",
+            cm,
         )?)?)?)
     }
 }

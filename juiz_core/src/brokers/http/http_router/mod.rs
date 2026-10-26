@@ -35,6 +35,7 @@ use crate::prelude::*;
 pub mod any;
 pub mod any_process;
 pub mod broker;
+pub mod composite;
 pub mod connection;
 pub mod container;
 pub mod container_process;
@@ -397,6 +398,7 @@ pub fn app_new(
     api.merge(connection::ApiDoc::openapi());
     api.merge(topic::ApiDoc::openapi());
     api.merge(any_process::ApiDoc::openapi());
+    api.merge(composite::ApiDoc::openapi());
     log::trace!("app_new(static_filepaths: {static_filepaths:?}) called");
     let r = Router::new();
     // Swagger UI は feature "swagger-ui" のときだけ。無いときも OpenAPI 定義は返す。

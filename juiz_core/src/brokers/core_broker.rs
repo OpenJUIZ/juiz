@@ -3,7 +3,7 @@ use juiz_sdk::anyhow::{anyhow, Context};
 use juiz_sdk::connection_identifier::ConnectionIdentifier;
 use juiz_sdk::connections::{ConnectionManifest, ConnectionProfile};
 use juiz_sdk::manifests::ContainerIdentifier;
-use juiz_sdk::manifests::{ContainerProfile, ProcessProfile};
+use juiz_sdk::manifests::{CompositeManifest, ContainerProfile, ProcessProfile};
 use juiz_sdk::process_identifier::ProcessIdentifier;
 use juiz_sdk::topic_identifier::TopicIdentifier;
 use juiz_sdk::utils::check_corebroker_manifest;
@@ -12,8 +12,9 @@ use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use uuid::Uuid;
 
 use crate::brokers::broker_proxy::{
-    BrokerBrokerProxy, ConnectionBrokerProxy, ContainerBrokerProxy, ContainerProcessBrokerProxy,
-    ExecutionContextBrokerProxy, ProcessBrokerProxy, SystemBrokerProxy, TopicBrokerProxy,
+    BrokerBrokerProxy, CompositeBrokerProxy, ConnectionBrokerProxy, ContainerBrokerProxy,
+    ContainerProcessBrokerProxy, ExecutionContextBrokerProxy, ProcessBrokerProxy,
+    SystemBrokerProxy, TopicBrokerProxy,
 };
 use crate::brokers::BrokerProxy;
 
@@ -1366,6 +1367,50 @@ impl ConnectionBrokerProxy for CoreBroker {
 //     // IDがない場合はProcessかContainerProcessかが曖昧だが一旦Processで
 //     return Ok((id_from_manifest(source)?, id_from_manifest(destination)?))
 // }
+
+impl CompositeBrokerProxy for CoreBroker {
+    fn composite_create(&mut self, manifest: &CompositeManifest) -> JuizResult<ProcessManifest> {
+        log::trace!("【呼出】composite_create(type_name={})", manifest.type_name);
+        self.worker_mut()
+            .register_composite_any(manifest)
+            .or_else(|e| {
+                log::error!(
+                    "【エラー】composite_create(type_name={})。エラーは ({e})",
+                    manifest.type_name
+                );
+                Err(e)
+            })
+    }
+
+    fn composite_list(&self) -> JuizResult<Vec<String>> {
+        self.worker().composite_type_names()
+    }
+
+    fn composite_profile_full(&self, type_name: &str) -> JuizResult<ProcessManifest> {
+        self.worker().composite_manifest(type_name)
+    }
+
+    fn composite_destroy(&mut self, type_name: &str) -> JuizResult<ProcessManifest> {
+        log::trace!("【呼出】composite_destroy(type_name={type_name})");
+        self.worker_mut()
+            .deregister_composite(type_name)
+            .or_else(|e| {
+                log::error!("【エラー】composite_destroy(type_name={type_name})。エラーは ({e})");
+                Err(e)
+            })
+    }
+
+    fn composite_container_create(&mut self, manifest: &Value) -> JuizResult<ContainerProfile> {
+        log::trace!("【呼出】composite_container_create({manifest})");
+        let container =
+            crate::core::create_composite_container_from_value(self.worker_mut(), manifest)
+                .or_else(|e| {
+                    log::error!("【エラー】composite_container_create({manifest})。エラーは ({e})");
+                    Err(e)
+                })?;
+        self.worker().store().container_profile(&container)
+    }
+}
 
 impl BrokerProxy for CoreBroker {
     fn is_in_charge_for_process(&self, id: &Identifier) -> JuizResult<bool> {

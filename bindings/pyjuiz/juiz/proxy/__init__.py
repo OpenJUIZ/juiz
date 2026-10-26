@@ -62,7 +62,12 @@ class HttpProxy(CRUDProxy):
             elif ct and ct == 'image/png':
                 return Image.open(BytesIO(response.content)).convert('RGB')
         else:
-            raise error_code_and_ex[response.status_code]()
+            # サーバーのエラーメッセージ ({"message": ...}) を例外に載せる (issue #171)
+            try:
+                message = response.json().get('message', response.text)
+            except Exception:
+                message = response.text
+            raise error_code_and_ex.get(response.status_code, InternalServerError)(message)
     
     def read(self, class_name, function_name, param_dict={}):
         url = self._url(class_name, function_name, param_dict)
@@ -90,14 +95,6 @@ class HttpProxy(CRUDProxy):
             return self._do_response(client.delete(self._base_url + url))                
         return None
 
-    def create(self, url, data):
-        with httpx.Client() as client:
-            return self._do_response(client.create(self._base_url + url,
-                                    data=json.dumps(data),
-                                   headers={"Content-Type": "application/json"}
-                                   ))
-        return None
-        
     def _post(self, url, data):
         with httpx.Client() as client:
             return self._do_response(client.post(self._base_url + url,
@@ -151,10 +148,46 @@ class SystemProxy():
         return self.crud.read('system', 'profile_full')
 
     def create_process(self, type_name, name, use_memo=True):
-        return self.crud.create('/api/process/', {
+        return self.crud.create('process', 'create', {'__manifest__': {
             "type_name": type_name,
             "name": name,
-            "use_memo": use_memo})
+            "use_memo": use_memo}})
+
+    # 実行中に Composite を定義する (issue #171)。定義は conf の composites: / composite_containers: と同じ形の dict
+
+    def create_composite(self, definition: dict):
+        """Composite の Factory を登録し、Factory の manifest を返す。
+
+        definition は {'type_name': ..., 'body': {...}} (conf の composites: の 1 件と同じ形)。
+        スロット (containers) があれば CompositeContainerProcess の型になる。
+        """
+        return self.crud.create('composite', 'create', {'__manifest__': definition})
+
+    def composites(self):
+        """登録済みの Composite の型名のリスト (名前順)"""
+        return self.crud.read('composite', 'list')
+
+    def composite(self, type_name: str):
+        """Composite の Factory の manifest (式の木は 'composition')"""
+        return self.crud.read('composite', 'profile_full', {'identifier': type_name})
+
+    def destroy_composite(self, type_name: str):
+        """Composite の Factory の登録を外す。インスタンスや、子として使う Composite があればエラー"""
+        return self.crud.delete('composite', 'destroy', {'identifier': type_name})
+
+    def create_composite_container(self, definition: dict):
+        """CompositeContainer とその上の Process を作り、ContainerProxy を返す。
+
+        definition は {'name': ..., 'namespace': ..., 'slots': {...}, 'processes': [...]}
+        (conf の composite_containers: の 1 件と同じ形。namespace は絶対)。
+        消すときは destroy_container(ID)。
+        """
+        profile = self.crud.create('composite_container', 'create', {'__manifest__': definition})
+        return ContainerProxy.new(self, profile['identifier'])
+
+    def destroy_container(self, identifier: str):
+        """Container (CompositeContainer を含む) を消す"""
+        return self.crud.delete('container', 'destroy', {'identifier': identifier})
         
     def _list(self, class_name, namespace=None):
         # namespace を渡すと、そのネームスペースとその下だけを返す (list API の namespace クエリ)

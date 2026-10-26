@@ -7,7 +7,8 @@ juiz_core/tests/pyjuiz_proxy_test.rs が System を起動してから、この�
 """
 import sys
 
-from juiz.proxy import ProcessProxy, ContainerProxy, SystemProxy, HttpProxy, NotFoundError
+from juiz.proxy import (ProcessProxy, ContainerProxy, SystemProxy, HttpProxy, NotFoundError,
+                        InternalServerError)
 
 
 def check_process(port):
@@ -74,12 +75,57 @@ def check_container(port):
     assert c0.c0inc.execute() == before + 5
 
 
+def check_composite(port):
+    # 実行中に Composite を定義する (issue #171)
+    system = SystemProxy(HttpProxy("localhost", port))
+    m = system.create_composite({
+        "type_name": "py_inc_twice",
+        "body": {"process": "increment_process",
+                 "args": {"arg1": {"process": "increment_process", "args": {"arg1": {"expose": "x"}}}}},
+    })
+    assert m["type_name"] == "py_inc_twice", m
+    assert "py_inc_twice" in system.composites()
+    assert system.composite("py_inc_twice")["composition"]["body"]["process"] == "increment_process"
+
+    system.create_process("py_inc_twice", "pit0")
+    pit0 = ProcessProxy("pit0", "localhost", port)
+    assert pit0.call(x=3) == 5
+
+    # 使われている Composite は消せず、サーバーの理由が例外に入る
+    try:
+        system.destroy_composite("py_inc_twice")
+        raise AssertionError("destroying a Composite in use must fail")
+    except InternalServerError as e:
+        assert "pit0" in str(e), e
+
+    system.create_composite({
+        "type_name": "py_add_twice",
+        "containers": {"c": "example_container"},
+        "body": {"process": "example_container_increment", "container": "c",
+                 "args": {"arg1": {"process": "py_inc_twice"}}},
+    })
+    cc = system.create_composite_container({
+        "name": "pycc0", "slots": {"c": "c0"},
+        "processes": [{"type_name": "py_add_twice", "name": "pat0"}],
+    })
+    c0 = ContainerProxy("c0", "localhost", port)
+    before = c0.c0get()
+    assert cc.pat0.call(x=1) == before + 3
+
+    system.destroy_container(cc.identifier())
+    system.destroy_composite("py_add_twice")
+    system.crud.delete('process', 'destroy', {'identifier': pit0.identifier()})
+    system.destroy_composite("py_inc_twice")
+    assert "py_inc_twice" not in system.composites()
+
+
 def main():
     port = int(sys.argv[1])
     check_process(port)
     check_container(port)
     check_namespaced_process(port)
     check_namespaced_container(port)
+    check_composite(port)
     print("ok")
 
 

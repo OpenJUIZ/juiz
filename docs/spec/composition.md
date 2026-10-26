@@ -35,7 +35,7 @@ capture_gray_save(cc: CompositeContainer{camera, fs}, path)
 2. 子の関数は変えない。子の Factory の本体関数を取り出して合成する。子のインスタンスは作らず、システムにも登録しない。
 3. 式は**木**に限る。各ノードの戻り値は親の引数 1 つにだけ入る。同じ部分式の共有(DAG)は対象外(§13)。
 4. 子の間は `Capsule` で値を渡す(汎用経路)。シリアライズの省略は Composite 専用には作らず、遅延評価(#3、L0〜L3)で行う。
-5. 定義は conf から始める。API / CLI(C7)、言語側の書き方は後の Step。
+5. 定義は conf から始める。実行中の juiz にはブローカー API / CLI で足せる(C7、§8.4)。言語側の書き方は後の Step。
 
 ## 3. Composite の定義(conf の `composites:`)
 
@@ -286,6 +286,37 @@ composition:
 - **管理画面**: Process / ContainerProcess の性質欄に「合成(Composition)」の欄を足し、式の木を入れ子のリストで出す。CompositeContainerProcess では、スロットから参照先の Container へ移れる。CompositeContainer の性質欄には「差込口(Slot)」の欄でスロットと参照先の Container を出し、参照される側の Container には、どの CompositeContainer のどのスロットから参照されているかを出す(削除を拒否される理由が分かるように、§7.4)。
 - 表示のために API は足していない。どちらも §8.2 の profile を読むだけ。
 
+### 8.4 実行時の定義(C7)
+
+実行中の juiz に、ブローカー API で Composite の Factory と CompositeContainer を足したり消したりできる。定義の形は conf と同じ(`composites:` の 1 件、`composite_containers:` の 1 件)。
+
+| API(HTTP のパス。qmp も同じクラス名・関数名) | 引数 | 戻り値 |
+|---|---|---|
+| `POST /api/composite/create` | ボディ `{"__manifest__": <Composite の定義>}` | Factory の manifest(§8.2、`composition` を含む) |
+| `GET /api/composite/list` | なし | Composite の型名の配列(名前順) |
+| `GET /api/composite/profile_full?identifier=<型名>` | 型名 | Factory の manifest |
+| `DELETE /api/composite/destroy?identifier=<型名>` | 型名 | 消した Factory の manifest |
+| `POST /api/composite_container/create` | ボディ `{"__manifest__": <composite_containers: の 1 件>}` | CompositeContainer の profile(`identifier` と `slots` つき) |
+
+- Rust の `BrokerProxy` には `CompositeBrokerProxy` トレイト(`composite_create` / `composite_list` / `composite_profile_full` / `composite_destroy` / `composite_container_create`)を足した。HTTP・qmp・メッセンジャー系の BrokerProxy と CoreBroker が実装する。
+- **作成**: スロット(`containers`)が無ければ Process の型、あれば CompositeContainerProcess の型として登録する(conf と同じ、§3.3)。子はその juiz プロセスに登録済みの Factory(先に足した Composite を含む)から探す。定義の誤りは conf と同じエラー(`CompositeManifestInvalidError`。子の Factory が見つからない、子に無い引数名、公開引数の衝突など)、同じ型名の Factory があれば `FactoryOfSameTypeNameAlreadyExistsError` で、どちらも何も登録しない。
+- 作った Composite は普通の型として、`process/create`(スロットがあれば CompositeContainer に `container_process/create`)でインスタンスを作れる。
+- **CompositeContainer**: `name`・`namespace`・`slots`・`processes` は §7.1 と同じ。ただし `namespace` は**絶対**として扱う(先頭の `/` はあってもなくてもよい。conf のように System の既定ネームスペースからは解決しない)。スロットの名前は CompositeContainer のネームスペースから解決する。`processes` の作成に失敗したら、作った CompositeContainer は消してからエラーを返す。CompositeContainer の削除と一覧は Container と同じ `container/destroy` / `container/list`。
+- **削除**: 消せるのは Composite の Factory だけで、プラグインの Factory は `NotCompositeError`。その型のインスタンス(Process / ContainerProcess)があるか、他の Composite が子として使っていれば `CompositeInUseError`(使っているものの ID と `Composite(<型名>)` を並べる)で、先にそちらを消す。
+- **範囲**: Composite の Factory はその juiz プロセスだけのもので、`list` はサブシステムをたどらない。
+- **CLI**: `juiz composite create <ファイル>` は YAML / JSON のファイルを読み、Composite 1 件(`type_name` と `body`)か、`composites:` / `composite_containers:` を持つもの(conf の一部)を、`composites` を配列の順に登録してから CompositeContainer を作る。`juiz composite list [--long]`(`--long` は種類と式の木)、`juiz composite info <型名>`、`juiz composite destroy <型名>`。CompositeContainer は `juiz container destroy <ID>` で消す。どれも `-s` のサーバーに対して動く。
+
+  ```text
+  $ juiz composite create def.yaml
+  created: inc_twice (process)
+    increment_process
+    └─ arg1: increment_process
+       └─ arg1 = $x
+  created: core://core/container/cc0::composite_container
+    c -> core://core/container/ca::example_container
+  ```
+- **pyjuiz**: `SystemProxy` の `create_composite(dict)` / `composites()` / `composite(type_name)` / `destroy_composite(type_name)` / `create_composite_container(dict)`(ContainerProxy を返す)/ `destroy_container(id)`。サーバーのエラーメッセージは例外の引数に入る。
+
 ## 9. 言語の規則
 
 - 汎用経路(§5)は子の間を `Capsule` で渡すので、同じ juiz プロセスの中なら、**言語の違う子を混ぜてよい**。この場合 `language` は `mixed` になる。
@@ -321,8 +352,9 @@ Composition が向くもの:
 ## 11. 互換性
 
 - 変えないもの: `Process` トレイト、`ProcessImpl`、接続の仕組み、通信形式、ID の形式、既存の C ABI 関数、既存の conf のキー。
-- 足すもの: conf の `composites:` / `composite_containers:`、`ProcessManifest` / `ProcessProfile` の任意の項目 `composition`、`ProcessManifest` の任意の項目 `trace`、`ContainerProfile` の `slots`、`ProcessFactory::body()`(子の本体関数を取り出す)と `ProcessFactory::manifest()`(子の型の情報を取り出す)、`ContainerProcessFactory` の同名のメソッド、エラーの種類 `CompositeManifestInvalidError` / `CompositeNodeError` / `ContainerInUseError`。
+- 足すもの: conf の `composites:` / `composite_containers:`、`ProcessManifest` / `ProcessProfile` の任意の項目 `composition`、`ProcessManifest` の任意の項目 `trace`、`ContainerProfile` の `slots`、`ProcessFactory::body()`(子の本体関数を取り出す)と `ProcessFactory::manifest()`(子の型の情報を取り出す)、`ContainerProcessFactory` の同名のメソッド、エラーの種類 `CompositeManifestInvalidError` / `CompositeNodeError` / `ContainerInUseError` / `CompositeInUseError` / `NotCompositeError`、ブローカー API の `composite` / `composite_container` クラス(C7)。
 - `ProcessFactory` トレイトに必須のメソッドが 2 つ増えるので、juiz_core の外で `ProcessFactory` を実装しているコードは対応が要る(juiz の中の実装 `ProcessFactoryImpl` / `ProcessFactoryWrapper` は対応済み。Python / C++ / Haskell のプラグインの Factory はすべて `ProcessFactoryImpl` で作るので、そのまま子に使える)。
+- `BrokerProxy` トレイトの親に `CompositeBrokerProxy` が増える(C7)。juiz_core の外で `BrokerProxy` を実装しているコードは対応が要る(juiz の中の BrokerProxy は対応済み)。
 - 同じく `ContainerProcessFactory` トレイトにも必須の `manifest()` と `body()`(Container を受け取る本体関数 `Fn(ContainerPtr, CapsuleMap)`)が増える(C3)。juiz の中の実装 `ContainerProcessFactoryImpl` / `ContainerProcessFactoryWrapper` は対応済みで、各言語のプラグインの ContainerProcess はそのまま子に使える。
 
 ## 12. Step との対応
@@ -334,6 +366,7 @@ Composition が向くもの:
 | C3 core(Container あり) | #168 | §7 の CompositeContainer、ロック、寿命。`ContainerProcessFactory::body()` / `manifest()`、juiz_core の `CompositeContainerProcessFactory`、`composite_container_process_factory_create`、`CoreWorker::register_composite_container`(スロットを持つ Composite の登録)と `CoreWorker::create_composite_container`(CompositeContainer を作る入口)。conf を使わずにコードから作る |
 | C4 conf とベンチマーク | #169 | §3.1 / §3.3 / §7.1 の conf の読み込み、ネームスペース、ベンチマーク。juiz_core の system_builder(`composites.rs`)。ベンチマークは `juiz_core/tests/composite_bench.rs`(`#[ignore]`、結果は #169 に残す) |
 | C5 表示 | #170 | §8.2 の `composition` と `slots` が HTTP / qmp で読めること、§8.3 の CLI と管理画面の表示。§5.4 の trace のログの確認。テストは `juiz_core/tests/composite_display_test.rs` と `brokers/qmp_broker/tests/qmp_composite_test.rs` |
+| C7 実行時の定義 | #171 | §8.4 のブローカー API(`composite` / `composite_container`)、`CompositeBrokerProxy`、CLI の `juiz composite`、pyjuiz。テストは `juiz_core/tests/composite_api_test.rs` と `brokers/qmp_broker/tests/qmp_composite_api_test.rs` |
 | C8 型検査 | #172 | ノードの戻り値の型と親の引数の型の定義時検査(#163 Step 4 の比較関数を使う) |
 
 ## 13. 対象外(後の Step か、未定)
@@ -341,7 +374,7 @@ Composition が向くもの:
 - DAG(同じ部分式を 1 回だけ評価して複数の引数に配る)
 - CompositeContainerProcess の型を子に使う入れ子(スロットの受け渡し)
 - Composite 全体での Container の排他
-- 実行時の定義(ブローカー API・CLI、C7 #171)と、言語側での定義(pyjuiz の `compose(...)` など)
+- 言語側での定義(pyjuiz の `compose(...)` など)。実行時の定義(C7)は §8.4
 - 接続済みのインスタンス群から Composite を作る機能(`from-connections`)
 - 式の文字列表記(`filesystem_imwrite(fs, img=cv_cvt_color(...), filename=$path)`)
 - Composite から IDL の `process` 宣言を書き出す機能(#163 関連)

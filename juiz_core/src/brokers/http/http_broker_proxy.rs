@@ -82,8 +82,9 @@ fn construct_param(key: &String, value: &String) -> String {
             }
             Err(_) => key.clone() + "=" + value.as_str(),
         }
-    } else if key == "identifier" {
-        // 解析できない識別子はそのまま送り、サーバ側でエラーにする (issue #35)
+    } else if key == "identifier" && value.contains("://") {
+        // 解析できない識別子はそのまま送り、サーバ側でエラーにする (issue #35)。
+        // `://` を含まないもの (composite/* に渡す Composite の型名、issue #171) は識別子として解析しない
         match IdentifierStruct::try_from(value.clone()) {
             Ok(mut id_struct) => {
                 id_struct.broker_type_name = "core".to_owned();
@@ -208,9 +209,10 @@ impl CRUDBrokerProxy for HTTPBrokerProxy {
                     log::error!(
                         "HTTPBrokerProxy.read(url={url:})が失敗しました。Responseは{response:?}"
                     );
+                    // create などと同じく、サーバーのエラーメッセージ (本文) を載せる (issue #171)
                     return Err(anyhow::Error::from(HTTPBrokerError::HTTPStatusError {
                         status_code: response.status(),
-                        message: format!("{:?}", response),
+                        message: response.text().unwrap_or_default(),
                     }));
                 }
                 let value = response
