@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use super::argument_type::{type_check, ArgumentType};
 use super::manifest_description::Description;
 use crate::prelude::*;
+use crate::types::TypeSchema;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ArgumentProfile {
@@ -16,6 +17,9 @@ pub struct ArgumentProfile {
     /// 値がまだ無いとき、画像のように値型でないとき、ファクトリの profile では None で、JSON には出さない。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<Value>,
+    /// 型参照 (型付きの引数だけ、仕様 docs/spec/datatype.md §6)。型なしなら JSON には出さない
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema: Option<TypeSchema>,
 }
 
 impl Display for ArgumentProfile {
@@ -35,6 +39,7 @@ impl From<ArgumentManifest> for ArgumentProfile {
             description: value.description,
             default: value.default,
             value: None,
+            schema: value.schema,
         }
     }
 }
@@ -51,6 +56,7 @@ impl ArgumentProfile {
             description,
             default,
             value: None,
+            schema: None,
         }
     }
 
@@ -67,6 +73,7 @@ impl ArgumentProfile {
             description,
             default,
             value: None,
+            schema: None,
         })
     }
 
@@ -92,7 +99,7 @@ impl ArgumentProfile {
     }
 
     pub fn new_array(name: &str, default: Vec<Value>) -> Self {
-        Self::new(ArgumentType::Object, name, "".into(), default.into())
+        Self::new(ArgumentType::Array, name, "".into(), default.into())
     }
 
     pub fn new_object(name: &str, default: Value) -> Self {
@@ -100,7 +107,7 @@ impl ArgumentProfile {
     }
 
     pub fn new_image(name: &str) -> Self {
-        Self::new(ArgumentType::String, name, "".into(), jvalue!({}))
+        Self::new(ArgumentType::Image, name, "".into(), jvalue!({}))
     }
 }
 

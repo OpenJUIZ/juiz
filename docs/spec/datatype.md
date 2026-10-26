@@ -157,7 +157,8 @@ MessagePack(QMP)は今のとおり Value を変換したものを流すので、
 | `T?` | T の `type_name` |
 
 - 型付きの引数の `default` は、§4 の辞書での表し方で書く。manifest を作るときに §4 の規則で検査し、合わなければエラー(今の `new_with_check` と同じ扱い)。
-- 今の `outputs`(`OutputProfile`、pyjuiz だけが埋めている)は互換のために残す。新しいコードは `output_schema` を使う。`outputs` の整理は Step 1 で行う。
+- 今の `outputs`(`OutputProfile`、pyjuiz だけが埋めている)は互換のために残す。新しいコードは `output_schema` を使う。Rust の SDK は `output_schema` を付けるとき、`outputs` が空なら `type_name` だけの `outputs`(`{"enum_type": "Primitive", "type_name": "Object", "default_value": null}` など)も埋める(古いクライアントの表示用。Step 1)。
+- 型付きの引数の `default` が `null` で、型が `T?` でなければ「既定値なし」として扱い、検査しない(今の Image 引数などと同じ)。`image` の引数の `default` は検査しない。
 - 戻り値が `void`(`null`)の型付きの Process は、今の `Capsule::Empty` を返してよい。
 
 ## 7. 互換性
@@ -400,9 +401,9 @@ ROS 2 の `.msg` / `.srv` / `.idl` を JIDL / .avsc に変換する。juiz の�
 
 | Step | issue | この文書の節 |
 |---|---|---|
-| 1 SDK | #190 | §3、§4、§5、§6、§7、§8 のエラー |
+| 1 SDK | #190 | §3、§4、§5、§6、§7、§8 のエラー、§11 の `#[derive(JuizType)]`(§15) |
 | 2 生成器 `juiz-idl` | #191 | §5、§9、§11(Rust、JSON Schema) |
-| 3 Rust マクロ | #192 | §6、§11(`#[derive(JuizType)]`) |
+| 3 Rust マクロ | #192 | §6、§11(`#[juiz_process]` 系が `JuizType` を受ける) |
 | 4 core | #193 | §7、§8(接続時・Topic・呼び出し時) |
 | 5 Python | #194 | §11 |
 | 6 C++ | #195 | §11 |
@@ -423,3 +424,24 @@ ROS 2 の `.msg` / `.srv` / `.idl` を JIDL / .avsc に変換する。juiz の�
 - JSON Schema への書き出しの細部(管理画面のフォーム・Swagger 用、Step 2 / 8 で決める)。
 - client stub(型付きで呼ぶ側の生成コード)。型と skeleton の後(計画書 §8 の 4)。
 - 型の登録所の API の形(`/type/list`、`/type/schema`、Step 4 で決める)。
+
+## 15. Rust の SDK(Step 1 #190 で決めたこと)
+
+型のモデル・指紋・値の検査・互換性の判定はクレート `juiz_types`(juiz_sdk に依存しない。依存は serde_json・sha2・base64・regex・thiserror だけ)に置き、生成器 `juiz-idl`(Step 2)などはこれだけを使える。`juiz_sdk::types` は `juiz_types` を再公開し、`JuizType` と `TypeTag` を足す。`juiz_types` の関数は `juiz_types::TypeError`(`SchemaInvalid` / `Incompatible` / `ValueDoesNotMatch`)を返し、juiz_sdk の manifest・`JuizType` を通したときは §8 の名前の `JuizError` に変換する(`juiz_sdk::types::type_error`)。`type_name` は `juiz_types` では文字列(`argument_type_name`)、juiz_sdk では `ArgumentTypeOf::argument_type` が `ArgumentType` を返す。
+
+| 名前 | 内容 |
+|---|---|
+| `DataType`(と `RecordType` / `RecordField` / `EnumType`) | §3 の型のモデル。`from_avro` / `to_avro`(自己完結、`doc`・`default`・`aliases` とその他の属性を残す)、`canonical_form`(PCF)、`fingerprint`、`display_name`、`argument_type_name`(§6 の表) |
+| `TypeSchema` | §6 の型参照 `{name, fingerprint, avro}`。`validate` は `avro` を読み、`name` と `fingerprint` が計算したものと一致するかを見る。他の言語・ブローカーから届いた型参照は使う前にこれで検査する |
+| `read_value` / `check_value` | §4 の規則で辞書を読む。`read_value` は reader から見た値(足りないフィールドを既定値で埋め、型にないキーを落とし、列挙の知らない記号を既定値にしたもの)を返す |
+| `compare_types` / `ensure_compatible` / `Compatibility` | §7。`Compatibility` は `Untyped`(どちらかが型なし)・`Same`・`Compatible`・`Incompatible { path, reason }` |
+| `JuizType` | 辞書との変換(`to_value` / `from_value`)、`data_type` / `type_schema` / `type_identifier`、`Capsule` / `CapsulePtr` との変換。`bool`・`i32`・`i64`・`f32`・`f64`・`String`・`Vec<u8>`(`bytes`)・`Vec<T>`・`HashMap<String, T>`・`Option<T>`・`Value`(`any`)・`DynamicImage`(`image`)・`()`(`null`)に実装済み |
+| `TypeTag` | §12 の型タグ(完全名・指紋・ABI タグ)。`JuizType::abi_tag` が `None`(既定)なら `type_tag` も `None`。`destroy` / `clone` の関数は型ではなく言語ごとの登録所(Step 4)に置く |
+
+- `#[derive(JuizType)]`(`juiz_macro`)は名前付きフィールドの struct を record に、フィールドのない変種だけの enum を enum にする。`#[juiz(namespace = "…")]` は必須、フィールドの既定値は `#[juiz(default = 値)]`(§4 の辞書の表し方、`serde_json::json!` に渡す)、列挙の既定値は変種に `#[juiz(default)]`。`///` は `doc` になる。ジェネリクスはエラー。
+- `RecordField::default_value` は既定値を §4 の表し方で受け取り、Avro の表し方で持つ。`T?` は既定値が `null` なら `["null",T]`、それ以外なら `[T,"null"]` の並びにする(§9.2 と同じ)。
+- 型の中の位置は、record のフィールドを `.名前`、配列の要素を値の検査では `[i]`・互換性の判定では `[]`、辞書の値を値の検査では `.キー`・互換性の判定では `{}` で表す。
+- Avro のスキーマの中の名前の参照は、外側の名前空間を補った完全名、次に書かれたままの名前の順で探す。
+- 基本型を `{"type": "long", …}` と書いたときの制約の属性(§10)は今は読み捨てる(Step 13 #201 で持つ)。
+- 指紋のテストの期待値は apache-avro の `canonical_form()` で作った。apache-avro は serde_json の `arbitrary_precision` を有効にして Value の形を変える(Rust のプラグインと食い違う)ので、依存には入れない。
+

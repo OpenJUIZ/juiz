@@ -20,6 +20,7 @@ license = "MIT OR Apache-2.0"
 
 juiz_macro = {version="0.0.22", path="juiz_macro"}
 juiz_sdk = {version="0.0.22", path="juiz_sdk"}
+juiz_types = {version="0.0.22", path="juiz_types"}
 # 既定の feature(embed-python)は使う側で選ぶ(juiz_app/Cargo.toml を参照)
 juiz_core = {version="0.0.22", path="juiz_core", default-features = false}
 juiz_app= {version="0.0.22", path="juiz_app"}
@@ -29,6 +30,7 @@ juiz_webui = {version="0.0.22", path="juiz_webui"}
 anyhow = "1.0.89"
 approx = "0.5.1"
 axum = {version="0.7.7", features = ["multipart"]}
+base64 = "0.22.1"
 
 
 clap = { version="4.4.10", features = ["derive"] }
@@ -59,6 +61,7 @@ regex = "1.10.6"
 reqwest = {version="0.12.8", default-features = false, features = ["blocking", "json", "rustls-tls-native-roots", "charset", "http2", "system-proxy"]}
 serde = {version = "1.0.209", features = ["derive"]}
 serde_json="1.0.127"
+sha2 = "0.11.1"
 signal-hook = "0.3.17"
 
 syn = { version = "2.0.87", features = ["full", "extra-traits", "parsing"] }
@@ -78,6 +81,7 @@ members = [
     ".",
     "juiz_macro",
     "juiz_sdk",
+    "juiz_types",
     "juiz_core",
     "juiz_app",
     "juiz_webui",
@@ -122,6 +126,7 @@ default-members = [
     ".",
     "juiz_macro",
     "juiz_sdk",
+    "juiz_types",
     "juiz_core",
     "juiz_app",
     "juiz_webui",

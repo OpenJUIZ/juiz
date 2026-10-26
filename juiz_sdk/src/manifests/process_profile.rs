@@ -3,6 +3,7 @@ use crate::{
     manifests::{Composition, OutputProfile},
     prelude::*,
     process_identifier::ProcessIdentifier,
+    types::TypeSchema,
 };
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
@@ -27,6 +28,9 @@ pub struct ProcessProfile {
     pub container_name: Option<String>,
     pub container_type: Option<String>,
     pub outputs: Option<OutputProfile>,
+    /// 戻り値の型参照 (型付きの Process だけ、仕様 docs/spec/datatype.md §6)。型なしなら JSON には出さない
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_schema: Option<TypeSchema>,
     /// Composite の式の木とスロット (Composite でなければ `None`、issue #166)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub composition: Option<Composition>,
@@ -64,6 +68,7 @@ impl TryFrom<ProcessManifest> for ProcessProfile {
             container_name: value.container_name,
             container_type: value.container_type,
             outputs: value.outputs,
+            output_schema: value.output_schema,
             composition: value.composition,
         })
     }
@@ -193,6 +198,7 @@ impl ProcessProfile {
             container_type: None,
             language: "rust".to_owned(),
             outputs: None, // OutputProfile::default()
+            output_schema: None,
             composition: None,
         }
     }

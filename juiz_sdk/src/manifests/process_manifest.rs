@@ -7,8 +7,8 @@ use crate::{
     prelude::*,
     process_identifier::ProcessIdentifier,
     topic_identifier::resolve_topic_name,
+    types::{type_error, ArgumentTypeOf, JuizType, TypeSchema},
 };
-use image::Primitive;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fmt::Display};
 
@@ -64,8 +64,12 @@ pub struct ProcessManifest {
     pub container_name: Option<String>,
     #[serde(default)]
     pub container_type: Option<String>,
+    /// 戻り値の型の古い書き方 (pyjuiz が埋める)。互換のために残す。新しいコードは `output_schema` を使う
     #[serde(default = "default_output_profile")]
     pub outputs: Option<OutputProfile>,
+    /// 戻り値の型参照 (型付きの Process だけ、仕様 docs/spec/datatype.md §6、issue #190)。型なしなら JSON には出さない
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_schema: Option<TypeSchema>,
     /// Composite の式の木とスロット (Composite でなければ `None`、issue #166)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub composition: Option<Composition>,
@@ -128,12 +132,14 @@ impl ProcessManifest {
                     default_value = instance_arg_manif.default.clone();
                 }
             }
-            new_argument_manif.push(ArgumentManifest::new(
+            let mut new_arg = ArgumentManifest::new(
                 arg_type.clone(),
                 arg_name.as_str(),
                 description,
                 default_value,
-            ));
+            );
+            new_arg.schema = arg_manif.schema.clone();
+            new_argument_manif.push(new_arg);
         }
         partial_instance_manifest.arguments.clear();
         partial_instance_manifest.arguments = new_argument_manif;
@@ -142,6 +148,7 @@ impl ProcessManifest {
             partial_instance_manifest
         );
         partial_instance_manifest.outputs = self.outputs.clone();
+        partial_instance_manifest.output_schema = self.output_schema.clone();
         partial_instance_manifest.composition = self.composition.clone();
         Ok(partial_instance_manifest)
     }
@@ -177,6 +184,7 @@ impl ProcessManifest {
             container_type: None,
             language: "rust".to_owned(),
             outputs: None, // OutputProfile::default()
+            output_schema: None,
             composition: None,
             trace: false,
         }
@@ -391,6 +399,48 @@ impl ProcessManifest {
         self
     }
 
+    /// 戻り値の型参照を付ける。`outputs` が空なら、古いクライアント向けに `type_name` だけの `outputs` も埋める
+    pub fn set_output_schema(mut self, output_schema: Option<TypeSchema>) -> JuizResult<Self> {
+        if let Some(schema) = output_schema.as_ref() {
+            let data_type = schema.validate().map_err(type_error)?;
+            if self.outputs.is_none() {
+                self.outputs = Some(OutputProfile::Primitive(PrimitiveProfile {
+                    type_name: data_type.argument_type()?.as_str().to_owned(),
+                    default_value: None,
+                }));
+            }
+        }
+        self.output_schema = output_schema;
+        Ok(self)
+    }
+
+    /// 戻り値を Rust の型 `T` にする
+    pub fn returns<T: JuizType>(self) -> JuizResult<Self> {
+        self.set_output_schema(Some(T::type_schema()?))
+    }
+
+    /// 型付きの引数を足す ([`ArgumentManifest::new_typed`])
+    pub fn add_typed_arg(
+        self,
+        name: &str,
+        description: &str,
+        schema: TypeSchema,
+        default: Value,
+    ) -> JuizResult<Self> {
+        Ok(self.add_arg(ArgumentManifest::new_typed(name, schema, default)?.description(description)))
+    }
+
+    /// 引数と戻り値の型参照を検査する (型なしの引数・戻り値は何もしない、仕様 §8 の「manifest を作るとき」)
+    pub fn check_schemas(&self) -> JuizResult<()> {
+        for arg in self.arguments.iter() {
+            arg.check_schema()?;
+        }
+        if let Some(schema) = self.output_schema.as_ref() {
+            schema.validate().map_err(type_error)?;
+        }
+        Ok(())
+    }
+
     pub fn set_composition(mut self, composition: Option<Composition>) -> Self {
         self.composition = composition;
         self
@@ -556,6 +606,9 @@ impl TryFrom<Value> for ProcessManifest {
             }
             Err(_) => {}
         };
+        if let Ok(value) = obj_get(&value, "output_schema") {
+            p.output_schema = serde_json::from_value(value.clone())?;
+        }
         match obj_get(&value, "composition") {
             Ok(value) => {
                 p = p.set_composition(serde_json::from_value(value.clone())?);

@@ -306,6 +306,25 @@ pub enum JuizError {
 
     #[error("Poison Error (error={error})")]
     PoisonError { error: String },
+
+    /// 型のスキーマ (や JIDL) が仕様 docs/spec/datatype.md §3 の規則に合わない (issue #190)。`path` は型の中の位置
+    #[error("Type schema is invalid at '{path}': {message}")]
+    TypeSchemaInvalidError { path: String, message: String },
+    /// writer の型の値を reader の型として読めない (仕様 §7)。`writer` / `reader` は型の識別子
+    #[error("Type {writer} cannot be read as {reader} at '{path}': {reason}")]
+    TypeIncompatibleError {
+        writer: String,
+        reader: String,
+        path: String,
+        reason: String,
+    },
+    /// 辞書の値が型に合わない (仕様 §4)
+    #[error("Value does not match type {type_name} at '{path}': {reason}")]
+    ValueDoesNotMatchTypeError {
+        type_name: String,
+        path: String,
+        reason: String,
+    },
 }
 
 impl<T> From<PoisonError<T>> for JuizError {

@@ -170,6 +170,7 @@ pub mod process_identifier;
 pub mod processes;
 pub mod result;
 pub mod topic_identifier;
+pub mod types;
 pub mod utils;
 pub mod value;
 
