@@ -320,7 +320,7 @@ composition:
 ## 9. 言語の規則
 
 - 汎用経路(§5)は子の間を `Capsule` で渡すので、同じ juiz プロセスの中なら、**言語の違う子を混ぜてよい**。この場合 `language` は `mixed` になる。
-- 段の間のシリアライズの省略は、遅延評価(#3、L0〜L3)で、同じ言語・同じ ABI の子の間だけで効く。Composite 側では何もしない。
+- 段の間のシリアライズの省略は、遅延評価(#3、L0〜L3、[lazy-evaluation.md](lazy-evaluation.md))で、同じ言語・同じ ABI の子の間だけで効く。Composite 側では何もしない。
 
 ## 10. 接続(Connection)との使い分け
 

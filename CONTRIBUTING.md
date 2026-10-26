@@ -160,6 +160,7 @@ HTTP ブローカーの 8000 番ポートはホストに転送されるので、
 
 - [Composition(Composite Process / CompositeContainerProcess)](docs/spec/composition.md)(issue #164)
 - [データ型(IDL・データモデル・指紋・互換性)](docs/spec/datatype.md)(issue #163)
+- [遅延評価(Capsule::Native)](docs/spec/lazy-evaluation.md)(issue #3)
 
 ## ライセンス
 
