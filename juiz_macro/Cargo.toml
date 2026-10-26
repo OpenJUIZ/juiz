@@ -1,7 +1,7 @@
 [package]
 name = "juiz_macro"
 rust-version = "1.81"
-version = "0.0.21"
+version = "0.0.22"
 edition = "2021"
 description = "Macro definitions for juiz_sdk crate."
 license.workspace = true
