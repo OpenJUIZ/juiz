@@ -190,6 +190,12 @@ fn process_identifier_constructors() {
         "get0".into(),
     );
     assert_eq!(with_container.class_name, "container_process");
+    // 登録時の ID (new_container_process_id) と同じになる (issue #184)
+    assert_eq!(with_container, cp);
+    assert_eq!(
+        with_container.to_string(),
+        "core://core/container_process/get0::get:cont0"
+    );
     assert!(format!("{}", p).contains("core://core/process/inc0::inc"));
 }
 
@@ -246,6 +252,8 @@ fn process_identifier_from_value() -> JuizResult<()> {
     assert_eq!(p.class_name, "container_process");
     assert_eq!(p.container_name.as_deref(), Some("c0"));
     assert_eq!(p.broker_type_name, "http");
+    assert_eq!(p.type_name, "get:c0");
+    assert_eq!(p.to_string(), "http://h/container_process/g::get:c0");
 
     assert!(ProcessIdentifier::from_value(&jvalue!({"name": "no_type"})).is_err());
     assert!(ProcessIdentifier::from_value(&jvalue!(1)).is_err());
