@@ -4,6 +4,7 @@
 //! Python から起動する `juiz`(pip で入る版、issue #88)も同じ関数を使い、
 //! そのときは feature `python-entry` の [`python::main_with_args`] から GIL を解放して呼ぶ。
 
+mod composition;
 mod connection;
 mod container;
 mod container_process;

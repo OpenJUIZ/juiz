@@ -268,7 +268,23 @@ composition:
 - Composite の Factory の profile(型の情報)にも同じ `composition` を出す。
 - CompositeContainer の profile(`ContainerProfile`)には、スロット名 → 参照先の Container の ID を `slots` として出す。
 
-表示(CLI・管理画面で木を描く)は C5(#170)で扱う。
+`composition` と `slots` は HTTP・qmp のどちらの API でも profile / profile_full に含まれる(`system/profile_full?recursive=true` の `core_store` にも出る)。
+
+### 8.3 表示(C5)
+
+- **CLI**: `juiz process list --long` と `juiz container-process list --long` は、Composite の行の下に式の木を字下げして出す。`juiz container list --long` は、CompositeContainer の行の下にスロットと参照先の Container の ID を出す。`info` も profile の後に同じ内容を出す。`--long` を付けないときの出力(ID の配列)は変えない。
+
+  ```text
+  NAMESPACE  NAME    TYPE           ID
+  /          chain0  add_chain:cc0  http://127.0.0.1:8000/container_process/chain0::add_chain:cc0
+      example_container_increment [b: example_container]
+      └─ arg1: example_container_increment [a: example_container]
+         └─ arg1 = $arg1
+  ```
+
+  木の 1 行は 1 つの引数で、子の式は `<引数名>: <子の型>`、定数は `<引数名> = <値>`、公開した引数は `<引数名> = $<公開名>`。スロットを使うノードには `[<スロット名>: <Container の型>]` を付ける。根の行には引数名がない。
+- **管理画面**: Process / ContainerProcess の性質欄に「合成(Composition)」の欄を足し、式の木を入れ子のリストで出す。CompositeContainerProcess では、スロットから参照先の Container へ移れる。CompositeContainer の性質欄には「差込口(Slot)」の欄でスロットと参照先の Container を出し、参照される側の Container には、どの CompositeContainer のどのスロットから参照されているかを出す(削除を拒否される理由が分かるように、§7.4)。
+- 表示のために API は足していない。どちらも §8.2 の profile を読むだけ。
 
 ## 9. 言語の規則
 
@@ -317,7 +333,7 @@ Composition が向くもの:
 | C2 core(Container なし) | #167 | `ProcessFactory::body()` / `manifest()`、§5 の評価、§6 のエラー、§3.2 の入れ子と循環の検出。juiz_core の `CompositeProcessFactory`、`composite_process_factory_create`、`CoreWorker::register_composite`(conf を使わずにコードから登録する入口)。スロットを持つ Composite はエラーにする(C3 まで) |
 | C3 core(Container あり) | #168 | §7 の CompositeContainer、ロック、寿命。`ContainerProcessFactory::body()` / `manifest()`、juiz_core の `CompositeContainerProcessFactory`、`composite_container_process_factory_create`、`CoreWorker::register_composite_container`(スロットを持つ Composite の登録)と `CoreWorker::create_composite_container`(CompositeContainer を作る入口)。conf を使わずにコードから作る |
 | C4 conf とベンチマーク | #169 | §3.1 / §3.3 / §7.1 の conf の読み込み、ネームスペース、ベンチマーク。juiz_core の system_builder(`composites.rs`)。ベンチマークは `juiz_core/tests/composite_bench.rs`(`#[ignore]`、結果は #169 に残す) |
-| C5 表示 | #170 | §8.2 の `composition` と `slots` の表示 |
+| C5 表示 | #170 | §8.2 の `composition` と `slots` が HTTP / qmp で読めること、§8.3 の CLI と管理画面の表示。§5.4 の trace のログの確認。テストは `juiz_core/tests/composite_display_test.rs` と `brokers/qmp_broker/tests/qmp_composite_test.rs` |
 | C8 型検査 | #172 | ノードの戻り値の型と親の引数の型の定義時検査(#163 Step 4 の比較関数を使う) |
 
 ## 13. 対象外(後の Step か、未定)

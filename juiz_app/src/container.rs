@@ -6,6 +6,7 @@ use juiz_core::utils::yaml_conf_load;
 
 use clap::Subcommand;
 
+use crate::composition::{container_details, slots_lines};
 use crate::namespace::{format_list, ListEntry};
 use crate::Args;
 
@@ -97,7 +98,15 @@ fn on_container_list(
     let ids = system.container_list(recursive)?;
     log::debug!("system.container_list() returns '{ids:?}'");
     let entries = ids.iter().map(ListEntry::from).collect();
-    println!("{}", format_list(entries, namespace.as_deref(), long)?);
+    // CompositeContainer はスロットと参照先の Container を行の下に出す (issue #170)
+    let details = |e: &ListEntry| match ContainerIdentifier::try_from(e.identifier.clone()) {
+        Ok(id) => container_details(system, &id),
+        Err(_) => Vec::new(),
+    };
+    println!(
+        "{}",
+        format_list(entries, namespace.as_deref(), long, &details)?
+    );
     Ok(())
 }
 
@@ -108,7 +117,14 @@ fn on_container_info(system: &mut System, id: String) -> JuizResult<()> {
         .worker_mut()
         .container_from_identifier(&id.try_into()?);
     match p {
-        Ok(ps) => println!("{:}", ps.lock()?.profile()?),
+        Ok(ps) => {
+            let profile = ps.lock()?.profile()?;
+            println!("{profile}");
+            // Composite の中身 (issue #170)
+            for line in slots_lines(&profile) {
+                println!("  {line}");
+            }
+        }
         Err(e) => println!("Error: {e:?}"),
     }
     Ok(())

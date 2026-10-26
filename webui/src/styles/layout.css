@@ -389,6 +389,24 @@ button.conn-type:hover {
   padding: 1px 0;
 }
 
+/* Composite の式の木(#170)。子の式は左の線で字下げする */
+.composition-tree,
+.composition-tree ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.composition-tree ul {
+  margin-left: 6px;
+  padding-left: 12px;
+  border-left: 1px solid var(--line);
+}
+
+.composition-tree li {
+  padding: 1px 0;
+}
+
 .elem-link {
   display: inline-flex;
   align-items: center;

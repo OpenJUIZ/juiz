@@ -7,7 +7,7 @@ use std::path::Path;
 use clap::Subcommand;
 use juiz_core::prelude::*;
 
-use crate::namespace::{format_list, ListEntry};
+use crate::namespace::{format_list, no_details, ListEntry};
 use crate::Args;
 
 #[derive(Debug, Subcommand, Clone)]
@@ -145,7 +145,10 @@ fn on_ec_list(
         })?;
         entries.push(id.try_into()?);
     }
-    println!("{}", format_list(entries, namespace.as_deref(), long)?);
+    println!(
+        "{}",
+        format_list(entries, namespace.as_deref(), long, &no_details)?
+    );
     Ok(())
 }
 
