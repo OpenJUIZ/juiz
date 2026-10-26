@@ -3,6 +3,7 @@ use juiz_sdk::anyhow::Context;
 use crate::core::system_builder::{
     brokers::{setup_broker_proxies, setup_brokers},
     builtin_brokers::setup_builtin_broker_factories,
+    composites::{setup_composite_containers, setup_composites},
     connections::setup_connections,
     containers::setup_containers,
     ecs::setup_ecs,
@@ -23,6 +24,12 @@ pub(crate) fn setup_objects(system: &mut System, manifest: &Value) -> JuizResult
     let manifest = &resolved_manifest;
     let manifest_copied = manifest.clone();
 
+    // Composite の Factory は、子の Factory (plugins) の後、インスタンスを作る前に登録する (issue #169)
+    let _ = when_contains_do(manifest, "composites", |v| {
+        setup_composites(system, v)
+            .context("setup_composites() in setup_objects() in setup_objects.rs")
+    })?;
+
     let _ = when_contains_do(manifest, "processes", |v| {
         setup_processes(system, v).with_context(|| {
             format!(
@@ -39,6 +46,12 @@ pub(crate) fn setup_objects(system: &mut System, manifest: &Value) -> JuizResult
                 manifest.get("containers").unwrap()
             )
         })
+    })?;
+
+    // CompositeContainer は参照先の Container が出来てから作る (issue #169)
+    let _ = when_contains_do(manifest, "composite_containers", |v| {
+        setup_composite_containers(system, v)
+            .context("setup_composite_containers() in setup_objects() in setup_objects.rs")
     })?;
 
     setup_http_broker_factory(system)

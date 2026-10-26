@@ -2,6 +2,7 @@ mod brokers;
 mod builtin_brokers;
 mod cleanup_objects;
 mod components;
+mod composites;
 mod connections;
 mod containers;
 mod ecs;

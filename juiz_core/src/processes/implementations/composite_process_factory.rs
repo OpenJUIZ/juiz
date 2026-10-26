@@ -65,6 +65,9 @@ struct CompiledNode {
     function: NodeFunction,
     /// 子の arguments の宣言順に並べた引数
     args: Vec<(String, CompiledArgument)>,
+    /// 子の Factory。本体関数はプラグインのライブラリの中にあるので、
+    /// ライブラリを持つ Factory を本体関数より後に放すために持っておく (フィールドは宣言順に drop される)
+    _factory: CompositeChildFactory,
 }
 
 enum CompiledArgument {
@@ -299,7 +302,7 @@ where
             format!("child process '{}' is not found", node.process),
         )
     })?;
-    let (child_manifest, function) = match child {
+    let (child_manifest, function) = match &child {
         CompositeChildFactory::Process(pf) => {
             let f = pf.lock()?;
             (f.manifest()?, NodeFunction::Process(f.body()?))
@@ -351,6 +354,7 @@ where
         profile,
         function,
         args,
+        _factory: child,
     })
 }
 

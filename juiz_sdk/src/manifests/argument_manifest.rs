@@ -17,6 +17,8 @@ pub struct ArgumentManifest {
 
     #[serde(default = "default_description")]
     pub description: Description,
+    /// 省略時は null。pyjuiz は既定値のない Image 引数で default を出力しない (issue #169 で判明)
+    #[serde(default)]
     pub default: Value,
 }
 

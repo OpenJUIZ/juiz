@@ -72,6 +72,7 @@ composites:
 - `containers` が空か省略で、木に ContainerProcess を含まないものは **Composite Process の型**(ProcessFactory)として登録する。
 - `containers` が 1 つ以上あるものは **CompositeContainerProcess の型**(ContainerProcessFactory、Container の型は `composite_container`)として登録する。
 - 宣言したスロットを木のどこでも使っていなければエラーにする(書き間違いを見つけるため)。
+- 定義の形が違う(知らないキー、必須のキーがない、引数の値の形が違う)ときは `JuizError::InvalidSettingError` にする。エラーには `composites[<配列の位置>]` を付ける。
 
 ### 3.2 ノードと引数
 
@@ -183,7 +184,7 @@ composite_containers:
     namespace: robot1                    # 任意。今の Container と同じ規則
     slots:
       camera: cv_camera0                 # 名前(CompositeContainer のネームスペースで解決)
-      fs: "core://core/Container/filesystem0::filesystem"   # ID でもよい
+      fs: "core://core/container/filesystem0::filesystem"   # ID でもよい
     processes:
       - { type_name: capture_gray_save, name: cgs0 }
 processes:
@@ -191,10 +192,11 @@ processes:
 ```
 
 - `composite_containers:` の各要素は `name`(必須)、`namespace`(任意)、`slots`(必須)、`processes`(任意)を持つ。
-- `slots` の値は、Container の名前(文字列)、ID 文字列(`://` を含む)、`{ name, namespace }` のどれか。名前のネームスペースは、ネームスペース仕様の規則(相対名は CompositeContainer のネームスペースから、先頭 `/` は絶対)で解決する。
+- `slots` の値は、Container の名前(文字列)、ID 文字列(`://` を含む)、`{ name, namespace }` のどれか。名前のネームスペースは、ネームスペース仕様の規則(相対名は CompositeContainer のネームスペースから、先頭 `/` は絶対)で解決する。`{ name, namespace }` は `namespace` と `name` をつないだ名前と同じ(`{ name: c1, namespace: /robot2 }` は `/robot2/c1`、`{ name: c1, namespace: arm }` は CompositeContainer のネームスペースの下の `arm/c1`)。
 - 参照先はこの juiz プロセスの Container でなければならない(副系の Container は使えない)。見つからなければエラー。
 - `processes` に書いた CompositeContainerProcess を作るとき、その Composite が宣言したスロットがすべて `slots` にあり、参照先の Container の `type_name` が宣言と一致しなければエラーにする。`slots` に余分なスロットがあってもよい(1 つの CompositeContainer に、異なるスロットを使う複数の Composite を載せられる)。
-- CompositeContainerProcess は、今の ContainerProcess と同じく CompositeContainer のネームスペースに置く(issue #149 と同じ)。
+- CompositeContainerProcess は、今の ContainerProcess と同じく CompositeContainer のネームスペースに置く(issue #149 と同じ)。`processes` の各要素には、今の ContainerProcess と同じく `p_apply`、`publishes`、`subscribes` を書ける。
+- スロットを持つ Composite(ContainerProcessFactory)を `processes:` に書いたらエラーにする(`composite_containers:` の `processes` に書く)。
 - 名前で参照したとき、同じネームスペースに同じ名前で型の違う Container が複数あれば、どれか決められないのでエラーにする(ID で書けば区別できる)。
 - CompositeContainer をスロットの参照先にすることはできない(エラー)。
 - CompositeContainer は Container の Factory を持たない(`container_factories` に `composite_container` は現れない)。コードからは `CoreWorker::create_composite_container`、conf からは `composite_containers:`(C4)で作る。
@@ -216,6 +218,7 @@ processes:
 - CompositeContainer のスロットが参照している Container は、**削除を拒否する**。`container_destroy` はエラー(新しい種類 `JuizError::ContainerInUseError`、参照している CompositeContainer の ID を含める)を返す。先に CompositeContainer を消せば消せる。
 - CompositeContainer を削除すると、今の Container と同じく、その CompositeContainerProcess を削除し、スロットの参照を放す。参照先の Container は消さない。
 - 子の Factory を外す(プラグインを外す)機能は今はないので、Composite が子の本体関数を持ち続けることは問題にならない。外す機能を作るときに扱いを決める。
+- Composite は子の本体関数と一緒に子の Factory も持ち、本体関数より後に放す。本体関数はプラグインのライブラリの中にあるので、System の後始末で Factory が先に消えてライブラリが閉じられても、Composite が持つ本体関数が残らないようにするため(C4 で、conf の読み込みの途中で失敗したときに落ちることが分かった)。
 
 ## 8. ID と profile
 
@@ -225,9 +228,9 @@ ID の形式は変えない。種類(class)も新設しない。
 
 | もの | ID |
 |---|---|
-| Composite Process | `<broker_type>://<broker_name>/Process/[<ns>/]<name>::<type_name>` |
-| CompositeContainerProcess | `<broker_type>://<broker_name>/ContainerProcess/[<ns>/]<name>::<type_name>` |
-| CompositeContainer | `<broker_type>://<broker_name>/Container/[<ns>/]<name>::composite_container` |
+| Composite Process | `<broker_type>://<broker_name>/process/[<ns>/]<name>::<type_name>` |
+| CompositeContainerProcess | `<broker_type>://<broker_name>/container_process/[<ns>/]<name>::<type_name>:<CompositeContainer の名前>` |
+| CompositeContainer | `<broker_type>://<broker_name>/container/[<ns>/]<name>::composite_container` |
 
 ### 8.2 manifest と profile
 
@@ -313,7 +316,7 @@ Composition が向くもの:
 | C1 SDK | #166 | §3.2 の式の木の型(`CompositeManifest`)、§4 の公開引数を作る関数と衝突検出、§8.2 の `composition`。juiz_sdk の `manifests::composite_manifest`(`CompositeManifest::build_process_manifest`) |
 | C2 core(Container なし) | #167 | `ProcessFactory::body()` / `manifest()`、§5 の評価、§6 のエラー、§3.2 の入れ子と循環の検出。juiz_core の `CompositeProcessFactory`、`composite_process_factory_create`、`CoreWorker::register_composite`(conf を使わずにコードから登録する入口)。スロットを持つ Composite はエラーにする(C3 まで) |
 | C3 core(Container あり) | #168 | §7 の CompositeContainer、ロック、寿命。`ContainerProcessFactory::body()` / `manifest()`、juiz_core の `CompositeContainerProcessFactory`、`composite_container_process_factory_create`、`CoreWorker::register_composite_container`(スロットを持つ Composite の登録)と `CoreWorker::create_composite_container`(CompositeContainer を作る入口)。conf を使わずにコードから作る |
-| C4 conf とベンチマーク | #169 | §3.1 / §3.3 / §7.1 の conf の読み込み、ネームスペース、ベンチマーク |
+| C4 conf とベンチマーク | #169 | §3.1 / §3.3 / §7.1 の conf の読み込み、ネームスペース、ベンチマーク。juiz_core の system_builder(`composites.rs`)。ベンチマークは `juiz_core/tests/composite_bench.rs`(`#[ignore]`、結果は #169 に残す) |
 | C5 表示 | #170 | §8.2 の `composition` と `slots` の表示 |
 | C8 型検査 | #172 | ノードの戻り値の型と親の引数の型の定義時検査(#163 Step 4 の比較関数を使う) |
 

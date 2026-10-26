@@ -141,14 +141,32 @@ fn setup_container(
         .lock_mut()?
         .worker_mut()
         .create_container_ref(type_name.as_str(), name.as_str(), container_argument)?;
-    for (i, container_process_manifest_original) in container_manifest.processes.iter().enumerate()
-    {
+    setup_container_processes(
+        system,
+        container,
+        &container_manifest.processes,
+        container_process_values,
+    )?;
+    log::trace!("setup_container() exit");
+    Ok(())
+}
+
+/// Container の `processes` に書いた ContainerProcess を作る。
+/// `values` は conf に書いた元の値 (`p_apply` を読むため)。
+pub(super) fn setup_container_processes(
+    system: &System,
+    container: ContainerPtr,
+    process_manifests: &[ProcessManifest],
+    values: Option<&Vec<Value>>,
+) -> JuizResult<()> {
+    let cid = container.identifier();
+    for (i, container_process_manifest_original) in process_manifests.iter().enumerate() {
         let container_process_manifest = container_process_manifest_original
             .clone()
-            .container_name(Some(name.clone()))
-            .container_type(Some(type_name.clone()))
+            .container_name(Some(cid.name.clone()))
+            .container_type(Some(cid.type_name.clone()))
             // ContainerProcess は Container のネームスペースに置き、Topic 名もそこで解決する (issue #149)
-            .namespace(container_manifest.namespace.as_str())
+            .namespace(cid.namespace.as_str())
             .resolve_topic_names()?;
         log::debug!(
             "【作成】ContainerProcess ({:?})",
@@ -168,7 +186,7 @@ fn setup_container(
             "【作成完了】ContainerProcess ({:?})",
             container_process_manifest
         );
-        if let Some(v) = container_process_values.and_then(|a| a.get(i)) {
+        if let Some(v) = values.and_then(|a| a.get(i)) {
             p_apply_from_manifest(&cp_ref, v)?;
         }
         // Topicをpublishするなら
@@ -180,7 +198,6 @@ fn setup_container(
             setup_subscribe_topic(system, cp_ref.clone(), &arg_name, sub_topic.clone())?
         }
     }
-    log::trace!("setup_container() exit");
     Ok(())
 }
 
