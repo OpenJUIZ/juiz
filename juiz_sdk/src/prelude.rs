@@ -16,8 +16,9 @@ pub use crate::{
     log,
     manifests::{
         ArgumentManifest, ArgumentType, BrokerIdentifier, BrokerManifest, BrokerProfile,
-        ComponentManifest, ContainerIdentifier, ContainerManifest, ContainerProfile, Description,
-        ProcessManifest, ProcessProfile, TopicManifest, TopicProfile,
+        ComponentManifest, CompositeManifest, ContainerIdentifier, ContainerManifest,
+        ContainerProfile, Description, ProcessManifest, ProcessProfile, TopicManifest,
+        TopicProfile,
     },
     object::{JuizObject, JuizObjectClass, JuizObjectCoreHolder, ObjectCore},
     result::{JuizError, JuizResult},

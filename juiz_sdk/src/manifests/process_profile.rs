@@ -1,5 +1,9 @@
 use super::{manifest_description::Description, ArgumentProfile, TopicProfile};
-use crate::{manifests::OutputProfile, prelude::*, process_identifier::ProcessIdentifier};
+use crate::{
+    manifests::{Composition, OutputProfile},
+    prelude::*,
+    process_identifier::ProcessIdentifier,
+};
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fmt::Display};
@@ -23,6 +27,9 @@ pub struct ProcessProfile {
     pub container_name: Option<String>,
     pub container_type: Option<String>,
     pub outputs: Option<OutputProfile>,
+    /// Composite の式の木とスロット (Composite でなければ `None`、issue #166)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub composition: Option<Composition>,
 }
 
 impl TryFrom<ProcessManifest> for ProcessProfile {
@@ -57,6 +64,7 @@ impl TryFrom<ProcessManifest> for ProcessProfile {
             container_name: value.container_name,
             container_type: value.container_type,
             outputs: value.outputs,
+            composition: value.composition,
         })
     }
 }
@@ -185,6 +193,7 @@ impl ProcessProfile {
             container_type: None,
             language: "rust".to_owned(),
             outputs: None, // OutputProfile::default()
+            composition: None,
         }
     }
 

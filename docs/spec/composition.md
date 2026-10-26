@@ -79,7 +79,7 @@ composites:
 
 | キー | 必須 | 内容 |
 |---|---|---|
-| `process` | 必須 | 子の Factory の `type_name`。ProcessFactory か ContainerProcessFactory |
+| `process` | 必須 | 子の Factory の `type_name`。ProcessFactory か ContainerProcessFactory(子の manifest に `container_type` があれば ContainerProcess として扱う) |
 | `container` | 子が ContainerProcess のとき必須 | 使うスロット名。スロットの Container の型と、子の Container の型が一致しなければエラー。子が普通の Process なのに書いたらエラー |
 | `args` | 任意 | 子の引数名 → 引数の値(下の 3 種のどれか) |
 
@@ -164,7 +164,7 @@ eval(node):
 - エラーには少なくとも、Composite の `type_name`、ノードの位置、そのノードの子の `type_name`、元のエラーを含める。
   - 例: `Composite(capture_gray_save) failed at body.img.img (video_capture_readandget): <元のエラー>`
 - 新しいエラーの種類 `JuizError::CompositeNodeError { type_name, path, child_type_name, error }` を足す(C2)。元のエラーは `anyhow` の context として残す。
-- 定義時のエラー(§3、§4 の規則違反)も同じ位置の書き方で、どのノードの何が悪いかを示す。
+- 定義時のエラー(§3、§4 の規則違反)も同じ位置の書き方で、どのノードの何が悪いかを示す。種類は `JuizError::CompositeManifestInvalidError { type_name, path, message }`(C1 で追加)。`path` は規則違反が見つかったノードの位置で、定義全体の規則(使っていないスロットなど)では空にする。
 
 ## 7. CompositeContainer(conf の `composite_containers:`)
 
@@ -295,13 +295,13 @@ Composition が向くもの:
 ## 11. 互換性
 
 - 変えないもの: `Process` トレイト、`ProcessImpl`、接続の仕組み、通信形式、ID の形式、既存の C ABI 関数、既存の conf のキー。
-- 足すもの: conf の `composites:` / `composite_containers:`、`ProcessManifest` / `ProcessProfile` の任意の項目 `composition`、`ContainerProfile` の `slots`、`ProcessFactory::body()`(子の本体関数を取り出す)、エラーの種類 `CompositeNodeError` / `ContainerInUseError`。
+- 足すもの: conf の `composites:` / `composite_containers:`、`ProcessManifest` / `ProcessProfile` の任意の項目 `composition`、`ContainerProfile` の `slots`、`ProcessFactory::body()`(子の本体関数を取り出す)、エラーの種類 `CompositeManifestInvalidError` / `CompositeNodeError` / `ContainerInUseError`。
 
 ## 12. Step との対応
 
 | Step | issue | この文書の範囲 |
 |---|---|---|
-| C1 SDK | #166 | §3.2 の式の木の型(`CompositeManifest`)、§4 の公開引数を作る関数と衝突検出、§8.2 の `composition` |
+| C1 SDK | #166 | §3.2 の式の木の型(`CompositeManifest`)、§4 の公開引数を作る関数と衝突検出、§8.2 の `composition`。juiz_sdk の `manifests::composite_manifest`(`CompositeManifest::build_process_manifest`) |
 | C2 core(Container なし) | #167 | `ProcessFactory::body()`、§5 の評価、§6 のエラー、§3.2 の入れ子と循環の検出 |
 | C3 core(Container あり) | #168 | §7 の CompositeContainer、ロック、寿命 |
 | C4 conf とベンチマーク | #169 | §3.1 / §3.3 / §7.1 の conf の読み込み、ネームスペース、ベンチマーク |
