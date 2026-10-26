@@ -265,6 +265,13 @@ pub enum JuizError {
     ConnectionManifestInvalidError { message: String },
     #[error("TopicManifest is invalid. (message={message})")]
     TopicManifestInvalidError { message: String },
+    /// Composite の定義の規則違反 (issue #166)。`path` はノードの位置 (`body.img` など、定義全体のときは空)
+    #[error("Composite({type_name}) is invalid at {path}: {message}")]
+    CompositeManifestInvalidError {
+        type_name: String,
+        path: String,
+        message: String,
+    },
 
     #[error("Poison Error (error={error})")]
     PoisonError { error: String },

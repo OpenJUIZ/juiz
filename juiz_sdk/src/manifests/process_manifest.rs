@@ -3,7 +3,7 @@ use super::{
     topic_manifest::TopicManifest,
 };
 use crate::{
-    manifests::{OutputProfile, PrimitiveProfile},
+    manifests::{Composition, OutputProfile, PrimitiveProfile},
     prelude::*,
     process_identifier::ProcessIdentifier,
     topic_identifier::resolve_topic_name,
@@ -66,6 +66,9 @@ pub struct ProcessManifest {
     pub container_type: Option<String>,
     #[serde(default = "default_output_profile")]
     pub outputs: Option<OutputProfile>,
+    /// Composite の式の木とスロット (Composite でなければ `None`、issue #166)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub composition: Option<Composition>,
 }
 
 impl Display for ProcessManifest {
@@ -136,6 +139,7 @@ impl ProcessManifest {
             partial_instance_manifest
         );
         partial_instance_manifest.outputs = self.outputs.clone();
+        partial_instance_manifest.composition = self.composition.clone();
         Ok(partial_instance_manifest)
     }
 
@@ -170,6 +174,7 @@ impl ProcessManifest {
             container_type: None,
             language: "rust".to_owned(),
             outputs: None, // OutputProfile::default()
+            composition: None,
         }
     }
 
@@ -375,6 +380,11 @@ impl ProcessManifest {
         self.outputs = outputs;
         self
     }
+
+    pub fn set_composition(mut self, composition: Option<Composition>) -> Self {
+        self.composition = composition;
+        self
+    }
 }
 
 // #[allow(dead_code)]
@@ -530,6 +540,12 @@ impl TryFrom<Value> for ProcessManifest {
         match obj_get(&value, "outputs") {
             Ok(value) => {
                 p = p.set_outputs(serde_json::from_value(value.clone())?);
+            }
+            Err(_) => {}
+        };
+        match obj_get(&value, "composition") {
+            Ok(value) => {
+                p = p.set_composition(serde_json::from_value(value.clone())?);
             }
             Err(_) => {}
         };
