@@ -1,8 +1,8 @@
 # 遅延評価(Capsule::Native)仕様
 
-- 状態: 部分確定(L0、issue #174、2026-10-26)。§1〜§8・§10〜§12 は確定。§9(型識別子と照合)は #163 Step 0(指紋と互換性の決まり)の後に確定する
+- 状態: 確定(L0、issue #174、2026-10-26)。§9 の型タグと照合は、データ型の仕様 docs/spec/datatype.md(#163 Step 0、#189)に合わせた
 - 親 issue: #3。関連: #164(Composition)、#163(データ型)。計画と経緯はプロジェクトの計画書 composition-plan.md の §3.6・§7
-- この文書は L1(#175、Python)の実装の基準になる。L2(#176、Rust)・L3(#177、C++)は §9 の確定後にこの文書を足して基準にする。実装で仕様を変えるときは、同じ PR でこの文書を直す
+- この文書は L1(#175、Python)・L2(#176、Rust)・L3(#177、C++)の実装の基準になる。実装で仕様を変えるときは、同じ PR でこの文書を直す
 - 「しなければならない」「エラーにする」は必須の規則、「してよい」は任意を表す
 
 ## 1. 目的と用語
@@ -17,7 +17,7 @@ Process の戻り値を、**必要になるまで juiz の共通形式(`Value` /
 | decode | 共通形式から言語のネイティブ値を作ること(今の各プラグインの引数の変換) |
 | codec | ある言語(または型)の encode / decode の組 |
 | 言語タグ | ネイティブ値を作った言語の名前(`python`、`rust`、`cpp`)。受け取り側が「そのまま使えるか」を最初に判定する手がかり |
-| 型識別子 | Rust / C++ のネイティブ値が同じメモリ上の並びかどうかを判定する値(§9)。Python では使わない |
+| 型タグ | 完全名 + 指紋 + ABI タグ。ネイティブ値のまま渡せるかを判定する値(§9、datatype.md §12)。L1 の Python では使わない |
 
 今の受け渡し(接続でも Composite でも同じ):
 
@@ -76,13 +76,13 @@ pub trait NativeValue: Send + Sync + std::fmt::Debug {
     fn encode(&self) -> JuizResult<EncodedValue>;
     /// 同じ言語の受け取り側が具体的な型へダウンキャストするため
     fn as_any(&self) -> &dyn std::any::Any;
-    /// 型識別子 (§9)。Python は None
-    fn type_id(&self) -> Option<&NativeTypeId> { None }
+    /// 型タグ (§9)。型なしの値と L1 の Python は None
+    fn type_tag(&self) -> Option<&NativeTypeTag> { None }
 }
 ```
 
 - `NativeValue` は `Send + Sync` でなければならない。`CapsulePtr` は `Arc<Mutex<Capsule>>` でスレッドをまたぐため。
-- `NativeTypeId` は §9 で確定する。L1 では空の構造体として置いてよい(Python は使わない)。
+- `NativeTypeTag` は §9.1。
 - `Capsule` の `option`(`function_name` など)は今のまま `Native` とは別に持つ。
 
 ### 3.2 作り方と取り出し方(追加する API)
@@ -162,7 +162,7 @@ encode は「共通形式を読む API」(§3.3)を呼んだときにだけ起�
 
 - 受け取り側のプラグインは、引数の `CapsulePtr` が Native で、`language()` が自分の言語で、`as_any()` で自分の型にダウンキャストできれば、**ネイティブ値をそのまま使う**。そうでなければ今の decode を使う。
 - L1(Python)では、python_plugin の `capsuleptr_to_pyany` が `Native(python)` を見つけたら、包んでいる `PyObject` の参照を増やして(`clone_ref`)そのまま引数にする。
-- 言語が同じでも、型識別子(§9)が合わないときはネイティブ値を使ってはならない(Rust / C++)。Python は型識別子を使わず、常にそのまま渡す(Python の関数呼び出しと同じ意味)。
+- 言語が同じでも、型タグ(§9)が合わないときはネイティブ値を使ってはならない(Rust / C++)。L1 の Python は型タグを使わず、常にそのまま渡す(Python の関数呼び出しと同じ意味、§9.3)。
 
 ### 7.1 共有と書き換え(Python)
 
@@ -175,19 +175,45 @@ encode は「共通形式を読む API」(§3.3)を呼んだときにだけ起�
 - Composite の中間値は受け取り手が 1 つ(Composition 仕様 §2 の木構造、§5.3 の「中間値は memo しない」)なので、`NativeCell` の参照も 1 つになる。受け取り側は `Arc::try_unwrap` で値を**移して**よい(clone 不要)。
 - 普通の接続では memo と複数の接続先が共有するので、移せない。受け取り側は参照で読むか、codec の `clone` で複製する。
 - Rust の Process の引数は値渡し(`A`)で受け、移せなければ `clone` する(計画書 §9 の論点 11)。
-- codec の表(`encode` / `decode` / `destroy` / `clone` / 型識別子)を C ABI で登録する形は L3 で決め、登録所は #163 Step 4 の型の登録所と同じものにする。
+- codec の表(`encode` / `decode` / `destroy` / `clone` / 型タグ)を C ABI で登録する形は L3 で決め、登録所は #163 Step 4 の型の登録所と同じものにする。
 
-## 9. 型識別子と照合(未確定、#163 Step 0 の後)
+## 9. 型タグと照合
 
-ここは #163 Step 0(Avro の指紋と互換性の決まり)が決まってから確定する。今の決めごとは次のとおり。
+ネイティブ値をそのまま渡してよいかは、**型タグ**で決める。型タグの定義と互換性の規則は、データ型の仕様(docs/spec/datatype.md §5・§7・§12、#163 Step 0)に従う。この節はその使い方を決める。
 
-- 型識別子 = 完全名(例 `robot.geometry.Pose2D`)+ 構造のハッシュ(#163 の Avro の Parsing Canonical Form の指紋)+ ABI タグ(コンパイラ・SDK の版)。自前のハッシュは作らない。
-- 照合は 3 段階:
-  1. 指紋と ABI タグが同じ → ネイティブ値のまま渡す。
-  2. 指紋は違うが互換(フィールドの追加・既定値あり など、#163 の規則) → encode → decode(codec)を通す。
-  3. 互換でない → 定義時・接続時にエラー(Composite は C8、接続は #163 Step 4)。
-- `any`(型なし)の値は Native にしない。常に `Value` で流す。
-- Rust は最初は**同じプラグイン(cdylib)の中だけ**ネイティブ値を渡す(別プラグインは `repr(Rust)` の並びと `TypeId` が一致する保証がないため)。
+### 9.1 型タグ
+
+```rust
+/// datatype.md §12 の型タグ。NativeValue::type_tag() が返す
+pub struct NativeTypeTag {
+    pub name: String,         // 完全名。名前のない型は表示名 (datatype.md §5.2)
+    pub fingerprint: String,  // "sha256:<64 桁>" (datatype.md §5.1)
+    pub abi: String,          // ABI タグ。不透明な文字列で、完全一致だけで比べる
+}
+```
+
+- `name` と `fingerprint` は、その値の型の `TypeSchema`(datatype.md §6)と同じものにする。生成コードと `#[derive(JuizType)]` が出す。
+- ABI タグの中身は言語ごとに L1〜L3 で決める(datatype.md §12 の基準)。juiz は中身を解釈せず、完全一致だけを見る。
+  - Rust: `rust:<rustc の版>:<cdylib を一意に表すもの>`。最初は**同じプラグイン(cdylib)の中だけ**一致する形にする(別プラグインは `repr(Rust)` の並びと `TypeId` が一致する保証がないため)。
+  - C++: `cpp:<コンパイラと標準ライブラリの版>:<型パッケージの版>`
+  - Python: `python:<インタプリタを一意に表すもの>`
+
+### 9.2 照合の 3 段階
+
+受け取り側が、届いた Native 値の型タグ(W)と、自分の引数の型タグ(R)を比べる。
+
+1. `name`・`fingerprint`・`abi` がすべて同じ → ネイティブ値のまま受け取る(§7、§8 の所有権)。
+2. それ以外で、datatype.md §7 の比較で「同じ」か「互換」 → encode(datatype.md §4 の辞書)→ 自分の言語の decode を通す。今の経路と同じで遅いが、正しく動く。
+3. 「互換でない」 → 本来は定義時・接続時のエラーで弾かれている(datatype.md §8)。実行時にここへ来たら(型なしの経路をたどってきた場合など)、型変換のエラー(`ValueDoesNotMatchTypeError`)にする。
+
+- 比べる関数は datatype.md §7.1 のもの(Step 1 で SDK に置く)を使い、別に作らない。
+- 照合の結果は、同じ (W, R) の組について覚えておいてよい(指紋の比較は文字列の比較で済むが、§7 の互換判定は重いため)。
+
+### 9.3 型なしの値と Python
+
+- Rust / C++ では、型タグを持たない値(`any`、型なしの引数・戻り値、今の `Value` を返す Process)は Native にしない。今のとおり `Value` / `Image` で流す。
+- **Python は例外**とする。同じ juiz プロセスの Python は 1 つのインタプリタを共有するので、型がなくても Python のオブジェクトをそのまま渡せる。L1 では型タグを使わず、§4 のとおり型なしの値も `Native(python)` にし、受け取り側が Python ならそのまま渡す(§7)。`type_tag()` は `None` を返す。
+- Python に型が付いたあと(#163 Step 5、生成 dataclass)は、受け取り側の引数が型付きのときだけ照合する。型タグが同じならそのまま、互換なら codec(`to_value` / `from_value`)を通す。受け取り側が型なしなら、今のとおりそのまま渡す。
 
 ## 10. プラグインを外すとき
 
@@ -207,7 +233,7 @@ encode は「共通形式を読む API」(§3.3)を呼んだときにだけ起�
 
 | Step | issue | この文書の範囲 |
 |---|---|---|
-| L0 仕様 | #174 | この文書。§9 は #163 Step 0 の後に確定し、そのとき L0 を閉じる |
+| L0 仕様 | #174 | この文書 |
 | L1 Python | #175 | §3〜§7・§10・§11。juiz_sdk の `CapsuleValue::Native` と §3.2 の API、§6 のロックの順序、python_plugin の §4 と §7。テストは Python → Python(接続と Composite)で encode が起きないこと、Python → Rust・ブローカー越し・Topic で今と同じ値になること、numpy の配列を Python 同士で渡せること。`juiz_core/tests/composite_bench.rs` で効果を測り、結果を #175 に残す |
 | L2 Rust | #176(#163 Step 3 とまとめる) | §8・§9。`#[juiz_process]` 系マクロの戻り値を任意の型にして Native で返す |
 | L3 C++ | #177(#163 Step 6 とまとめる) | §8・§9。`JUIZ_TYPE` による codec 登録、Native を読み書きする C ABI 関数の追加 |
