@@ -10,7 +10,7 @@ use image::ImageFormat;
 use juiz_sdk::anyhow::{self, anyhow};
 use juiz_sdk::serde_json::Map;
 use pyo3::{
-    exceptions::PyModuleNotFoundError,
+    exceptions::{PyModuleNotFoundError, PyTypeError, PyValueError},
     prelude::*,
     types::{PyBool, PyBytes, PyDict, PyFloat, PyInt, PyList, PyNone, PySet, PyString, PyTuple},
 };
@@ -753,6 +753,12 @@ fn value_to_pyany(py: Python, value: &Value) -> Py<PyAny> {
 }
 
 fn capsuleptr_to_pyany(py: Python, value: &CapsulePtr) -> Py<PyAny> {
+    // Python が作ったネイティブ値なら、変換せずにそのまま渡す (lazy-evaluation.md §7)
+    if let Ok(Some(cell)) = value.native_cell() {
+        if let Some(native) = cell.value().as_any().downcast_ref::<PythonNative>() {
+            return native.object.clone_ref(py);
+        }
+    }
     if value.is_value().unwrap() {
         return value.lock_as_value(|v| value_to_pyany(py, v)).unwrap();
     } else if value.is_image().unwrap() {
@@ -832,13 +838,7 @@ pub fn python_process_call(
     match entry_point.call1(py, pytuple) {
         Ok(v) => {
             let object = v.extract::<&PyAny>(py)?;
-            Ok(if check_object_is_ndarray(&py, object) {
-                //pyany_to_mat(py, object).unwrap()
-                todo!()
-            } else {
-                // println!("pyany_to_value: {object:?}");
-                pyany_to_capsule(object)?.into()
-            })
+            Ok(pyany_to_capsule(object)?)
         }
         Err(e) => {
             let trace_str = e
@@ -896,39 +896,125 @@ pub fn pyany_to_value(value: &PyAny) -> PyResult<Value> {
         pydict_to_value(value.extract::<&PyDict>()?)
     } else if value.is_instance_of::<PyNone>() {
         Ok(Value::Null)
+    } else if value.hasattr("tolist")? {
+        // numpy の配列とスカラーは tolist() で Python の値にしてから変換する (lazy-evaluation.md §11)
+        pyany_to_value(value.call_method0("tolist")?)
     } else {
         let pytype = value.get_type();
-        if pytype.to_string() == "PIL.Image.Iage" {
-            todo!()
-        } else {
-            log::error!("Error for pyany_to_value. Error({pytype:?} is not available)");
-            todo!("PythonのProcessの値としてjuizが対応していないタイプが渡されました。")
-        }
+        log::error!("Error for pyany_to_value. Error({pytype:?} is not available)");
+        Err(PyTypeError::new_err(format!(
+            "PythonのProcessの値としてjuizが対応していないタイプ({})が渡されました。",
+            python_type_name(value)
+        )))
     }
 }
 
+/// Python の Process の戻り値を Capsule に包む。
+///
+/// str・int・float・bool・None は今のまま Value にし、それ以外 (dict、list、numpy の配列、
+/// PIL の画像など) は変換せずに Native(python) で包む (lazy-evaluation.md §4)。
 pub fn pyany_to_capsule(value: &PyAny) -> PyResult<Capsule> {
-    if value.is_instance_of::<PyString>() {
+    if value.is_instance_of::<PyBool>() {
+        Ok(Value::from(value.extract::<bool>()?).into())
+    } else if value.is_instance_of::<PyString>() {
         Ok(Value::from(value.extract::<String>()?).into())
     } else if value.is_instance_of::<PyFloat>() {
         Ok(Value::from(value.extract::<f64>()?).into())
     } else if value.is_instance_of::<PyInt>() {
         Ok(Value::from(value.extract::<i64>()?).into())
-    } else if value.is_instance_of::<PyList>() {
-        pylist_to_capsule(value.extract::<&PyList>()?)
-    } else if value.is_instance_of::<PyTuple>() {
-        pytuple_to_capsule(value.extract::<&PyTuple>()?)
-    } else if value.is_instance_of::<PySet>() {
-        pyset_to_capsule(value.extract::<&PySet>()?)
-    } else if value.is_instance_of::<PyDict>() {
-        pydict_to_capsule(value.extract::<&PyDict>()?)
     } else if value.is_instance_of::<PyNone>() {
         Ok(Value::Null.into())
     } else {
-        let pytype = value.get_type();
-        if pytype.to_string() == "<class 'PIL.Image.Image'>" {
-            let image = Python::with_gil(|py| -> PyResult<DynamicImage> {
-                let app_code = r"
+        Ok(Capsule::from_native(PythonNative::new(value)))
+    }
+}
+
+/// Python のオブジェクトを包んだネイティブ値 (lazy-evaluation.md §3、§4)
+#[derive(Debug)]
+pub struct PythonNative {
+    pub object: Py<PyAny>,
+    kind: NativeKind,
+    type_name: String,
+}
+
+impl PythonNative {
+    /// GIL を持っている間に作る。kind と型名はここで決める
+    pub fn new(value: &PyAny) -> Self {
+        let kind = if is_pil_image(value) {
+            NativeKind::Image
+        } else {
+            NativeKind::Value
+        };
+        Self {
+            object: value.into(),
+            kind,
+            type_name: python_type_name(value),
+        }
+    }
+}
+
+impl NativeValue for PythonNative {
+    fn language(&self) -> &str {
+        "python"
+    }
+
+    fn kind(&self) -> NativeKind {
+        self.kind
+    }
+
+    fn type_name(&self) -> String {
+        self.type_name.clone()
+    }
+
+    fn encode(&self) -> JuizResult<EncodedValue> {
+        log::trace!("PythonNative({}).encode() called", self.type_name);
+        Python::with_gil(|py| -> PyResult<EncodedValue> {
+            let object = self.object.extract::<&PyAny>(py)?;
+            Ok(match self.kind {
+                NativeKind::Image => EncodedValue::Image(pil_to_image(py, object)?),
+                NativeKind::Value => EncodedValue::Value(pyany_to_value(object)?),
+            })
+        })
+        .or_else(|e| Err(anyhow!(e)))
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+/// 表示用の型名。組み込み型は "dict"、それ以外は "numpy.ndarray" のようにモジュール名を付ける
+fn python_type_name(value: &PyAny) -> String {
+    let pytype = value.get_type();
+    let qualname = pytype
+        .getattr("__qualname__")
+        .and_then(|v| v.extract::<String>())
+        .unwrap_or_else(|_| "unknown".to_owned());
+    match pytype
+        .getattr("__module__")
+        .and_then(|v| v.extract::<String>())
+    {
+        Ok(module) if module != "builtins" && !module.is_empty() => format!("{module}.{qualname}"),
+        _ => qualname,
+    }
+}
+
+fn is_pil_image(value: &PyAny) -> bool {
+    // PIL.Image.Image の派生 (PngImageFile など) も画像として扱う
+    match value
+        .get_type()
+        .getattr("__mro__")
+        .and_then(|m| m.extract::<&PyTuple>())
+    {
+        Ok(mro) => mro
+            .iter()
+            .any(|t| t.to_string() == "<class 'PIL.Image.Image'>"),
+        Err(_) => false,
+    }
+}
+
+fn pil_to_image(py: Python, value: &PyAny) -> PyResult<DynamicImage> {
+    let app_code = r"
 import io
 
 def convert_img(img):
@@ -936,32 +1022,18 @@ def convert_img(img):
     img.save(output, format='PNG')
     return output.getvalue() # Hex Data
 ";
-                let module = PyModule::from_code_bound(py, &app_code.to_owned(), "", "")?;
-                let byte_output = module
-                    .getattr("convert_img")?
-                    .into_py(py)
-                    .call1(py, PyTuple::new_bound(py, vec![value]))?
-                    .extract::<&PyBytes>(py)?;
-                match image::load_from_memory_with_format(byte_output.as_bytes(), ImageFormat::Png)
-                {
-                    Ok(i) => Ok(i),
-                    Err(e) => {
-                        log::error!("Image load from memmory error. Error: {e:?}");
-                        panic!()
-                    }
-                }
-            })?;
-
-            // println!("pytype: {pytype:?}");
-            //log::error!("Error for pyany_to_capsule. Error({pytype:?} is not available)");
-            //todo!("PythonのProcessの値として画像型が渡されましたが、未対応です。juizが対応していないタイプが渡されました。")
-            Ok(image.into())
-        } else {
-            // println!("pytype: {:?}", pytype.get_type());
-            log::error!("Error for pyany_to_capsule. Error({pytype:?} is not available)");
-            todo!("PythonのProcessの値としてjuizが対応していないタイプが渡されました。")
-        }
-    }
+    let module = PyModule::from_code_bound(py, &app_code.to_owned(), "", "")?;
+    let byte_output = module
+        .getattr("convert_img")?
+        .into_py(py)
+        .call1(py, PyTuple::new_bound(py, vec![value]))?
+        .extract::<&PyBytes>(py)?;
+    image::load_from_memory_with_format(byte_output.as_bytes(), ImageFormat::Png).or_else(|e| {
+        log::error!("Image load from memmory error. Error: {e:?}");
+        Err(PyValueError::new_err(format!(
+            "Image load from memory error. Error: {e:?}"
+        )))
+    })
 }
 
 fn pylist_to_value(pylist: &PyList) -> PyResult<Value> {
@@ -992,34 +1064,4 @@ pub fn pydict_to_value(pydict: &PyDict) -> PyResult<Value> {
         map.insert(key.extract::<String>()?, pyany_to_value(value)?);
     }
     Ok(jvalue!(map))
-}
-
-fn pylist_to_capsule(pylist: &PyList) -> PyResult<Capsule> {
-    let mut vec: Vec<Value> = Vec::new();
-    for value in pylist.into_iter() {
-        vec.push(pyany_to_value(value)?);
-    }
-    Ok(vec.into())
-}
-fn pytuple_to_capsule(pytuple: &PyTuple) -> PyResult<Capsule> {
-    let mut vec: Vec<Value> = Vec::new();
-    for value in pytuple.into_iter() {
-        vec.push(pyany_to_value(value)?);
-    }
-    Ok(vec.into())
-}
-fn pyset_to_capsule(pyset: &PySet) -> PyResult<Capsule> {
-    let mut vec: Vec<Value> = Vec::new();
-    for value in pyset.into_iter() {
-        vec.push(pyany_to_value(value)?);
-    }
-    Ok(vec.into())
-}
-
-pub fn pydict_to_capsule(pydict: &PyDict) -> PyResult<Capsule> {
-    let mut map: HashMap<String, Value> = HashMap::new();
-    for (key, value) in pydict.into_iter() {
-        map.insert(key.extract::<String>()?, pyany_to_value(value)?);
-    }
-    Ok(jvalue!(map).into())
 }

@@ -228,6 +228,8 @@ pub enum JuizError {
     InvalidSettingError { message: String },
     #[error("ValueType Error {message}")]
     ValueTypeError { message: String },
+    #[error("Encoding native value ({native:}) failed. Error({message:})")]
+    NativeEncodeError { native: String, message: String },
     #[error("Value is invalid value ({message})")]
     InvalidValueError { message: String },
     #[error("Idnetifier is invalid value ({message})")]

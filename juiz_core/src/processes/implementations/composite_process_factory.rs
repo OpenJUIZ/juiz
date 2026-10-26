@@ -193,6 +193,10 @@ impl CompositeBody {
 
 /// trace で出す戻り値の要約
 fn summarize(capsule: &Capsule) -> String {
+    // ネイティブ値は encode しない (lazy-evaluation.md §5)
+    if let Some(cell) = capsule.native_cell() {
+        return format!("native({})", cell.describe());
+    }
     if let Some(v) = capsule.as_value() {
         let s = v.to_string();
         if s.chars().count() > TRACE_SUMMARY_MAX_LEN {

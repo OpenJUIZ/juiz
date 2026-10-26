@@ -254,6 +254,16 @@ pub fn json_output_wrap(result: JuizResult<CapsulePtr>) -> impl IntoResponse {
 fn capsule_ptr_to_response(v: CapsulePtr) -> axum::http::Response<Body> {
     use juiz_sdk::image::ImageFormat;
 
+    // Native の値はここで encode する。失敗したらエラーの応答にする (lazy-evaluation.md §5)
+    let encode_error = |e: juiz_sdk::anyhow::Error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(jvalue!({
+                "message": format!("Internal Server Error:  {:#}, {:}", e, e.to_string())
+            })),
+        )
+            .into_response()
+    };
     if v.is_value().unwrap() {
         v.lock_as_value(|value| {
             let mut r = Json(value).into_response();
@@ -261,7 +271,7 @@ fn capsule_ptr_to_response(v: CapsulePtr) -> axum::http::Response<Body> {
             hdrs.append("Cache-Control", HeaderValue::from_str("no-cache").unwrap());
             r
         })
-        .unwrap()
+        .unwrap_or_else(encode_error)
     } else if v.is_image().unwrap() {
         use std::io::{BufWriter, Cursor};
         // log::trace!("Detect Image Response v={v:?}");
@@ -278,7 +288,7 @@ fn capsule_ptr_to_response(v: CapsulePtr) -> axum::http::Response<Body> {
                 .unwrap()
                 .into_response()
         })
-        .unwrap()
+        .unwrap_or_else(encode_error)
     } else {
         Json(jvalue!({})).into_response()
     }
