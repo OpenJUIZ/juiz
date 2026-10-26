@@ -214,6 +214,12 @@ enum SubCommands {
         #[clap(subcommand)]
         subcommand: CompositeSubCommands,
     },
+
+    /// Generate schemas and code from juiz IDL (.jidl) files (same as juiz-idl, issue #191)
+    Idl {
+        #[command(flatten)]
+        args: juiz_idl::cli::IdlArgs,
+    },
 }
 
 fn do_task_once(system: &mut System, args: Args) -> JuizResult<()> {
@@ -615,6 +621,16 @@ where
             return e.exit_code();
         }
     };
+    // juiz idl は系を作らないので、設定ファイルを読まずに juiz-idl と同じように動かす
+    if let Some(SubCommands::Idl { args }) = &args.subcommand {
+        return match juiz_idl::cli::run(args) {
+            Ok(_) => 0,
+            Err(e) => {
+                eprintln!("error: {e}");
+                1
+            }
+        };
+    }
     match run(args) {
         Ok(_) => 0,
         Err(e) => {
@@ -676,8 +692,10 @@ fn run(args: Args) -> JuizResult<()> {
         }
         SubCommands::Composite { subcommand } => {
             on_composite(manifest, working_dir, subcommand, args)
-        } /* _ => {
-              return Ok(())
-          } */
+        }
+        SubCommands::Idl { .. } => unreachable!(),
+        /* _ => {
+            return Ok(())
+        } */
     }
 }

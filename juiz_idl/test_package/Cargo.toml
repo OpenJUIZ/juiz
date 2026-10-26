@@ -1,0 +1,13 @@
+[package]
+name = "juiz_idl_test_package"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "juiz_idl の build.rs ヘルパと生成した Rust のコードのテスト"
+license.workspace = true
+
+[dependencies]
+juiz_sdk = {workspace = true}
+
+[build-dependencies]
+juiz_idl = {workspace = true}
