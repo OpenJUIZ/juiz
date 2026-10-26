@@ -2,8 +2,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::data_type::{schema_invalid, DataType};
-use crate::prelude::*;
+use crate::data_type::{schema_invalid, DataType};
+use crate::Result;
+use serde_json::Value;
 
 /// 1 つの引数・戻り値の型参照 (仕様 §6 の `schema`)
 ///
@@ -21,7 +22,7 @@ pub struct TypeSchema {
 }
 
 impl TypeSchema {
-    pub fn from_data_type(data_type: &DataType) -> JuizResult<Self> {
+    pub fn from_data_type(data_type: &DataType) -> Result<Self> {
         Ok(Self {
             name: data_type.display_name(),
             fingerprint: data_type.fingerprint(),
@@ -30,23 +31,23 @@ impl TypeSchema {
     }
 
     /// Avro のスキーマから作る。仕様 §3 に合わなければ `TypeSchemaInvalidError`
-    pub fn from_avro(avro: &Value) -> JuizResult<Self> {
+    pub fn from_avro(avro: &Value) -> Result<Self> {
         Self::from_data_type(&DataType::from_avro(avro)?)
     }
 
-    pub fn from_avro_str(avro: &str) -> JuizResult<Self> {
+    pub fn from_avro_str(avro: &str) -> Result<Self> {
         Self::from_data_type(&DataType::from_avro_str(avro)?)
     }
 
     /// `avro` を読んだ型
-    pub fn data_type(&self) -> JuizResult<DataType> {
+    pub fn data_type(&self) -> Result<DataType> {
         DataType::from_avro(&self.avro)
     }
 
     /// `avro` が仕様 §3 に合い、`name` と `fingerprint` が `avro` から計算したものと一致するかを検査する。
     ///
     /// 他の言語やブローカーから届いた manifest の型参照は、使う前にこれで検査する。
-    pub fn validate(&self) -> JuizResult<DataType> {
+    pub fn validate(&self) -> Result<DataType> {
         let t = self.data_type()?;
         if t.display_name() != self.name {
             return Err(schema_invalid(
@@ -92,12 +93,12 @@ impl TypeSchema {
     }
 
     /// manifest の `type_name` (仕様 §6 の表)
-    pub fn argument_type(&self) -> JuizResult<ArgumentType> {
-        Ok(self.data_type()?.argument_type())
+    pub fn argument_type_name(&self) -> Result<&'static str> {
+        Ok(self.data_type()?.argument_type_name())
     }
 
     /// 辞書の値がこの型に合うかを検査する (仕様 §4)
-    pub fn check_value(&self, value: &Value) -> JuizResult<()> {
-        super::check_value(&self.data_type()?, value)
+    pub fn check_value(&self, value: &Value) -> Result<()> {
+        crate::check_value(&self.data_type()?, value)
     }
 }

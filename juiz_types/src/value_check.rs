@@ -1,25 +1,25 @@
 //! 辞書の値を型で読む (仕様 §4)
 
-use anyhow::anyhow;
 use base64::Engine;
 use serde_json::Map;
 
-use super::data_type::DataType;
-use crate::prelude::*;
+use crate::data_type::DataType;
+use crate::{Result, TypeError};
+use serde_json::Value;
 
-fn mismatch(t: &DataType, path: &str, reason: impl Into<String>) -> anyhow::Error {
-    anyhow!(JuizError::ValueDoesNotMatchTypeError {
+fn mismatch(t: &DataType, path: &str, reason: impl Into<String>) -> TypeError {
+    TypeError::ValueDoesNotMatch {
         type_name: t.display_name(),
         path: path.to_owned(),
         reason: reason.into(),
-    })
+    }
 }
 
 /// reader の型 `t` で辞書の値 `v` を読み、reader から見た値を返す (仕様 §4)。
 ///
 /// レコードの足りないフィールドは既定値で埋め、型にないキーは落とす。列挙の知らない記号は、既定値があれば既定値にする。
 /// 合わなければ `ValueDoesNotMatchTypeError`。
-pub fn read_value(t: &DataType, v: &Value, path: &str) -> JuizResult<Value> {
+pub fn read_value(t: &DataType, v: &Value, path: &str) -> Result<Value> {
     let expect = |what: &str| mismatch(t, path, format!("expected {what}, found {v}"));
     match t {
         DataType::Null => {
@@ -89,7 +89,7 @@ pub fn read_value(t: &DataType, v: &Value, path: &str) -> JuizResult<Value> {
                 .iter()
                 .enumerate()
                 .map(|(i, e)| read_value(items, e, &format!("{path}[{i}]")))
-                .collect::<JuizResult<Vec<Value>>>()
+                .collect::<Result<Vec<Value>>>()
                 .map(Value::from),
             None => Err(expect("an array")),
         },
@@ -156,6 +156,6 @@ pub fn read_value(t: &DataType, v: &Value, path: &str) -> JuizResult<Value> {
 }
 
 /// 辞書の値 `v` が型 `t` に合うかを検査する (仕様 §4)
-pub fn check_value(t: &DataType, v: &Value) -> JuizResult<()> {
+pub fn check_value(t: &DataType, v: &Value) -> Result<()> {
     read_value(t, v, &t.path_root()).map(|_| ())
 }

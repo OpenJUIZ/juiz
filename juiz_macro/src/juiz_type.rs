@@ -150,7 +150,7 @@ fn derive(input: &DeriveInput) -> syn::Result<TokenStream> {
                     fn from_value(value: &juiz_sdk::prelude::Value) -> juiz_sdk::prelude::JuizResult<Self> {
                         // 足りないフィールドを既定値で埋めてから読む (仕様 §4)
                         let t = <Self as juiz_sdk::types::JuizType>::data_type();
-                        let obj = juiz_sdk::types::read_value(&t, value, #name)?;
+                        let obj = juiz_sdk::types::read_value(&t, value, #name).map_err(juiz_sdk::types::type_error)?;
                         Ok(Self {
                             #(#from_values)*
                         })
@@ -201,7 +201,7 @@ fn derive(input: &DeriveInput) -> syn::Result<TokenStream> {
                     }
                     fn from_value(value: &juiz_sdk::prelude::Value) -> juiz_sdk::prelude::JuizResult<Self> {
                         let t = <Self as juiz_sdk::types::JuizType>::data_type();
-                        let v = juiz_sdk::types::read_value(&t, value, #name)?;
+                        let v = juiz_sdk::types::read_value(&t, value, #name).map_err(juiz_sdk::types::type_error)?;
                         match v.as_str() {
                             #(Some(#symbol_strs) => Ok(Self::#symbols),)*
                             _ => unreachable!(),

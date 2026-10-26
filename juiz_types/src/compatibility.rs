@@ -1,10 +1,8 @@
 //! 型の互換性 (仕様 §7)
 
-use anyhow::anyhow;
-
-use super::data_type::DataType;
-use super::type_schema::TypeSchema;
-use crate::prelude::*;
+use crate::data_type::DataType;
+use crate::type_schema::TypeSchema;
+use crate::{Result, TypeError};
 
 /// writer と reader の型を比べた結果 (仕様 §7.1)
 #[derive(Clone, Debug, PartialEq)]
@@ -30,7 +28,7 @@ impl Compatibility {
 pub fn compare_types(
     writer: Option<&TypeSchema>,
     reader: Option<&TypeSchema>,
-) -> JuizResult<Compatibility> {
+) -> Result<Compatibility> {
     let (w, r) = match (writer, reader) {
         (Some(w), Some(r)) => (w, r),
         _ => return Ok(Compatibility::Untyped),
@@ -47,29 +45,27 @@ pub fn compare_types(
 }
 
 /// [`compare_types`] で互換でなければ `TypeIncompatibleError` を返す
-pub fn ensure_compatible(
-    writer: Option<&TypeSchema>,
-    reader: Option<&TypeSchema>,
-) -> JuizResult<()> {
+pub fn ensure_compatible(writer: Option<&TypeSchema>, reader: Option<&TypeSchema>) -> Result<()> {
     match compare_types(writer, reader)? {
-        Compatibility::Incompatible { path, reason } => {
-            Err(anyhow!(JuizError::TypeIncompatibleError {
-                writer: writer.map(|w| w.identifier()).unwrap_or_default(),
-                reader: reader.map(|r| r.identifier()).unwrap_or_default(),
-                path,
-                reason,
-            }))
-        }
+        Compatibility::Incompatible { path, reason } => Err(TypeError::Incompatible {
+            writer: writer.map(|w| w.identifier()).unwrap_or_default(),
+            reader: reader.map(|r| r.identifier()).unwrap_or_default(),
+            path,
+            reason,
+        }),
         _ => Ok(()),
     }
 }
 
 /// 型どうしの互換性 (仕様 §7.2)。互換でなければ (位置, 理由)
-pub fn compare_data_types(writer: &DataType, reader: &DataType) -> Result<(), (String, String)> {
+pub fn compare_data_types(
+    writer: &DataType,
+    reader: &DataType,
+) -> std::result::Result<(), (String, String)> {
     compare_at(writer, reader, &reader.path_root())
 }
 
-fn compare_at(w: &DataType, r: &DataType, path: &str) -> Result<(), (String, String)> {
+fn compare_at(w: &DataType, r: &DataType, path: &str) -> std::result::Result<(), (String, String)> {
     let incompatible = |reason: std::string::String| Err((path.to_owned(), reason));
     let names = || {
         format!(

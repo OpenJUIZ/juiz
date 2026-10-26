@@ -3,7 +3,7 @@ use std::fmt::Display;
 use super::argument_type::{type_check, ArgumentType};
 use super::manifest_description::Description;
 use crate::prelude::*;
-use crate::types::{validate_type_name, DataType, JuizType, TypeSchema};
+use crate::types::{type_error, validate_type_name, ArgumentTypeOf, DataType, JuizType, TypeSchema};
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 
@@ -66,10 +66,10 @@ impl ArgumentManifest {
     /// assert!(ArgumentManifest::new_typed("values", arg.schema.clone().unwrap(), jvalue!(["a"])).is_err());
     /// ```
     pub fn new_typed(name: &str, schema: TypeSchema, default: Value) -> JuizResult<Self> {
-        let data_type = schema.validate()?;
+        let data_type = schema.validate().map_err(type_error)?;
         check_typed_argument(name, &data_type, &default)?;
         Ok(ArgumentManifest {
-            type_name: data_type.argument_type(),
+            type_name: data_type.argument_type()?,
             name: name.to_owned(),
             description: default_description(),
             default,
@@ -90,7 +90,7 @@ impl ArgumentManifest {
     pub fn check_schema(&self) -> JuizResult<()> {
         match self.schema.as_ref() {
             Some(schema) => {
-                let data_type = schema.validate()?;
+                let data_type = schema.validate().map_err(type_error)?;
                 check_typed_argument(&self.name, &data_type, &self.default)
             }
             None => Ok(()),
@@ -149,7 +149,7 @@ impl ArgumentManifest {
 
 /// 型付きの引数の規則 (仕様 §3.1、§6、§8)
 pub(crate) fn check_typed_argument(name: &str, data_type: &DataType, default: &Value) -> JuizResult<()> {
-    validate_type_name(name, name)?;
+    validate_type_name(name, name).map_err(type_error)?;
     if *data_type == DataType::Null {
         return Err(anyhow!(JuizError::TypeSchemaInvalidError {
             path: name.to_owned(),
@@ -160,7 +160,9 @@ pub(crate) fn check_typed_argument(name: &str, data_type: &DataType, default: &V
     if *data_type == DataType::Image || (default.is_null() && !data_type.is_nullable()) {
         return Ok(());
     }
-    crate::types::read_value(data_type, default, name).map(|_| ())
+    crate::types::read_value(data_type, default, name)
+        .map(|_| ())
+        .map_err(type_error)
 }
 
 // impl Into<Value> for ArgumentManifest {

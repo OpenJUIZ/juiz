@@ -427,11 +427,11 @@ ROS 2 の `.msg` / `.srv` / `.idl` を JIDL / .avsc に変換する。juiz の�
 
 ## 15. Rust の SDK(Step 1 #190 で決めたこと)
 
-`juiz_sdk::types` に置く。
+型のモデル・指紋・値の検査・互換性の判定はクレート `juiz_types`(juiz_sdk に依存しない。依存は serde_json・sha2・base64・regex・thiserror だけ)に置き、生成器 `juiz-idl`(Step 2)などはこれだけを使える。`juiz_sdk::types` は `juiz_types` を再公開し、`JuizType` と `TypeTag` を足す。`juiz_types` の関数は `juiz_types::TypeError`(`SchemaInvalid` / `Incompatible` / `ValueDoesNotMatch`)を返し、juiz_sdk の manifest・`JuizType` を通したときは §8 の名前の `JuizError` に変換する(`juiz_sdk::types::type_error`)。`type_name` は `juiz_types` では文字列(`argument_type_name`)、juiz_sdk では `ArgumentTypeOf::argument_type` が `ArgumentType` を返す。
 
 | 名前 | 内容 |
 |---|---|
-| `DataType`(と `RecordType` / `RecordField` / `EnumType`) | §3 の型のモデル。`from_avro` / `to_avro`(自己完結、`doc`・`default`・`aliases` とその他の属性を残す)、`canonical_form`(PCF)、`fingerprint`、`display_name`、`argument_type`(§6 の表) |
+| `DataType`(と `RecordType` / `RecordField` / `EnumType`) | §3 の型のモデル。`from_avro` / `to_avro`(自己完結、`doc`・`default`・`aliases` とその他の属性を残す)、`canonical_form`(PCF)、`fingerprint`、`display_name`、`argument_type_name`(§6 の表) |
 | `TypeSchema` | §6 の型参照 `{name, fingerprint, avro}`。`validate` は `avro` を読み、`name` と `fingerprint` が計算したものと一致するかを見る。他の言語・ブローカーから届いた型参照は使う前にこれで検査する |
 | `read_value` / `check_value` | §4 の規則で辞書を読む。`read_value` は reader から見た値(足りないフィールドを既定値で埋め、型にないキーを落とし、列挙の知らない記号を既定値にしたもの)を返す |
 | `compare_types` / `ensure_compatible` / `Compatibility` | §7。`Compatibility` は `Untyped`(どちらかが型なし)・`Same`・`Compatible`・`Incompatible { path, reason }` |

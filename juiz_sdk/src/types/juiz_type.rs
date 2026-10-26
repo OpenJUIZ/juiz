@@ -5,8 +5,7 @@ use std::collections::HashMap;
 use anyhow::anyhow;
 use base64::Engine;
 
-use super::data_type::DataType;
-use super::type_schema::TypeSchema;
+use super::{type_error, DataType, TypeSchema};
 use crate::prelude::*;
 
 /// 遅延評価 (#3) でネイティブ値をそのまま渡してよいかの判定に使う型タグ (仕様 §12)
@@ -42,7 +41,7 @@ pub trait JuizType: Sized {
 
     /// manifest に載せる型参照
     fn type_schema() -> JuizResult<TypeSchema> {
-        TypeSchema::from_data_type(&Self::data_type())
+        TypeSchema::from_data_type(&Self::data_type()).map_err(type_error)
     }
 
     /// 型の識別子 `<表示名>@sha256:<64 桁>` (仕様 §5.2)
@@ -89,7 +88,7 @@ macro_rules! impl_juiz_type_primitive {
                 Ok(jvalue!(*self))
             }
             fn from_value(value: &Value) -> JuizResult<Self> {
-                super::check_value(&DataType::$variant, value)?;
+                super::check_value(&DataType::$variant, value).map_err(type_error)?;
                 let read: fn(&Value) -> Option<$t> = $read;
                 read(value).ok_or_else(|| {
                     conversion_error(&DataType::$variant, format!("cannot read {value}"))
@@ -113,7 +112,7 @@ impl JuizType for String {
         Ok(self.as_str().into())
     }
     fn from_value(value: &Value) -> JuizResult<Self> {
-        super::check_value(&DataType::String, value)?;
+        super::check_value(&DataType::String, value).map_err(type_error)?;
         Ok(value.as_str().unwrap().to_owned())
     }
 }
@@ -127,7 +126,7 @@ impl JuizType for () {
         Ok(Value::Null)
     }
     fn from_value(value: &Value) -> JuizResult<Self> {
-        super::check_value(&DataType::Null, value)
+        super::check_value(&DataType::Null, value).map_err(type_error)
     }
     fn into_capsule(self) -> JuizResult<Capsule> {
         Ok(Capsule::empty())

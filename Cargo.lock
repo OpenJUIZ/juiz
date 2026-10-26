@@ -1610,6 +1610,7 @@ dependencies = [
  "env_logger",
  "image",
  "juiz_macro",
+ "juiz_types",
  "log",
  "mopa",
  "nalgebra",
@@ -1618,9 +1619,20 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
- "sha2",
  "thiserror 1.0.69",
  "yaml-rust2",
+]
+
+[[package]]
+name = "juiz_types"
+version = "0.0.22"
+dependencies = [
+ "base64 0.22.1",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

@@ -5,13 +5,13 @@
 
 use std::collections::{HashMap, HashSet};
 
-use anyhow::anyhow;
 use base64::Engine;
 use regex::Regex;
 use serde_json::Map;
 use std::sync::OnceLock;
 
-use crate::prelude::*;
+use crate::{Result, TypeError};
+use serde_json::Value;
 
 /// 名前空間 `juiz` は予約 (仕様 §3.4)
 pub const RESERVED_NAMESPACE: &str = "juiz";
@@ -81,11 +81,11 @@ pub struct EnumType {
     pub attributes: Map<String, Value>,
 }
 
-pub(crate) fn schema_invalid(path: &str, message: impl Into<String>) -> anyhow::Error {
-    anyhow!(JuizError::TypeSchemaInvalidError {
+pub(crate) fn schema_invalid(path: &str, message: impl Into<String>) -> TypeError {
+    TypeError::SchemaInvalid {
         path: path.to_owned(),
         message: message.into(),
-    })
+    }
 }
 
 fn name_regex() -> &'static Regex {
@@ -99,7 +99,7 @@ pub fn is_valid_type_name(name: &str) -> bool {
 }
 
 /// Avro の名前の規則で検査する。型付きの引数名の検査にも使う
-pub fn validate_type_name(name: &str, path: &str) -> JuizResult<()> {
+pub fn validate_type_name(name: &str, path: &str) -> Result<()> {
     if is_valid_type_name(name) {
         Ok(())
     } else {
@@ -110,7 +110,7 @@ pub fn validate_type_name(name: &str, path: &str) -> JuizResult<()> {
     }
 }
 
-fn validate_namespace_str(namespace: &str, path: &str) -> JuizResult<()> {
+fn validate_namespace_str(namespace: &str, path: &str) -> Result<()> {
     if namespace.is_empty() {
         return Ok(());
     }
@@ -211,7 +211,7 @@ impl RecordField {
     /// 既定値を辞書の表記 (仕様 §4) で付ける。
     ///
     /// `T?` のフィールドは、既定値が `null` なら `["null",T]`、それ以外なら `[T,"null"]` の並びにする (仕様 §9.2)。
-    pub fn default_value(mut self, default: Value) -> JuizResult<Self> {
+    pub fn default_value(mut self, default: Value) -> Result<Self> {
         if let DataType::Optional { null_first, .. } = &mut self.data_type {
             *null_first = default.is_null();
         }
@@ -317,8 +317,8 @@ impl DataType {
         }
     }
 
-    /// 位置の表示 (`Pose2D.position.x`) の先頭に使う名前。名前付き型は短い名前
-    pub(crate) fn path_root(&self) -> String {
+    /// 位置の表示 (`Pose2D.position.x`) の先頭に使う名前。名前付き型は短い名前、それ以外は表示名
+    pub fn path_root(&self) -> String {
         match self {
             DataType::Record(r) => r.name.clone(),
             DataType::Enum(e) => e.name.clone(),
@@ -326,19 +326,17 @@ impl DataType {
         }
     }
 
-    /// manifest の `type_name` (仕様 §6 の表)
-    pub fn argument_type(&self) -> ArgumentType {
+    /// manifest の `type_name` (仕様 §6 の表)。`juiz_sdk` の `ArgumentType` の名前 (`"Bool"`、`"Object"` など) を返す
+    pub fn argument_type_name(&self) -> &'static str {
         match self {
-            DataType::Boolean => ArgumentType::Bool,
-            DataType::Int | DataType::Long => ArgumentType::Int,
-            DataType::Float | DataType::Double => ArgumentType::Float,
-            DataType::String | DataType::Bytes | DataType::Enum(_) => ArgumentType::String,
-            DataType::Array(_) => ArgumentType::Array,
-            DataType::Map(_) | DataType::Record(_) | DataType::Any | DataType::Null => {
-                ArgumentType::Object
-            }
-            DataType::Image => ArgumentType::Image,
-            DataType::Optional { inner, .. } => inner.argument_type(),
+            DataType::Boolean => "Bool",
+            DataType::Int | DataType::Long => "Int",
+            DataType::Float | DataType::Double => "Float",
+            DataType::String | DataType::Bytes | DataType::Enum(_) => "String",
+            DataType::Array(_) => "Array",
+            DataType::Map(_) | DataType::Record(_) | DataType::Any | DataType::Null => "Object",
+            DataType::Image => "Image",
+            DataType::Optional { inner, .. } => inner.argument_type_name(),
         }
     }
 
@@ -347,13 +345,13 @@ impl DataType {
     }
 
     /// Avro のスキーマ (.avsc の JSON) を読む。仕様 §3 に合わなければ `TypeSchemaInvalidError`
-    pub fn from_avro(avro: &Value) -> JuizResult<DataType> {
+    pub fn from_avro(avro: &Value) -> Result<DataType> {
         let mut parser = Parser::default();
         parser.parse(avro, "", "", true)
     }
 
     /// Avro のスキーマの文字列を読む
-    pub fn from_avro_str(avro: &str) -> JuizResult<DataType> {
+    pub fn from_avro_str(avro: &str) -> Result<DataType> {
         let value: Value = serde_json::from_str(avro)
             .map_err(|e| schema_invalid("", format!("schema is not JSON: {e}")))?;
         Self::from_avro(&value)
@@ -363,7 +361,7 @@ impl DataType {
     ///
     /// 名前付き型は最初に出てきた場所で展開し、2 回目からは完全名で参照する。`doc`、`default`、`aliases` は残す。
     /// 同じ完全名で中身の違う型が混ざっていればエラー。
-    pub fn to_avro(&self) -> JuizResult<Value> {
+    pub fn to_avro(&self) -> Result<Value> {
         // 書く前に検査する (組み立てた型が §3 に合っているか、同じ名前の型がぶつかっていないか)
         let mut definitions = HashMap::new();
         self.collect_named(&mut definitions, &self.path_root())?;
@@ -384,11 +382,7 @@ impl DataType {
         fingerprint_of_canonical_form(&self.canonical_form())
     }
 
-    fn collect_named(
-        &self,
-        definitions: &mut HashMap<String, String>,
-        path: &str,
-    ) -> JuizResult<()> {
+    fn collect_named(&self, definitions: &mut HashMap<String, String>, path: &str) -> Result<()> {
         let check = |full_name: String, definitions: &mut HashMap<String, String>| {
             let pcf = self.canonical_form();
             match definitions.get(&full_name) {
@@ -453,20 +447,20 @@ impl DataType {
             DataType::Double => "double".into(),
             DataType::String => "string".into(),
             DataType::Bytes => "bytes".into(),
-            DataType::Array(items) => jvalue!({
+            DataType::Array(items) => serde_json::json!({
                 "type": "array",
                 "items": items.write_avro(seen, enclosing_namespace),
             }),
-            DataType::Map(values) => jvalue!({
+            DataType::Map(values) => serde_json::json!({
                 "type": "map",
                 "values": values.write_avro(seen, enclosing_namespace),
             }),
             DataType::Optional { inner, null_first } => {
                 let inner = inner.write_avro(seen, enclosing_namespace);
                 if *null_first {
-                    jvalue!(["null", inner])
+                    serde_json::json!(["null", inner])
                 } else {
-                    jvalue!([inner, "null"])
+                    serde_json::json!([inner, "null"])
                 }
             }
             DataType::Any | DataType::Image => {
@@ -475,7 +469,7 @@ impl DataType {
                     return full_name.into();
                 }
                 let name = full_name.rsplit('.').next().unwrap();
-                jvalue!({"type": "record", "name": name, "namespace": RESERVED_NAMESPACE, "fields": []})
+                serde_json::json!({"type": "record", "name": name, "namespace": RESERVED_NAMESPACE, "fields": []})
             }
             DataType::Record(r) => {
                 let full_name = r.full_name();
@@ -659,7 +653,7 @@ struct Parser {
     in_progress: HashSet<String>,
 }
 
-fn opt_string(obj: &Map<String, Value>, key: &str, path: &str) -> JuizResult<Option<String>> {
+fn opt_string(obj: &Map<String, Value>, key: &str, path: &str) -> Result<Option<String>> {
     match obj.get(key) {
         None => Ok(None),
         Some(Value::String(s)) => Ok(Some(s.clone())),
@@ -667,7 +661,7 @@ fn opt_string(obj: &Map<String, Value>, key: &str, path: &str) -> JuizResult<Opt
     }
 }
 
-fn string_list(obj: &Map<String, Value>, key: &str, path: &str) -> JuizResult<Vec<String>> {
+fn string_list(obj: &Map<String, Value>, key: &str, path: &str) -> Result<Vec<String>> {
     match obj.get(key) {
         None => Ok(Vec::new()),
         Some(Value::Array(arr)) => arr
@@ -699,7 +693,7 @@ impl Parser {
         enclosing_namespace: &str,
         path: &str,
         top: bool,
-    ) -> JuizResult<DataType> {
+    ) -> Result<DataType> {
         let ty = match v {
             Value::String(name) => self.parse_name(name, enclosing_namespace, path)?,
             Value::Array(branches) => self.parse_union(branches, enclosing_namespace, path)?,
@@ -715,12 +709,7 @@ impl Parser {
         Ok(ty)
     }
 
-    fn parse_name(
-        &self,
-        name: &str,
-        enclosing_namespace: &str,
-        path: &str,
-    ) -> JuizResult<DataType> {
+    fn parse_name(&self, name: &str, enclosing_namespace: &str, path: &str) -> Result<DataType> {
         if let Some(p) = primitive(name) {
             return Ok(p);
         }
@@ -766,7 +755,7 @@ impl Parser {
         branches: &[Value],
         enclosing_namespace: &str,
         path: &str,
-    ) -> JuizResult<DataType> {
+    ) -> Result<DataType> {
         let is_null = |v: &Value| match v {
             Value::String(s) => s == "null",
             Value::Object(o) => o.len() == 1 && o.get("type") == Some(&Value::from("null")),
@@ -802,7 +791,7 @@ impl Parser {
         enclosing_namespace: &str,
         path: &str,
         top: bool,
-    ) -> JuizResult<DataType> {
+    ) -> Result<DataType> {
         if obj.contains_key("logicalType") {
             return Err(schema_invalid(path, "logical types are not supported"));
         }
@@ -855,7 +844,7 @@ impl Parser {
         obj: &Map<String, Value>,
         enclosing_namespace: &str,
         path: &str,
-    ) -> JuizResult<(String, String, String)> {
+    ) -> Result<(String, String, String)> {
         let name = opt_string(obj, "name", path)?
             .ok_or_else(|| schema_invalid(path, "'name' is missing"))?;
         let (namespace, short) = if let Some((ns, short)) = name.rsplit_once('.') {
@@ -884,7 +873,7 @@ impl Parser {
         enclosing_namespace: &str,
         path: &str,
         top: bool,
-    ) -> JuizResult<DataType> {
+    ) -> Result<DataType> {
         let (full_name, namespace, name) = self.named(obj, enclosing_namespace, path)?;
         let path = if path.is_empty() {
             name.clone()
@@ -983,7 +972,7 @@ impl Parser {
         obj: &Map<String, Value>,
         enclosing_namespace: &str,
         path: &str,
-    ) -> JuizResult<DataType> {
+    ) -> Result<DataType> {
         let (full_name, namespace, name) = self.named(obj, enclosing_namespace, path)?;
         let path = if path.is_empty() {
             name.clone()
@@ -1048,7 +1037,7 @@ impl Parser {
 }
 
 /// フィールドの既定値 (Avro の JSON 表記) を検査する
-fn check_avro_default(t: &DataType, v: &Value, path: &str) -> JuizResult<()> {
+fn check_avro_default(t: &DataType, v: &Value, path: &str) -> Result<()> {
     let bad = || {
         schema_invalid(
             path,
@@ -1168,8 +1157,8 @@ pub(crate) fn avro_default_to_dict(t: &DataType, v: &Value) -> Value {
 }
 
 /// 辞書の表記 (仕様 §4) の既定値を Avro の JSON 表記にする
-pub(crate) fn dict_to_avro_default(t: &DataType, v: &Value, path: &str) -> JuizResult<Value> {
-    super::value_check::read_value(t, v, path)?;
+pub(crate) fn dict_to_avro_default(t: &DataType, v: &Value, path: &str) -> Result<Value> {
+    crate::value_check::read_value(t, v, path)?;
     Ok(match (t, v) {
         (DataType::Bytes, Value::String(s)) => {
             let bytes = base64::engine::general_purpose::STANDARD
@@ -1185,7 +1174,7 @@ pub(crate) fn dict_to_avro_default(t: &DataType, v: &Value, path: &str) -> JuizR
             .iter()
             .enumerate()
             .map(|(i, e)| dict_to_avro_default(items, e, &format!("{path}[{i}]")))
-            .collect::<JuizResult<Vec<Value>>>()?
+            .collect::<Result<Vec<Value>>>()?
             .into(),
         (DataType::Map(values), Value::Object(m)) => {
             let mut out = Map::new();

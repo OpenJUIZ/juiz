@@ -7,7 +7,7 @@ use crate::{
     prelude::*,
     process_identifier::ProcessIdentifier,
     topic_identifier::resolve_topic_name,
-    types::{JuizType, TypeSchema},
+    types::{type_error, ArgumentTypeOf, JuizType, TypeSchema},
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fmt::Display};
@@ -402,10 +402,10 @@ impl ProcessManifest {
     /// 戻り値の型参照を付ける。`outputs` が空なら、古いクライアント向けに `type_name` だけの `outputs` も埋める
     pub fn set_output_schema(mut self, output_schema: Option<TypeSchema>) -> JuizResult<Self> {
         if let Some(schema) = output_schema.as_ref() {
-            let data_type = schema.validate()?;
+            let data_type = schema.validate().map_err(type_error)?;
             if self.outputs.is_none() {
                 self.outputs = Some(OutputProfile::Primitive(PrimitiveProfile {
-                    type_name: data_type.argument_type().as_str().to_owned(),
+                    type_name: data_type.argument_type()?.as_str().to_owned(),
                     default_value: None,
                 }));
             }
@@ -436,7 +436,7 @@ impl ProcessManifest {
             arg.check_schema()?;
         }
         if let Some(schema) = self.output_schema.as_ref() {
-            schema.validate()?;
+            schema.validate().map_err(type_error)?;
         }
         Ok(())
     }
