@@ -87,10 +87,12 @@ impl Container for ContainerProxy {
     }
 
     fn identifier(&self) -> ContainerIdentifier {
-        todo!()
+        self.identifier.clone()
     }
 
+    /// 相手のブローカーから profile を取る (`juiz container list --long` / `info` で使う、issue #170)
     fn profile(&self) -> JuizResult<juiz_sdk::manifests::ContainerProfile> {
-        todo!()
+        log::trace!("ContainerProxy({})::profile() called", self.identifier);
+        juiz_lock(&self.broker_proxy)?.container_profile_full(&self.identifier)
     }
 }

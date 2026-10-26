@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { ArgumentProfile } from "../api/types.ts";
+import type { ArgumentProfile, CompositeArgument, CompositeNode, Composition } from "../api/types.ts";
 import { MARK_CLASS } from "../marks.ts";
 import { connectionTypeLabel, ecStateLabel, formatValue } from "../labels.ts";
 import {
@@ -220,12 +220,100 @@ function ArgumentTable({
   );
 }
 
+/** スロット名から、画面に出す参照先(リンク)を作る。参照先が分からなければ null */
+type SlotLink = (slot: string) => ReactNode | null;
+
+/**
+ * Composite の式の木(#170)。根から子の式を入れ子のリストで出す。
+ * 定数は「= 値」、公開した引数は「= $公開名」。スロットを使うノードには [スロット名: 容器の型 → 参照先] を付ける
+ */
+function CompositionTree({ composition, slotLink }: { composition: Composition; slotLink: SlotLink }) {
+  return (
+    <ul className="composition-tree">
+      <CompositeNodeItem node={composition.body} containers={composition.containers ?? {}} slotLink={slotLink} />
+    </ul>
+  );
+}
+
+function CompositeNodeItem({
+  node,
+  label,
+  containers,
+  slotLink,
+}: {
+  node: CompositeNode;
+  label?: string;
+  containers: Record<string, string>;
+  slotLink: SlotLink;
+}) {
+  const args = Object.entries(node.args ?? {});
+  const slot = node.container;
+  return (
+    <li>
+      {label !== undefined && (
+        <>
+          <Mono>{label}</Mono> ←{" "}
+        </>
+      )}
+      <Mono>{node.process}</Mono>
+      {slot !== undefined && (
+        <span className="dim">
+          {" "}
+          [<Mono>{slot}</Mono>
+          {containers[slot] ? <>: {containers[slot]}</> : null}
+          {slotLink(slot) ? <> → {slotLink(slot)}</> : null}]
+        </span>
+      )}
+      {args.length > 0 && (
+        <ul>
+          {args.map(([name, arg]) => (
+            <CompositeArgumentItem key={name} name={name} arg={arg} containers={containers} slotLink={slotLink} />
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+function CompositeArgumentItem({
+  name,
+  arg,
+  containers,
+  slotLink,
+}: {
+  name: string;
+  arg: CompositeArgument;
+  containers: Record<string, string>;
+  slotLink: SlotLink;
+}) {
+  if ("process" in arg) return <CompositeNodeItem node={arg} label={name} containers={containers} slotLink={slotLink} />;
+  if ("const" in arg) {
+    return (
+      <li>
+        <Mono>{name}</Mono> = <Mono>{formatValue(arg.const)}</Mono> <span className="dim">定数</span>
+      </li>
+    );
+  }
+  const exposed = typeof arg.expose === "string" ? arg.expose : arg.expose.name;
+  return (
+    <li>
+      <Mono>{name}</Mono> = <Mono>${exposed}</Mono> <span className="dim">公開した引数</span>
+    </li>
+  );
+}
+
 /* ---------- 種類ごと ---------- */
 
 function ProcessBody({ element: e, model, onSelect }: BodyProps<ProcessElement>) {
   const p = e.profile;
   const args = p.arguments ?? [];
   const subscribes = Object.entries(p.subscribes ?? {});
+  // 所属容器が CompositeContainer なら、木のスロットから参照先の容器へ移れるようにする
+  const container = e.containerKey ? model.elements.get(e.containerKey) : undefined;
+  const slotLink: SlotLink = (slot) => {
+    const s = container?.kind === "container" ? container.slots.find((x) => x.name === slot) : undefined;
+    return s ? <ElementLink model={model} elementKey={s.key} fallback={s.identifier} onSelect={onSelect} /> : null;
+  };
   return (
     <>
       <Section title="基本">
@@ -254,6 +342,11 @@ function ProcessBody({ element: e, model, onSelect }: BodyProps<ProcessElement>)
           ]}
         />
       </Section>
+      {p.composition && (
+        <Section title={<Term k="composition" />}>
+          <CompositionTree composition={p.composition} slotLink={slotLink} />
+        </Section>
+      )}
       <Section title="引数">
         {/* 拘束値(p_apply で与えた値)は profile にまだ出ていない(#112) */}
         <ArgumentTable args={args} valueHeader="拘束値" valueOf={() => <span className="none" title="juiz 側の対応待ち(#112)">—</span>} />
@@ -392,6 +485,33 @@ function ContainerBody({ element: e, model, onSelect }: BodyProps<ContainerEleme
           }
         />
       </Section>
+      {e.slots.length > 0 && (
+        <Section title={<Term k="slot" />}>
+          <LinkList>
+            {e.slots.map((s) => (
+              <span key={s.name}>
+                <Mono>{s.name}</Mono> →{" "}
+                <ElementLink model={model} elementKey={s.key} fallback={s.identifier} onSelect={onSelect} />
+              </span>
+            ))}
+          </LinkList>
+        </Section>
+      )}
+      {e.referencedBy.length > 0 && (
+        <Section title={<>この<Term k="container" />を参照する<Term k="slot" /></>}>
+          <LinkList>
+            {e.referencedBy.flatMap((cc) =>
+              cc.slots
+                .filter((s) => s.key === e.key)
+                .map((s) => (
+                  <span key={`${cc.key}/${s.name}`}>
+                    <ElementLink model={model} elementKey={cc.key} onSelect={onSelect} />.<Mono>{s.name}</Mono>
+                  </span>
+                )),
+            )}
+          </LinkList>
+        </Section>
+      )}
       <Section title={<Term k="containerProcess" />}>
         {e.processes.length === 0 ? (
           <Empty>なし</Empty>

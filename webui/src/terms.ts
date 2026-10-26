@@ -11,6 +11,8 @@ export const TERMS = {
   topic: { ja: "話題", en: "Topic" },
   factory: { ja: "生成器", en: "Factory" },
   namespace: { ja: "名前空間", en: "Namespace" },
+  composition: { ja: "合成", en: "Composition" },
+  slot: { ja: "差込口", en: "Slot" },
 } as const;
 
 export type TermKey = keyof typeof TERMS;

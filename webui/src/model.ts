@@ -56,6 +56,10 @@ export interface ContainerElement extends ElementBase {
   kind: "container";
   profile: ContainerProfile;
   processes: ProcessElement[];
+  /** CompositeContainer のスロット。key は参照先の容器(系の中に見つからなければ null) */
+  slots: { name: string; identifier: string; key: string | null }[];
+  /** この容器をスロットで参照している CompositeContainer */
+  referencedBy: ContainerElement[];
 }
 
 export interface EcElement extends ElementBase {
@@ -279,8 +283,19 @@ function buildSystem(
       systemKey,
       profile: c,
       processes: [],
+      slots: [],
+      referencedBy: [],
     });
   });
+
+  // CompositeContainer のスロットの参照先。識別子は同じ系から見た形なので gid でそろえる(#170)
+  for (const cc of containers) {
+    for (const [name, id] of Object.entries(cc.profile.slots ?? {})) {
+      const target = containers.find((c) => c.identifier === gid(id));
+      cc.slots.push({ name, identifier: id, key: target?.key ?? null });
+      target?.referencedBy.push(cc);
+    }
+  }
 
   const containerProcesses = (store?.container_processes ?? []).map((p) => {
     const typeName = baseTypeName(p.type_name);
