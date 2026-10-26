@@ -13,6 +13,7 @@ pub use crate::{
     },
     core::{CoreWorker, System},
     processes::{
+        composite_process_factory_create,
         process_factory_create,
         //create_process_factory
         process_new,

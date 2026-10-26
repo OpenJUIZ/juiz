@@ -272,6 +272,14 @@ pub enum JuizError {
         path: String,
         message: String,
     },
+    /// Composite の評価中にノードで起きたエラー (issue #167)。元のエラーは anyhow の context の下に残る
+    #[error("Composite({type_name}) failed at {path} ({child_type_name}): {error}")]
+    CompositeNodeError {
+        type_name: String,
+        path: String,
+        child_type_name: String,
+        error: String,
+    },
 
     #[error("Poison Error (error={error})")]
     PoisonError { error: String },

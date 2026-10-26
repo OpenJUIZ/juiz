@@ -88,6 +88,14 @@ impl ProcessFactory for ProcessFactoryImpl {
             Box::new(ConnectionFactoryImpl::new()),
         )?))
     }
+
+    fn manifest(&self) -> JuizResult<ProcessManifest> {
+        Ok(self.manifest.clone())
+    }
+
+    fn body(&self) -> JuizResult<Arc<ProcessBodyFunctionTrait>> {
+        Ok(self.function.clone())
+    }
 }
 
 impl Drop for ProcessFactoryImpl {
