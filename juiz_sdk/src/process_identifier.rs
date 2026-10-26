@@ -26,6 +26,8 @@ pub struct ProcessIdentifier {
 }
 
 impl ProcessIdentifier {
+    /// `container_name` があれば ContainerProcess の ID ([`ProcessIdentifier::new_container_process_id`] と同じ)、
+    /// なければ Process の ID ([`ProcessIdentifier::new_process_id`] と同じ) を作る
     pub fn new(
         broker_name: String,
         broker_type_name: String,
@@ -33,18 +35,15 @@ impl ProcessIdentifier {
         container_name: Option<String>,
         name: String,
     ) -> Self {
-        Self {
-            class_name: if container_name.is_none() {
-                "process".to_owned()
-            } else {
-                "container_process".to_owned()
-            },
-            broker_name,
-            broker_type_name,
-            namespace: String::new(),
-            name,
-            type_name,
-            container_name: container_name,
+        match container_name {
+            Some(container_name) => Self::new_container_process_id(
+                broker_name,
+                broker_type_name,
+                type_name,
+                container_name,
+                name,
+            ),
+            None => Self::new_process_id(broker_name, broker_type_name, type_name, name),
         }
     }
 
