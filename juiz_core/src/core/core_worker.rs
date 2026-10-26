@@ -773,6 +773,14 @@ impl CoreWorker {
         id: &ProcessIdentifier,
         create_when_not_found: bool,
     ) -> JuizResult<ProcessPtr> {
+        // 手元の ID はクラス名で探す先を決める (違う一覧を探して ERROR ログを出さないため)
+        if id.broker_type_name == "core" {
+            return if id.class_name == "container_process" {
+                self.container_process_from_id(id)
+            } else {
+                self.process_from_identifier(id, create_when_not_found)
+            };
+        }
         self.process_from_identifier(id, create_when_not_found)
             .or_else(|_| self.container_process_from_id(id))
     }
