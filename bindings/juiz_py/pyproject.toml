@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 # PyPI の "juiz" は既存の "julz" と紛らわしい名前として登録できないため juiz-cli にする
 name = "juiz-cli"
-version = "0.0.23"
+version = "0.0.24"
 description = "JUIZ robot middleware: the juiz command for Python users (no Rust toolchain needed)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13,7 +13,7 @@ license = { text = "MIT OR Apache-2.0" }
 authors = [{ name = "ysuga", email = "ysuga@ysuga.net" }]
 keywords = ["robot", "middleware", "iot"]
 # デコレータ(import juiz)は pyjuiz にある。版は juiz と揃える。
-dependencies = ["pyjuiz==0.0.23"]
+dependencies = ["pyjuiz==0.0.24"]
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: 3",
