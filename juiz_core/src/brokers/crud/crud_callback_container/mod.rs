@@ -4,6 +4,7 @@ mod composite;
 mod connection;
 mod container;
 mod container_process;
+mod types;
 mod ec;
 mod process;
 mod system;
@@ -143,6 +144,9 @@ pub(crate) fn read_callback_container() -> ClassCallbackContainerType {
     read_cb_container.insert("execution_context", ec::create_read_callbacks());
 
     read_cb_container.insert("composite", composite::create_read_callbacks());
+
+    // 型の登録所 (issue #193)
+    read_cb_container.insert("type", types::create_read_callbacks());
 
     read_cb_container
 }

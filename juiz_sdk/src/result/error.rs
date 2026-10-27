@@ -325,6 +325,9 @@ pub enum JuizError {
         path: String,
         reason: String,
     },
+    /// 型の登録所にない、または完全名だけでは決まらない (issue #193)
+    #[error("Type({identifier}) is not found: {message}")]
+    TypeNotFoundError { identifier: String, message: String },
 }
 
 impl<T> From<PoisonError<T>> for JuizError {

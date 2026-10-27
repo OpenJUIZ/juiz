@@ -7,7 +7,7 @@ use std::{
 use super::super::broker_proxy::{ProcessBrokerProxy, SystemBrokerProxy};
 use crate::brokers::broker_proxy::{
     BrokerBrokerProxy, CompositeBrokerProxy, ConnectionBrokerProxy, ContainerBrokerProxy,
-    ContainerProcessBrokerProxy, ExecutionContextBrokerProxy,
+    ContainerProcessBrokerProxy, ExecutionContextBrokerProxy, TypeBrokerProxy,
 };
 use crate::{brokers::broker_proxy::TopicBrokerProxy, prelude::*};
 use juiz_sdk::{
@@ -974,6 +974,22 @@ impl CompositeBrokerProxy for MessengerBrokerProxy {
             "composite_container",
             "create",
             cm,
+        )?)?)?)
+    }
+}
+
+impl TypeBrokerProxy for MessengerBrokerProxy {
+    fn type_list(&self) -> JuizResult<Vec<crate::types::TypeEntry>> {
+        Ok(serde_json::from_value(capsule_value(
+            self.read("type", "list")?,
+        )?)?)
+    }
+
+    fn type_schema(&self, identifier: &str) -> JuizResult<juiz_sdk::types::TypeSchema> {
+        Ok(serde_json::from_value(capsule_value(self.read_by_id(
+            "type",
+            "schema",
+            &identifier.to_owned(),
         )?)?)?)
     }
 }

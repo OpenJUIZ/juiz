@@ -63,6 +63,10 @@ impl CoreStore {
         self.manifest.clone()
     }
 
+    pub fn manifest_ref(&self) -> &Value {
+        &self.manifest
+    }
+
     pub fn manifest_mut(&mut self) -> &mut Value {
         &mut self.manifest
     }

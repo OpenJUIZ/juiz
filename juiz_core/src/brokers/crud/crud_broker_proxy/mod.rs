@@ -17,6 +17,7 @@ use uuid::Uuid;
 use crate::brokers::{
     broker_proxy::{
         BrokerBrokerProxy, CompositeBrokerProxy, ConnectionBrokerProxy, ContainerBrokerProxy,
+        TypeBrokerProxy,
         ContainerProcessBrokerProxy, ExecutionContextBrokerProxy, ProcessBrokerProxy,
         SystemBrokerProxy,
     },
@@ -992,6 +993,22 @@ impl CompositeBrokerProxy for CRUDBrokerProxyHolder {
             "create",
             jvalue!({"__manifest__": manifest}),
             HashMap::new(),
+        )?)?;
+        Ok(serde_json::from_value(v)?)
+    }
+}
+
+impl TypeBrokerProxy for CRUDBrokerProxyHolder {
+    fn type_list(&self) -> JuizResult<Vec<crate::types::TypeEntry>> {
+        let v = capsule_value(self.broker.read("type", "list", HashMap::new())?)?;
+        Ok(serde_json::from_value(v)?)
+    }
+
+    fn type_schema(&self, identifier: &str) -> JuizResult<juiz_sdk::types::TypeSchema> {
+        let v = capsule_value(self.broker.read(
+            "type",
+            "schema",
+            param(&[("identifier", identifier)]),
         )?)?;
         Ok(serde_json::from_value(v)?)
     }

@@ -9,6 +9,8 @@ use juiz_sdk::{
 use uuid::Uuid;
 
 use crate::prelude::*;
+use crate::types::TypeEntry;
+use juiz_sdk::types::TypeSchema;
 
 use std::path::PathBuf;
 
@@ -299,6 +301,17 @@ pub trait CompositeBrokerProxy {
     fn composite_container_create(&mut self, manifest: &Value) -> JuizResult<ContainerProfile>;
 }
 
+/// 型の登録所の API (issue #193、仕様 docs/spec/datatype.md §19)
+///
+/// 登録所はその juiz プロセスだけのもので、サブシステムはたどらない。
+pub trait TypeBrokerProxy {
+    /// 登録しているすべての名前付き型 (識別子の順)
+    fn type_list(&self) -> JuizResult<Vec<TypeEntry>>;
+
+    /// 型参照。`identifier` は `<完全名>@sha256:…` か完全名だけ (同じ完全名の型が 1 つのときだけ)
+    fn type_schema(&self, identifier: &str) -> JuizResult<TypeSchema>;
+}
+
 pub trait BrokerProxy:
     Send
     + JuizObject
@@ -311,6 +324,7 @@ pub trait BrokerProxy:
     + ConnectionBrokerProxy
     + TopicBrokerProxy
     + CompositeBrokerProxy
+    + TypeBrokerProxy
 {
     fn is_in_charge_for_process(&self, _id: &Identifier) -> JuizResult<bool>;
 

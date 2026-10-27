@@ -11,6 +11,8 @@ mod ecs;
 mod processes;
 mod topics;
 
+pub mod types;
+
 pub mod prelude;
 
 // pub use crate::utils::yaml_conf_load;
