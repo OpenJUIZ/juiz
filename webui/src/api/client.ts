@@ -54,6 +54,45 @@ export class JuizClient {
     return res.json();
   }
 
+  /**
+   * 処理・容器処理を呼ぶ(PATCH /api/process/call など、#197)。
+   * 戻り値が画像なら Blob、それ以外は JSON の値。エラーなら応答の message を持つ JuizApiError
+   */
+  async call(
+    kind: "process" | "container_process",
+    identifier: string,
+    args: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<{ value: unknown } | { image: Blob }> {
+    const path = kind === "process" ? "/api/process/call" : "/api/container_process/call";
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl}${path}?${new URLSearchParams({ identifier })}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(args),
+        signal,
+      });
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") throw e;
+      throw new JuizApiError(`接続できません: ${(e as Error).message}`);
+    }
+    if (!res.ok) {
+      let message = `${path} が ${res.status} を返しました`;
+      try {
+        const body = (await res.json()) as { message?: string };
+        if (body.message) message = body.message;
+      } catch {
+        // 本文が JSON でなければ状態コードだけ
+      }
+      throw new JuizApiError(message, res.status);
+    }
+    if ((res.headers.get("Content-Type") ?? "").startsWith("image/")) {
+      return { image: await res.blob() };
+    }
+    return { value: await res.json() };
+  }
+
   /** recursive なら副系の中身と各系の接続も入れてもらう(#116) */
   async systemProfileFull(recursive: boolean, signal?: AbortSignal): Promise<SystemProfile> {
     const query = recursive ? { recursive: "true" } : undefined;

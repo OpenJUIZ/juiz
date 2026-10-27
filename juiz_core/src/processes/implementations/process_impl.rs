@@ -428,7 +428,8 @@ impl Process for ProcessImpl {
 
     fn openapi_spec(&self) -> JuizResult<Value> {
         log::trace!("【呼出】ProcessImpl({})::openapi_spec()", self.identifier());
-        todo!("【呼出】openapi_spec()")
+        // 引数の辞書と戻り値のスキーマ (issue #197、仕様 datatype.md §23.3)
+        Ok(crate::types::openapi::process_openapi_spec(&self.profile))
     }
 }
 

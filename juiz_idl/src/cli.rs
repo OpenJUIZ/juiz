@@ -24,6 +24,8 @@ pub enum Generator {
     Cpp,
     /// Haskell の record・直和型と hsjuiz のインスタンス (名前空間ごとのモジュール <A>/<B>.hs)
     Haskell,
+    /// TypeScript の interface・文字列リテラルの union と型参照 (<namespace>.ts と juiz_idl.ts)
+    Typescript,
 }
 
 impl From<Generator> for OutputKind {
@@ -37,6 +39,7 @@ impl From<Generator> for OutputKind {
             Generator::Python => OutputKind::Python,
             Generator::Cpp => OutputKind::Cpp,
             Generator::Haskell => OutputKind::Haskell,
+            Generator::Typescript => OutputKind::TypeScript,
         }
     }
 }

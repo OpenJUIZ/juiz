@@ -11,6 +11,7 @@
 //! | [`OutputKind::RustSkeleton`] | `<namespace>.skeleton.rs` | `process` / `container` 宣言の Rust の雛形 (コピーして本体を書く、仕様 §18) |
 //! | [`OutputKind::Cpp`] | `<namespace>.h`、`juiz_idl.h` | struct / enum class と cppjuiz の `juiz::type_traits` の特殊化 (仕様 §21) |
 //! | [`OutputKind::Haskell`] | `<A>/<B>.hs` (名前空間 `a.b`) | record・直和型と hsjuiz の `JuizType` / `FromCapsule` / `ToCapsule` のインスタンス (仕様 §22) |
+//! | [`OutputKind::TypeScript`] | `<namespace>.ts`、`juiz_idl.ts` | interface・文字列リテラルの union と型参照 (管理画面・`bindings/js` 用、仕様 §23) |
 //! | [`OutputKind::Python`] | `<a>/<b>/__init__.py` (名前空間 `a.b`) | dataclass / enum.Enum と、`process` / `container` 宣言の型付き client stub (仕様 §20) |
 //!
 //! 型のモデル・指紋は `juiz_types` を使う (juiz_sdk には依存しない)。生成した Rust のコードは juiz_sdk を、
@@ -33,12 +34,14 @@ pub mod build;
 pub mod cli;
 mod cpp;
 mod haskell;
+mod jidl;
 mod json_schema;
 mod model;
 mod parser;
 mod python;
 mod rust;
 mod rust_skeleton;
+mod typescript;
 
 use std::path::{Path, PathBuf};
 
@@ -46,6 +49,7 @@ use juiz_types::TypeError;
 
 pub use cpp::{generate_cpp, CPP_ALL_HEADER};
 pub use haskell::generate_haskell;
+pub use jidl::to_jidl;
 pub use json_schema::{json_schema_of, JSON_SCHEMA_DIALECT};
 pub use model::{
     load_files, load_str, ArgumentSignature, ContainerSignature, IdlModel, ProcessSignature,
@@ -55,6 +59,7 @@ pub use parser::{parse_idl, IdlFile};
 pub use python::generate_python;
 pub use rust::{generate_rust, MODULE_TREE_FILE};
 pub use rust_skeleton::generate_rust_skeleton;
+pub use typescript::{generate_typescript, TYPESCRIPT_COMMON_FILE};
 
 /// juiz-idl のエラー。位置は 1 から数える
 #[derive(thiserror::Error, Debug, Clone, PartialEq)]
@@ -101,10 +106,11 @@ pub enum OutputKind {
     Python,
     Cpp,
     Haskell,
+    TypeScript,
 }
 
 impl OutputKind {
-    pub const ALL: [OutputKind; 8] = [
+    pub const ALL: [OutputKind; 9] = [
         OutputKind::Avsc,
         OutputKind::JsonSchema,
         OutputKind::Processes,
@@ -113,6 +119,7 @@ impl OutputKind {
         OutputKind::Python,
         OutputKind::Cpp,
         OutputKind::Haskell,
+        OutputKind::TypeScript,
     ];
 }
 
@@ -246,6 +253,7 @@ pub fn generate(model: &IdlModel, kinds: &[OutputKind]) -> Result<Vec<GeneratedF
             OutputKind::Python => files.extend(generate_python(&model.types, &model.signatures)?),
             OutputKind::Cpp => files.extend(generate_cpp(&model.types)?),
             OutputKind::Haskell => files.extend(generate_haskell(&model.types)?),
+            OutputKind::TypeScript => files.extend(generate_typescript(&model.types)?),
         }
     }
     Ok(files)

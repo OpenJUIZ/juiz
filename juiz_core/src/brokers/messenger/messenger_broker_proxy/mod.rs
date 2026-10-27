@@ -586,7 +586,7 @@ impl ProcessBrokerProxy for MessengerBrokerProxy {
 
     fn process_openapi_spec(&self, id: &ProcessIdentifier) -> JuizResult<Value> {
         log::trace!("【呼出】process_openapi_spec({id})");
-        capsule_to_value(
+        capsule_value(
             self.read_by_id("process", "openapi_spec", &id.to_string())
                 .and_then(|v| {
                     log::trace!("【完了】process_openapi_spec({id})");
@@ -735,7 +735,7 @@ impl ContainerProcessBrokerProxy for MessengerBrokerProxy {
 
     fn container_process_openapi_spec(&self, id: &ProcessIdentifier) -> JuizResult<Value> {
         log::trace!("【呼出】container_process_openapi_spec({id})");
-        capsule_to_value(
+        capsule_value(
             self.read_by_id("container_process", "openapi_spec", &id.to_string())
                 .and_then(|v| {
                     log::trace!("【完了】container_process_openapi_spec({id})");

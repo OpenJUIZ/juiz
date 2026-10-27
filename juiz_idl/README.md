@@ -9,9 +9,10 @@
 - Rust の雛形 (`-g rust-skeleton`): `process` / `container` 宣言から、本体が `todo!()` のコンポーネント `<namespace>.skeleton.rs`
 - C++ (`-g cpp`): 名前空間ごとのヘッダ (`robot.geometry.h`) と全部を読み込む `juiz_idl.h` に struct / enum class と cppjuiz の `juiz::type_traits` の特殊化 (ヘッダのみ)
 - Haskell (`-g haskell`): 名前空間ごとのモジュール (`Robot/Geometry.hs`) に record・直和型と hsjuiz の `JuizType` / `FromCapsule` / `ToCapsule` のインスタンス (Template Haskell なし)
+- TypeScript (`-g typescript`): 名前空間ごとの `robot.geometry.ts` と `juiz_idl.ts` に interface・文字列リテラルの union と型参照 (管理画面・`bindings/js` 用、実行時の依存なし)
 - Python (`-g python`): 名前空間ごとのパッケージ (`robot/geometry/__init__.py`) に dataclass / enum.Enum と、`process` / `container` 宣言の型付きクライアント (pyjuiz を使う)
 
-仕様は [docs/spec/datatype.md](https://github.com/OpenJUIZ/juiz/blob/main/docs/spec/datatype.md) の §9・§16・§18・§20〜§22 にあります。
+仕様は [docs/spec/datatype.md](https://github.com/OpenJUIZ/juiz/blob/main/docs/spec/datatype.md) の §9・§16・§18・§20〜§23 にあります。
 
 ## コマンド
 
@@ -116,6 +117,26 @@ moveTo :: Pose2D -> Double -> IO Pose2D   -- output_schema は結果の型から
 ```
 
 フィールドの関数は型名 + フィールド名 (`pose2DPosition`、`point2DX` など)、列挙の構築子は型名 + 記号 (`MotorModeIdle`) です。
+
+## TypeScript から使う
+
+```sh
+juiz-idl -g typescript -o gen idl/geometry.jidl   # gen/robot.geometry.ts と gen/juiz_idl.ts
+```
+
+```typescript
+import { type Pose2D, Pose2DType } from "./gen/robot.geometry.js";
+
+const target: Pose2D = { position: { x: 1, y: 0 }, theta: 0, frame: "map", comment: null };
+await fetch(`/api/process/call?identifier=${id}`, {
+  method: "PATCH",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ target }),
+});
+console.log(Pose2DType.fingerprint); // .avsc と同じ指紋
+```
+
+値は juiz が JSON で受け渡す辞書の形そのままです (`bytes` は base64 の文字列、`T?` は `T | null`)。
 
 ## ライセンス
 

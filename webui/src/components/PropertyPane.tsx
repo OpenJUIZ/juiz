@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import type { ArgumentProfile, CompositeArgument, CompositeNode, Composition } from "../api/types.ts";
+import type { ArgumentProfile, CompositeArgument, CompositeNode, Composition, TypeSchemaRef } from "../api/types.ts";
+import { shortTypeName } from "../avro.ts";
 import { MARK_CLASS } from "../marks.ts";
 import { connectionTypeLabel, ecStateLabel, formatValue } from "../labels.ts";
 import {
@@ -17,12 +18,15 @@ import {
   type TopicElement,
 } from "../model.ts";
 import type { TermKey } from "../terms.ts";
+import { CallForm } from "./CallForm.tsx";
 import { Term } from "./Term.tsx";
 
 interface Props {
   model: Model | null;
   selectedKey: string | null;
   onSelect: (key: string) => void;
+  /** 処理を呼ぶときの接続先(設定の値。空なら画面と同じ場所) */
+  serverUrl: string;
 }
 
 const KIND_TERM: Record<ElementKind, TermKey> = {
@@ -37,7 +41,7 @@ const KIND_TERM: Record<ElementKind, TermKey> = {
 };
 
 /** 右の性質欄。ツリーで選んだ要素の profile を種類ごとに整えて出す */
-export function PropertyPane({ model, selectedKey, onSelect }: Props) {
+export function PropertyPane({ model, selectedKey, onSelect, serverUrl }: Props) {
   const element = selectedKey ? model?.elements.get(selectedKey) : undefined;
   return (
     <aside className="pane props-pane">
@@ -57,7 +61,7 @@ export function PropertyPane({ model, selectedKey, onSelect }: Props) {
             </span>
             <div className="name">{element.fullName}</div>
           </div>
-          <Body element={element} model={model} onSelect={onSelect} />
+          <Body element={element} model={model} onSelect={onSelect} serverUrl={serverUrl} />
         </div>
       )}
     </aside>
@@ -68,6 +72,7 @@ interface BodyProps<E extends Element = Element> {
   element: E;
   model: Model;
   onSelect: (key: string) => void;
+  serverUrl: string;
 }
 
 function Body(p: BodyProps) {
@@ -171,6 +176,16 @@ function Namespace({ element: e }: { element: Element }) {
   return e.namespace ? <Mono>{e.namespace}</Mono> : <span className="dim">ルート</span>;
 }
 
+/** 型の名前。型参照があれば名前空間を省いた名前(全体の識別子は title)、無ければ type_name */
+function TypeName({ schema, fallback }: { schema?: TypeSchemaRef | null; fallback?: string }) {
+  if (!schema) return fallback ? <>{fallback}</> : null;
+  return (
+    <code className="mono typed" title={`${schema.name}@${schema.fingerprint}`}>
+      {shortTypeName(schema.name)}
+    </code>
+  );
+}
+
 function YesNo({ v }: { v: boolean | undefined }) {
   return v === undefined ? null : <>{v ? "する" : "しない"}</>;
 }
@@ -208,7 +223,9 @@ function ArgumentTable({
             <td>
               <Mono>{a.name}</Mono>
             </td>
-            <td>{a.type_name}</td>
+            <td>
+              <TypeName schema={a.schema} fallback={a.type_name} />
+            </td>
             <td>
               <Mono>{formatValue(a.default)}</Mono>
             </td>
@@ -304,7 +321,7 @@ function CompositeArgumentItem({
 
 /* ---------- 種類ごと ---------- */
 
-function ProcessBody({ element: e, model, onSelect }: BodyProps<ProcessElement>) {
+function ProcessBody({ element: e, model, onSelect, serverUrl }: BodyProps<ProcessElement>) {
   const p = e.profile;
   const args = p.arguments ?? [];
   const subscribes = Object.entries(p.subscribes ?? {});
@@ -364,7 +381,23 @@ function ProcessBody({ element: e, model, onSelect }: BodyProps<ProcessElement>)
         )}
       </Section>
       <Section title="出力">
-        <Fields rows={[["戻値型", p.outputs ? <Mono>{formatValue(p.outputs)}</Mono> : <span className="none">不明</span>]]} />
+        <Fields
+          rows={[
+            [
+              "戻値型",
+              p.output_schema ? (
+                <TypeName schema={p.output_schema} />
+              ) : p.outputs ? (
+                <Mono>{formatValue(p.outputs)}</Mono>
+              ) : (
+                <span className="none">不明</span>
+              ),
+            ],
+          ]}
+        />
+      </Section>
+      <Section title="呼び出す">
+        <CallForm key={e.key} element={e} serverUrl={serverUrl} />
       </Section>
       <Section title={<>入力の<Term k="connection" /></>}>
         {e.inputs.length === 0 ? (

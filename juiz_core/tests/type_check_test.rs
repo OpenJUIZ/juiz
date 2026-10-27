@@ -412,8 +412,72 @@ fn type_registry_api() -> JuizResult<()> {
         ))?
         .json()?;
         assert_eq!(schema, serde_json::to_value(twist())?);
+
+        check_openapi(system)?;
         Ok(())
     })
+}
+
+/// OpenAPI 定義に型と Factory の引数のスキーマが入る (issue #197)
+fn check_openapi(system: &System) -> JuizResult<()> {
+    let api: Value =
+        reqwest::blocking::get(format!("http://localhost:{PORT}/api-docs/openapi.json"))?.json()?;
+    let schemas = &api["components"]["schemas"];
+    // 完全名が 1 つの型はそのままのキー
+    assert_eq!(schemas["robot.geometry.Twist"]["type"], "object");
+    assert_eq!(
+        schemas["robot.geometry.Twist"]["x-juiz-fingerprint"],
+        jvalue!(twist().fingerprint)
+    );
+    // 同じ完全名で指紋の違う Pose2D は指紋の先頭 8 桁で分ける
+    let short = |s: &TypeSchema| s.fingerprint.trim_start_matches("sha256:")[..8].to_owned();
+    let key = format!("robot.geometry.Pose2D_{}", short(&pose2d()));
+    assert_eq!(schemas[&key]["title"], "robot.geometry.Pose2D", "{schemas}");
+    assert_eq!(
+        schemas["process.read_pose.arguments"]["properties"]["pose"]["allOf"][0]["$ref"],
+        format!("#/components/schemas/{key}")
+    );
+    assert_eq!(
+        schemas["process.make_twist.returns"]["$ref"],
+        "#/components/schemas/robot.geometry.Twist"
+    );
+    assert_eq!(
+        schemas["process.read_untyped.arguments"]["properties"]["pose"]["type"],
+        "object"
+    );
+    // call の本体は Factory ごとの引数の oneOf
+    let one_of = api
+        .pointer(
+            "/paths/~1api~1process~1call/patch/requestBody/content/application~1json/schema/oneOf",
+        )
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        one_of.contains(&jvalue!({"$ref": "#/components/schemas/process.read_pose.arguments"})),
+        "{one_of:?}"
+    );
+
+    // Process ごとの openapi_spec
+    create(system, "read_pose", "rp_openapi")?;
+    let spec: Value = reqwest::blocking::get(format!(
+        "http://localhost:{PORT}/api/process/openapi_spec?identifier=core://core/process/rp_openapi::read_pose"
+    ))?
+    .json()?;
+    assert_eq!(
+        spec["arguments"]["properties"]["pose"]["allOf"][0]["$ref"],
+        "#/components/schemas/robot.geometry.Pose2D"
+    );
+    assert_eq!(
+        spec["arguments"]["properties"]["pose"]["default"],
+        pose_value()
+    );
+    assert_eq!(spec["returns"], Value::Null);
+    assert_eq!(
+        spec["components"]["schemas"]["robot.geometry.Point2D"]["required"],
+        jvalue!(["x", "y"])
+    );
+    Ok(())
 }
 
 fn call_read_pose(system: &System, pose: Value) -> JuizResult<CapsulePtr> {
