@@ -20,6 +20,8 @@ pub enum Generator {
     RustSkeleton,
     /// Python の dataclass / enum.Enum と型付き client stub (名前空間ごとのパッケージ <a>/<b>/__init__.py)
     Python,
+    /// C++ の struct / enum class と cppjuiz の juiz::type_traits の特殊化 (<namespace>.h と juiz_idl.h、ヘッダのみ)
+    Cpp,
 }
 
 impl From<Generator> for OutputKind {
@@ -31,6 +33,7 @@ impl From<Generator> for OutputKind {
             Generator::Rust => OutputKind::Rust,
             Generator::RustSkeleton => OutputKind::RustSkeleton,
             Generator::Python => OutputKind::Python,
+            Generator::Cpp => OutputKind::Cpp,
         }
     }
 }

@@ -24,6 +24,8 @@ namespace juiz {
         CapsuleMap(capsule_map* pmap) : _pmap(pmap) {}
         ~CapsuleMap() {}
 
+        capsule_map* handle() const { return _pmap; }
+
     public:
 
         bool has(const std::string& name) const {
@@ -128,7 +130,8 @@ namespace juiz {
 
     inline int64_t __set_value_obj_value(const Value* src_v, value* val) {
         src_v->const_object_for_each([val](const std::string& k, const juiz::Value& v) {
-            if (v.isBoolValue()) { value_object_set_bool(val, k.c_str(), v.boolValue() ? 1:0 ); }
+            if (v.isNull()) { value_object_set_null(val, k.c_str()); }
+            else if (v.isBoolValue()) { value_object_set_bool(val, k.c_str(), v.boolValue() ? 1:0 ); }
             else if (v.isIntValue()) { value_object_set_int(val, k.c_str(), v.intValue()); }
             else if (v.isDoubleValue()) { value_object_set_float(val, k.c_str(), v.doubleValue()); }
             else if (v.isStringValue()) { value_object_set_string(val, k.c_str(), v.stringValue().c_str()); }
@@ -150,7 +153,8 @@ namespace juiz {
 
     inline int64_t __set_value_array_value(const Value* src_v, value* val) {
         src_v->const_list_for_each([val](const juiz::Value& v) {
-            if (v.isBoolValue()) { value_array_push_bool(val, v.boolValue() ? 1:0 ); }
+            if (v.isNull()) { value_array_push_null(val); }
+            else if (v.isBoolValue()) { value_array_push_bool(val, v.boolValue() ? 1:0 ); }
             else if (v.isIntValue()) { value_array_push_int(val, v.intValue()); }
             else if (v.isDoubleValue()) { value_array_push_float(val, v.doubleValue()); }
             else if (v.isStringValue()) { value_array_push_string(val, v.stringValue().c_str()); }

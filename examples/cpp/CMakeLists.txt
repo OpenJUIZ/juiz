@@ -79,6 +79,11 @@ function(add_juiz_component ARG_NAME)
   )
 endfunction()
 
+# juiz-idl で IDL から C++ の型を作る関数 juiz_generate_types() (issue #195)。
+# juiz-idl は cargo build で target/debug にできるものを使う
+include(${PROJECT_HOME}/bindings/cppjuiz/cmake/juiz_idl.cmake)
+set(JUIZ_IDL_HINTS ${PROJECT_HOME}/target/debug)
+
 add_subdirectory(process)
 add_subdirectory(container)
 add_subdirectory(component)
