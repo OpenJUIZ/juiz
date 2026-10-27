@@ -42,8 +42,9 @@ juizProcess 'increment 'manifest
 | `Bool` | 真偽値 |
 | `Int64`, `Int`, `Int8`〜`Int32`, `Word8`〜`Word32` | 整数(範囲外ならエラー) |
 | `Word64` | 0 以上の整数 |
-| `Double` | 小数(整数も受け取れる) |
+| `Double`, `Float` | 小数(整数も受け取れる) |
 | `Text` | 文字列 |
+| `ByteString` | base64 の文字列 |
 | `[a]` | 配列 |
 | `Map Text a` | オブジェクト |
 | `Maybe a` | null なら `Nothing` |
@@ -52,6 +53,44 @@ juizProcess 'increment 'manifest
 
 オブジェクトを返すときは `object ["x" .= (1 :: Int64), "name" .= ("abc" :: Text)]` のように書けます。
 自分の型は `fromValue :: Value -> Either Text a` / `toValue :: a -> Value` を書いてインスタンスにします。
+
+### 型付きの引数・戻り値(IDL の型)
+
+juiz の IDL(`.jidl`)で定義した型を使うと、引数・戻り値が型付きになります(manifest に型の情報が載り、
+ほかの言語の Process と同じ型で受け渡しでき、接続のときに型が検査されます)。`juiz-idl -g haskell` で
+Haskell のモジュールを作り(Template Haskell は使いません)、cabal の `hs-source-dirs` と `other-modules` に足します。
+
+```sh
+juiz-idl -g haskell -o gen idl/geometry.jidl   # gen/Robot/Geometry.hs など
+```
+
+```haskell
+import Juiz
+import Robot.Geometry   -- Pose2D (..)、Point2D (..)、MotorMode (..) など
+
+moveManifest :: ProcessManifest
+moveManifest = processManifest "pose_move_hs"
+  & addTypedArgNoDefault (Proxy :: Proxy Pose2D) "pose" "current pose"
+  & addFloatArg "dx" "" 1.0
+
+poseMove :: Pose2D -> Double -> Pose2D
+poseMove pose dx = pose { pose2DPosition = (pose2DPosition pose) { point2DX = point2DX (pose2DPosition pose) + dx } }
+
+juizProcess 'poseMove 'moveManifest
+```
+
+- 型付きの引数は `addTypedArg 名前 説明 既定値`(既定値はその型の値)、`addTypedArgNoDefault (Proxy :: Proxy T) 名前 説明`(既定値なし)、
+  `addTypedArgValue (Proxy :: Proxy T) 名前 説明 辞書の既定値` で足します。関数の引数が型付きの型なのにマニフェストが
+  `addObjectArg` などの型なしの引数だと、juiz が読み込むときにエラーになります。
+- 関数の結果が型付きの型なら、戻り値の型(`output_schema`)は自動で載ります(`returns (Proxy :: Proxy T)` で書いても同じ)。
+- 生成した record のフィールドの関数は「型名 + フィールド名」(`pose2DPosition`、`frame_id` なら `pose2DFrameId`)、
+  列挙の構築子は「型名 + 記号」(`MotorModeIdle`)です。すべてのフィールドに既定値がある record には `default<型名>` もあります。
+- 引数は juiz が型で読んでから渡します(足りないフィールドは既定値で埋め、型にないキーは無視)。型に合わない値は
+  `JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR`(-702)になります。戻り値は辞書にして返します。
+- IDL を使わずに手で書いた型も、Avro のスキーマから `unsafeTypeInfo` で型の情報を作り、`JuizType`・`FromCapsule`・`ToCapsule`
+  のインスタンス(`fromCapsuleType` / `toCapsuleType` で型の情報を返す)を書けば型付きにできます(`Juiz.Type` を参照)。
+
+詳しくは juiz の docs/spec/datatype.md §22 にあります。
 
 ### エラー
 

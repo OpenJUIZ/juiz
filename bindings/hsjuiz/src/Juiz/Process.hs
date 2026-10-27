@@ -27,6 +27,9 @@ module Juiz.Process
   , manifestEntryPoint
   , processEntryPoint
   , checkedManifestEntryPoint
+  , checkProcessManifest
+  , checkArgumentTypes
+  , resultType
   , readArguments
   , applyAndWrite
   , guardEntryPoint
@@ -45,6 +48,7 @@ import System.IO (stderr)
 import Juiz.Capsule
 import Juiz.Error
 import Juiz.Internal.FFI
+import Juiz.Internal.TypeInfo
 import Juiz.Manifest
 import Juiz.Value
 
@@ -58,10 +62,13 @@ class ProcessFn f where
   processArity :: Proxy f -> Int
   -- | 引数 (名前と値の組) を順に渡して呼ぶ
   applyArgs :: f -> [(Text, Value)] -> IO (FnResult f)
+  -- | 引数ごとの型 (型付きの型なら 'Just'、'Juiz.Capsule.fromCapsuleType')
+  argumentTypes :: Proxy f -> [Maybe TypeInfo]
 
 instance (FromCapsule a, ProcessFn b) => ProcessFn (a -> b) where
   type FnResult (a -> b) = FnResult b
   processArity _ = 1 + processArity (Proxy :: Proxy b)
+  argumentTypes _ = fromCapsuleType (Proxy :: Proxy a) : argumentTypes (Proxy :: Proxy b)
   applyArgs f ((name, v) : rest) = case fromValue v of
     Right a -> applyArgs (f a) rest
     Left msg -> throwJuiz juizValueConverterError ("argument \"" <> name <> "\": " <> msg)
@@ -70,14 +77,50 @@ instance (FromCapsule a, ProcessFn b) => ProcessFn (a -> b) where
 instance ProcessFn (IO r) where
   type FnResult (IO r) = r
   processArity _ = 0
+  argumentTypes _ = []
   applyArgs act [] = act
   applyArgs _ _ = throwJuiz juizValueConverterError "too many arguments"
 
--- | manifest_entry_point の中身。マニフェストの引数の数と関数の引数の数が違えばエラーにする
--- (juiz はプラグインを読み込むときに失敗する)
-manifestEntryPoint :: forall f. ProcessFn f => ProcessManifest -> f -> ManifestFunction
-manifestEntryPoint m _ =
-  checkedManifestEntryPoint (pmTypeName m) (length (pmArguments m)) (processArity (Proxy :: Proxy f)) (manifestToValue m)
+-- | manifest_entry_point の中身。マニフェストの引数の数と関数の引数の数が違う、
+-- または型付きの引数・戻り値の型が関数と合わなければエラーにする (juiz はプラグインを読み込むときに失敗する)
+manifestEntryPoint :: forall f. (ProcessFn f, ToCapsule (FnResult f)) => ProcessManifest -> f -> ManifestFunction
+manifestEntryPoint m _ cp = guardEntryPoint (pmTypeName m) $
+  case checkProcessManifest m (Proxy :: Proxy f) of
+    Left msg -> throwJuiz juizValueConverterError msg
+    Right m' -> checkedManifestEntryPoint (pmTypeName m') (length (pmArguments m')) (processArity (Proxy :: Proxy f))
+      (manifestToValue m') cp
+
+-- | 関数の結果の型 (型付きの型なら 'Just')
+resultType :: forall f. (ProcessFn f, ToCapsule (FnResult f)) => Proxy f -> Maybe TypeInfo
+resultType _ = toCapsuleType (Proxy :: Proxy (FnResult f))
+
+-- | Process / ContainerProcess のマニフェストの型を関数の型と比べ、戻り値の型を補う (docs/spec/datatype.md §22)。
+--
+-- * 型付きの型の引数は、マニフェストでも同じ型の型付きの引数 ('addTypedArg' など) にする
+-- * 関数の結果が型付きの型なら output_schema を載せる ('returns' を書いたときは同じ型でなければならない)
+checkProcessManifest :: forall f. (ProcessFn f, ToCapsule (FnResult f)) => ProcessManifest -> Proxy f -> Either Text ProcessManifest
+checkProcessManifest m p = do
+  checkArgumentTypes (pmArguments m) (argumentTypes p)
+  case (resultType p, pmOutputType m) of
+    (Just r, Nothing) -> Right m { pmOutputType = Just r }
+    (Just r, Just o)
+      | r == o -> Right m
+      | otherwise -> Left $ "the manifest returns " <> typeInfoName o <> ", but the function returns " <> typeInfoName r
+    (Nothing, _) -> Right m
+
+-- | マニフェストの引数と関数の引数の型を比べる。引数の数は比べない ('checkedManifestEntryPoint' が比べる)
+checkArgumentTypes :: [ArgumentManifest] -> [Maybe TypeInfo] -> Either Text ()
+checkArgumentTypes args types = mapM_ check (zip args types)
+  where
+    check (a, Just t) = case argType a of
+      Just at
+        | at == t -> Right ()
+        | otherwise -> Left $ "argument \"" <> argName a <> "\": the manifest declares " <> typeInfoName at
+            <> ", but the function takes " <> typeInfoName t
+      Nothing -> Left $ "argument \"" <> argName a <> "\": the function takes " <> typeInfoName t
+        <> "; declare it with addTypedArg (or addTypedArgNoDefault)"
+    -- 型なしの型 (Value など) は型付きの引数も受け取れる
+    check (_, Nothing) = Right ()
 
 -- | 引数の数を確かめてからマニフェストを書き込む manifest_entry_point
 checkedManifestEntryPoint :: Text -> Int -> Int -> Value -> ManifestFunction
@@ -95,7 +138,10 @@ processEntryPoint m f cm out = guardEntryPoint (pmTypeName m) $ applyAndWrite (p
 
 -- | マニフェストの引数を順に読み出す
 readArguments :: [ArgumentManifest] -> Ptr CCapsuleMap -> IO [(Text, Value)]
-readArguments as cm = mapM (\a -> (,) (argName a) <$> readArgument cm (argName a)) as
+readArguments as cm = mapM read1 as
+  where
+    -- 型付きの引数は型で読む (足りないフィールドは既定値、型に合わなければ juizValueDoesNotMatchTypeError)
+    read1 a = (,) (argName a) <$> maybe (readArgument cm (argName a)) (readTypedArgument cm (argName a)) (argType a)
 
 -- | 引数を読み出して関数を呼び、結果を capsule に書き込む
 applyAndWrite :: (ProcessFn f, ToCapsule (FnResult f)) => [ArgumentManifest] -> f -> Ptr CCapsuleMap -> Ptr CCapsule -> IO Int64

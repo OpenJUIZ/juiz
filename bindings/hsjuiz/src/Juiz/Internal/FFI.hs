@@ -5,7 +5,7 @@
 -- 宣言は juiz_sdk.h と合わせること。callback で Haskell に戻ってくる関数は safe で呼ぶ。
 module Juiz.Internal.FFI
   ( -- * 不透明な型
-    CCapsulePtr, CCapsule, CCapsuleMap, CValue
+    CCapsulePtr, CCapsule, CCapsuleMap, CValue, CJuizType
     -- * プラグインが公開する関数の型
   , ProcessFunction, ManifestFunction, ProcessFactoryFunction
   , ContainerCreateFunction, ContainerFactoryFunction, ContainerDestroyFunction
@@ -33,6 +33,8 @@ module Juiz.Internal.FFI
   , c_value_array_push_null, c_value_array_push_bool, c_value_array_push_int
   , c_value_array_push_uint, c_value_array_push_float, c_value_array_push_string
   , c_value_array_push_empty_object, c_value_array_push_empty_array
+    -- * juiz_type (データ型、docs/spec/datatype.md §22)
+  , c_juiz_type_new, c_juiz_type_describe, c_capsule_ptr_read_typed_value
   ) where
 
 import Data.Int (Int64)
@@ -49,6 +51,8 @@ data CCapsule
 data CCapsuleMap
 -- | juiz_sdk.h の value (Rust の Value)
 data CValue
+-- | juiz_sdk.h の juiz_type (Rust の型のモデル)。juiz_type_new で作る
+data CJuizType
 
 -- | Process の関数 (int64_t (*)(capsule_map*, capsule*))
 type ProcessFunction = Ptr CCapsuleMap -> Ptr CCapsule -> IO Int64
@@ -134,3 +138,12 @@ foreign import ccall unsafe "value_array_push_float" c_value_array_push_float ::
 foreign import ccall unsafe "value_array_push_string" c_value_array_push_string :: Ptr CValue -> CString -> IO (Ptr CValue)
 foreign import ccall unsafe "value_array_push_empty_object" c_value_array_push_empty_object :: Ptr CValue -> IO (Ptr CValue)
 foreign import ccall unsafe "value_array_push_empty_array" c_value_array_push_empty_array :: Ptr CValue -> IO (Ptr CValue)
+
+-- juiz_type (データ型)。callback の型は lock_as_value_with_arg と同じ (int64_t (*)(void*, value*))
+foreign import ccall unsafe "juiz_type_new"
+  c_juiz_type_new :: CString -> Ptr (Ptr CJuizType) -> IO Int64
+foreign import ccall safe "juiz_type_describe"
+  c_juiz_type_describe :: Ptr CJuizType -> FunPtr LockCallback -> Ptr () -> IO Int64
+foreign import ccall safe "capsule_ptr_read_typed_value"
+  c_capsule_ptr_read_typed_value
+    :: Ptr CCapsulePtr -> Ptr CJuizType -> CString -> FunPtr LockCallback -> Ptr () -> IO Int64

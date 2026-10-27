@@ -8,9 +8,10 @@
 - Rust: struct / enum と `juiz_sdk::types::JuizType` の実装
 - Rust の雛形 (`-g rust-skeleton`): `process` / `container` 宣言から、本体が `todo!()` のコンポーネント `<namespace>.skeleton.rs`
 - C++ (`-g cpp`): 名前空間ごとのヘッダ (`robot.geometry.h`) と全部を読み込む `juiz_idl.h` に struct / enum class と cppjuiz の `juiz::type_traits` の特殊化 (ヘッダのみ)
+- Haskell (`-g haskell`): 名前空間ごとのモジュール (`Robot/Geometry.hs`) に record・直和型と hsjuiz の `JuizType` / `FromCapsule` / `ToCapsule` のインスタンス (Template Haskell なし)
 - Python (`-g python`): 名前空間ごとのパッケージ (`robot/geometry/__init__.py`) に dataclass / enum.Enum と、`process` / `container` 宣言の型付きクライアント (pyjuiz を使う)
 
-仕様は [docs/spec/datatype.md](https://github.com/OpenJUIZ/juiz/blob/main/docs/spec/datatype.md) の §9・§16・§18・§20 にあります。
+仕様は [docs/spec/datatype.md](https://github.com/OpenJUIZ/juiz/blob/main/docs/spec/datatype.md) の §9・§16・§18・§20〜§22 にあります。
 
 ## コマンド
 
@@ -93,6 +94,28 @@ COMPONENT_PROCESS_FACTORY(move_to_manif, move_to);
 ```
 
 戻り値の record は辞書にせず C++ の値のまま渡り、同じコンパイラでビルドした C++ の Process はそのまま (複製せずに) 受け取ります。
+
+## Haskell から使う
+
+```sh
+juiz-idl -g haskell -o gen idl/geometry.jidl   # gen/Robot/Geometry.hs など
+```
+
+cabal の `hs-source-dirs` に `gen` を足し、`other-modules` に `Robot.Geometry` などを書きます。
+
+```haskell
+import Juiz
+import Robot.Geometry
+
+moveToManifest :: ProcessManifest
+moveToManifest = processManifest "move_to"
+  & addTypedArgNoDefault (Proxy :: Proxy Pose2D) "target" ""
+  & addFloatArg "speed" "" 1.0
+
+moveTo :: Pose2D -> Double -> IO Pose2D   -- output_schema は結果の型から載る
+```
+
+フィールドの関数は型名 + フィールド名 (`pose2DPosition`、`point2DX` など)、列挙の構築子は型名 + 記号 (`MotorModeIdle`) です。
 
 ## ライセンス
 
