@@ -896,6 +896,9 @@ pub fn pyany_to_value(value: &PyAny) -> PyResult<Value> {
         pydict_to_value(value.extract::<&PyDict>()?)
     } else if value.is_instance_of::<PyNone>() {
         Ok(Value::Null)
+    } else if is_juiz_typed(value) {
+        // juiz-idl が生成した型 (dataclass・enum.Enum) は to_value() で辞書の表し方にする (datatype.md §20)
+        pyany_to_value(value.call_method0("to_value")?)
     } else if value.hasattr("tolist")? {
         // numpy の配列とスカラーは tolist() で Python の値にしてから変換する (lazy-evaluation.md §11)
         pyany_to_value(value.call_method0("tolist")?)
@@ -997,6 +1000,12 @@ fn python_type_name(value: &PyAny) -> String {
         Ok(module) if module != "builtins" && !module.is_empty() => format!("{module}.{qualname}"),
         _ => qualname,
     }
+}
+
+/// juiz-idl が生成した型 (pyjuiz の juiz.datatype が型参照 `__juiz_type__` を付けたクラス) の値か
+fn is_juiz_typed(value: &PyAny) -> bool {
+    value.get_type().hasattr("__juiz_type__").unwrap_or(false)
+        && value.hasattr("to_value").unwrap_or(false)
 }
 
 fn is_pil_image(value: &PyAny) -> bool {

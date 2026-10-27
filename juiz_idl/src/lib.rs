@@ -9,8 +9,10 @@
 //! | [`OutputKind::Processes`] | `<namespace>.processes.json` | `process` / `container` 宣言のシグネチャ (仕様 §9.3) |
 //! | [`OutputKind::Rust`] | `<namespace>.rs`、`juiz_idl.rs` | struct / enum と `juiz_sdk::types::JuizType` の実装 |
 //! | [`OutputKind::RustSkeleton`] | `<namespace>.skeleton.rs` | `process` / `container` 宣言の Rust の雛形 (コピーして本体を書く、仕様 §18) |
+//! | [`OutputKind::Python`] | `<a>/<b>/__init__.py` (名前空間 `a.b`) | dataclass / enum.Enum と、`process` / `container` 宣言の型付き client stub (仕様 §20) |
 //!
-//! 型のモデル・指紋は `juiz_types` を使う (juiz_sdk には依存しない)。生成した Rust のコードは juiz_sdk を使う。
+//! 型のモデル・指紋は `juiz_types` を使う (juiz_sdk には依存しない)。生成した Rust のコードは juiz_sdk を、
+//! Python のコードは pyjuiz (`juiz.datatype`) を使う。
 //! Java の avro-tools は使わない。
 //!
 //! ```
@@ -30,6 +32,7 @@ pub mod cli;
 mod json_schema;
 mod model;
 mod parser;
+mod python;
 mod rust;
 mod rust_skeleton;
 
@@ -43,6 +46,7 @@ pub use model::{
     Signatures,
 };
 pub use parser::{parse_idl, IdlFile};
+pub use python::generate_python;
 pub use rust::{generate_rust, MODULE_TREE_FILE};
 pub use rust_skeleton::generate_rust_skeleton;
 
@@ -88,15 +92,17 @@ pub enum OutputKind {
     Processes,
     Rust,
     RustSkeleton,
+    Python,
 }
 
 impl OutputKind {
-    pub const ALL: [OutputKind; 5] = [
+    pub const ALL: [OutputKind; 6] = [
         OutputKind::Avsc,
         OutputKind::JsonSchema,
         OutputKind::Processes,
         OutputKind::Rust,
         OutputKind::RustSkeleton,
+        OutputKind::Python,
     ];
 }
 
@@ -136,7 +142,7 @@ const KEY_ORDER: [&str; 23] = [
 /// record・enum の定義は Avro の慣例どおり type、name の順に書く
 const NAMED_TYPE_KEY_ORDER: [&str; 3] = ["type", "name", "namespace"];
 
-fn key_rank(m: &serde_json::Map<String, serde_json::Value>, key: &str) -> usize {
+pub(crate) fn key_rank(m: &serde_json::Map<String, serde_json::Value>, key: &str) -> usize {
     let named = matches!(
         m.get("type").and_then(|t| t.as_str()),
         Some("record" | "enum")
@@ -227,6 +233,7 @@ pub fn generate(model: &IdlModel, kinds: &[OutputKind]) -> Result<Vec<GeneratedF
             }
             OutputKind::Rust => files.extend(generate_rust(&model.types)?),
             OutputKind::RustSkeleton => files.extend(generate_rust_skeleton(&model.signatures)?),
+            OutputKind::Python => files.extend(generate_python(&model.types, &model.signatures)?),
         }
     }
     Ok(files)
@@ -240,6 +247,12 @@ pub fn write_files(files: &[GeneratedFile], out_dir: &Path) -> Result<(), IdlErr
     })?;
     for f in files.iter() {
         let path = out_dir.join(&f.path);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| IdlError::Io {
+                path: parent.display().to_string(),
+                message: e.to_string(),
+            })?;
+        }
         if std::fs::read_to_string(&path).ok().as_deref() == Some(f.contents.as_str()) {
             continue;
         }
