@@ -21,6 +21,8 @@ use crate::containers::BindedContainerFunctionType;
 use crate::prelude::*;
 use crate::processes::implementations::process_impl::ProcessImpl;
 use crate::processes::ProcessBodyFunctionTrait;
+use crate::types::check_connectable;
+use juiz_sdk::types::Compatibility;
 
 /// 戻り値の要約の最大の長さ (trace 用)
 const TRACE_SUMMARY_MAX_LEN: usize = 200;
@@ -104,6 +106,12 @@ impl CompositeBody {
             )
         })?;
         check_cycle(
+            &composite.type_name,
+            &composition.body,
+            COMPOSITE_ROOT_PATH,
+            &lookup_manifest,
+        )?;
+        check_types(
             &composite.type_name,
             &composition.body,
             COMPOSITE_ROOT_PATH,
@@ -285,6 +293,68 @@ where
         if let CompositeArgument::Node(child) = arg {
             check_cycle(type_name, child, &format!("{path}.{name}"), lookup)?;
         }
+    }
+    Ok(())
+}
+
+/// 子の戻り値 (writer) と、それを受ける親の引数 (reader) の型を比べる (C8 #172、datatype.md §8)
+///
+/// 接続時の検査と同じ [`check_connectable`] を呼ぶ。互換でなければ、受ける側の引数の位置
+/// (`body.img` など) を付けた `CompositeManifestInvalidError` にする (元の `TypeIncompatibleError` は
+/// その下に残る)。型なしの子とはいつでも組める。互換 (指紋が違う) なら通す
+/// (値は辞書を通る。遅延評価では codec 経由)。
+fn check_types<F>(type_name: &str, node: &CompositeNode, path: &str, lookup: &F) -> JuizResult<()>
+where
+    F: Fn(&str) -> Option<ProcessManifest>,
+{
+    // 正規化した木の子は build_process_manifest で見つかっている
+    let parent = lookup(&node.process).ok_or_else(|| {
+        invalid(
+            type_name,
+            path,
+            format!("child process '{}' is not found", node.process),
+        )
+    })?;
+    for (name, arg) in node.args.iter() {
+        let CompositeArgument::Node(child) = arg else {
+            continue;
+        };
+        let arg_path = format!("{path}.{name}");
+        let child_manifest = lookup(&child.process).ok_or_else(|| {
+            invalid(
+                type_name,
+                &arg_path,
+                format!("child process '{}' is not found", child.process),
+            )
+        })?;
+        let reader = parent
+            .arguments
+            .iter()
+            .find(|a| &a.name == name)
+            .and_then(|a| a.schema.as_ref());
+        let writer = child_manifest.output_schema.as_ref();
+        match check_connectable(writer, reader) {
+            Ok(Compatibility::Compatible) => log::debug!(
+                "Composite({type_name}) at {arg_path}: output of '{}' ({}) is compatible with argument '{name}' of '{}' ({}). The value goes through the dictionary",
+                child.process,
+                writer.map(|w| w.identifier()).unwrap_or_default(),
+                node.process,
+                reader.map(|r| r.identifier()).unwrap_or_default(),
+            ),
+            Ok(_) => {}
+            Err(e) => {
+                let message = format!(
+                    "output of '{}' does not match argument '{name}' of '{}': {e}",
+                    child.process, node.process
+                );
+                return Err(e.context(JuizError::CompositeManifestInvalidError {
+                    type_name: type_name.to_owned(),
+                    path: arg_path,
+                    message,
+                }));
+            }
+        }
+        check_types(type_name, child, &arg_path, lookup)?;
     }
     Ok(())
 }

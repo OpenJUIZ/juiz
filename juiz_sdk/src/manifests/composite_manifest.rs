@@ -6,11 +6,12 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use super::argument_manifest::ArgumentManifest;
+use super::argument_manifest::{check_typed_argument, ArgumentManifest};
 use super::argument_type::type_check;
 use super::manifest_description::Description;
 use crate::identifier::validate_name;
 use crate::prelude::*;
+use crate::types::{type_error, DataType, TypeSchema};
 use anyhow::anyhow;
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 
@@ -310,7 +311,8 @@ impl CompositeManifest {
             .language(&language)
             .factory(factory)
             .set_outputs(root.outputs.clone());
-        // 型の検査 (子どうし・既定値) は C8 (#172) で行う。ここでは子の型参照を引き継ぐだけ
+        // 子の戻り値と親の引数の型の比較 (C8 #172) は juiz_core の check_connectable で行う。
+        // ここでは子の型参照を引き継ぎ、const と expose の default を型と照らし合わせる (datatype.md §8)
         manifest.output_schema = root.output_schema.clone();
         if self.has_containers() {
             manifest = manifest.container_type(Some(COMPOSITE_CONTAINER_TYPE_NAME.to_owned()));
@@ -444,6 +446,13 @@ where
                             child_arg.name, child_arg.type_name
                         ))
                     })?;
+                    check_const_schema(child_arg, v).map_err(|e| {
+                        err(format!(
+                            "const value {v} for argument '{}' does not match type {}: {e}",
+                            child_arg.name,
+                            schema_name(child_arg.schema.as_ref())
+                        ))
+                    })?;
                     CompositeArgument::Const(v.clone())
                 }
                 Some(CompositeArgument::Expose(spec)) => {
@@ -487,8 +496,32 @@ where
                 ))
             })?;
         }
+        if let (Some(d), Some(schema)) = (spec.default.as_ref(), child_arg.schema.as_ref()) {
+            let data_type = schema.validate().map_err(type_error)?;
+            check_typed_argument(&spec.name, &data_type, d).map_err(|e| {
+                err(format!(
+                    "default value {d} of exposed argument '{}' does not match type {}: {e}",
+                    spec.name, schema.name
+                ))
+            })?;
+        }
         let here = format!("{path} ({child_type_name})");
         if let Some(e) = self.exposed.iter_mut().find(|e| e.arg.name == spec.name) {
+            // 1 つの公開引数の値を型の違う子の引数に渡すことになるので、型付きどうしは同じ型に限る
+            match (e.arg.schema.as_ref(), child_arg.schema.as_ref()) {
+                (Some(a), Some(b)) if a.identifier() != b.identifier() => {
+                    return Err(self.composite.error(
+                        path,
+                        format!(
+                            "exposed argument '{}' collides: {} has type {} but {} has type {}. Give one of them another name with 'expose'",
+                            spec.name, e.first_at, a.identifier(), here, b.identifier()
+                        ),
+                    ));
+                }
+                // 先に出てきた方が型なしなら、型付きの方の型を公開引数の型にする
+                (None, Some(b)) => e.arg.schema = Some(b.clone()),
+                _ => {}
+            }
             if e.arg.type_name != child_arg.type_name {
                 return Err(self.composite.error(
                     path,
@@ -545,4 +578,28 @@ where
         });
         Ok(())
     }
+}
+
+/// 型付きの引数への `const` を型と照らし合わせる (datatype.md §4・§8)。
+///
+/// `const` は既定値ではなく渡す値そのものなので、`null` も検査する (省略可能な型でなければエラー)。
+/// image は辞書の外の値なので検査しない。
+fn check_const_schema(child_arg: &ArgumentManifest, value: &Value) -> JuizResult<()> {
+    let Some(schema) = child_arg.schema.as_ref() else {
+        return Ok(());
+    };
+    let data_type = schema.validate().map_err(type_error)?;
+    if data_type == DataType::Image {
+        return Ok(());
+    }
+    crate::types::read_value(&data_type, value, &child_arg.name)
+        .map(|_| ())
+        .map_err(type_error)
+}
+
+/// エラーメッセージ用の型の名前 (型なしは `any`)
+fn schema_name(schema: Option<&TypeSchema>) -> String {
+    schema
+        .map(|s| s.name.clone())
+        .unwrap_or_else(|| "any".to_owned())
 }
