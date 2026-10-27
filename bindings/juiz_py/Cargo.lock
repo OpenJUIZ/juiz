@@ -1277,7 +1277,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_app"
-version = "0.0.24"
+version = "0.0.25"
 dependencies = [
  "clap",
  "home",
@@ -1290,7 +1290,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_core"
-version = "0.0.24"
+version = "0.0.25"
 dependencies = [
  "axum",
  "futures",
@@ -1313,7 +1313,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_idl"
-version = "0.0.24"
+version = "0.0.25"
 dependencies = [
  "clap",
  "juiz_types",
@@ -1324,7 +1324,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_macro"
-version = "0.0.24"
+version = "0.0.25"
 dependencies = [
  "anyhow",
  "litrs",
@@ -1336,7 +1336,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_py"
-version = "0.0.24"
+version = "0.0.25"
 dependencies = [
  "juiz_app",
  "juiz_core",
@@ -1345,7 +1345,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_qmp_broker"
-version = "0.0.24"
+version = "0.0.25"
 dependencies = [
  "bytes",
  "juiz_core",
@@ -1363,7 +1363,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_sdk"
-version = "0.0.24"
+version = "0.0.25"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -1385,7 +1385,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_types"
-version = "0.0.24"
+version = "0.0.25"
 dependencies = [
  "base64 0.22.1",
  "regex",
@@ -1397,7 +1397,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_webui"
-version = "0.0.24"
+version = "0.0.25"
 dependencies = [
  "rust-embed",
 ]
