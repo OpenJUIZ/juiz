@@ -12,7 +12,7 @@
 - TypeScript (`-g typescript`): 名前空間ごとの `robot.geometry.ts` と `juiz_idl.ts` に interface・文字列リテラルの union と型参照 (管理画面・`bindings/js` 用、実行時の依存なし)
 - Python (`-g python`): 名前空間ごとのパッケージ (`robot/geometry/__init__.py`) に dataclass / enum.Enum と、`process` / `container` 宣言の型付きクライアント (pyjuiz を使う)
 
-仕様は [docs/spec/datatype.md](https://github.com/OpenJUIZ/juiz/blob/main/docs/spec/datatype.md) の §9・§16・§18・§20〜§23 にあります。
+仕様は [docs/spec/datatype.md](https://github.com/OpenJUIZ/juiz/blob/main/docs/spec/datatype.md) の §9・§16・§18・§20〜§24 にあります。
 
 ## コマンド
 
@@ -137,6 +137,69 @@ console.log(Pose2DType.fingerprint); // .avsc と同じ指紋
 ```
 
 値は juiz が JSON で受け渡す辞書の形そのままです (`bytes` は base64 の文字列、`T?` は `T | null`)。
+
+## 標準の型 juiz_std
+
+`juiz_std/common.jidl` (`Time`・`Header` など)、`juiz_std/geometry.jidl` (`Point2D`・`Pose2D`・`Pose`・`Twist` など)、`juiz_std/sensor.jidl` (`ImageInfo`・`Imu`・`LaserScan`・`Range`) は juiz-idl に組み込まれていて、ファイルがなくても import や入力に書けます。
+
+```text
+namespace my.robot;
+import idl "juiz_std/geometry.jidl";
+record Goal { juiz_std.geometry.Pose2D pose; double tolerance = 0.1; }
+```
+
+Rust はクレート `juiz_std_types`、Python は pyjuiz に同梱の `juiz_std` パッケージに同じ型が入っています。
+
+## import の探し先とほかのパッケージの型
+
+- `-I <dir>` (build.rs は `.import_dir(dir)`、環境変数 `JUIZ_IDL_PATH` も) で import の探し先を足せます。相対パス → 探し先 → 組み込みの型の順に探します。
+- `--extern <名前空間>[=<Rust のパス>]` (build.rs は `.extern_path(名前空間, Rust のパス)`) を付けると、その名前空間の型を書き出さず、ほかのパッケージにあるものを参照します。
+
+```rust
+// build.rs。juiz_std の型は juiz_std_types のものを使う
+fn main() {
+    juiz_idl::build::configure()
+        .extern_path("juiz_std", "::juiz_std_types::juiz_std")
+        .compile(&["idl/my_robot.jidl"])
+        .unwrap();
+}
+```
+
+```sh
+juiz-idl -g python --extern juiz_std -o gen idl/my_robot.jidl   # juiz_std は pyjuiz のものを使う
+```
+
+## 型パッケージを配る
+
+自分の型を Rust のクレートとして配り、ほかのクレートの JIDL から使えるようにするには、.jidl をクレートに入れて `links` で場所を知らせます。
+
+```toml
+# my_types/Cargo.toml
+[package]
+name = "my_types"
+links = "my_types"
+```
+
+```rust
+// my_types/build.rs
+fn main() {
+    juiz_idl::build::compile(&["idl/my_robot.jidl"]).unwrap();
+    juiz_idl::build::export_idl_dir("idl").unwrap(); // 依存するクレートに DEP_MY_TYPES_IDL_DIR を渡す
+}
+```
+
+```rust
+// 使う側の build.rs (my_types に直接依存する)
+fn main() {
+    juiz_idl::build::configure()
+        .import_dir(std::env::var("DEP_MY_TYPES_IDL_DIR").unwrap())
+        .extern_path("my_robot", "::my_types::my_robot")
+        .compile(&["idl/car.jidl"]) // import idl "my_robot.jidl"; と書ける
+        .unwrap();
+}
+```
+
+PyPI・CMake・Hackage での配り方は [docs/spec/datatype.md](https://github.com/OpenJUIZ/juiz/blob/main/docs/spec/datatype.md) の §24 にあります。
 
 ## ライセンス
 

@@ -29,8 +29,12 @@
 //! ```
 //!
 //! build.rs からは [`build`] を使う。
+//!
+//! 標準の型 `juiz_std` の JIDL は組み込んであり、`import idl "juiz_std/geometry.jidl";` で読める ([`BUILTIN_FILES`])。
+//! import の探し先は [`LoadOptions`]、ほかのパッケージにある型の参照は [`GenerateOptions`] (仕様 §24)。
 
 pub mod build;
+mod builtin;
 pub mod cli;
 mod cpp;
 mod haskell;
@@ -47,13 +51,14 @@ use std::path::{Path, PathBuf};
 
 use juiz_types::TypeError;
 
+pub use builtin::{builtin_file, BUILTIN_FILES, BUILTIN_PREFIX};
 pub use cpp::{generate_cpp, CPP_ALL_HEADER};
 pub use haskell::generate_haskell;
 pub use jidl::to_jidl;
 pub use json_schema::{json_schema_of, JSON_SCHEMA_DIALECT};
 pub use model::{
-    load_files, load_str, ArgumentSignature, ContainerSignature, IdlModel, ProcessSignature,
-    Signatures,
+    load_files, load_files_with, load_str, ArgumentSignature, ContainerSignature, IdlModel,
+    LoadOptions, ProcessSignature, Signatures, IMPORT_PATH_ENV,
 };
 pub use parser::{parse_idl, IdlFile};
 pub use python::generate_python;
@@ -216,13 +221,100 @@ fn write_pretty(v: &serde_json::Value, indent: usize, out: &mut String) {
     }
 }
 
+/// ほかのパッケージが持っている名前空間 (仕様 §24.2)。
+/// その名前空間 (と下の名前空間) の型は書き出さず、Rust のコードは `rust_path` の下の型を参照する
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExternNamespace {
+    /// 型の名前空間 (`juiz_std` なら `juiz_std.geometry` なども含む)
+    pub namespace: String,
+    /// Rust で、この名前空間に当たるモジュールのパス (`::juiz_std_types::juiz_std` など)。Rust を書き出すときは必須
+    pub rust_path: Option<String>,
+}
+
+impl ExternNamespace {
+    /// `namespace` か `namespace=rust_path` の形の文字列から作る (コマンドの `--extern`)
+    pub fn parse(s: &str) -> Result<Self, IdlError> {
+        let (namespace, rust_path) = match s.split_once('=') {
+            Some((n, p)) => (n.trim(), Some(p.trim().to_owned())),
+            None => (s.trim(), None),
+        };
+        if namespace.is_empty()
+            || !namespace
+                .split('.')
+                .all(|e| !e.is_empty() && e.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
+        {
+            return Err(IdlError::Generate {
+                message: format!("invalid extern namespace '{s}' (expected <namespace> or <namespace>=<rust path>)"),
+            });
+        }
+        Ok(Self {
+            namespace: namespace.to_owned(),
+            rust_path: rust_path.filter(|p| !p.is_empty()),
+        })
+    }
+
+    /// `namespace` がこの名前空間か、その下の名前空間か
+    pub fn contains(&self, namespace: &str) -> bool {
+        namespace == self.namespace
+            || namespace
+                .strip_prefix(self.namespace.as_str())
+                .is_some_and(|rest| rest.starts_with('.'))
+    }
+}
+
+/// 生成の設定
+#[derive(Clone, Debug, Default)]
+pub struct GenerateOptions {
+    pub externs: Vec<ExternNamespace>,
+}
+
+impl GenerateOptions {
+    /// 名前空間 `namespace` を持っている extern (いちばん長く一致するもの)
+    pub fn extern_of(&self, namespace: &str) -> Option<&ExternNamespace> {
+        self.externs
+            .iter()
+            .filter(|e| e.contains(namespace))
+            .max_by_key(|e| e.namespace.len())
+    }
+}
+
+fn type_namespace(t: &juiz_types::DataType) -> Option<&str> {
+    match t {
+        juiz_types::DataType::Record(r) => Some(&r.namespace),
+        juiz_types::DataType::Enum(e) => Some(&e.namespace),
+        _ => None,
+    }
+}
+
 /// モデルから `kinds` のファイルを作る (書き込まない)
 pub fn generate(model: &IdlModel, kinds: &[OutputKind]) -> Result<Vec<GeneratedFile>, IdlError> {
+    generate_with(model, kinds, &GenerateOptions::default())
+}
+
+/// [`GenerateOptions`] のとおりにモデルから `kinds` のファイルを作る (書き込まない)
+pub fn generate_with(
+    model: &IdlModel,
+    kinds: &[OutputKind],
+    options: &GenerateOptions,
+) -> Result<Vec<GeneratedFile>, IdlError> {
+    // extern の名前空間の型は書き出さない (参照はそのまま残る)
+    let types: Vec<juiz_types::DataType> = model
+        .types
+        .iter()
+        .filter(|t| type_namespace(t).map_or(true, |ns| options.extern_of(ns).is_none()))
+        .cloned()
+        .collect();
+    let signatures: Vec<Signatures> = model
+        .signatures
+        .iter()
+        .filter(|s| options.extern_of(&s.namespace).is_none())
+        .cloned()
+        .collect();
     let mut files = Vec::new();
     for kind in kinds.iter() {
         match kind {
             OutputKind::Avsc => {
-                for t in model.types.iter() {
+                for t in types.iter() {
                     let avro = t.to_avro().map_err(|e| IdlError::Generate {
                         message: format!("{}: {e}", t.display_name()),
                     })?;
@@ -233,7 +325,7 @@ pub fn generate(model: &IdlModel, kinds: &[OutputKind]) -> Result<Vec<GeneratedF
                 }
             }
             OutputKind::JsonSchema => {
-                for t in model.types.iter() {
+                for t in types.iter() {
                     files.push(GeneratedFile {
                         path: format!("{}.schema.json", t.display_name()).into(),
                         contents: pretty(&json_schema_of(t)),
@@ -241,19 +333,22 @@ pub fn generate(model: &IdlModel, kinds: &[OutputKind]) -> Result<Vec<GeneratedF
                 }
             }
             OutputKind::Processes => {
-                for s in model.signatures.iter() {
+                for s in signatures.iter() {
                     files.push(GeneratedFile {
                         path: format!("{}.processes.json", s.namespace).into(),
                         contents: pretty(s),
                     });
                 }
             }
-            OutputKind::Rust => files.extend(generate_rust(&model.types)?),
-            OutputKind::RustSkeleton => files.extend(generate_rust_skeleton(&model.signatures)?),
-            OutputKind::Python => files.extend(generate_python(&model.types, &model.signatures)?),
-            OutputKind::Cpp => files.extend(generate_cpp(&model.types)?),
-            OutputKind::Haskell => files.extend(generate_haskell(&model.types)?),
-            OutputKind::TypeScript => files.extend(generate_typescript(&model.types)?),
+            OutputKind::Rust => files.extend(rust::generate_rust_with(&types, options)?),
+            OutputKind::RustSkeleton => files.extend(rust_skeleton::generate_rust_skeleton_with(
+                &signatures,
+                options,
+            )?),
+            OutputKind::Python => files.extend(generate_python(&types, &signatures)?),
+            OutputKind::Cpp => files.extend(generate_cpp(&types)?),
+            OutputKind::Haskell => files.extend(generate_haskell(&types)?),
+            OutputKind::TypeScript => files.extend(generate_typescript(&types)?),
         }
     }
     Ok(files)

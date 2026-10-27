@@ -428,6 +428,8 @@ fn cli_writes_files_and_checks() {
         out_dir: out.clone(),
         generators: vec![],
         check: false,
+        import_dirs: vec![],
+        externs: vec![],
     };
     juiz_idl::cli::run(&args).unwrap();
     assert!(out.join("t.R.avsc").exists());
@@ -874,4 +876,234 @@ fn jidl_round_trip() {
     assert_eq!(again.get_type("a.b.P").unwrap(), p, "{text}");
     let q = model.get_type("a.b.Q").unwrap();
     assert_eq!(load(&juiz_idl::to_jidl(q)).get_type("a.b.Q").unwrap(), q);
+}
+
+/// 組み込みの標準の型 juiz_std (仕様 §24.4)
+#[test]
+fn builtin_std_types() {
+    // コマンドの入力にも import にも書ける
+    let model = load_files(&["juiz_std/sensor.jidl"]).unwrap();
+    for name in [
+        "juiz_std.common.Header",
+        "juiz_std.geometry.Quaternion",
+        "juiz_std.sensor.ImageInfo",
+    ] {
+        assert!(model.get_type(name).is_some(), "{name}");
+    }
+    // 組み込みのファイルは rerun-if-changed に出さない
+    assert!(model.files.is_empty());
+    // すべてのフィールドに既定値がある (引数を省いても作れる)
+    for t in model.types.iter() {
+        let v = juiz_types::read_value(t, &serde_json::json!({}), "").unwrap();
+        assert!(v.is_object(), "{}", t.display_name());
+    }
+    let q = model.get_type("juiz_std.geometry.Quaternion").unwrap();
+    assert_eq!(
+        juiz_types::read_value(q, &serde_json::json!({}), "").unwrap(),
+        serde_json::json!({"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0})
+    );
+
+    let dir = temp_dir("builtin_std_types");
+    let input = dir.join("robot.jidl");
+    std::fs::write(
+        &input,
+        "namespace my.robot;\nimport idl \"juiz_std/geometry.jidl\";\nrecord Goal { juiz_std.geometry.Pose2D pose; }\n",
+    )
+    .unwrap();
+    let model = load_files(&[&input]).unwrap();
+    assert!(model.get_type("juiz_std.common.Time").is_some());
+    assert_eq!(model.files, vec![input.clone()]);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// import の探し先 -I と JUIZ_IDL_PATH (仕様 §24.1)
+#[test]
+fn import_dirs() {
+    let dir = temp_dir("import_dirs");
+    let lib = dir.join("lib");
+    std::fs::create_dir_all(lib.join("vendor")).unwrap();
+    std::fs::write(
+        lib.join("vendor/types.jidl"),
+        "namespace vendor;\nrecord V { long v = 0; }\n",
+    )
+    .unwrap();
+    let app = dir.join("app");
+    std::fs::create_dir_all(&app).unwrap();
+    let input = app.join("app.jidl");
+    std::fs::write(
+        &input,
+        "namespace app;\nimport idl \"vendor/types.jidl\";\nrecord A { vendor.V v; }\n",
+    )
+    .unwrap();
+    let err = load_files(&[&input]).unwrap_err().to_string();
+    assert!(err.contains("app.jidl:2:1"), "{err}");
+    assert!(err.contains("'vendor/types.jidl' is not found"), "{err}");
+    let options = juiz_idl::LoadOptions {
+        import_dirs: vec![lib.clone()],
+    };
+    let model = juiz_idl::load_files_with(&[&input], &options).unwrap();
+    assert!(model.get_type("vendor.V").is_some());
+    assert_eq!(model.files.len(), 2);
+
+    // 相対パスにあるものが先
+    std::fs::create_dir_all(app.join("vendor")).unwrap();
+    std::fs::write(
+        app.join("vendor/types.jidl"),
+        "namespace vendor;\nrecord V { long v = 1; }\n",
+    )
+    .unwrap();
+    let model = juiz_idl::load_files_with(&[&input], &options).unwrap();
+    assert_eq!(
+        model.files,
+        vec![input.clone(), app.join("vendor/types.jidl")]
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// --extern: ほかのパッケージが持っている名前空間 (仕様 §24.2)
+#[test]
+fn extern_namespaces() {
+    use juiz_idl::{generate_with, ExternNamespace, GenerateOptions};
+    let dir = temp_dir("extern_namespaces");
+    let input = dir.join("robot.jidl");
+    std::fs::write(
+        &input,
+        "namespace my.robot;\nimport idl \"juiz_std/geometry.jidl\";\n\
+         record Goal { juiz_std.geometry.Pose2D pose; juiz_std.common.Header header; }\n\
+         process Goal plan(juiz_std.geometry.Pose2D start);\n",
+    )
+    .unwrap();
+    let model = load_files(&[&input]).unwrap();
+    let options = GenerateOptions {
+        externs: vec![ExternNamespace::parse("juiz_std=::juiz_std_types::juiz_std").unwrap()],
+    };
+    let files = generate_with(
+        &model,
+        &[
+            OutputKind::Avsc,
+            OutputKind::Rust,
+            OutputKind::RustSkeleton,
+            OutputKind::Python,
+        ],
+        &options,
+    )
+    .unwrap();
+    let paths: Vec<String> = files
+        .iter()
+        .map(|f| f.path.to_str().unwrap().replace('\\', "/"))
+        .collect();
+    assert!(paths.iter().all(|p| !p.contains("juiz_std")), "{paths:?}");
+    assert!(paths.contains(&"my.robot.Goal.avsc".to_owned()));
+    let rust = &files[paths.iter().position(|p| p == "my.robot.rs").unwrap()].contents;
+    assert!(
+        rust.contains("pub pose: ::juiz_std_types::juiz_std::geometry::Pose2D,"),
+        "{rust}"
+    );
+    assert!(
+        rust.contains("pub header: ::juiz_std_types::juiz_std::common::Header,"),
+        "{rust}"
+    );
+    let tree = &files[paths.iter().position(|p| p == "juiz_idl.rs").unwrap()].contents;
+    assert!(!tree.contains("juiz_std"), "{tree}");
+    let skeleton = &files[paths
+        .iter()
+        .position(|p| p == "my.robot.skeleton.rs")
+        .unwrap()]
+    .contents;
+    assert!(
+        skeleton.contains("start: ::juiz_std_types::juiz_std::geometry::Pose2D"),
+        "{skeleton}"
+    );
+    let python = &files[paths
+        .iter()
+        .position(|p| p == "my/robot/__init__.py")
+        .unwrap()]
+    .contents;
+    assert!(
+        python.contains("import juiz_std.geometry as _ns_juiz_std_geometry"),
+        "{python}"
+    );
+
+    // Rust のパスがなければ Rust は書けない (ほかの言語は書ける)
+    let options = GenerateOptions {
+        externs: vec![ExternNamespace::parse("juiz_std").unwrap()],
+    };
+    let err = generate_with(&model, &[OutputKind::Rust], &options)
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("extern namespace 'juiz_std'"), "{err}");
+    generate_with(&model, &[OutputKind::Python, OutputKind::Cpp], &options).unwrap();
+
+    // 名前空間の境目で区切る
+    let e = ExternNamespace::parse("juiz_std").unwrap();
+    assert!(e.contains("juiz_std") && e.contains("juiz_std.geometry"));
+    assert!(!e.contains("juiz_std2"));
+    assert!(ExternNamespace::parse("a..b").is_err());
+    assert!(ExternNamespace::parse("=::x").is_err());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 組み込みの標準の型の指紋。型を変えると、使っているどの言語のパッケージとも合わなくなるので、
+/// 既存の型は変えない (足すのはよい)。型を足したらここにも足す
+#[test]
+fn std_type_fingerprints_are_fixed() {
+    let model = load_files(&[
+        "juiz_std/common.jidl",
+        "juiz_std/geometry.jidl",
+        "juiz_std/sensor.jidl",
+    ])
+    .unwrap();
+    let actual: Vec<String> = model
+        .types
+        .iter()
+        .map(|t| format!("{}@{}", t.display_name(), t.fingerprint()))
+        .collect();
+    let expected = [
+        "juiz_std.common.Time@sha256:60b9738d95bbcc060efc5047b35c4cc5549e08d0f26635868053dc039182caf8",
+        "juiz_std.common.Duration@sha256:12e53f59d4f1c3a2f7084f70aff8e25b493830fd7a570433c437c2da77de3a58",
+        "juiz_std.common.Header@sha256:d3c0852618c8a44bbc403254d0bdc755b51263e232e07e1f72644479c958893c",
+        "juiz_std.geometry.Point2D@sha256:ca28f67e7249e8fed4f3372a6c2120da34fda371523a8f6553d25c1c1d0167da",
+        "juiz_std.geometry.Point3D@sha256:9dd48fe5ef662d3f012373f3e261c60c96e4d4167234bede618aa71919243d02",
+        "juiz_std.geometry.Vector2@sha256:c00c8ec341be989b72b0a73cacdc6d4ac3057b5895d2dd86a42d2160b2c42839",
+        "juiz_std.geometry.Vector3@sha256:4abcfbbda65f821c0bbc57db2869c4eaf0c37db9629abdafe4b45e16dc2b5e8b",
+        "juiz_std.geometry.Quaternion@sha256:19ea592919e93a501b9e97cfa2f785cc063216c1866cc9f9bf68645b39052bd8",
+        "juiz_std.geometry.Pose2D@sha256:548bb61771115ffb247d9e2fcb91b294ca88d6794f3eda9091c3301093d3822b",
+        "juiz_std.geometry.Pose@sha256:fbbba3a9b972337fd6400bf8e734a0e553c8cf60981d6c6cd8c09c5574c578b6",
+        "juiz_std.geometry.Twist2D@sha256:44204c21bc93638e128206f5025c30c6ba3ccc19eb51860615b4e45539e105a3",
+        "juiz_std.geometry.Twist@sha256:c3e30253ede4220d30edb2f93352d9fdbbd1de87734d2e6adfde97cc5ab449ab",
+        "juiz_std.geometry.Pose2DStamped@sha256:d12b13d35378b5b4e1c58c69d0127163a8a44eced88a9370d3e92a4fe285b2ac",
+        "juiz_std.geometry.PoseStamped@sha256:baf659705a5670baebc612b2f6685f8e7eb55778805845519b775682e46a35f3",
+        "juiz_std.sensor.ImageInfo@sha256:2d1c807bbde404a420583f01a3914e1ffde48c71dd64ab570139e377b5baa109",
+        "juiz_std.sensor.Imu@sha256:ecf878ed8e4c3c5256440d854e6928405de03891d559f971b63a0d0dd73830cf",
+        "juiz_std.sensor.LaserScan@sha256:25fcb9214e49be850477e56173ac17546cd17826c6987f43b8315b2b168878d8",
+        "juiz_std.sensor.Range@sha256:03fb8b5d1132e768632b7f4db0b4e7e08f353af7b7919c460863a3e988f82aff",
+    ];
+    assert_eq!(actual, expected);
+}
+
+/// pyjuiz に同梱する juiz_std (bindings/pyjuiz/juiz_std) が組み込みの JIDL と一致するか (仕様 §24.4)。
+/// `JUIZ_IDL_UPDATE_PYTHON_GEN=1 cargo test -p juiz_idl --test idl_test pyjuiz_std_types_are_up_to_date` で作り直す
+#[test]
+fn pyjuiz_std_types_are_up_to_date() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let inputs: Vec<&str> = juiz_idl::BUILTIN_FILES.iter().map(|(p, _)| *p).collect();
+    let model = load_files(&inputs).unwrap();
+    let files = generate(&model, &[OutputKind::Python]).unwrap();
+    let pyjuiz = root.join("../bindings/pyjuiz");
+    if std::env::var_os("JUIZ_IDL_UPDATE_PYTHON_GEN").is_some() {
+        let _ = std::fs::remove_dir_all(pyjuiz.join("juiz_std"));
+        juiz_idl::write_files(&files, &pyjuiz).unwrap();
+    }
+    for f in files.iter() {
+        assert!(f.path.starts_with("juiz_std"), "{}", f.path.display());
+        let path = pyjuiz.join(&f.path);
+        let on_disk = std::fs::read_to_string(&path)
+            .unwrap_or_default()
+            .replace("\r\n", "\n");
+        assert!(
+            on_disk == f.contents,
+            "{} is out of date; regenerate with JUIZ_IDL_UPDATE_PYTHON_GEN=1",
+            path.display()
+        );
+    }
 }

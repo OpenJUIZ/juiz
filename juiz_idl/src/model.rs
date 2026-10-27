@@ -10,6 +10,7 @@ use juiz_types::{
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::builtin::{builtin_file, BUILTIN_PREFIX};
 use crate::parser::{
     parse_idl, Declaration, EnumDecl, FieldDecl, IdlFile, ImportKind, Pos, ProcessDecl, RecordDecl,
     TypeExpr,
@@ -77,9 +78,52 @@ impl IdlModel {
 
 /// .jidl / .avsc のファイルを読み、import した先も含めてモデルにする
 pub fn load_files<P: AsRef<Path>>(paths: &[P]) -> Result<IdlModel, IdlError> {
-    let mut loader = Loader::default();
+    load_files_with(paths, &LoadOptions::default())
+}
+
+/// ファイルの読み方 (仕様 §24.1)
+#[derive(Clone, Debug, Default)]
+pub struct LoadOptions {
+    /// import の探し先。import を書いたファイルからの相対パスに見つからないとき、この順に探す。
+    /// どこにもなければ組み込みの型 (`juiz_std/…`) から探す
+    pub import_dirs: Vec<PathBuf>,
+}
+
+impl LoadOptions {
+    /// 環境変数 `JUIZ_IDL_PATH` (`PATH` と同じ区切りのディレクトリの並び) を import の探し先の後ろに足す
+    pub fn with_env_import_path(mut self) -> Self {
+        if let Some(v) = std::env::var_os(IMPORT_PATH_ENV) {
+            self.import_dirs
+                .extend(std::env::split_paths(&v).filter(|p| !p.as_os_str().is_empty()));
+        }
+        self
+    }
+}
+
+/// import の探し先を足す環境変数
+pub const IMPORT_PATH_ENV: &str = "JUIZ_IDL_PATH";
+
+/// [`LoadOptions`] のとおりに .jidl / .avsc のファイルを読む。
+/// ファイルがなく、組み込みの型のパス (`juiz_std/geometry.jidl` など) なら組み込みのものを読む
+pub fn load_files_with<P: AsRef<Path>>(
+    paths: &[P],
+    options: &LoadOptions,
+) -> Result<IdlModel, IdlError> {
+    let mut loader = Loader {
+        import_dirs: options.import_dirs.clone(),
+        ..Default::default()
+    };
     for p in paths {
-        loader.load_path(p.as_ref(), &mut Vec::new())?;
+        let p = p.as_ref();
+        let source = if p.exists() {
+            Source::File(p.to_path_buf())
+        } else {
+            match p.to_str().and_then(builtin_file) {
+                Some((path, contents)) => Source::Builtin(path, contents),
+                None => Source::File(p.to_path_buf()),
+            }
+        };
+        loader.load_source(source, &mut Vec::new())?;
     }
     Ok(loader.model)
 }
@@ -142,34 +186,68 @@ struct Loader {
     /// 完全名 → model.types の添字
     index: HashMap<String, usize>,
     loaded: HashSet<PathBuf>,
+    import_dirs: Vec<PathBuf>,
+}
+
+/// 読むファイル
+enum Source {
+    File(PathBuf),
+    /// 組み込みのファイル (import に書くパス、中身)
+    Builtin(&'static str, &'static str),
+}
+
+impl Source {
+    fn display(&self) -> String {
+        match self {
+            Source::File(p) => p.display().to_string(),
+            Source::Builtin(p, _) => format!("{BUILTIN_PREFIX}{p}"),
+        }
+    }
+
+    fn is_avsc(&self) -> bool {
+        match self {
+            Source::File(p) => p.extension().and_then(|e| e.to_str()) == Some("avsc"),
+            Source::Builtin(p, _) => p.ends_with(".avsc"),
+        }
+    }
 }
 
 impl Loader {
     /// `stack` は import の循環を見つけるための読みかけのファイル
-    fn load_path(&mut self, path: &Path, stack: &mut Vec<PathBuf>) -> Result<(), IdlError> {
-        let canonical = path.canonicalize().map_err(|e| io_error(path, e))?;
-        if stack.contains(&canonical) {
+    fn load_source(&mut self, source: Source, stack: &mut Vec<PathBuf>) -> Result<(), IdlError> {
+        let file_name = source.display();
+        let (key, text) = match &source {
+            Source::File(path) => {
+                let canonical = path.canonicalize().map_err(|e| io_error(path, e))?;
+                (canonical, None)
+            }
+            Source::Builtin(_, contents) => (PathBuf::from(&file_name), Some(*contents)),
+        };
+        if stack.contains(&key) {
             return Err(IdlError::Io {
-                path: path.display().to_string(),
+                path: file_name,
                 message: "import is circular".to_owned(),
             });
         }
-        if !self.loaded.insert(canonical.clone()) {
+        if !self.loaded.insert(key.clone()) {
             return Ok(());
         }
-        let source = std::fs::read_to_string(path).map_err(|e| io_error(path, e))?;
-        let file_name = path.display().to_string();
-        self.model.files.push(path.to_path_buf());
-        if path.extension().and_then(|e| e.to_str()) == Some("avsc") {
-            return self.add_avsc(&source, &file_name);
+        let source_text = match (&source, text) {
+            (_, Some(t)) => t.to_owned(),
+            (Source::File(path), None) => {
+                self.model.files.push(path.to_path_buf());
+                std::fs::read_to_string(path).map_err(|e| io_error(path, e))?
+            }
+            (Source::Builtin(..), None) => unreachable!(),
+        };
+        if source.is_avsc() {
+            return self.add_avsc(&source_text, &file_name);
         }
-        let file = parse_idl(&source, &file_name)?;
-        stack.push(canonical);
-        let dir = path.parent().unwrap_or(Path::new("."));
+        let file = parse_idl(&source_text, &file_name)?;
+        stack.push(key);
         for import in file.imports.iter() {
-            let target = dir.join(&import.path);
-            let is_avsc = target.extension().and_then(|e| e.to_str()) == Some("avsc");
-            match (&import.kind, is_avsc) {
+            let target = self.resolve_import(&source, &import.path, &file_name, import.pos)?;
+            match (&import.kind, target.is_avsc()) {
                 (ImportKind::Idl, true) => {
                     return Err(semantic(
                         &file_name,
@@ -186,10 +264,48 @@ impl Loader {
                 }
                 _ => {}
             }
-            self.load_path(&target, stack)?;
+            self.load_source(target, stack)?;
         }
         stack.pop();
         self.add_idl(&file, &file_name)
+    }
+
+    /// import のパスを、import を書いたファイルからの相対パス、import の探し先、組み込みのファイルの順に探す
+    fn resolve_import(
+        &self,
+        from: &Source,
+        path: &str,
+        file_name: &str,
+        pos: Pos,
+    ) -> Result<Source, IdlError> {
+        match from {
+            Source::File(f) => {
+                let relative = f.parent().unwrap_or(Path::new(".")).join(path);
+                if relative.exists() {
+                    return Ok(Source::File(relative));
+                }
+            }
+            Source::Builtin(f, _) => {
+                let dir = f.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+                if let Some((p, c)) = builtin_file(&format!("{dir}/{path}")) {
+                    return Ok(Source::Builtin(p, c));
+                }
+            }
+        }
+        for dir in self.import_dirs.iter() {
+            let candidate = dir.join(path);
+            if candidate.exists() {
+                return Ok(Source::File(candidate));
+            }
+        }
+        if let Some((p, c)) = builtin_file(path) {
+            return Ok(Source::Builtin(p, c));
+        }
+        Err(semantic(
+            file_name,
+            pos,
+            format!("imported file '{path}' is not found (searched relative to this file, import dirs (-I, {IMPORT_PATH_ENV}) and built-in types)"),
+        ))
     }
 
     /// 名前付き型を登録する。同じ完全名で中身の違う型がすでにあればエラー

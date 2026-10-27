@@ -13,18 +13,27 @@ use serde_json::Value;
 
 use crate::rust::{doc_lines, ident, rust_type, HEADER, KEYWORDS};
 use crate::{
-    ArgumentSignature, ContainerSignature, GeneratedFile, IdlError, ProcessSignature, Signatures,
+    ArgumentSignature, ContainerSignature, GenerateOptions, GeneratedFile, IdlError,
+    ProcessSignature, Signatures,
 };
 
 /// 名前空間ごとの雛形
 pub fn generate_rust_skeleton(signatures: &[Signatures]) -> Result<Vec<GeneratedFile>, IdlError> {
+    generate_rust_skeleton_with(signatures, &GenerateOptions::default())
+}
+
+/// extern の名前空間 (仕様 §24.2) の型は `rust_path` の下の型を参照する
+pub(crate) fn generate_rust_skeleton_with(
+    signatures: &[Signatures],
+    options: &GenerateOptions,
+) -> Result<Vec<GeneratedFile>, IdlError> {
     signatures
         .iter()
         .filter(|s| !s.processes.is_empty() || !s.containers.is_empty())
         .map(|s| {
             Ok(GeneratedFile {
                 path: format!("{}.skeleton.rs", s.namespace).into(),
-                contents: skeleton(s)?,
+                contents: skeleton(s, options)?,
             })
         })
         .collect()
@@ -58,11 +67,11 @@ fn camel_case(name: &str) -> String {
         .collect()
 }
 
-fn schema_type(schema: &TypeSchema) -> Result<String, IdlError> {
+fn schema_type(schema: &TypeSchema, options: &GenerateOptions) -> Result<String, IdlError> {
     let t: DataType = schema
         .data_type()
         .map_err(|e| generate_error(format!("{}: {e}", schema.name)))?;
-    rust_type(&t, "")
+    rust_type(&t, "", options)
 }
 
 /// Rust の文字列リテラル
@@ -112,14 +121,14 @@ fn attributes(p: &ProcessSignature, extra: &[String]) -> String {
     format!("(\n    {body}\n)")
 }
 
-fn parameters(p: &ProcessSignature) -> Result<Vec<String>, IdlError> {
+fn parameters(p: &ProcessSignature, options: &GenerateOptions) -> Result<Vec<String>, IdlError> {
     p.arguments
         .iter()
         .map(|a| {
             Ok(format!(
                 "{}: {}",
                 plain_ident(&a.name, "argument")?,
-                schema_type(&a.schema)?
+                schema_type(&a.schema, options)?
             ))
         })
         .collect()
@@ -138,25 +147,25 @@ fn argument_names(p: &ProcessSignature) -> Vec<String> {
     p.arguments.iter().map(|a| a.name.clone()).collect()
 }
 
-fn process_fn(p: &ProcessSignature) -> Result<String, IdlError> {
+fn process_fn(p: &ProcessSignature, options: &GenerateOptions) -> Result<String, IdlError> {
     let name = plain_ident(&p.type_name, "process")?;
     let mut out = doc_lines(&p.description, "");
     out.push_str(&format!(
         "#[juiz_component_process{}]\n",
         attributes(p, &[])
     ));
-    let params = parameters(p)?;
+    let params = parameters(p, options)?;
     out.push_str(&format!(
         "pub fn {name}({}) -> JuizResult<{}> {{\n{}    todo!({})\n}}\n",
         params.join(", "),
-        schema_type(&p.output_schema)?,
+        schema_type(&p.output_schema, options)?,
         use_arguments(&argument_names(p)),
         str_lit(&format!("write the body of {name}"))
     ));
     Ok(out)
 }
 
-fn container_code(c: &ContainerSignature) -> Result<String, IdlError> {
+fn container_code(c: &ContainerSignature, options: &GenerateOptions) -> Result<String, IdlError> {
     let name = plain_ident(&c.type_name, "container")?;
     let state = ident(&camel_case(&c.type_name));
     let mut out = doc_lines(&c.description, "");
@@ -175,13 +184,13 @@ fn container_code(c: &ContainerSignature) -> Result<String, IdlError> {
             attributes(p, &[format!("container_type = {}", str_lit(&name))])
         ));
         let mut params = vec![format!("container: &mut ContainerImpl<{state}>")];
-        params.extend(parameters(p)?);
+        params.extend(parameters(p, options)?);
         let mut used = vec!["container".to_owned()];
         used.extend(argument_names(p));
         out.push_str(&format!(
             "pub fn {pname}({}) -> JuizResult<{}> {{\n{}    todo!({})\n}}\n",
             params.join(", "),
-            schema_type(&p.output_schema)?,
+            schema_type(&p.output_schema, options)?,
             use_arguments(&used),
             str_lit(&format!("write the body of {pname}"))
         ));
@@ -189,7 +198,7 @@ fn container_code(c: &ContainerSignature) -> Result<String, IdlError> {
     Ok(out)
 }
 
-fn skeleton(s: &Signatures) -> Result<String, IdlError> {
+fn skeleton(s: &Signatures, options: &GenerateOptions) -> Result<String, IdlError> {
     let mut out = String::from(HEADER);
     out.push_str(&format!(
         "//\n\
@@ -203,11 +212,11 @@ fn skeleton(s: &Signatures) -> Result<String, IdlError> {
     ));
     for p in s.processes.iter() {
         out.push('\n');
-        out.push_str(&process_fn(p)?);
+        out.push_str(&process_fn(p, options)?);
     }
     for c in s.containers.iter() {
         out.push('\n');
-        out.push_str(&container_code(c)?);
+        out.push_str(&container_code(c, options)?);
     }
     // コンポーネントのマニフェスト
     out.push_str(&format!(

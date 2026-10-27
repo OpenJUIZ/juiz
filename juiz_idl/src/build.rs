@@ -22,7 +22,23 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::{generate, load_files, write_files, IdlError, OutputKind};
+use crate::{
+    generate_with, load_files_with, write_files, ExternNamespace, GenerateOptions, IdlError,
+    LoadOptions, OutputKind, IMPORT_PATH_ENV,
+};
+
+/// 型のクレートが自分の .jidl のディレクトリを、依存するクレートの build.rs に知らせる (仕様 §24.3)。
+/// Cargo.toml に `links = "<名前>"` を書いたクレートの build.rs で呼ぶと、依存するクレートの build.rs で
+/// 環境変数 `DEP_<名前>_IDL_DIR` (名前は大文字、`-` は `_`) にこのディレクトリの絶対パスが入る
+pub fn export_idl_dir(dir: impl AsRef<Path>) -> Result<(), IdlError> {
+    let dir = dir.as_ref();
+    let abs = dir.canonicalize().map_err(|e| IdlError::Io {
+        path: dir.display().to_string(),
+        message: e.to_string(),
+    })?;
+    println!("cargo:idl_dir={}", abs.display());
+    Ok(())
+}
 
 /// `configure().compile(files)` と同じ
 pub fn compile<P: AsRef<Path>>(files: &[P]) -> Result<(), IdlError> {
@@ -39,6 +55,8 @@ pub struct Builder {
     out_dir: Option<PathBuf>,
     kinds: Vec<OutputKind>,
     emit_rerun_if_changed: bool,
+    import_dirs: Vec<PathBuf>,
+    externs: Vec<ExternNamespace>,
 }
 
 impl Default for Builder {
@@ -47,6 +65,8 @@ impl Default for Builder {
             out_dir: None,
             kinds: vec![OutputKind::Rust],
             emit_rerun_if_changed: true,
+            import_dirs: Vec::new(),
+            externs: Vec::new(),
         }
     }
 }
@@ -89,6 +109,30 @@ impl Builder {
         self
     }
 
+    /// import の探し先を足す (仕様 §24.1)。依存する型のクレートが `cargo:idl_dir` で出したディレクトリ
+    /// (`DEP_<links>_IDL_DIR`) などを指定する。環境変数 `JUIZ_IDL_PATH` もこの後に探す
+    pub fn import_dir(mut self, dir: impl AsRef<Path>) -> Self {
+        self.import_dirs.push(dir.as_ref().to_path_buf());
+        self
+    }
+
+    /// 名前空間 `namespace` (と下の名前空間) の型をほかのクレートのものとして使う (仕様 §24.2)。
+    /// その型は書き出さず、`rust_path` の下の型を参照する
+    ///
+    /// ```no_run
+    /// juiz_idl::build::configure()
+    ///     .extern_path("juiz_std", "::juiz_std_types::juiz_std")
+    ///     .compile(&["idl/my_robot.jidl"])
+    ///     .unwrap();
+    /// ```
+    pub fn extern_path(mut self, namespace: &str, rust_path: &str) -> Self {
+        self.externs.push(ExternNamespace {
+            namespace: namespace.to_owned(),
+            rust_path: Some(rust_path.to_owned()),
+        });
+        self
+    }
+
     fn set_kind(&mut self, kind: OutputKind, enable: bool) {
         self.kinds.retain(|k| *k != kind);
         if enable {
@@ -105,12 +149,21 @@ impl Builder {
                     message: "OUT_DIR is not set; call from build.rs or use out_dir()".to_owned(),
                 })?,
         };
-        let model = load_files(files)?;
+        let load = LoadOptions {
+            import_dirs: self.import_dirs,
+        }
+        .with_env_import_path();
+        let model = load_files_with(files, &load)?;
         if self.emit_rerun_if_changed {
+            // 組み込みの型 (juiz_std/…) は juiz_idl の中にあるので、ファイルとしては出さない
             for f in model.files.iter() {
                 println!("cargo:rerun-if-changed={}", f.display());
             }
+            println!("cargo:rerun-if-env-changed={IMPORT_PATH_ENV}");
         }
-        write_files(&generate(&model, &self.kinds)?, &out_dir)
+        let options = GenerateOptions {
+            externs: self.externs,
+        };
+        write_files(&generate_with(&model, &self.kinds, &options)?, &out_dir)
     }
 }
