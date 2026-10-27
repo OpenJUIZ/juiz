@@ -89,7 +89,7 @@ composites:
 | 形 | 意味 |
 |---|---|
 | `{ process: ..., container: ..., args: ... }` | 子の式(ノード)。その戻り値をこの引数に渡す |
-| `{ const: <値> }` | 定数で拘束する。Composite の引数としては公開しない。定義時に子の引数の型と照合し(`type_check`)、合わなければエラー |
+| `{ const: <値> }` | 定数で拘束する。Composite の引数としては公開しない。定義時に子の引数の型と照合し(`type_check`。子の引数が型付きなら datatype.md §4 の規則でも。§3.4)、合わなければエラー |
 | `{ expose: <公開名> }` または `{ expose: { name: <公開名>, default: <値>, description: <説明> } }` | Composite の引数として公開する(§4)。`default` と `description` は任意 |
 
 - `args` に**書かなかった子の引数は、元の名前のまま公開する**(`{ expose: <元の名前> }` と同じ)。
@@ -107,13 +107,27 @@ composites:
 4. `composite_containers:`(§7。参照先の Container が出来てから作る)
 5. 以降は今のまま(brokers、subsystems、ecs、connections)
 
+### 3.4 型の検査(C8 #172)
+
+Composite を定義するとき(conf・実行時の定義 C7 とも)に、子の型参照(datatype.md §6 の `schema` / `output_schema`)を使って次を検査する。どれも定義時のエラーで、何も登録しない。
+
+1. **子の戻り値と親の引数。** 式の木のノードごとに、子の `output_schema`(writer)と、その戻り値を受ける親の引数の `schema`(reader)を、接続時と同じ `juiz_core::types::check_connectable` で比べる(datatype.md §7)。
+   - 同じ(完全名と指紋が一致)・互換(指紋は違うが §7.2 の規則で読める)なら定義できる。互換のときは値が辞書を通る(遅延評価では codec 経由、lazy-evaluation.md)。
+   - 互換でなければ `CompositeManifestInvalidError` にする。`path` は受ける側の引数の位置(`body.pose` など、§6)で、元の `TypeIncompatibleError`(writer・reader・型の中の位置・理由)はその下(anyhow の context)に残る。
+   - どちらかが型なし(今の `Object` など)なら比べない。いつでも組める。
+2. **`const` の値。** 子の引数が型付きなら、値を datatype.md §4 の規則で型と照らし合わせる。`const` は渡す値そのものなので、`null` も検査する(省略可能な型でなければエラー)。`image` は検査しない。
+3. **`expose` の `default`。** 子の引数が型付きなら、引数の `default` と同じ規則(datatype.md §6。`null` は省略可能でない型なら「既定値なし」、`image` は検査しない)で照らし合わせる。
+4. **同じ公開名にまとめる引数の型。** §4 の規則 3 に加えて、型付きの引数どうしは型の識別子(完全名と指紋)が同じでなければエラー(互換でもまとめない。1 つの値を両方に渡すため)。一方が型なしなら、公開引数は型付きの方の型参照を持つ。
+
+Composite の manifest は、公開引数の `schema` を子の引数から、`output_schema` を根の子から引き継ぐ(§8.2)。入れ子の Composite を子にしたときも、その `output_schema` で 1 を検査する。
+
 ## 4. 引数を公開する規則
 
 Composite の `arguments`(公開する引数の一覧)は、次の規則で作る。
 
 1. **元の名前のまま公開する。** `args` に書かなかった引数と、`expose` に元の名前を書いた引数は、子の引数名がそのまま公開名になる。
 2. **`expose` で名前を変えられる。** `{ expose: path }` は、子の引数を `path` という名前で公開する。公開名は `validate_name` の規則に従う。
-3. **同じ公開名を複数の子に渡してよい。** 1 つの公開引数の値を、その名前を持つすべての子の引数に渡す。ただし、それらの子の引数の型(`ArgumentType`)が全部同じでなければエラーにする。
+3. **同じ公開名を複数の子に渡してよい。** 1 つの公開引数の値を、その名前を持つすべての子の引数に渡す。ただし、それらの子の引数の型(`ArgumentType`)が全部同じでなければエラーにする(型付きの引数は型の識別子も、§3.4)。
 4. **衝突はエラーにする。** 元の名前のまま公開した結果、別々の子の同名の引数が同じ公開名になり、規則 3 の型の条件を満たさない場合はエラーにする。エラーメッセージには衝突した両方のノードの位置(§6)を書き、`expose` で名前を付けるよう案内する。型が同じなら規則 3 として共有になる。
    - 意図しない共有を避けたいときは `expose` で別の名前を付ける。
 5. **型・既定値・説明は子から引き継ぐ。** 公開引数の `type_name` は子の引数の型。`default` と `description` は、`expose` のオブジェクト形で指定があればそれを、なければ**最初に出てきた子**の引数のものを使う。指定した `default` は型と照合し、合わなければエラー。
@@ -367,7 +381,7 @@ Composition が向くもの:
 | C4 conf とベンチマーク | #169 | §3.1 / §3.3 / §7.1 の conf の読み込み、ネームスペース、ベンチマーク。juiz_core の system_builder(`composites.rs`)。ベンチマークは `juiz_core/tests/composite_bench.rs`(`#[ignore]`、結果は #169 に残す) |
 | C5 表示 | #170 | §8.2 の `composition` と `slots` が HTTP / qmp で読めること、§8.3 の CLI と管理画面の表示。§5.4 の trace のログの確認。テストは `juiz_core/tests/composite_display_test.rs` と `brokers/qmp_broker/tests/qmp_composite_test.rs` |
 | C7 実行時の定義 | #171 | §8.4 のブローカー API(`composite` / `composite_container`)、`CompositeBrokerProxy`、CLI の `juiz composite`、pyjuiz。テストは `juiz_core/tests/composite_api_test.rs` と `brokers/qmp_broker/tests/qmp_composite_api_test.rs` |
-| C8 型検査 | #172 | ノードの戻り値の型と親の引数の型の定義時検査(#163 Step 4 の比較関数を使う) |
+| C8 型検査 | #172 | §3.4。ノードの戻り値の型と親の引数の型の定義時検査(#163 Step 4 の `check_connectable`)。juiz_core の `CompositeBody::build`(`check_types`)と juiz_sdk の `build_process_manifest`(`const`・`default`・公開名) |
 
 ## 13. 対象外(後の Step か、未定)
 
