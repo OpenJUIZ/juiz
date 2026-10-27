@@ -7,8 +7,9 @@
 - `<namespace>.processes.json`: `process` / `container` 宣言のシグネチャ
 - Rust: struct / enum と `juiz_sdk::types::JuizType` の実装
 - Rust の雛形 (`-g rust-skeleton`): `process` / `container` 宣言から、本体が `todo!()` のコンポーネント `<namespace>.skeleton.rs`
+- Python (`-g python`): 名前空間ごとのパッケージ (`robot/geometry/__init__.py`) に dataclass / enum.Enum と、`process` / `container` 宣言の型付きクライアント (pyjuiz を使う)
 
-仕様は [docs/spec/datatype.md](https://github.com/OpenJUIZ/juiz/blob/main/docs/spec/datatype.md) の §9・§16・§18 にあります。
+仕様は [docs/spec/datatype.md](https://github.com/OpenJUIZ/juiz/blob/main/docs/spec/datatype.md) の §9・§16・§18・§20 にあります。
 
 ## コマンド
 
@@ -48,6 +49,25 @@ juiz-idl -o src -g rust-skeleton idl/geometry.jidl   # src/robot.geometry.skelet
 ```
 
 できたファイルを `src/lib.rs` などにコピーして `todo!()` の本体を書きます。型は `crate::robot::geometry::Pose2D` のように参照するので、クレートの一番上で `juiz_idl.rs` を読み込んでおきます。雛形は一度作って手で直していくものなので、build.rs では作りません。
+
+## Python から使う
+
+```sh
+juiz-idl -o gen -g python idl/geometry.jidl   # gen/robot/__init__.py, gen/robot/geometry/__init__.py ができる
+```
+
+`gen` を `sys.path` (juiz の conf の `option.pythonpath` など) に入れて使います。
+
+```python
+from juiz import juiz_process
+from robot.geometry import Pose2D, MoveToClient
+
+@juiz_process
+def move_to(target: Pose2D, speed: float = 1.0) -> Pose2D:   # 引数は Pose2D のまま届く
+    ...
+
+pose = MoveToClient.connect('move_to0', port=8000)(Pose2D(...))  # 型付きクライアント
+```
 
 ## ライセンス
 

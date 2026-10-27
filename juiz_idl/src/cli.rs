@@ -18,6 +18,8 @@ pub enum Generator {
     Rust,
     /// process / container 宣言の Rust の雛形 (<namespace>.skeleton.rs)。コピーして本体を書く
     RustSkeleton,
+    /// Python の dataclass / enum.Enum と型付き client stub (名前空間ごとのパッケージ <a>/<b>/__init__.py)
+    Python,
 }
 
 impl From<Generator> for OutputKind {
@@ -28,6 +30,7 @@ impl From<Generator> for OutputKind {
             Generator::Processes => OutputKind::Processes,
             Generator::Rust => OutputKind::Rust,
             Generator::RustSkeleton => OutputKind::RustSkeleton,
+            Generator::Python => OutputKind::Python,
         }
     }
 }

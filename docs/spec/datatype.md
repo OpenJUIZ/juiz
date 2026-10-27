@@ -380,7 +380,7 @@ ROS 2 の `.msg` / `.srv` / `.idl` を JIDL / .avsc に変換する。juiz の�
 
 - 生成コードは型ごとに、スキーマ(§6 の `TypeSchema`)を返す関数と、§4 の辞書との変換(`to_value` / `from_value` に当たるもの)を持つ。
 - Rust の `#[derive(JuizType)]` は、Rust の struct / enum から同じスキーマを作る。名前空間は `#[juiz(namespace = "robot.geometry")]` で書き、省略時はエラー。フィールドの順番は宣言順。JIDL で同じ形に書いた型と指紋が一致しなければならない。derive は Rust の中で閉じ、他の言語へは JIDL(または derive が書き出す .avsc)経由で渡す。
-- pyjuiz で生成コードを使わない今の dataclass は、今のとおり型なし(`Object`)のまま扱う。
+- pyjuiz で生成コードを使わない今の dataclass は、今のとおり型なし(`Object`)のまま扱う。生成コードの型を使ったときだけ型付きになる(§20)。
 
 ## 12. 遅延評価(#3)の型識別子
 
@@ -405,7 +405,7 @@ ROS 2 の `.msg` / `.srv` / `.idl` を JIDL / .avsc に変換する。juiz の�
 | 2 生成器 `juiz-idl` | #191 | §5、§9、§11(Rust、JSON Schema)(§16) |
 | 3 Rust マクロ | #192 | §6、§11(`#[juiz_process]` 系が `JuizType` を受ける)(§17) |
 | 4 core | #193 | §7、§8(接続時・Topic・呼び出し時)(§19) |
-| 5 Python | #194 | §11 |
+| 5 Python | #194 | §11(§20) |
 | 6 C++ | #195 | §11 |
 | 7 Haskell | #196 | §11 |
 | 8 CLI・管理画面 | #197 | §5.2(表示)、§6 |
@@ -422,7 +422,7 @@ ROS 2 の `.msg` / `.srv` / `.idl` を JIDL / .avsc に変換する。juiz の�
 - レコードの中の `image`。
 - Avro のバイナリ形式での通信(QMP の高速化)。
 - JSON Schema の process の引数・戻り値への書き出し(管理画面のフォーム・Swagger 用、Step 8 で決める。型ごとの書き出しは §16)。
-- client stub(型付きで呼ぶ側の生成コード)。型と skeleton の後(計画書 §8 の 4)。
+- client stub(型付きで呼ぶ側の生成コード)。型と skeleton の後(計画書 §8 の 4)。Python は Step 5 で作った(§20.4)。
 
 ## 15. Rust の SDK(Step 1 #190 で決めたこと)
 
@@ -571,3 +571,50 @@ core の実装は `juiz_core::types` にある。
 | `type/schema?identifier=…` | 型参照 `{name, fingerprint, avro}`(§6 と同じ形、`avro` は自己完結)。`identifier` は `<完全名>@sha256:…` か完全名だけ。完全名だけで指紋の違う型が複数あるか、見つからなければ `TypeNotFoundError` |
 
 - 遅延評価の codec の登録(L3 #177)は、この登録所に足す。CLI の `juiz type list / show` と管理画面での表示は Step 8(#197)。
+
+## 20. Python(Step 5 #194 で決めたこと)
+
+### 20.1 生成器の Python 出力
+
+`juiz-idl -g python`(`juiz idl` も同じ)は、名前空間 `a.b` ごとにパッケージ `a/b/__init__.py` を書き出す。途中のパッケージ(`a/__init__.py`)も、型がなくても作る。出力先のディレクトリを `sys.path`(juiz の conf の `option.pythonpath`、`PYTHONPATH` など)に入れて `from robot.geometry import Pose2D` のように使う。既定の `-g` には入れない。
+
+- record は `@dataclasses.dataclass(kw_only=True)`。フィールドの順番は宣言順で、既定値のないフィールドが既定値のあるフィールドの後ろに来てもよいようにキーワード専用にする(Python 3.10 以上)。既定値が `None`・真偽・数・文字列ならそのまま書き、それ以外(配列・辞書・record・enum・bytes・any)は `default_factory` で毎回作る。
+- enum は `enum.Enum`。値は記号の文字列(§11)。
+- どちらもメソッド `to_value()`(§4 の辞書にする)・`from_value(value, path="")`(§4 の規則で読む)・`type_schema()`(§6 の型参照 `{name, fingerprint, avro}`)と、クラス属性 `__juiz_type__`(型参照)を持つ。型参照は .avsc と同じスキーマを埋め込んだもので、指紋は .avsc・Rust の生成コード・`#[derive(JuizType)]` と一致する。
+- 型の対応は §11 のとおり(`int`/`long` は `int`、`float`/`double` は `float`、`T?` は `T | None`、`any` は `typing.Any`、`image` は `PIL.Image.Image`)。型注釈は `from __future__ import annotations` の下で書く。
+- ほかの名前空間の型は `import a.b as _ns_a_b` で参照する(名前空間どうしが互いに参照しても読み込める)。
+- 名前の扱い: フィールド名・記号・引数名が Python のキーワードか、生成したメソッドの名前(`to_value`・`from_value`・`type_schema`、記号は `mro` も)なら末尾に `_` を付ける(辞書のキーは元の名前のまま)。型名・名前空間の要素がキーワードか `_` で始まるならエラー。名前空間のない型・宣言はエラー。
+- 値の変換・検査は生成コードではなく pyjuiz の `juiz.datatype` が受け持つ(生成コードは pyjuiz に依存する。Rust の生成コードが juiz_sdk に依存するのと同じ)。
+
+### 20.2 `juiz.datatype`
+
+| 名前 | 内容 |
+|---|---|
+| `Null`・`Boolean`・`Int`・`Long`・`Float`・`Double`・`String`・`Bytes`・`Any`・`Image`、`Array(T)`・`Map(T)`・`Optional(T)`・`Record(cls)`・`Enum(cls)` | 型ごとの変換器。`to_value(x, path)` と `from_value(v, path)`。`from_value` は `juiz_types::read_value` と同じ規則(足りないフィールドは既定値、型にないキーは無視、列挙の知らない記号は既定値、`int` の範囲、`1.0` を整数として受け付けない、`bytes` は base64)。`to_value` は NaN・Infinity をエラーにする |
+| `ValueDoesNotMatchTypeError` | 辞書が型に合わない(`type_name`・`path`・`reason`。Rust の同名のエラーと同じ文面) |
+| `is_juiz_type(t)`・`type_schema(t)`・`converter_of(t)` | 生成した型かどうか、型参照の写し、変換器 |
+| `coerce(cls, v, path)` | `cls` の値にする。`cls` の値ならそのまま、ほかの生成した型の値は辞書にしてから、辞書は `from_value` で読む |
+| `to_value(x)` | 生成した型の値を辞書にする(リスト・辞書の中も)。それ以外はそのまま。`juiz.proxy` が引数を送るときに使う |
+| `typed_call(proxy, arguments, returns)`、`OMIT` | client stub が使う(§20.4) |
+
+### 20.3 pyjuiz のデコレータ
+
+- `@juiz_process`・`@juiz_container`・`@juiz_container_process`(と component 版)は、引数・戻り値の型注釈が生成した型なら型付きにする。それ以外の型注釈(`int`、`dict`、生成していない dataclass など)は今のとおり型なし。`list[Pose2D]` のような生成した型を含む注釈はまだ使えない(今と同じく未対応の型のエラー)。
+- 引数: manifest の引数に `schema` を載せ、`type_name` は §6 の表(record は `Object`、enum は `String`)。既定値は Python の既定値を `to_value` した辞書の表し方。既定値がなければ `default` を出さない(「既定値なし」、§6)。
+- 呼び出し時、型付きの引数は `coerce` で生成した型の値にしてから関数に渡す。Python の Process が返した同じ型の値(遅延評価 L1 のネイティブ値)はそのまま渡り、辞書(ほかの言語・ブローカー・CLI から)は `from_value` で読む。読めなければ `ValueDoesNotMatchTypeError`(Process の呼び出しのエラーになる)。
+- 戻り値: manifest に `output_schema` と、古いクライアント向けの `outputs`(`type_name` だけ)を載せる。関数が返した値は `coerce` で生成した型の値にし(辞書を返してもよい)、**辞書にしないで**返す。Python の値は遅延評価 L1 のとおり `Native(python)` に包まれ、Python 同士では変換せずに渡る。Python 以外が読むとき(Rust の Process、ブローカーの応答、profile)は、埋め込み Python 側(`python_plugin.rs` の `pyany_to_value`)が `__juiz_type__` を持つクラスの値を `to_value()` で辞書にする。
+- 型注釈が文字列(`from __future__ import annotations`)でも、`inspect.signature(eval_str=True)` で型にして判定する。
+- 生成していない dataclass の戻り値は今のとおり `dataclasses.asdict` で辞書にする。
+
+### 20.4 型付きの client stub
+
+- `process` 宣言 `move_to` からは `MoveToClient`、`container` 宣言 `motor` からは `MotorClient`(型名を CamelCase にして `Client` を付けたもの)を、型と同じモジュールに書き出す。名前が同じ名前空間の型とぶつかればエラー。
+- `MoveToClient(proxy)` は `juiz.proxy.ProcessProxy` を、`MotorClient(proxy)` は `ContainerProxy` を包む。`connect(name, host="localhost", port=8000, namespace=None)` は HTTP で juiz につないで名前で探す。
+- Process は `__call__`、Container は `container_process` ごとのメソッドで呼ぶ。引数は宣言の順の位置引数で、既定値のある引数より後ろの既定値のない引数はキーワード専用にする。既定値は `None`・真偽・数・文字列ならそのまま書き、それ以外は `juiz.datatype.OMIT`(渡さないで、呼ばれる側の既定値を使う)。引数名 `self` は `self_` にする。`container_process` の名前がキーワード・`proxy`・`type_name`・`connect`・`_` で始まる名前ならエラー。
+- 呼ぶと、引数を `to_value` で辞書にして(生成した型の値でも辞書でもよい。型に合わなければ送る前に `ValueDoesNotMatchTypeError`)`call` し、戻り値を宣言の戻り値の型の `from_value` で読んで返す(`void` は `None`)。`image` の引数・戻り値は PIL の画像のまま。
+- `juiz.proxy` の `ProcessProxy` / `ContainerProcessProxy` の `call`・`p_apply` も、生成した型の値を渡されたら `to_value` で辞書にして送る(戻り値は辞書のまま)。
+
+### 20.5 テスト
+
+- `bindings/pyjuiz/test/gen` は `juiz_idl/test_package/idl/geometry.jidl` から作った Python のコードで、リポジトリに入れておく。juiz_idl の `python_gen_is_up_to_date` が生成器の出力と一致するかを確かめる(作り直しは `JUIZ_IDL_UPDATE_PYTHON_GEN=1 cargo test -p juiz_idl --test idl_test python_gen_is_up_to_date`)。
+- `bindings/pyjuiz/test/datatype_test.py`(変換・デコレータ・client stub、juiz を起動しない)、`juiz_core/tests/python_datatype_test.rs`(manifest の型参照と Rust の指紋の一致、Python 同士でネイティブ値のまま渡ること、Python ↔ Rust の辞書の受け渡し、接続時の型検査、`bindings/pyjuiz/test/typed_client_test.py` で HTTP 越しの client stub)。

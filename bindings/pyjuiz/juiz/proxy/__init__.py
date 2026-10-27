@@ -3,6 +3,7 @@ import httpx
 import json, io
 from PIL import Image
 from io import BytesIO
+from ..datatype import to_value as _to_value
 
 
 class UnsupportedMediaTypeError(Exception): pass
@@ -322,7 +323,7 @@ class ProcessProxy(ObjectProxy):
         if len(args) == 1:
             arg_prof = prof['arguments']
             body = {
-                arg_prof[0]['name']: args[0]
+                arg_prof[0]['name']: _to_value(args[0])
             }
         elif 'body' in kwargs.keys():
             body = kwargs['body']
@@ -333,9 +334,9 @@ class ProcessProxy(ObjectProxy):
                 if isinstance(a, Image.Image):
                     body[a_prof['name']] = a
                 else:
-                    body[a_prof['name']] = json.dumps(a)
+                    body[a_prof['name']] = json.dumps(_to_value(a))
             for k, v in kwargs.items():
-                body[k] = v
+                body[k] = _to_value(v)
         return self.system.crud.update(self._cn, 'call', body, {'identifier': self._id}, profile=self._profile)
     
     def __call__(self, *args, **kwargs):
@@ -345,7 +346,7 @@ class ProcessProxy(ObjectProxy):
         return self.system.crud.update(self._cn, 'execute', {}, {'identifier': self._id})
     
     def p_apply(self, arg_name: str, value: dict): 
-        return self.system.crud.update(self._cn, 'p_apply', {'arg_name': arg_name, 'value': value}, {'identifier': self._id})
+        return self.system.crud.update(self._cn, 'p_apply', {'arg_name': arg_name, 'value': _to_value(value)}, {'identifier': self._id})
 
 class ContainerProxy(ObjectProxy):
         
@@ -419,7 +420,7 @@ class ContainerProcessProxy(ObjectProxy):
         if len(args) == 1:
             arg_prof = prof['arguments']
             body = {
-                arg_prof[0]['name']: args[0]
+                arg_prof[0]['name']: _to_value(args[0])
             }
             #body = args[0]
         elif 'body' in kwargs.keys():
@@ -431,9 +432,9 @@ class ContainerProcessProxy(ObjectProxy):
                 if isinstance(a, Image.Image):
                     body[a_prof['name']] = a
                 else:
-                    body[a_prof['name']] = json.dumps(a)
+                    body[a_prof['name']] = json.dumps(_to_value(a))
             for k, v in kwargs.items():
-                body[k] = v
+                body[k] = _to_value(v)
             #body = kwargs
         return self.system.crud.update(self._cn, 'call', body, {'identifier': self._id}, profile=self.profile_full())
 
@@ -444,7 +445,7 @@ class ContainerProcessProxy(ObjectProxy):
         return self.system.crud.update(self._cn, 'execute', {}, {'identifier': self._id}, profile=self._profile)
 
     def p_apply(self, arg_name: str, value: dict): 
-        return self.system.crud.update(self._cn, 'p_apply', {'arg_name': arg_name, 'value': value}, {'identifier': self._id})
+        return self.system.crud.update(self._cn, 'p_apply', {'arg_name': arg_name, 'value': _to_value(value)}, {'identifier': self._id})
 
 
 class IdentifierStruct(object):
