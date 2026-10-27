@@ -145,3 +145,69 @@ fn processes_json_is_written() {
         "null"
     );
 }
+
+/// manifest の引数・戻り値を processes.json のシグネチャの形にする
+fn signature_of(m: &ProcessManifest) -> Value {
+    let args: Vec<Value> = m
+        .arguments
+        .iter()
+        .map(|a| {
+            let mut v = jvalue!({
+                "name": a.name,
+                "type_name": a.type_name.as_str(),
+                "schema": a.schema.as_ref().expect("typed = \"all\" gives every argument a schema"),
+            });
+            if !a.default.is_null() {
+                v["default"] = a.default.clone();
+            }
+            v
+        })
+        .collect();
+    jvalue!({
+        "type_name": m.type_name,
+        "arguments": args,
+        "output_schema": m.output_schema.as_ref().unwrap(),
+    })
+}
+
+/// processes.json から description を除く (manifest の description は既定の文が入るので比べない)
+fn without_descriptions(mut v: Value) -> Value {
+    if let Some(o) = v.as_object_mut() {
+        o.remove("description");
+    }
+    if let Some(args) = v["arguments"].as_array_mut() {
+        for a in args.iter_mut() {
+            a.as_object_mut().unwrap().remove("description");
+        }
+    }
+    v
+}
+
+/// 雛形 (robot.geometry.skeleton.rs) はコンパイルでき、マクロが作る manifest がシグネチャと一致する (仕様 §18)
+#[test]
+fn skeleton_manifests_match_signatures() {
+    use juiz_idl_test_package::skeleton;
+
+    let out_dir = env!("OUT_DIR");
+    let s = std::fs::read_to_string(format!("{out_dir}/robot.geometry.processes.json")).unwrap();
+    let sig: Value = serde_json::from_str(&s).unwrap();
+
+    let (processes, motor_container, container_processes) = skeleton::manifests();
+    for (i, m) in processes.iter().enumerate() {
+        assert_eq!(
+            signature_of(m),
+            without_descriptions(sig["processes"][i].clone())
+        );
+    }
+    assert_eq!(processes[0].description.text, "指定の姿勢まで動く");
+
+    let motor = &sig["containers"][0];
+    assert_eq!(motor_container.type_name, "motor");
+    for (i, m) in container_processes.iter().enumerate() {
+        assert_eq!(m.container_type.as_deref(), Some("motor"));
+        assert_eq!(
+            signature_of(m),
+            without_descriptions(motor["container_processes"][i].clone())
+        );
+    }
+}

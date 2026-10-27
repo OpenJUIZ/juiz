@@ -464,6 +464,7 @@ juiz-idl [-o 出力先] [-g avsc,json-schema,processes,rust] [--check] 入力.ji
 | json-schema | `<完全名>.schema.json` | §4 の辞書の表し方の JSON Schema 2020-12 |
 | processes | `<namespace>.processes.json` | §9.3 のシグネチャ。同じ名前空間のファイルは 1 つにまとめる |
 | rust | `<namespace>.rs`、`juiz_idl.rs` | struct / enum と `JuizType` の実装、名前空間のモジュールの木 |
+| rust-skeleton | `<namespace>.skeleton.rs` | `process` / `container` 宣言の Rust の雛形(§18) |
 
 - JIDL の細部:
   - `/** … */` は宣言・フィールド・引数・`container_process` の前に書く。注釈との順番は問わない。行頭の `*` は落とす。
@@ -482,7 +483,7 @@ juiz-idl [-o 出力先] [-g avsc,json-schema,processes,rust] [--check] 入力.ji
   - `JuizType::data_type` は .avsc と同じスキーマの文字列を埋め込んで読む(1 回だけ読んで使い回す)。したがって指紋・doc・aliases・既定値が .avsc と一致し、同じ形の `#[derive(JuizType)]` とも指紋が一致する。`to_value` / `from_value` は `#[derive(JuizType)]` と同じ。
   - serde の `Serialize` / `Deserialize` は付けない。serde の既定の表し方(`Vec<u8>` が数の配列になるなど)が §4 と違うため。辞書との変換は `JuizType` を使う。
   - フィールド名・記号が Rust のキーワードなら `r#type` のような raw identifier に、`self` / `Self` / `super` / `crate` なら末尾に `_` を付ける(辞書のキーは元の名前のまま)。型名・名前空間の要素にこの 4 つは使えない(エラー)。
-  - `process` / `container` 宣言からの Rust のコード(skeleton)は Step 3 #192 で扱う。
+  - `process` / `container` 宣言からの Rust のコード(skeleton)は §18。
 - build.rs 用ヘルパ(tonic-build と同じ流れ)は別クレートにせず `juiz_idl::build` に置く: `juiz_idl::build::compile(&["idl/geometry.jidl"])` か `juiz_idl::build::configure().avsc(true).processes(true).compile(…)`。出力先の既定は `OUT_DIR`、読んだファイルの `cargo:rerun-if-changed` を出す。
 
 ## 17. Rust のマクロ(Step 3 #192 と遅延評価 L2 #176 で決めたこと)
@@ -504,6 +505,8 @@ fn move_to(target: Pose2D, speed: f64) -> JuizResult<Pose2D> { … }
   - それ以外の `JuizResult<T>` は、関数を `JuizResult<Capsule>` を返す形に書き換え、`JuizType::into_capsule` で包む。manifest には `output_schema`(と、`outputs` が空なら `type_name` だけの `outputs`)を載せる(`ProcessManifest::returns::<T>()`)。`JuizResult<()>` は `null` の型で、`Capsule::Empty` を返す。
 - manifest を作るときのエラー(既定値が型に合わないなど)は、manifest の関数を呼んだとき(プラグインを読み込むとき)に関数の名前を付けて panic する。
 - `juiz_container_process` の引数の並びは宣言順にした(今までは順不同だった)。
+- 属性 `typed = "all"` を付けると、今までの型の引数と `JuizResult<Value>` の戻り値も型付きにする(`f64` は `double`、`Value` は `any` の `schema` を持ち、`JuizType::extract` で受け取る)。既定値を書かない引数は「既定値なし」になる。型付けは opt-in のままにするため、既定は今までどおり。
+- 引数の既定値は `arguments = { default = "{\"speed\": 1.0}" }` のように JSON の文字列でも書ける(属性の書き方では負の数・配列・`null` を書けないため)。
 
 ### 17.1 ネイティブ値で渡す(遅延評価 L2)
 
@@ -514,4 +517,13 @@ fn move_to(target: Pose2D, speed: f64) -> JuizResult<Pose2D> { … }
   2. それ以外(別のプラグイン・型なし・他の言語の値)は、今のとおり辞書を読み(Native なら encode が起きる)、`from_value`(`read_value` で受け取る側の形にする)で作る。
 - 戻り値を Rust 以外が読むとき(ブローカー越し・他の言語・profile)は、`to_value` で encode する(lazy-evaluation.md §5)。
 - 足した API: `JuizType::extract`、`juiz_sdk::types::{RustNative, rust_abi_tag, native_into_capsule, native_from_capsule_ptr, native_extract}`、`NativeValue::into_any`(移すため。既定は `None`)、`NativeCell::try_into_value`、`Capsule::into_native_cell`、`CapsulePtr::try_into_capsule`、`ContainerManifest::add_typed_arg`。`NativeTypeTag` は `TypeTag` の別名にした(同じもの)。
-- `process` / `container` 宣言からの Rust の skeleton の生成は別の PR で扱う。
+- `process` / `container` 宣言からの Rust の skeleton の生成は §18。
+
+## 18. Rust の雛形(skeleton、Step 3 #192 で決めたこと)
+
+`juiz-idl -g rust-skeleton`(`juiz idl` も同じ)は、`process` / `container` 宣言のある名前空間ごとに `<namespace>.skeleton.rs` を書き出す。宣言のない名前空間は書き出さない。既定の `-g` には入れず、build.rs のヘルパ(`juiz_idl::build`)の既定にも入れない(雛形は一度作ってコピーし、手で本体を書くものなので)。`Builder::rust_skeleton(true)` は雛形を検査するテスト用。
+
+- 中身は 1 つのコンポーネント(1 つの名前空間が 1 つの cdylib)。`process` は `#[juiz_component_process]`、`container` は状態の空の struct(名前は型名を CamelCase にしたもの。JIDL では Container の状態を型付けしない、§9.3)と引数のない `#[juiz_component_container]`、`container_process` は `#[juiz_component_container_process(container_type = …)]`、最後に `juiz_component_manifest!`。関数の本体は `todo!()`。
+- マクロには `typed = "all"`(§17)を付け、説明は `description`、既定値は JSON の文字列で書く。したがってマクロが作る manifest の引数・戻り値の `type_name`・`schema`・`default` は、`<namespace>.processes.json` のシグネチャと一致する(`juiz_idl/test_package` で確かめている)。
+- 型は `crate::a::b::T` の絶対パスで参照する。`juiz_idl.rs` をクレートの一番上で読み込む前提。型の対応は §11。
+- 関数名・引数名はマクロがそのまま `type_name` と引数名にするので、Rust のキーワードの名前(`r#…` にしないと書けないもの)はエラーにする。

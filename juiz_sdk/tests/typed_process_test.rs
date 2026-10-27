@@ -343,3 +343,54 @@ fn abi_tag_is_stable_in_one_binary() {
     assert!(rust_abi_tag().starts_with("rust:rustc "));
     assert_eq!(Pose2D::abi_tag().as_deref(), Some(rust_abi_tag()));
 }
+
+/// `typed = "all"` なら今までの型も型付きになる。既定値は JSON の文字列でも書ける (juiz-idl の雛形が使う)
+#[juiz_component_process(
+    typed = "all"
+    arguments = {
+        default = "{\"offset\": -1, \"names\": [\"a\"], \"note\": null}"
+    }
+)]
+fn all_typed_args(
+    offset: i64,
+    names: Vec<String>,
+    note: Option<String>,
+    v: Value,
+) -> JuizResult<Value> {
+    Ok(jvalue!({"offset": offset, "names": names, "note": note, "v": v}))
+}
+
+#[test]
+fn typed_all_gives_schemas_to_every_argument() -> JuizResult<()> {
+    let m = all_typed_args_manifest();
+    let names: Vec<&str> = m
+        .arguments
+        .iter()
+        .map(|a| a.schema.as_ref().unwrap().name.as_str())
+        .collect();
+    assert_eq!(names, vec!["long", "array<string>", "string?", "any"]);
+    assert_eq!(m.arguments[0].default, jvalue!(-1));
+    assert_eq!(m.arguments[1].default, jvalue!(["a"]));
+    assert_eq!(m.arguments[3].default, Value::Null);
+    assert_eq!(m.output_schema.as_ref().unwrap().name, "any");
+
+    let r = all_typed_args(args(vec![
+        ("offset", jvalue!(3).into()),
+        ("names", jvalue!(["x"]).into()),
+        ("note", Value::Null.into()),
+        ("v", jvalue!({"k": 1}).into()),
+    ]))?;
+    assert_eq!(
+        r.as_value().unwrap(),
+        &jvalue!({"offset": 3, "names": ["x"], "note": null, "v": {"k": 1}})
+    );
+    // 型付きなので、型に合わない値はエラー
+    assert!(all_typed_args(args(vec![
+        ("offset", jvalue!("3").into()),
+        ("names", jvalue!([]).into()),
+        ("note", Value::Null.into()),
+        ("v", Value::Null.into()),
+    ]))
+    .is_err());
+    Ok(())
+}

@@ -16,6 +16,8 @@ pub enum Generator {
     Processes,
     /// Rust の struct / enum と JuizType の実装 (<namespace>.rs と juiz_idl.rs)
     Rust,
+    /// process / container 宣言の Rust の雛形 (<namespace>.skeleton.rs)。コピーして本体を書く
+    RustSkeleton,
 }
 
 impl From<Generator> for OutputKind {
@@ -25,6 +27,7 @@ impl From<Generator> for OutputKind {
             Generator::JsonSchema => OutputKind::JsonSchema,
             Generator::Processes => OutputKind::Processes,
             Generator::Rust => OutputKind::Rust,
+            Generator::RustSkeleton => OutputKind::RustSkeleton,
         }
     }
 }

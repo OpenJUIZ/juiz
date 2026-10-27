@@ -357,7 +357,8 @@ fn generated_files() {
             "a.b.E.schema.json",
             "a.b.processes.json",
             "a.b.rs",
-            "juiz_idl.rs"
+            "juiz_idl.rs",
+            "a.b.skeleton.rs"
         ]
     );
     // .avsc は読み直すと同じ型になる
@@ -433,4 +434,44 @@ fn cli_writes_files_and_checks() {
     juiz_idl::cli::run(&args).unwrap();
     assert!(out.join("t.rs").exists());
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// process / container 宣言の Rust の雛形 (仕様 §18)
+#[test]
+fn rust_skeleton() {
+    let model = load(
+        r#"namespace a.b;
+        record P { long x = -1; }
+        /** 説明 */
+        process P make(long x = -1, string? note = null);
+        container robot_arm { container_process void stop(); }"#,
+    );
+    let files = generate(&model, &[OutputKind::RustSkeleton]).unwrap();
+    assert_eq!(files.len(), 1);
+    let code = &files[0].contents;
+    assert!(code.contains("pub fn make(x: i64, note: ::std::option::Option<::std::string::String>) -> JuizResult<crate::a::b::P>"), "{code}");
+    assert!(code.contains("typed = \"all\""));
+    assert!(
+        code.contains(r#"default = "{\"note\":null,\"x\":-1}""#),
+        "{code}"
+    );
+    assert!(code.contains("pub struct RobotArm {}"));
+    assert!(
+        code.contains("#[juiz_component_container_process(\n    container_type = \"robot_arm\"")
+    );
+    assert!(code.contains("robot_arm = [stop]"));
+    assert!(code.contains("processes = [make]"));
+
+    // 型だけで宣言のない名前空間は書き出さない。Rust のキーワードの名前はエラー
+    assert!(generate(
+        &load("namespace a; record R { long x; }"),
+        &[OutputKind::RustSkeleton]
+    )
+    .unwrap()
+    .is_empty());
+    let keyword = load("namespace a; process long `loop`(long x);");
+    let e = generate(&keyword, &[OutputKind::RustSkeleton])
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("keyword"), "{e}");
 }
