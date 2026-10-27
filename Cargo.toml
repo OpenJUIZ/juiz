@@ -18,16 +18,16 @@ license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 
-juiz_macro = {version="0.0.23", path="juiz_macro"}
-juiz_sdk = {version="0.0.23", path="juiz_sdk"}
-juiz_types = {version="0.0.23", path="juiz_types"}
-juiz_idl = {version="0.0.23", path="juiz_idl"}
-juiz_std_types = {version="0.0.23", path="juiz_std_types"}
+juiz_macro = {version="0.0.24", path="juiz_macro"}
+juiz_sdk = {version="0.0.24", path="juiz_sdk"}
+juiz_types = {version="0.0.24", path="juiz_types"}
+juiz_idl = {version="0.0.24", path="juiz_idl"}
+juiz_std_types = {version="0.0.24", path="juiz_std_types"}
 # 既定の feature(embed-python)は使う側で選ぶ(juiz_app/Cargo.toml を参照)
-juiz_core = {version="0.0.23", path="juiz_core", default-features = false}
-juiz_app= {version="0.0.23", path="juiz_app"}
-juiz_qmp_broker = {version="0.0.23", path="brokers/qmp_broker"}
-juiz_webui = {version="0.0.23", path="juiz_webui"}
+juiz_core = {version="0.0.24", path="juiz_core", default-features = false}
+juiz_app= {version="0.0.24", path="juiz_app"}
+juiz_qmp_broker = {version="0.0.24", path="brokers/qmp_broker"}
+juiz_webui = {version="0.0.24", path="juiz_webui"}
 
 anyhow = "1.0.89"
 approx = "0.5.1"
