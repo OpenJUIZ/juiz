@@ -292,6 +292,15 @@ impl TryFrom<Capsule> for Value {
 //     }
 // }
 
+impl From<NativeCell> for Capsule {
+    fn from(value: NativeCell) -> Self {
+        Capsule {
+            value: value.into(),
+            option: HashMap::new(),
+        }
+    }
+}
+
 impl From<DynamicImage> for Capsule {
     fn from(img_value: DynamicImage) -> Self {
         Self {
@@ -348,6 +357,17 @@ impl Capsule {
         Self {
             value: CapsuleValue::Native(NativeCell::new(value)),
             option: HashMap::new(),
+        }
+    }
+
+    /// 中身が Native なら NativeCell を取り出す。そうでなければ自分を返す
+    pub fn into_native_cell(self) -> Result<NativeCell, Capsule> {
+        match self.value {
+            CapsuleValue::Native(cell) => Ok(cell),
+            value => Err(Capsule {
+                value,
+                option: self.option,
+            }),
         }
     }
 

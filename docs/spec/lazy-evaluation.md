@@ -197,7 +197,7 @@ pub struct NativeTypeTag {
 
 - `name` と `fingerprint` は、その値の型の `TypeSchema`(datatype.md §6)と同じものにする。生成コードと `#[derive(JuizType)]` が出す。
 - ABI タグの中身は言語ごとに L1〜L3 で決める(datatype.md §12 の基準)。juiz は中身を解釈せず、完全一致だけを見る。
-  - Rust: `rust:<rustc の版>:<cdylib を一意に表すもの>`。最初は**同じプラグイン(cdylib)の中だけ**一致する形にする(別プラグインは `repr(Rust)` の並びと `TypeId` が一致する保証がないため)。
+  - Rust: `rust:<rustc の版>:<cdylib を一意に表すもの>`。最初は**同じプラグイン(cdylib)の中だけ**一致する形にする(別プラグインは `repr(Rust)` の並びと `TypeId` が一致する保証がないため)。L2 で `rust:<rustc の版>:<juiz_sdk の版>:<juiz_sdk の中の static のアドレス>` に決めた(datatype.md §17.1)。
   - C++: `cpp:<コンパイラと標準ライブラリの版>:<型パッケージの版>`
   - Python: `python:<インタプリタを一意に表すもの>`
 
@@ -238,7 +238,7 @@ pub struct NativeTypeTag {
 |---|---|---|
 | L0 仕様 | #174 | この文書 |
 | L1 Python | #175 | §3〜§7・§10・§11。juiz_sdk の `CapsuleValue::Native` と §3.2 の API、§6 のロックの順序、python_plugin の §4 と §7。テストは Python → Python(接続と Composite)で encode が起きないこと、Python → Rust・ブローカー越し・Topic で今と同じ値になること、numpy の配列を Python 同士で渡せること。`juiz_core/tests/composite_bench.rs` で効果を測り、結果を #175 に残す |
-| L2 Rust | #176(#163 Step 3 とまとめる) | §8・§9。`#[juiz_process]` 系マクロの戻り値を任意の型にして Native で返す |
+| L2 Rust | #176(#163 Step 3 とまとめる) | §8・§9。`#[juiz_process]` 系マクロの戻り値を任意の型にして Native で返す。決めたことは datatype.md §17。テストは `juiz_sdk/tests/typed_process_test.rs`、`juiz_core/tests/rust_native_test.rs`(Composite では移すので clone も encode もしない、接続では clone 1 回、別のプラグインへは辞書) |
 | L3 C++ | #177(#163 Step 6 とまとめる) | §8・§9。`JUIZ_TYPE` による codec 登録、Native を読み書きする C ABI 関数の追加 |
 
 ## 13. 対象外(後の Step か、未定)

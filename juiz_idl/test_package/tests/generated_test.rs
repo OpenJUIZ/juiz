@@ -9,7 +9,7 @@ mod derived {
     use juiz_sdk::prelude::*;
 
     /// 平面上の点
-    #[derive(JuizType)]
+    #[derive(Clone, JuizType)]
     #[juiz(namespace = "robot.geometry")]
     pub struct Point2D {
         pub x: f64,

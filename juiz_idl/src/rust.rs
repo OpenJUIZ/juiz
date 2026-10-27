@@ -256,6 +256,23 @@ fn type_code(t: &DataType, namespace: &str) -> Result<String, IdlError> {
         Ok(Self {{
 {from_values}        }})
     }}
+
+    // Process の戻り値になったときネイティブ値で渡す (遅延評価 L2)
+    fn abi_tag() -> ::std::option::Option<::std::string::String> {{
+        ::std::option::Option::Some(::juiz_sdk::types::rust_abi_tag().to_owned())
+    }}
+
+    fn into_capsule(self) -> ::juiz_sdk::prelude::JuizResult<::juiz_sdk::prelude::Capsule> {{
+        ::juiz_sdk::types::native_into_capsule(self)
+    }}
+
+    fn from_capsule_ptr(capsule: &::juiz_sdk::prelude::CapsulePtr) -> ::juiz_sdk::prelude::JuizResult<Self> {{
+        ::juiz_sdk::types::native_from_capsule_ptr(capsule)
+    }}
+
+    fn extract(capsule: ::juiz_sdk::prelude::CapsulePtr) -> ::juiz_sdk::prelude::JuizResult<Self> {{
+        ::juiz_sdk::types::native_extract(capsule)
+    }}
 }}
 ",
                 r.name

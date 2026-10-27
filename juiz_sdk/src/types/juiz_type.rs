@@ -76,6 +76,12 @@ pub trait JuizType: Sized {
     fn from_capsule_ptr(capsule: &CapsulePtr) -> JuizResult<Self> {
         capsule.lock_as_value(|v| Self::from_value(v))?
     }
+
+    /// Process の引数を受け取る (`#[juiz_process]` 系のマクロが使う)。
+    /// ネイティブ値で渡す型は、ほかに参照が無ければ値を移す ([`super::native_extract`])
+    fn extract(capsule: CapsulePtr) -> JuizResult<Self> {
+        Self::from_capsule_ptr(&capsule)
+    }
 }
 
 macro_rules! impl_juiz_type_primitive {
@@ -144,6 +150,9 @@ impl JuizType for Value {
     fn from_value(value: &Value) -> JuizResult<Self> {
         Ok(value.clone())
     }
+    fn extract(capsule: CapsulePtr) -> JuizResult<Self> {
+        capsule.extract_value()
+    }
 }
 
 /// `bytes` (辞書では base64 の文字列)
@@ -191,6 +200,9 @@ impl JuizType for DynamicImage {
     }
     fn from_capsule_ptr(capsule: &CapsulePtr) -> JuizResult<Self> {
         capsule.lock_as_image(|img| img.clone())
+    }
+    fn extract(capsule: CapsulePtr) -> JuizResult<Self> {
+        capsule.extract_image()
     }
 }
 

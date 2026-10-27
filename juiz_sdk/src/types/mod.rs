@@ -5,8 +5,12 @@
 //! 同じ名前の [`JuizError`] の変種 (`TypeSchemaInvalidError` など) に変換する ([`type_error`])。
 
 mod juiz_type;
+mod rust_native;
 
 pub use juiz_type::{JuizType, TypeTag};
+pub use rust_native::{
+    native_extract, native_from_capsule_ptr, native_into_capsule, rust_abi_tag, RustNative,
+};
 pub use juiz_types::*;
 
 use crate::prelude::*;

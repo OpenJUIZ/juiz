@@ -4,7 +4,8 @@ use syn::{parse_macro_input, ItemFn, Stmt};
 
 use super::container_process_manifest::{construct_manif_tokenstream, manifest_tokenstream};
 use super::gen_process_factory::factory_tokenstream;
-use crate::util::argument_statement;
+use crate::util::typed::change_return_to_capsule;
+use crate::util::{argument_statement, exit_tokenstream};
 use crate::util::parse_attr;
 use crate::util::{change_container_process_argument_to_capsule_map, get_body_tokenstream};
 
@@ -31,7 +32,9 @@ pub(crate) fn juiz_container_process_inner(attr: TokenStream, item: TokenStream)
     // ここで全部 CapsuleMapにしてしまう。元の引数のデータはarg_mapで受け取る
     let arg_map = change_container_process_argument_to_capsule_map(&mut ast);
     // このあとclearしちゃうのでまずbodyを保存。
-    let body: TokenStream = get_body_tokenstream(&ast);
+    // 戻り値が JuizType の型なら JuizResult<Capsule> に書き換える (issue #192)
+    let return_kind = change_return_to_capsule(&mut ast);
+    let body: TokenStream = get_body_tokenstream(&ast, &return_kind);
 
     ast.block.stmts.clear();
 
@@ -46,7 +49,7 @@ pub(crate) fn juiz_container_process_inner(attr: TokenStream, item: TokenStream)
     // bodyを返す
     ast.block.stmts.push(parse_macro_input!(body as Stmt));
     // 値を返す部分を生成
-    let exit: TokenStream = quote! { { body() } }.into();
+    let exit: TokenStream = exit_tokenstream(&return_kind);
     ast.block.stmts.push(parse_macro_input!(exit as Stmt));
 
     // ここからmanifest関数を自動生成する。
@@ -59,6 +62,7 @@ pub(crate) fn juiz_container_process_inner(attr: TokenStream, item: TokenStream)
         function_name,
         &manifest_attr,
         &arg_map,
+        &return_kind,
     );
     manifest2_item_fn
         .block

@@ -328,6 +328,14 @@ impl CapsulePtr {
         }
     }
 
+    /// ほかに参照が無ければ、中の Capsule を取り出す。あれば自分を返す
+    pub fn try_into_capsule(self) -> Result<Capsule, CapsulePtr> {
+        match Arc::try_unwrap(self.value) {
+            Ok(m) => Ok(m.into_inner().unwrap_or_else(|e| e.into_inner())),
+            Err(value) => Err(CapsulePtr { value }),
+        }
+    }
+
     /// ロックの外で使うために、中身の NativeCell を複製して返す
     pub fn native_cell(&self) -> JuizResult<Option<NativeCell>> {
         match self.value.lock() {
