@@ -304,7 +304,7 @@ impl ContainerProcessBrokerProxy for CRUDBrokerProxyHolder {
 
     fn container_process_openapi_spec(&self, identifier: &ProcessIdentifier) -> JuizResult<Value> {
         log::trace!("【呼出】container_process_openapi_spec({identifier})");
-        capsule_to_value(
+        capsule_value(
             self.broker
                 .read(
                     "container_process",
@@ -548,7 +548,7 @@ impl ProcessBrokerProxy for CRUDBrokerProxyHolder {
 
     fn process_openapi_spec(&self, id: &ProcessIdentifier) -> JuizResult<Value> {
         log::trace!("【呼出】process_openapi_spec({id})");
-        capsule_to_value(
+        capsule_value(
             self.broker
                 .read(
                     "process",

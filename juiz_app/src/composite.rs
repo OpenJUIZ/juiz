@@ -86,7 +86,7 @@ pub(crate) fn on_composite(
 }
 
 /// `-s` で指定したサーバーへの BrokerProxy
-fn server_proxy(
+pub(crate) fn server_proxy(
     system: &mut System,
     server: &str,
 ) -> JuizResult<std::sync::Arc<std::sync::Mutex<dyn BrokerProxy>>> {

@@ -4,6 +4,8 @@
 //! - 接続時・Topic の型検査 ([`check_connectable`]、Composition C8 #172 の定義時検査からも呼ぶ)
 //! - 呼び出し時の検査 ([`check_call_arguments`]、conf の `option.type_check.on_call` で入れる)
 
+pub mod openapi;
+
 use std::collections::BTreeMap;
 
 use juiz_sdk::{
@@ -145,7 +147,7 @@ impl TypeRegistry {
     }
 }
 
-fn collect_named_types(t: &DataType, out: &mut Vec<DataType>) {
+pub(crate) fn collect_named_types(t: &DataType, out: &mut Vec<DataType>) {
     match t {
         DataType::Array(inner) | DataType::Map(inner) => collect_named_types(inner, out),
         DataType::Optional { inner, .. } => collect_named_types(inner, out),

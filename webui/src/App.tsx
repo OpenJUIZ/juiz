@@ -84,7 +84,7 @@ export default function App() {
         selectedKey={selectedKey}
         onSelect={(key) => (key ? select(key) : setSelectedKey(null))}
       />
-      <PropertyPane model={model} selectedKey={selectedKey} onSelect={select} />
+      <PropertyPane model={model} selectedKey={selectedKey} onSelect={select} serverUrl={settings.serverUrl} />
       {settingsOpen && (
         <SettingsDialog
           settings={settings}

@@ -479,3 +479,114 @@ button.elem-link:hover {
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* 処理を呼ぶフォーム(#197)。型付きの引数は型から入力欄を作る */
+.props code.typed {
+  color: var(--kind-container);
+}
+
+.call-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.9em;
+}
+
+.call-args {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.call-arg-head {
+  margin-bottom: 2px;
+}
+
+.call-form input[type="text"],
+.call-form select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.call-form select,
+.call-form textarea {
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 2px 6px;
+}
+
+.call-form textarea.json-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+  resize: vertical;
+}
+
+.call-form input.invalid {
+  border-color: var(--error);
+}
+
+.record-input,
+.list-input {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-left: 6px;
+  padding-left: 8px;
+  border-left: 1px solid var(--line);
+}
+
+.record-field {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 8px;
+  align-items: start;
+}
+
+.list-item {
+  display: flex;
+  gap: 4px;
+  align-items: start;
+}
+
+.list-item > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.list-input > button,
+.list-item > button {
+  align-self: flex-start;
+}
+
+.optional-input {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.call-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.call-result pre {
+  margin: 2px 0 0;
+  padding: 4px 6px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.call-result img {
+  max-width: 100%;
+}
+
+.call-form .hint {
+  font-size: 0.85em;
+}

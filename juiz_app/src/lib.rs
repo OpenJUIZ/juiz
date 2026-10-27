@@ -14,6 +14,7 @@ mod execution_context;
 mod namespace;
 mod process;
 mod setup;
+mod types;
 
 #[cfg(feature = "python-entry")]
 pub mod python;
@@ -29,6 +30,7 @@ use execution_context::{on_execution_context, EcSubCommands};
 
 use crate::process::{on_process, ProcSubCommands};
 use crate::setup::{on_setup, SetupSubCommands};
+use crate::types::{on_type, TypeSubCommands};
 use juiz_core::prelude::*;
 use juiz_core::utils::yaml_conf_load;
 use juiz_core::{env_logger, log};
@@ -213,6 +215,13 @@ enum SubCommands {
     Composite {
         #[clap(subcommand)]
         subcommand: CompositeSubCommands,
+    },
+
+    // Type tools (issue #197)
+    #[clap(arg_required_else_help = false)]
+    Type {
+        #[clap(subcommand)]
+        subcommand: TypeSubCommands,
     },
 
     /// Generate schemas and code from juiz IDL (.jidl) files (same as juiz-idl, issue #191)
@@ -693,6 +702,7 @@ fn run(args: Args) -> JuizResult<()> {
         SubCommands::Composite { subcommand } => {
             on_composite(manifest, working_dir, subcommand, args)
         }
+        SubCommands::Type { subcommand } => on_type(manifest, working_dir, subcommand, args),
         SubCommands::Idl { .. } => unreachable!(),
         /* _ => {
             return Ok(())

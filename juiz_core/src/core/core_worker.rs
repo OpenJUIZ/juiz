@@ -467,6 +467,19 @@ impl CoreWorker {
         Ok(registry)
     }
 
+    /// 登録済みの Factory の種類 (`process` / `container_process`) と manifest (種類・型名の順、issue #197)
+    pub fn factory_manifests(&self) -> JuizResult<Vec<crate::types::openapi::FactoryManifest>> {
+        let mut out = Vec::new();
+        for pf in self.store().processes.factories().values() {
+            out.push(("process", pf.lock()?.manifest()?));
+        }
+        for cpf in self.store().container_processes.factories().values() {
+            out.push(("container_process", cpf.lock()?.manifest()?));
+        }
+        out.sort_by(|(k1, m1), (k2, m2)| (k1, &m1.type_name).cmp(&(k2, &m2.type_name)));
+        Ok(out)
+    }
+
     /// 登録済みの Composite の Factory の manifest (型名の順)
     fn composite_manifests(&self) -> JuizResult<Vec<ProcessManifest>> {
         let mut manifests = Vec::new();

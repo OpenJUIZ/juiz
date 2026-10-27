@@ -1,3 +1,7 @@
+import type { TypeSchemaRef } from "../avro.ts";
+
+export type { TypeSchemaRef };
+
 // profile_full の中身は OpenAPI で schema 化されていないので、画面側で型を定義する。
 // juiz v0.0.18 の応答を見て必要な項目だけ書いている。足りない項目は使うときに足す。
 
@@ -24,6 +28,8 @@ export interface ArgumentProfile {
   type_name: string;
   default?: unknown;
   description?: Description;
+  /** 型付きの引数の型参照。型なしなら無い */
+  schema?: TypeSchemaRef;
 }
 
 /** 話題の参照(処理の publishes / subscribes) */
@@ -53,8 +59,10 @@ export interface ProcessProfile extends ObjectProfile {
   subscribes?: Record<string, TopicRef>;
   container_name?: string | null;
   container_type?: string | null;
-  /** 戻値の型。今は pyjuiz だけが埋める */
+  /** 戻値の型の古い書き方。pyjuiz などが埋める */
   outputs?: unknown;
+  /** 戻値の型参照(型付きのときだけ、#197) */
+  output_schema?: TypeSchemaRef | null;
   /** Composite の式の木とスロット。Composite でなければ無い(#170) */
   composition?: Composition | null;
 }

@@ -408,7 +408,7 @@ ROS 2 の `.msg` / `.srv` / `.idl` を JIDL / .avsc に変換する。juiz の�
 | 5 Python | #194 | §11(§20) |
 | 6 C++ | #195 | §11(§21) |
 | 7 Haskell | #196 | §11(§22) |
-| 8 CLI・管理画面 | #197 | §5.2(表示)、§6 |
+| 8 CLI・管理画面 | #197 | §5.2(表示)、§6(§23) |
 | 13 ROS 2 の取り込み | #201 | §10 |
 | Composite C8 | #172 | §7、§8 |
 | 遅延評価 L1〜L3 | #175〜#177 | §12 |
@@ -421,7 +421,6 @@ ROS 2 の `.msg` / `.srv` / `.idl` を JIDL / .avsc に変換する。juiz の�
 - 再帰する型。
 - レコードの中の `image`。
 - Avro のバイナリ形式での通信(QMP の高速化)。
-- JSON Schema の process の引数・戻り値への書き出し(管理画面のフォーム・Swagger 用、Step 8 で決める。型ごとの書き出しは §16)。
 - client stub(型付きで呼ぶ側の生成コード)。型と skeleton の後(計画書 §8 の 4)。Python は Step 5 で作った(§20.4)。
 
 ## 15. Rust の SDK(Step 1 #190 で決めたこと)
@@ -572,7 +571,7 @@ core の実装は `juiz_core::types` にある。
 | `type/list` | `[{identifier, name, fingerprint, short_identifier, kind, used_by}]`(`identifier` の順)。`kind` は `record` / `enum`、`used_by` はその型を使っている Factory の型名(名前順) |
 | `type/schema?identifier=…` | 型参照 `{name, fingerprint, avro}`(§6 と同じ形、`avro` は自己完結)。`identifier` は `<完全名>@sha256:…` か完全名だけ。完全名だけで指紋の違う型が複数あるか、見つからなければ `TypeNotFoundError` |
 
-- 遅延評価の codec(L3 #177)は、この登録所には足さず、値と一緒に運ぶことにした(§21.3)。CLI の `juiz type list / show` と管理画面での表示は Step 8(#197)。
+- 遅延評価の codec(L3 #177)は、この登録所には足さず、値と一緒に運ぶことにした(§21.3)。CLI の `juiz type list / show` と管理画面での表示は Step 8(#197、§23)。
 
 ## 20. Python(Step 5 #194 で決めたこと)
 
@@ -711,3 +710,56 @@ C++ の ABI タグは `cpp:<コンパイラ>:<標準ライブラリ>:<layout>[:<
 - `examples/haskell/src/TypedComponent.hs`(typed_component_hs。`examples/haskell/build.sh` が `juiz-idl -g haskell` で `juiz_idl/test_package/idl/geometry.jidl` から `examples/haskell/gen/` に型を作る。手で書いた型 `handwritten.Odometry` は `TypedOdometry.hs`)と、関数とマニフェストの型が合わない `BrokenTypedProcess.hs`(broken_typed_process_hs)。
 - `juiz_core/tests/haskell_typed_test.rs`: manifest の型参照と Rust の指紋の一致、`returns` を書かないときの `output_schema`、辞書の引数が型で読まれること、すべての型のフィールドの往復(C++ と同じ結果)、Haskell どうし・Haskell ↔ Rust の受け渡し、Container と ContainerProcess の型付きの引数、型の合わない Process を読み込めないこと。
 - `juiz_idl/tests/idl_test.rs` の `haskell_code`(生成したコードの形、名前の変換と重なりのエラー、名前空間の循環のエラー)。
+
+## 23. CLI・管理画面・OpenAPI・TypeScript(Step 8 #197 で決めたこと)
+
+### 23.1 CLI `juiz type`
+
+`-s` で指定した juiz(既定 `http://127.0.0.1:8000`)の型の登録所(§19.4)を見る。`juiz process` などと同じく、手元の設定ファイル(`-f`)で juiz を起動してから問い合わせる。
+
+```text
+juiz type list                                     # 識別子の JSON 配列(他の list と同じ形)
+juiz type list --long                              # NAME KIND SHORT_ID USED_BY の表
+juiz type show robot.geometry.Pose2D               # JIDL の宣言で表示
+juiz type show robot.geometry.Pose2D --avro        # .avsc(それだけで完結した Avro のスキーマ)
+juiz type show robot.geometry.Pose2D --json-schema # 辞書の表し方の JSON Schema(§16 の -g json-schema と同じ)
+```
+
+- `show` の識別子は `type/schema` と同じく `<完全名>@sha256:…` か、同じ完全名の型が 1 つなら完全名だけ。見つからない・決まらなければエラー(終了コード 1)。
+- JIDL の表示は、先頭に識別子と使っている Factory の型名をコメントで書き、その型と入れ子の名前付き型の宣言を並べる(`juiz_idl::to_jidl`)。名前空間は調べた型のもので、ほかの名前空間の型には `@namespace("…")` を付ける。キーワードと同じ名前はバッククォートで囲み、`T?` で書けない並びの union は `union { T, null }` と書く。書いたものは juiz-idl で読み直せて、同じ型(指紋・既定値・doc・別名も同じ)になる。Avro の属性(`juiz.constants` など)は書かない。
+
+### 23.2 管理画面
+
+- 性質欄の引数の表の「型」は、型付きの引数なら型参照の名前(名前空間を省いたもの。全体の識別子は title)、型なしなら今どおり `type_name`。「出力」の戻値型も `output_schema` があればその名前。
+- 処理・容器処理の性質欄に「呼び出す」を足した。引数ごとに入力欄を出し、`PATCH /api/process/call`(容器処理は `/api/container_process/call`)で呼んで結果を出す(画像の結果は画像で出す)。
+  - 型付きの引数は profile の型参照の `avro` から入力欄を作る(`webui/src/avro.ts`)。record は入れ子の欄、enum は選択、`T?` は null のチェック、array・map は要素・キーの追加と削除、`any` は JSON の 1 行、`bytes` は base64 の文字列。
+  - 型なしの引数は `type_name` から作る(`Int`・`Float` は数、`Bool` はチェック、`String` は文字列、`Array`・`Object` は JSON)。画像の引数はこの画面からは渡せない(省く)。
+  - 初期値は manifest の既定値(辞書の表し方)。無ければフィールドの既定値か型ごとの空の値。「JSON で編集」で引数の辞書全体を JSON で書くこともできる。
+  - 値は辞書の表し方(§4)のまま送る。型の検査は juiz 側の規則(§4、呼び出し時の検査 §19.3)に任せる。
+- 画面は型の登録所の API を使わない(profile の型参照だけで足りる)。
+
+### 23.3 OpenAPI(Swagger)
+
+HTTP ブローカーの `/api-docs/openapi.json`(Swagger UI `/docs` が読むもの)は、問い合わせのたびに、静的な定義に次のものを足して返す(`juiz_core::types::openapi`)。Factory を足し外しすれば中身も変わる。
+
+- `components.schemas` に、登録済みの Factory の manifest にある名前付き型(入れ子も含む)。キーは完全名。同じ完全名で指紋の違う型があれば `<完全名>_<指紋の先頭 8 桁>`(OpenAPI のキーに `@`・`:` は使えないため)。`x-juiz-fingerprint` に指紋を入れる。
+- `components.schemas` に、Factory ごとの引数の辞書 `<種類>.<型名>.arguments`(`process.move_to.arguments`)と、戻り値が型付きなら `<種類>.<型名>.returns`。容器処理は `container_process.<Container の型>.<型名>`。型なしの引数は `type_name` から(`Int` は int64 の integer、`Image` は binary)。既定値は `default` に入れる。
+- `PATCH /api/process/call`・`/api/container_process/call` の本体のスキーマを、Factory ごとの引数の辞書の `oneOf` にする(Swagger UI で選んで例を出せる)。どの Process を呼ぶかは `identifier` で決まるので、本体のスキーマで区別はしない。
+- 書き方は utoipa が書き出す OpenAPI 3.0.3 に合わせる(JSON Schema 2020-12 の `-g json-schema` とは少し違う)。`T?` は `nullable: true`、`$ref` の隣に属性(`default`・`description`・`nullable`)を書くときは `allOf` で包む、`int`・`long`・`float`・`double` は `format`、`bytes` は `format: byte`、`required` が空なら書かない、`any` は `{}`。
+- Process の `openapi_spec()`(`GET /api/process/openapi_spec?identifier=…`、容器処理は `/api/container_process/openapi_spec`)は、その Process だけの `{"arguments": 引数の辞書, "returns": 戻り値(型なしなら null), "components": {"schemas": 使う名前付き型}}` を返す(これまでは未実装で panic していた)。
+
+### 23.4 生成器の TypeScript 出力
+
+`juiz-idl -g typescript`(`juiz idl` も同じ)は、名前空間 `a.b` ごとに `a.b.ts` と、共通の `juiz_idl.ts` を書き出す。実行時のライブラリには依存しない(管理画面・`bindings/js` が JSON で受け渡す値の型)。既定の `-g` には入れない。
+
+- record は `interface`(フィールドは辞書のキーのまま、すべて必須)、enum は文字列リテラルの union と、記号の配列 `<型名>Symbols`。すべてのフィールドに既定値がある record には `default<型名>()` も作る。型ごとに型参照 `<型名>Type: TypeSchema`(`{name, fingerprint, avro}`、指紋は .avsc と同じ)を書く。
+- 型の対応: 数(`int`・`long`・`float`・`double`)は `number`(`long` は 2^53 を超えると精度が落ちる)、`bytes` は base64 の `string`、`T?` は `T | null`、`array<T>` は `T[]`、`map<T>` は `Record<string, T>`、`any` は `unknown`。
+- ほかの名前空間の型は `import type * as a_b from "./a.b.js"` で参照する(型だけの import なので、名前空間どうしが互いに参照してもよい)。拡張子は `.js` と書く(TypeScript の `moduleResolution` が `bundler`・`nodenext` のどちらでも解決できる)。
+- TypeScript の予約語・組み込みの型と同じ型名、ファイルの中で重なる名前、名前空間のない型はエラー。`process` / `container` 宣言からは何も作らない。
+
+### 23.5 テスト
+
+- `juiz_idl/tests/idl_test.rs` の `typescript_code`(生成したコードの形、名前の重なりのエラー)と `jidl_round_trip`(JIDL の表示を読み直すと同じ型)。生成した TypeScript は `tsc --strict`(`bundler`・`nodenext`)で通ることを手で確かめた。
+- `juiz_app/src/types.rs` の単体テスト(表・JIDL・.avsc・JSON Schema の出力)と `juiz_app/tests/type_cli_test.rs`(native_pose_component を読み込んだ juiz を起動し、`juiz type list / show` を実行。ポート 8052)。
+- `juiz_core/src/types/openapi.rs` の単体テストと、`juiz_core/tests/type_check_test.rs` の `type_registry_api`(`/api-docs/openapi.json` と `process/openapi_spec`)。
+- 管理画面は `npm run typecheck` と `npm run lint`。フォームから呼ぶところは手で確かめた。

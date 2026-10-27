@@ -81,7 +81,7 @@ juiz -f webui/juiz_webui.conf -d
 
 | 種類 | 性質欄に出すもの |
 |---|---|
-| 処理・容器処理 | 型、識別子、説明、言語、生成器、所属容器、引数(名前・型・既定値・拘束値)、戻値型、入力と出力の接続、対象にしている実行文脈、発行・購読する話題 |
+| 処理・容器処理 | 型、識別子、説明、言語、生成器、所属容器、引数(名前・型・既定値・拘束値)、戻値型、呼び出すフォーム、入力と出力の接続、対象にしている実行文脈、発行・購読する話題 |
 | 容器 | 型、識別子、説明、言語、生成器、引数(既定値と生成時の値)、容器処理 |
 | 実行文脈 | 型、識別子、状態、周期、自動開始、対象の処理 |
 | 接続 | 押込・引込、送り元、送り先と引数、識別子 |
@@ -90,6 +90,10 @@ juiz -f webui/juiz_webui.conf -d
 | 系 | 接続先、経由する仲介(副系)、取得できない理由、UUID、仲介、要素の数 |
 
 性質欄の中の要素名を押すと、その要素に移ります(ツリーで畳まれていれば開きます)。
+
+型付きの引数(データ型、[#197](https://github.com/OpenJUIZ/juiz/issues/197))は、型の欄に型の名前(`Pose2D` など)を出します。名前にマウスを載せると完全名と指紋が出ます。
+
+処理・容器処理の「呼び出す」では、引数を入力して処理を呼び、結果を見られます。型付きの引数は型から入力欄を作ります(record は入れ子の欄、enum は選択、`T?` は null のチェック、配列と map は要素の追加と削除)。型なしの引数は型名(Int・Float・Bool・String は欄、Array・Object は JSON)から作ります。「JSON で編集」で引数全体を JSON で書くこともできます。画像の引数はこの画面からは渡せません。
 
 拘束値(`p_apply` で与えた値)と戻値型は、juiz の profile にまだ出ていないので「—」「不明」と表示します([#112](https://github.com/OpenJUIZ/juiz/issues/112))。
 
@@ -142,7 +146,7 @@ juiz に接続できないときは、上部の状態が「未接続」になり
 | `npm run typecheck` | 型検査 |
 | `npm run build` | 型検査とビルド |
 | `npm run gen:api` | `src/api/openapi.json` から API の型 `src/api/openapi.gen.ts` を作る |
-| `npm run gen:api -- http://localhost:8000` | 動いている juiz から OpenAPI 定義を取り直して型を作る |
+| `npm run gen:api -- http://localhost:8000` | 動いている juiz から OpenAPI 定義を取り直して型を作る(プラグインを読み込んでいない juiz から取る。OpenAPI 定義には読み込んだ Process の引数と型のスキーマが入るため) |
 
 CI(`.github/workflows/webui.yml`)は lint・型検査・ビルドと、`openapi.gen.ts` が `openapi.json` と合っているかを確かめます。
 
@@ -153,6 +157,7 @@ CI(`.github/workflows/webui.yml`)は lint・型検査・ビルドと、`openapi.
 | `src/api/client.ts` | juiz の HTTP API を呼ぶクライアント |
 | `src/api/openapi.json`, `openapi.gen.ts` | juiz の OpenAPI 定義と、そこから生成した型(パスと引数) |
 | `src/api/types.ts` | `profile_full` の中身の型。OpenAPI に schema が無いので画面側で書く |
+| `src/avro.ts` | 型参照の Avro のスキーマを入力フォーム用の形に読む |
 | `src/model.ts` | 取得した profile を画面用の形に組み直す。要素の鍵と、要素どうしの関係(接続の両端、実行文脈の対象など)を解く |
 | `src/useSystemModel.ts` | `system/profile_full?recursive=true`(副系の中身と各系の接続つき)を取得し、自動更新する。古い juiz なら接続を一つずつ取る |
 | `src/labels.ts`, `src/marks.ts` | 値の表示用の言葉(実行中・押込など)と、種類ごとのマーク |
@@ -160,7 +165,7 @@ CI(`.github/workflows/webui.yml`)は lint・型検査・ビルドと、`openapi.
 | `src/settings.ts` | 設定と localStorage への保存 |
 | `src/styles/theme.css` | 配色。種類ごとの色(処理は緑、容器は水色、実行文脈は黄、話題はマゼンタ) |
 | `src/styles/fonts.css` | 書体。日本語フォントを選んだらここで差し替える |
-| `src/components/` | 上部の帯、ツリー、図、性質欄、設定の画面部品 |
+| `src/components/` | 上部の帯、ツリー、図、性質欄(呼び出すフォーム `CallForm.tsx` を含む)、設定の画面部品 |
 | `src/diagram/` | 中央の図の中身。モデルから図の要素と線を作る `graph.ts`、自動配置 `layout.ts`、位置の保存 `positions.ts`、要素・線・湾曲グリッドの部品と `diagram.css` |
 
 ## ライセンス

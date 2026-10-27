@@ -415,11 +415,19 @@ pub fn app_new(
     let r = Router::new();
     // Swagger UI は feature "swagger-ui" のときだけ。無いときも OpenAPI 定義は返す。
     #[cfg(feature = "swagger-ui")]
-    let r = r.merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", api));
-    #[cfg(not(feature = "swagger-ui"))]
+    let r = r.merge(
+        SwaggerUi::new("/docs").config(utoipa_swagger_ui::Config::from("/api-docs/openapi.json")),
+    );
+    // OpenAPI 定義には、問い合わせのたびに今の型と Factory の引数のスキーマを足す (issue #197)
+    let api = serde_json::to_value(&api).unwrap_or_default();
+    let crud = crud_broker.clone();
     let r = r.route(
         "/api-docs/openapi.json",
-        axum::routing::get(move || async move { axum::Json(api) }),
+        axum::routing::get(move || {
+            let api = api.clone();
+            let crud = crud.clone();
+            async move { axum::Json(openapi_with_types(api, &crud)) }
+        }),
     );
     let mut r = r.nest("/api/", any::object_router(crud_broker.clone()));
     #[cfg(feature = "webui")]
@@ -439,6 +447,46 @@ pub fn app_new(
         }
         None => r,
     }
+}
+
+/// 静的な OpenAPI 定義に、型の登録所の型と Factory ごとの引数・戻り値のスキーマを足す (issue #197、仕様 datatype.md §23.3)
+///
+/// `components.schemas` に足し、`process/call`・`container_process/call` の本体のスキーマを
+/// Factory ごとの引数のスキーマの `oneOf` にする (Swagger UI で Factory を選んで例を出せる)。
+/// 足せないときは静的な定義のまま返す。
+pub fn openapi_with_types(mut api: Value, crud_broker: &Arc<Mutex<CRUDBroker>>) -> Value {
+    let components = match juiz_lock(crud_broker).and_then(|c| c.openapi_components()) {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!("openapi.json: types are not added ({e})");
+            return api;
+        }
+    };
+    for kind in ["process", "container_process"] {
+        let refs: Vec<Value> = components
+            .keys()
+            .filter(|k| k.starts_with(&format!("{kind}.")) && k.ends_with(".arguments"))
+            .map(|k| jvalue!({ "$ref": format!("#/components/schemas/{k}") }))
+            .collect();
+        if refs.is_empty() {
+            continue;
+        }
+        if let Some(content) = api.pointer_mut(&format!(
+            "/paths/~1api~1{kind}~1call/patch/requestBody/content/application~1json"
+        )) {
+            content["schema"] = jvalue!({ "oneOf": refs });
+        }
+    }
+    if !api["components"].is_object() {
+        api["components"] = jvalue!({});
+    }
+    if !api["components"]["schemas"].is_object() {
+        api["components"]["schemas"] = jvalue!({});
+    }
+    if let Some(schemas) = api["components"]["schemas"].as_object_mut() {
+        schemas.extend(components);
+    }
+    api
 }
 
 #[allow(unused)]
