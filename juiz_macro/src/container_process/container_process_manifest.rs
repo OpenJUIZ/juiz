@@ -1,8 +1,8 @@
-use std::collections::HashMap;
-
 use crate::proc_macro::TokenStream;
+use crate::util::typed::{
+    arguments_manifest_statements, manifest_expression, output_manifest_statement, ReturnKind,
+};
 use quote::{format_ident, quote};
-use serde_json::json;
 use syn::TypePath;
 
 pub(crate) fn manifest_tokenstream() -> TokenStream {
@@ -22,166 +22,51 @@ pub(crate) fn component_manifest_tokenstream(proc_type_str: String) -> TokenStre
     .into()
 }
 
-fn construct_manif_inner(
-    _container_type_ident: syn::Ident,
-    _function_name: String,
-    manifest_attr: &serde_json::Value,
-    arg_map: &HashMap<TypePath, syn::Ident>,
-    mut construct_manif: proc_macro2::TokenStream,
-) -> proc_macro2::TokenStream {
-    let empty_value = json!({}); // 空っぽのMapは使い回す。
-                                 // attrから受け取ったmanifest情報を使いやすいMapに変更してからforに飛び込む！
-    let argument_value = manifest_attr
-        .as_object()
-        .unwrap()
-        .get("arguments")
-        .or(Some(&empty_value))
-        .unwrap()
-        .as_object()
-        .unwrap();
-    let argument_default_value = argument_value
-        .get("default")
-        .or(Some(&empty_value))
-        .unwrap()
-        .as_object()
-        .unwrap();
-    let argument_description_value = argument_value
+fn description_of(manifest_attr: &serde_json::Value, function_name: &str) -> String {
+    // attr変数から読み取った値からdescriptionを取得
+    manifest_attr
         .get("description")
-        .or(Some(&empty_value))
-        .unwrap()
-        .as_object()
-        .unwrap();
-    // itemから受け取った引数情報をイテレートしつつ、attrからもらった部分にデフォルト引数およびデスクリプションの情報があれば、それを追加していく
-    for (type_path, arg_name_ident) in arg_map.into_iter() {
-        let arg_name = arg_name_ident.to_string();
-        let default_desc = format!("Default description for argument {arg_name}");
-        let description = argument_description_value
-            .get(arg_name.as_str())
-            .and_then(|v| v.as_str())
-            .or(Some(default_desc.as_str()))
-            .unwrap();
-        let type_name = type_path
-            .path
-            .segments
-            .iter()
-            .map(|seg| seg.ident.to_string())
-            .collect::<Vec<String>>()
-            .join("::");
-        match type_name.as_str() {
-            // 引数のタイプで分岐。タイプはitemから受け取ったタイプが優先。defaultが別のタイプだったらデフォルトのデフォルトが振られる。
-            "bool" => {
-                let default_value_default = false;
-                let default_value = argument_default_value
-                    .get(arg_name.as_str())
-                    .and_then(|v| v.as_bool())
-                    .or(Some(default_value_default))
-                    .unwrap();
-                construct_manif = quote! {
-                    #construct_manif
-                    manif = manif.add_bool_arg(#arg_name, #description, #default_value);
-                }
-            }
-            "i64" => {
-                let default_value_default = 0;
-                let default_value = argument_default_value
-                    .get(arg_name.as_str())
-                    .and_then(|v| v.as_i64())
-                    .or(Some(default_value_default))
-                    .unwrap();
-                construct_manif = quote! {
-                    #construct_manif
-                    manif = manif.add_int_arg(#arg_name, #description, #default_value);
-                }
-            }
-            "f64" => {
-                let default_value_default = 0.0;
-                let default_value = argument_default_value
-                    .get(arg_name.as_str())
-                    .and_then(|v| v.as_f64())
-                    .or(Some(default_value_default))
-                    .unwrap();
-                construct_manif = quote! {
-                    #construct_manif
-                    manif = manif.add_float_arg(#arg_name, #description, #default_value);
-                }
-            }
-            "String" => {
-                let default_value_default = "";
-                let default_value = argument_default_value
-                    .get(arg_name.as_str())
-                    .and_then(|v| v.as_str())
-                    .or(Some(default_value_default))
-                    .unwrap();
-                construct_manif = quote! {
-                    #construct_manif
-                    manif = manif.add_string_arg(#arg_name,  #description, #default_value);
-                }
-            }
-            "Value" => {
-                let default_value_default = json!({});
-                let default_value = argument_default_value
-                    .get(arg_name.as_str())
-                    .or(Some(&default_value_default))
-                    .unwrap();
-                let value_str = serde_json::to_string(default_value).unwrap();
-                construct_manif = quote! {
-                    #construct_manif
-                    manif = manif.add_object_arg(#arg_name, #description, serde_json::from_str(#value_str).unwrap());
-                }
-            }
-            "DynamicImage" => {
-                construct_manif = quote! {
-                    #construct_manif
-                    manif = manif.add_image_arg(#arg_name, #description);
-                }
-            }
-            _ => {
-                panic!("[container_process_manifest.rs]自動マニフェスト生成に失敗。対応するデータ型ではありません。 ({type_name:})")
-            }
-        }
-    }
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_owned())
+        .unwrap_or_else(|| format!("Default description of Process({function_name})"))
+}
 
-    // println!("{}", construct_manif.to_token_stream().to_string());
-    construct_manif
+/// `construct_manif` (`let mut manif = ...;`) に引数と戻り値を足す
+fn construct_manif_inner(
+    manifest_attr: &serde_json::Value,
+    arg_map: &Vec<(TypePath, syn::Ident)>,
+    return_kind: &ReturnKind,
+    construct_manif: proc_macro2::TokenStream,
+) -> proc_macro2::TokenStream {
+    // itemから受け取った引数情報をイテレートしつつ、attrからもらった部分にデフォルト引数およびデスクリプションの情報があれば、それを追加していく
+    let arguments = arguments_manifest_statements(manifest_attr, arg_map);
+    let output = output_manifest_statement(return_kind);
+    quote! {
+        #construct_manif
+        #arguments
+        #output
+    }
 }
 
 pub(crate) fn construct_manif_tokenstream(
     container_type_ident: syn::Ident,
     function_name: String,
     manifest_attr: &serde_json::Value,
-    arg_map: &HashMap<TypePath, syn::Ident>,
+    arg_map: &Vec<(TypePath, syn::Ident)>,
+    return_kind: &ReturnKind,
 ) -> TokenStream {
-    // attr変数から読み取った値からdescriptionを取得
-    let description = manifest_attr
-        .as_object()
-        .unwrap()
-        .get("description")
-        .and_then(|v| Some(v.clone()))
-        .or(Some(json!(format!(
-            "Default description of Process({function_name})"
-        ))))
-        .unwrap()
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let description = description_of(manifest_attr, &function_name);
     // ここでmanifestデータの基本データを作成する部分
     let construct_manif = quote! {
         let mut manif = ProcessManifest::new( #function_name ).description(#description).container(#container_type_ident ::manifest2() );
     };
-
-    let construct_manif: proc_macro2::TokenStream = construct_manif_inner(
-        container_type_ident,
-        function_name,
-        manifest_attr,
-        arg_map,
+    let construct_manif =
+        construct_manif_inner(manifest_attr, arg_map, return_kind, construct_manif);
+    manifest_expression(
+        &function_name,
+        quote! { juiz_sdk::prelude::ProcessManifest },
         construct_manif,
-    );
-    quote! {
-        {
-            #construct_manif
-            manif
-        }
-    }
+    )
     .into()
 }
 
@@ -189,46 +74,26 @@ pub(crate) fn component_construct_manif_tokenstream(
     container_type_ident: syn::Ident,
     function_name: String,
     manifest_attr: &serde_json::Value,
-    arg_map: &HashMap<TypePath, syn::Ident>,
+    arg_map: &Vec<(TypePath, syn::Ident)>,
+    return_kind: &ReturnKind,
     factory_name: String,
 ) -> TokenStream {
     let container_manifest_function_name_ident =
         format_ident!("{}_manifest", container_type_ident.to_string());
-
-    // attr変数から読み取った値からdescriptionを取得
-    let description = manifest_attr
-        .as_object()
-        .unwrap()
-        .get("description")
-        .and_then(|v| Some(v.clone()))
-        .or(Some(json!(format!(
-            "Default description of Process({function_name})"
-        ))))
-        .unwrap()
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let description = description_of(manifest_attr, &function_name);
     // ここでmanifestデータの基本データを作成する部分
     let construct_manif = quote! {
         let mut manif = ProcessManifest::new( #function_name ).description(#description).container(#container_manifest_function_name_ident() );
     };
-
-    let mut construct_manif: proc_macro2::TokenStream = construct_manif_inner(
-        container_type_ident,
-        function_name,
-        manifest_attr,
-        arg_map,
-        construct_manif,
-    );
-    construct_manif = quote! {
-        #construct_manif
-        manif = manif.factory(#factory_name);
-    };
-    quote! {
-        {
+    let construct_manif =
+        construct_manif_inner(manifest_attr, arg_map, return_kind, construct_manif);
+    manifest_expression(
+        &function_name,
+        quote! { juiz_sdk::prelude::ProcessManifest },
+        quote! {
             #construct_manif
-            manif
-        }
-    }
+            manif = manif.factory(#factory_name);
+        },
+    )
     .into()
 }

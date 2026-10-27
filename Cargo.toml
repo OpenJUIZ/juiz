@@ -124,6 +124,8 @@ members = [
     "juiz_sdk/test_packages/ss_arg_proc",
     "juiz_sdk/test_packages/sss_arg_proc",
     "juiz_sdk/test_packages/img_arg_proc",
+    "juiz_sdk/test_packages/native_pose_component",
+    "juiz_sdk/test_packages/native_pose_reader",
 ]
 default-members = [
     ".",
@@ -169,6 +171,8 @@ default-members = [
     # "juiz_sdk/test_packages/ss_arg_proc",
     # "juiz_sdk/test_packages/sss_arg_proc",
     # "juiz_sdk/test_packages/img_arg_proc",
+    "juiz_sdk/test_packages/native_pose_component",
+    "juiz_sdk/test_packages/native_pose_reader",
 ]
 
 

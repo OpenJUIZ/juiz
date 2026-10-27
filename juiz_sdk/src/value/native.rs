@@ -25,16 +25,9 @@ pub enum EncodedValue {
     Image(DynamicImage),
 }
 
-/// 型タグ (docs/spec/lazy-evaluation.md §9.1、datatype.md §12)。L1 の Python では使わない
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct NativeTypeTag {
-    /// 完全名。名前のない型は表示名
-    pub name: String,
-    /// "sha256:<64 桁>"
-    pub fingerprint: String,
-    /// ABI タグ。不透明な文字列で、完全一致だけで比べる
-    pub abi: String,
-}
+/// 型タグ (docs/spec/lazy-evaluation.md §9.1、datatype.md §12)。L1 の Python では使わない。
+/// 中身は [`crate::types::TypeTag`] と同じもの (完全名・指紋・ABI タグ)
+pub type NativeTypeTag = crate::types::TypeTag;
 
 /// 言語ごとのネイティブ値が実装する。juiz_sdk は中身を知らない
 pub trait NativeValue: Send + Sync + std::fmt::Debug {
@@ -50,6 +43,10 @@ pub trait NativeValue: Send + Sync + std::fmt::Debug {
     fn as_any(&self) -> &dyn Any;
     /// 型タグ。型なしの値と L1 の Python は None
     fn type_tag(&self) -> Option<&NativeTypeTag> {
+        None
+    }
+    /// 値を移して取り出すため (lazy-evaluation.md §8)。移せない言語は None (既定)
+    fn into_any(self: Box<Self>) -> Option<Box<dyn Any>> {
         None
     }
 }
@@ -75,6 +72,13 @@ impl NativeCell {
             value: Box::new(value),
             encoded: OnceLock::new(),
         }))
+    }
+
+    /// ほかに参照が無ければ、ネイティブ値を取り出す。あれば自分を返す
+    pub fn try_into_value(self) -> Result<Box<dyn NativeValue>, NativeCell> {
+        Arc::try_unwrap(self.0)
+            .map(|inner| inner.value)
+            .map_err(NativeCell)
     }
 
     pub fn value(&self) -> &dyn NativeValue {

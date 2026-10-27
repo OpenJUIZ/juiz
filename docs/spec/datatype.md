@@ -388,7 +388,7 @@ ROS 2 の `.msg` / `.srv` / `.idl` を JIDL / .avsc に変換する。juiz の�
 
 - 型タグ = 完全名 + 指紋(§5)+ **ABI タグ**。
 - ABI タグは、同じメモリ表現であることを保証する範囲を表す文字列で、**完全一致だけ**で比べる(中身を解釈しない)。言語ごとの中身は次を基準にし、L1〜L3 で決める。
-  - Rust: `rust:<rustc の版>:<cdylib を一意に表すもの>`(L0 §9 のとおり、最初は同じプラグインの中だけ)
+  - Rust: `rust:<rustc の版>:<cdylib を一意に表すもの>`(L0 §9 のとおり、最初は同じプラグインの中だけ。形は §17.1)
   - Python: `python:<インタプリタを一意に表すもの>`(同じ juiz プロセスの同じインタプリタの中だけ)
   - C++: `cpp:<コンパイラと標準ライブラリの版>:<型パッケージの版>`
 - 照合の 3 段階:
@@ -403,7 +403,7 @@ ROS 2 の `.msg` / `.srv` / `.idl` を JIDL / .avsc に変換する。juiz の�
 |---|---|---|
 | 1 SDK | #190 | §3、§4、§5、§6、§7、§8 のエラー、§11 の `#[derive(JuizType)]`(§15) |
 | 2 生成器 `juiz-idl` | #191 | §5、§9、§11(Rust、JSON Schema)(§16) |
-| 3 Rust マクロ | #192 | §6、§11(`#[juiz_process]` 系が `JuizType` を受ける) |
+| 3 Rust マクロ | #192 | §6、§11(`#[juiz_process]` 系が `JuizType` を受ける)(§17) |
 | 4 core | #193 | §7、§8(接続時・Topic・呼び出し時) |
 | 5 Python | #194 | §11 |
 | 6 C++ | #195 | §11 |
@@ -484,3 +484,34 @@ juiz-idl [-o 出力先] [-g avsc,json-schema,processes,rust] [--check] 入力.ji
   - フィールド名・記号が Rust のキーワードなら `r#type` のような raw identifier に、`self` / `Self` / `super` / `crate` なら末尾に `_` を付ける(辞書のキーは元の名前のまま)。型名・名前空間の要素にこの 4 つは使えない(エラー)。
   - `process` / `container` 宣言からの Rust のコード(skeleton)は Step 3 #192 で扱う。
 - build.rs 用ヘルパ(tonic-build と同じ流れ)は別クレートにせず `juiz_idl::build` に置く: `juiz_idl::build::compile(&["idl/geometry.jidl"])` か `juiz_idl::build::configure().avsc(true).processes(true).compile(…)`。出力先の既定は `OUT_DIR`、読んだファイルの `cargo:rerun-if-changed` を出す。
+
+## 17. Rust のマクロ(Step 3 #192 と遅延評価 L2 #176 で決めたこと)
+
+`#[juiz_process]` 系の 6 マクロ(`juiz_process`・`juiz_container`・`juiz_container_process` と、それぞれの `juiz_component_*`)は、`JuizType` を実装した型を引数・戻り値に取れる。
+
+```rust
+#[juiz_process(arguments = { default = { target = { position = { x = 0.0, y = 0.0 } } } })]
+fn move_to(target: Pose2D, speed: f64) -> JuizResult<Pose2D> { … }
+```
+
+- 引数:
+  - 今までの型(`bool`・`i64`・`f64`・`String`・`Value`・`DynamicImage`・`Vec<Value>`・`Vec<f64>`・`Vec<i64>`)は今のとおり型なしの引数にする(`schema` なし、受け取り方も今のまま)。
+  - それ以外の型は `JuizType` の型として、manifest の引数に `schema`(§6)を載せる(`add_typed_arg`)。`i32`・`f32`・`Vec<u8>`・`Vec<T>`・`HashMap<String, T>`・`Option<T>`・record・enum など。
+  - 型付きの引数の既定値は、属性の `default` に §4 の辞書の表し方で書く(`pose = { position = { x = 0.0, y = 0.0 } }`)。書かなければ `null`(「既定値なし」、§6)。
+  - 受け取りは `JuizType::extract(CapsulePtr)`。既定は `from_capsule_ptr`(辞書を読む)で、record はネイティブ値を受け取る(下)。
+- 戻り値:
+  - `JuizResult<Capsule>` / `JuizResult<JuizResponse>` は今のまま。`JuizResult<Value>` は型なしの値を返す(`output_schema` なし)。
+  - それ以外の `JuizResult<T>` は、関数を `JuizResult<Capsule>` を返す形に書き換え、`JuizType::into_capsule` で包む。manifest には `output_schema`(と、`outputs` が空なら `type_name` だけの `outputs`)を載せる(`ProcessManifest::returns::<T>()`)。`JuizResult<()>` は `null` の型で、`Capsule::Empty` を返す。
+- manifest を作るときのエラー(既定値が型に合わないなど)は、manifest の関数を呼んだとき(プラグインを読み込むとき)に関数の名前を付けて panic する。
+- `juiz_container_process` の引数の並びは宣言順にした(今までは順不同だった)。
+
+### 17.1 ネイティブ値で渡す(遅延評価 L2)
+
+- `#[derive(JuizType)]` と juiz-idl が生成する **record** は、`JuizType` の `abi_tag`・`into_capsule`・`from_capsule_ptr`・`extract` を実装し、戻り値を encode せずに `Capsule::Native(RustNative<T>)` で返す。そのため record の型には `Clone` が要る(生成コードは付けている)。enum・基本型・`Vec<T>`・`HashMap<String, T>`・`Option<T>` は今のとおり辞書で返す(小さい値は Native にしない、lazy-evaluation.md §4)。
+- Rust の ABI タグ(§12)は `rust:<rustc の版>:<juiz_sdk の版>:<アドレス>`(`juiz_sdk::types::rust_abi_tag()`)。アドレスは juiz_sdk の中の static のもので、juiz_sdk はプラグイン(cdylib)ごとに静的にリンクされるので、**同じプラグインの中でだけ**一致する。
+- 受け取り(`juiz_sdk::types::native_extract`):
+  1. 届いた値が Native で、型タグ(完全名・指紋・ABI タグ)が自分の型のものと同じで、`RustNative<T>` にダウンキャストできる(同じ形の別の Rust の型でない)ときだけ、ネイティブ値のまま受け取る。ほかに参照が無ければ(Composite の中間値)値を**移し**、あれば(接続の memo を共有しているとき)`clone` する。encode は起きない。
+  2. それ以外(別のプラグイン・型なし・他の言語の値)は、今のとおり辞書を読み(Native なら encode が起きる)、`from_value`(`read_value` で受け取る側の形にする)で作る。
+- 戻り値を Rust 以外が読むとき(ブローカー越し・他の言語・profile)は、`to_value` で encode する(lazy-evaluation.md §5)。
+- 足した API: `JuizType::extract`、`juiz_sdk::types::{RustNative, rust_abi_tag, native_into_capsule, native_from_capsule_ptr, native_extract}`、`NativeValue::into_any`(移すため。既定は `None`)、`NativeCell::try_into_value`、`Capsule::into_native_cell`、`CapsulePtr::try_into_capsule`、`ContainerManifest::add_typed_arg`。`NativeTypeTag` は `TypeTag` の別名にした(同じもの)。
+- `process` / `container` 宣言からの Rust の skeleton の生成は別の PR で扱う。

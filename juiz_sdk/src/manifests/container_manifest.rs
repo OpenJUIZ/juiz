@@ -206,6 +206,17 @@ impl ContainerManifest {
         self.add_arg(ArgumentManifest::new_image(name).description(description))
     }
 
+    /// 型付きの引数を足す ([`ArgumentManifest::new_typed`])
+    pub fn add_typed_arg(
+        self,
+        name: &str,
+        description: &str,
+        schema: crate::types::TypeSchema,
+        default: Value,
+    ) -> JuizResult<Self> {
+        Ok(self.add_arg(ArgumentManifest::new_typed(name, schema, default)?.description(description)))
+    }
+
     pub fn identifier(&self) -> JuizResult<ContainerIdentifier> {
         Ok(ContainerIdentifier::new(
             self.broker_name.clone(),

@@ -2,6 +2,7 @@ use super::container_manifest::{construct_manif_tokenstream, manifest_tokenstrea
 use super::gen_container_factory::factory_tokenstream;
 use crate::proc_macro::TokenStream;
 use crate::util::argument_statement;
+use crate::util::typed::ReturnKind;
 use crate::util::{change_argument_to_capsule_map, get_body_tokenstream};
 use quote::quote;
 use syn::{parse_macro_input, ItemFn, Stmt};
@@ -20,7 +21,7 @@ pub(crate) fn juiz_container_inner(attr: TokenStream, item: TokenStream) -> Toke
     let arg_map = change_argument_to_capsule_map(&mut ast);
 
     // このあとclearしちゃうのでまずbodyを保存。
-    let body: TokenStream = get_body_tokenstream(&ast);
+    let body: TokenStream = get_body_tokenstream(&ast, &ReturnKind::AsIs);
 
     ast.block.stmts.clear();
 

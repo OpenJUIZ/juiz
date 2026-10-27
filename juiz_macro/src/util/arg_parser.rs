@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use syn::{ItemFn, Type, TypePath};
 
 pub(crate) fn parse_arg_map(ast: &ItemFn) -> Vec<(TypePath, syn::Ident)> {
@@ -28,8 +27,8 @@ pub(crate) fn parse_arg_map(ast: &ItemFn) -> Vec<(TypePath, syn::Ident)> {
     arg_map
 }
 
-pub(crate) fn parse_arg_map_skip_first(ast: &ItemFn) -> HashMap<TypePath, syn::Ident> {
-    let mut arg_map: HashMap<TypePath, syn::Ident> = HashMap::new();
+pub(crate) fn parse_arg_map_skip_first(ast: &ItemFn) -> Vec<(TypePath, syn::Ident)> {
+    let mut arg_map: Vec<(TypePath, syn::Ident)> = Vec::new();
     let mut inputs_iter = ast.sig.inputs.iter();
     let _ = inputs_iter.next();
     for input in inputs_iter {
@@ -41,7 +40,7 @@ pub(crate) fn parse_arg_map_skip_first(ast: &ItemFn) -> HashMap<TypePath, syn::I
                 panic!("引数の名前宣言が不正");
             };
             let _type_name = if let Type::Path(type_path) = pat_type.ty.as_ref() {
-                arg_map.insert(type_path.clone(), arg_name);
+                arg_map.push((type_path.clone(), arg_name));
                 type_path
                     .path
                     .segments

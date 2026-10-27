@@ -150,14 +150,14 @@ fn process_manifest_output_schema() {
 // ---- JuizType ----
 
 /// 平面上の点
-#[derive(Debug, PartialEq, JuizType)]
+#[derive(Clone, Debug, PartialEq, JuizType)]
 #[juiz(namespace = "robot.geometry")]
 struct Point2D {
     x: f64,
     y: f64,
 }
 
-#[derive(Debug, PartialEq, JuizType)]
+#[derive(Clone, Debug, PartialEq, JuizType)]
 #[juiz(namespace = "robot.geometry")]
 struct Pose2D {
     position: Point2D,
@@ -170,7 +170,7 @@ struct Pose2D {
     comment: Option<String>,
 }
 
-#[derive(Debug, PartialEq, JuizType)]
+#[derive(Clone, Debug, PartialEq, JuizType)]
 #[juiz(namespace = "robot.geometry")]
 enum MotorMode {
     #[juiz(default)]
@@ -179,7 +179,7 @@ enum MotorMode {
     Position,
 }
 
-#[derive(Debug, PartialEq, JuizType)]
+#[derive(Clone, Debug, PartialEq, JuizType)]
 #[juiz(namespace = "robot")]
 struct Sample {
     count: i32,
@@ -212,7 +212,13 @@ fn derived_record_matches_hand_written_schema() {
         DataType::Record(r) => assert_eq!(r.doc.as_deref(), Some("平面上の点")),
         _ => panic!(),
     }
-    assert_eq!(Pose2D::type_tag(), None);
+    // record はネイティブ値で渡す (L2 #176)。enum は辞書のまま
+    let tag = Pose2D::type_tag().unwrap();
+    assert_eq!(tag.name, "robot.geometry.Pose2D");
+    assert_eq!(tag.fingerprint, Pose2D::data_type().fingerprint());
+    assert_eq!(tag.abi, juiz_sdk::types::rust_abi_tag());
+    assert!(tag.abi.starts_with("rust:"));
+    assert_eq!(MotorMode::type_tag(), None);
 }
 
 #[test]

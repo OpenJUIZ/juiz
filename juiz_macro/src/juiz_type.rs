@@ -155,6 +155,20 @@ fn derive(input: &DeriveInput) -> syn::Result<TokenStream> {
                             #(#from_values)*
                         })
                     }
+                    // record は Process の戻り値になったときネイティブ値で渡す (遅延評価 L2、lazy-evaluation.md §8・§9)。
+                    // そのため型に Clone が要る
+                    fn abi_tag() -> Option<String> {
+                        Some(juiz_sdk::types::rust_abi_tag().to_owned())
+                    }
+                    fn into_capsule(self) -> juiz_sdk::prelude::JuizResult<juiz_sdk::prelude::Capsule> {
+                        juiz_sdk::types::native_into_capsule(self)
+                    }
+                    fn from_capsule_ptr(capsule: &juiz_sdk::prelude::CapsulePtr) -> juiz_sdk::prelude::JuizResult<Self> {
+                        juiz_sdk::types::native_from_capsule_ptr(capsule)
+                    }
+                    fn extract(capsule: juiz_sdk::prelude::CapsulePtr) -> juiz_sdk::prelude::JuizResult<Self> {
+                        juiz_sdk::types::native_extract(capsule)
+                    }
                 }
             })
         }
