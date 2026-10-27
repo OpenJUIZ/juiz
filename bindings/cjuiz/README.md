@@ -21,6 +21,13 @@ Component の中の要素ならマニフェストの `factory` に書いた名�
 関数の戻り値は成功なら `JUIZ_OK`(0)、失敗なら負の値です。C++ では `bindings/cppjuiz/include/juiz/manifest.h` のマクロ
 (`PROCESS_FACTORY`、`CONTAINER_FACTORY` など)がこれらの関数を生成します。
 
+## データ型とネイティブ値(`juiz_type_*`、`capsule_set_native` など)
+
+Process の引数・戻り値の型(docs/spec/datatype.md §21)のための関数です。`juiz_type_new` は Avro のスキーマから型を作り、
+`capsule_ptr_read_typed_value` は引数を型で読みます(指紋と読み方は Rust の実装と同じ)。
+`capsule_set_native` は C++ の値を辞書にせずに戻り値に入れ、`capsule_ptr_borrow_native` は型タグの同じ値をそのまま貸します
+(遅延評価 L3、docs/spec/lazy-evaluation.md)。C++ では `bindings/cppjuiz/include/juiz/types.h` と `juiz-idl -g cpp` の生成コードがこれらを使います。
+
 ## Haskell のプラグイン(`language: "haskell"`)
 
 読み込み方は C++ と同じで、上の関数に加えて次の関数が必要です。

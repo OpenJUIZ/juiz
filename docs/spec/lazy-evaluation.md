@@ -178,7 +178,7 @@ encode は「共通形式を読む API」(§3.3)を呼んだときにだけ起�
 - Composite の中間値は受け取り手が 1 つ(Composition 仕様 §2 の木構造、§5.3 の「中間値は memo しない」)なので、`NativeCell` の参照も 1 つになる。受け取り側は `Arc::try_unwrap` で値を**移して**よい(clone 不要)。
 - 普通の接続では memo と複数の接続先が共有するので、移せない。受け取り側は参照で読むか、codec の `clone` で複製する。
 - Rust の Process の引数は値渡し(`A`)で受け、移せなければ `clone` する(計画書 §9 の論点 11)。
-- codec の表(`encode` / `decode` / `destroy` / `clone` / 型タグ)を C ABI で登録する形は L3 で決め、登録所は #163 Step 4 の型の登録所と同じものにする。
+- codec の表(`encode` / `decode` / `destroy` / `clone` / 型タグ)を C ABI で登録する形は L3 で決め、登録所は #163 Step 4 の型の登録所と同じものにする。→ L3 では、codec の表(`encode` / `destroy` / 型タグ)を値と一緒に運び、登録所には入れないことにした。C++ の受け取り側は値を借りるので `clone` は要らず、`decode` は C++ の中で閉じる(datatype.md §21.3)。
 
 ## 9. 型タグと照合
 
@@ -198,7 +198,7 @@ pub struct NativeTypeTag {
 - `name` と `fingerprint` は、その値の型の `TypeSchema`(datatype.md §6)と同じものにする。生成コードと `#[derive(JuizType)]` が出す。
 - ABI タグの中身は言語ごとに L1〜L3 で決める(datatype.md §12 の基準)。juiz は中身を解釈せず、完全一致だけを見る。
   - Rust: `rust:<rustc の版>:<cdylib を一意に表すもの>`。最初は**同じプラグイン(cdylib)の中だけ**一致する形にする(別プラグインは `repr(Rust)` の並びと `TypeId` が一致する保証がないため)。L2 で `rust:<rustc の版>:<juiz_sdk の版>:<juiz_sdk の中の static のアドレス>` に決めた(datatype.md §17.1)。
-  - C++: `cpp:<コンパイラと標準ライブラリの版>:<型パッケージの版>`
+  - C++: `cpp:<コンパイラと標準ライブラリの版>:<型パッケージの版>`。L3 で `cpp:<コンパイラ>:<標準ライブラリ>:<layout>` に決めた(datatype.md §21.4)。libjuiz_sdk は 1 つだけ読み込まれるので、Rust と違い別のプラグインどうしでも一致する
   - Python: `python:<インタプリタを一意に表すもの>`
 
 ### 9.2 照合の 3 段階
@@ -239,7 +239,7 @@ pub struct NativeTypeTag {
 | L0 仕様 | #174 | この文書 |
 | L1 Python | #175 | §3〜§7・§10・§11。juiz_sdk の `CapsuleValue::Native` と §3.2 の API、§6 のロックの順序、python_plugin の §4 と §7。テストは Python → Python(接続と Composite)で encode が起きないこと、Python → Rust・ブローカー越し・Topic で今と同じ値になること、numpy の配列を Python 同士で渡せること。`juiz_core/tests/composite_bench.rs` で効果を測り、結果を #175 に残す |
 | L2 Rust | #176(#163 Step 3 とまとめる) | §8・§9。`#[juiz_process]` 系マクロの戻り値を任意の型にして Native で返す。決めたことは datatype.md §17。テストは `juiz_sdk/tests/typed_process_test.rs`、`juiz_core/tests/rust_native_test.rs`(Composite では移すので clone も encode もしない、接続では clone 1 回、別のプラグインへは辞書) |
-| L3 C++ | #177(#163 Step 6 とまとめる) | §8・§9。`JUIZ_TYPE` による codec 登録、Native を読み書きする C ABI 関数の追加 |
+| L3 C++ | #177(#163 Step 6 とまとめる) | §8・§9。`JUIZ_TYPE` による codec 登録、Native を読み書きする C ABI 関数の追加。決めたことは datatype.md §21(codec は値と一緒に運び、登録所には入れない。C++ の受け取り側は値を複製せずに借りる)。テストは `juiz_core/tests/cpp_typed_test.rs` |
 
 ## 13. 対象外(後の Step か、未定)
 

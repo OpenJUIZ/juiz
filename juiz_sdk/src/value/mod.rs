@@ -18,6 +18,8 @@ pub mod capsule_map_converter;
 pub mod capsule_ptr;
 pub mod capsule_ptr_converter;
 
+pub mod native_converter;
+
 pub use capsule::*;
 pub use native::*;
 pub use capsule_map::*;

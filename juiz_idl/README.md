@@ -7,6 +7,7 @@
 - `<namespace>.processes.json`: `process` / `container` 宣言のシグネチャ
 - Rust: struct / enum と `juiz_sdk::types::JuizType` の実装
 - Rust の雛形 (`-g rust-skeleton`): `process` / `container` 宣言から、本体が `todo!()` のコンポーネント `<namespace>.skeleton.rs`
+- C++ (`-g cpp`): 名前空間ごとのヘッダ (`robot.geometry.h`) と全部を読み込む `juiz_idl.h` に struct / enum class と cppjuiz の `juiz::type_traits` の特殊化 (ヘッダのみ)
 - Python (`-g python`): 名前空間ごとのパッケージ (`robot/geometry/__init__.py`) に dataclass / enum.Enum と、`process` / `container` 宣言の型付きクライアント (pyjuiz を使う)
 
 仕様は [docs/spec/datatype.md](https://github.com/OpenJUIZ/juiz/blob/main/docs/spec/datatype.md) の §9・§16・§18・§20 にあります。
@@ -68,6 +69,30 @@ def move_to(target: Pose2D, speed: float = 1.0) -> Pose2D:   # 引数は Pose2D 
 
 pose = MoveToClient.connect('move_to0', port=8000)(Pose2D(...))  # 型付きクライアント
 ```
+
+## C++ から使う
+
+CMake の関数 `juiz_generate_types()` (juiz の `bindings/cppjuiz/cmake/juiz_idl.cmake`) が、ビルドのときにヘッダを作ります。
+
+```cmake
+include(${JUIZ_HOME}/bindings/cppjuiz/cmake/juiz_idl.cmake)
+juiz_generate_types(my_component IDL idl/geometry.jidl DEPENDS idl/common.jidl)
+```
+
+```cpp
+#include "juiz/juiz.h"
+#include "juiz_idl.h"
+using robot::geometry::Pose2D;
+
+static auto move_to_manif = ProcessManifest("move_to")
+    .add_typed_arg<Pose2D>("target", "")
+    .add_float_arg("speed", "", 1.0)
+    .returns<Pose2D>();
+std::optional<Pose2D> move_to(const Pose2D& target, double speed) { ... }
+COMPONENT_PROCESS_FACTORY(move_to_manif, move_to);
+```
+
+戻り値の record は辞書にせず C++ の値のまま渡り、同じコンパイラでビルドした C++ の Process はそのまま (複製せずに) 受け取ります。
 
 ## ライセンス
 

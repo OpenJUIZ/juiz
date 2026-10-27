@@ -103,8 +103,9 @@ jobs:
           ghc-version: "9.6"
           cabal-version: latest
 
-      - name: Build libjuiz_sdk
-        run: cargo build -p juiz_sdk
+      # C++ の例のビルドに juiz-idl (juiz_generate_types) も使う
+      - name: Build libjuiz_sdk and juiz-idl
+        run: cargo build -p juiz_sdk -p juiz_idl
 
       # haskell_container_test は C++ の Container (example_container_cpp) も読み込む
       - name: Build C++ examples

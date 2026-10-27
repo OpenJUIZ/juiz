@@ -376,7 +376,7 @@ ROS 2 の `.msg` / `.srv` / `.idl` を JIDL / .avsc に変換する。juiz の�
 | record | `struct` | `@dataclass` | `struct` | record | `interface` |
 | enum | `enum` | `enum.Enum`(値は記号の文字列) | `enum class` | 直和型 | 文字列リテラルの union |
 | `any` | `Value` | `Any` | `juiz::value` | `Value` | `unknown` |
-| `image` | `DynamicImage` | `PIL.Image.Image` | 今の cppjuiz の画像型 | 今の hsjuiz の画像型 | (扱わない) |
+| `image` | `DynamicImage` | `PIL.Image.Image` | (まだ扱わない。cppjuiz に画像型がない、§21) | 今の hsjuiz の画像型 | (扱わない) |
 
 - 生成コードは型ごとに、スキーマ(§6 の `TypeSchema`)を返す関数と、§4 の辞書との変換(`to_value` / `from_value` に当たるもの)を持つ。
 - Rust の `#[derive(JuizType)]` は、Rust の struct / enum から同じスキーマを作る。名前空間は `#[juiz(namespace = "robot.geometry")]` で書き、省略時はエラー。フィールドの順番は宣言順。JIDL で同じ形に書いた型と指紋が一致しなければならない。derive は Rust の中で閉じ、他の言語へは JIDL(または derive が書き出す .avsc)経由で渡す。
@@ -406,7 +406,7 @@ ROS 2 の `.msg` / `.srv` / `.idl` を JIDL / .avsc に変換する。juiz の�
 | 3 Rust マクロ | #192 | §6、§11(`#[juiz_process]` 系が `JuizType` を受ける)(§17) |
 | 4 core | #193 | §7、§8(接続時・Topic・呼び出し時)(§19) |
 | 5 Python | #194 | §11(§20) |
-| 6 C++ | #195 | §11 |
+| 6 C++ | #195 | §11(§21) |
 | 7 Haskell | #196 | §11 |
 | 8 CLI・管理画面 | #197 | §5.2(表示)、§6 |
 | 13 ROS 2 の取り込み | #201 | §10 |
@@ -464,6 +464,8 @@ juiz-idl [-o 出力先] [-g avsc,json-schema,processes,rust] [--check] 入力.ji
 | processes | `<namespace>.processes.json` | §9.3 のシグネチャ。同じ名前空間のファイルは 1 つにまとめる |
 | rust | `<namespace>.rs`、`juiz_idl.rs` | struct / enum と `JuizType` の実装、名前空間のモジュールの木 |
 | rust-skeleton | `<namespace>.skeleton.rs` | `process` / `container` 宣言の Rust の雛形(§18) |
+| python | `<a>/<b>/__init__.py` | dataclass / enum.Enum と client stub(§20) |
+| cpp | `<namespace>.h`、`juiz_idl.h` | struct / enum class と cppjuiz の `juiz::type_traits` の特殊化(§21) |
 
 - JIDL の細部:
   - `/** … */` は宣言・フィールド・引数・`container_process` の前に書く。注釈との順番は問わない。行頭の `*` は落とす。
@@ -570,7 +572,7 @@ core の実装は `juiz_core::types` にある。
 | `type/list` | `[{identifier, name, fingerprint, short_identifier, kind, used_by}]`(`identifier` の順)。`kind` は `record` / `enum`、`used_by` はその型を使っている Factory の型名(名前順) |
 | `type/schema?identifier=…` | 型参照 `{name, fingerprint, avro}`(§6 と同じ形、`avro` は自己完結)。`identifier` は `<完全名>@sha256:…` か完全名だけ。完全名だけで指紋の違う型が複数あるか、見つからなければ `TypeNotFoundError` |
 
-- 遅延評価の codec の登録(L3 #177)は、この登録所に足す。CLI の `juiz type list / show` と管理画面での表示は Step 8(#197)。
+- 遅延評価の codec(L3 #177)は、この登録所には足さず、値と一緒に運ぶことにした(§21.3)。CLI の `juiz type list / show` と管理画面での表示は Step 8(#197)。
 
 ## 20. Python(Step 5 #194 で決めたこと)
 
@@ -618,3 +620,67 @@ core の実装は `juiz_core::types` にある。
 
 - `bindings/pyjuiz/test/gen` は `juiz_idl/test_package/idl/geometry.jidl` から作った Python のコードで、リポジトリに入れておく。juiz_idl の `python_gen_is_up_to_date` が生成器の出力と一致するかを確かめる(作り直しは `JUIZ_IDL_UPDATE_PYTHON_GEN=1 cargo test -p juiz_idl --test idl_test python_gen_is_up_to_date`)。
 - `bindings/pyjuiz/test/datatype_test.py`(変換・デコレータ・client stub、juiz を起動しない)、`juiz_core/tests/python_datatype_test.rs`(manifest の型参照と Rust の指紋の一致、Python 同士でネイティブ値のまま渡ること、Python ↔ Rust の辞書の受け渡し、接続時の型検査、`bindings/pyjuiz/test/typed_client_test.py` で HTTP 越しの client stub)。
+
+## 21. C++(Step 6 #195 と遅延評価 L3 #177 で決めたこと)
+
+### 21.1 生成器の C++ 出力
+
+`juiz-idl -g cpp`(`juiz idl` も同じ)は、名前空間 `a.b` ごとにヘッダ `a.b.h` と、全部を読み込む `juiz_idl.h` を書き出す。ヘッダだけで使え、cppjuiz の `juiz/types.h` に依存する(生成した Rust のコードが juiz_sdk に、Python のコードが pyjuiz に依存するのと同じ)。既定の `-g` には入れない。
+
+- record は `struct`(フィールドは宣言順、既定値はメンバの初期化子。`==` / `!=` を持つ)、enum は `enum class`。型の対応は §11(`int` は `int32_t`、`long` は `int64_t`、`bytes` は `std::vector<uint8_t>`、`T?` は `std::optional<T>`、`map<T>` は `std::map<std::string, T>`、`any` は `juiz::Value`)。名前空間 `a.b` は C++ の `a::b`。
+- 既定値は、基本型・`string`・enum・それらの `T?` はリテラル、それ以外(配列・辞書・record・bytes・any)は辞書のリテラルから `type_traits<T>::from_value` で作る。文字列のリテラルは `"`・`\`・ASCII 以外のバイトをエスケープする(ソースの文字コードに依らないように)。
+- 型ごとに `juiz::type_traits<T>` を特殊化する。`type_info()`(型参照。.avsc と同じスキーマを埋め込み、指紋は libjuiz_sdk(Rust の juiz_types)が計算するので .avsc・Rust・Python と一致する)、`to_value` / `from_value`(§4 の辞書との変換)、`native`(record は true、enum は false)、`layout()`(ABI タグに入れる生成器の版 `juiz-idl-<版>`)。
+- 参照する型が先に来るように並べ直す(record は値で持つので)。ほかの名前空間の型を参照するヘッダはそのヘッダを `#include` する。名前空間どうしが互いに参照するときはヘッダが書けないのでエラー(Rust・Python は書ける)。
+- フィールド名・記号が C++ のキーワード(と `NULL`)なら末尾に `_` を付ける(辞書のキーは元の名前のまま)。型名・名前空間の要素がキーワードならエラー。名前空間のない型はエラー。
+- `process` / `container` 宣言からは何も作らない(雛形・client stub は後、§14)。`image` は cppjuiz に画像型がないのでまだ扱わない。
+
+CMake の関数 `juiz_generate_types()`(`bindings/cppjuiz/cmake/juiz_idl.cmake`)は、ビルドのときに `juiz-idl -g cpp` を実行してヘッダを作り、そのディレクトリをターゲットの include ディレクトリに足す。
+
+```cmake
+include(<juiz>/bindings/cppjuiz/cmake/juiz_idl.cmake)
+juiz_generate_types(my_component IDL idl/geometry.jidl DEPENDS idl/common.jidl)
+```
+
+- `juiz-idl` は `JUIZ_IDL_EXECUTABLE` か PATH(と `JUIZ_IDL_HINTS`)から探す。import した先は `juiz-idl` の引数には要らないが、変わったときに作り直すには `DEPENDS` に書く。
+
+### 21.2 cppjuiz(`juiz/types.h`)
+
+- `juiz::type_traits<T>` が型と辞書(`juiz::Value`)の変換を受け持つ。基本型・`std::vector`・`std::map`・`std::optional`・`juiz::Value` には用意してある。型参照(`type_info()`)を持つ型を**型付きの型**(`juiz::is_typed_v<T>`)と呼び、生成した record・enum と `JUIZ_TYPE` で登録した型がこれに当たる。
+- manifest: `ProcessManifest::add_typed_arg<T>(name, description[, 既定値の T])`(既定値を書かなければ「既定値なし」)、`add_typed_arg_value<T>(name, description, 辞書の既定値)`、`returns<T>()`(`output_schema` と、`type_name` だけの `outputs`)。引数の `type_name` は §6 の表。
+- 引数: `PROCESS_FACTORY` などの関数の引数に型付きの型を `T` か `const T&` で書ける(`bind_process` / `bind_container_process` の多重定義)。受け取り方は次の 2 つ。
+  1. 届いた値が型タグ(完全名・指紋・ABI タグ)の同じ C++ のネイティブ値なら、**複製せずに借りて**渡す(`capsule_ptr_borrow_native`)。`const T&` で受ければ複製も起きない。
+  2. それ以外は、libjuiz_sdk が辞書を型で読み(`capsule_ptr_read_typed_value`。§4 の規則で、足りないフィールドを既定値で埋め、型にないキーを落とす。Native なら encode する)、`from_value` で作る。合わなければ `juiz::ValueDoesNotMatchTypeError` を投げ、マクロが `JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR`(-702)を返す。
+- 戻り値: `std::optional<T>` の `T` に型付きの型を書ける(`serialize` の多重定義)。record(`native` が true)は**辞書にせず** C++ の値のまま `Capsule::Native` に入れ(`capsule_set_native`)、enum は辞書(記号の文字列)にする。`juiz::Value` を返す `serialize` も足した。
+- 手で書いた型は `JUIZ_TYPE(T, Avro のスキーマの JSON, layout の文字列, to_value 関数, from_value 関数)` で登録する(IDL を使わないとき)。ネイティブ値で渡す。`layout` は T の定義を変えたら変える(ABI タグに入る)。
+- 型ごとの static(`TypeInfo` と codec の表)は名前のない名前空間の関数に置き、プラグインごとに持つ。GCC はテンプレートや inline 関数の static を `STB_GNU_UNIQUE` にして、別々に開いたプラグインどうしで 1 つに共有してしまう(ABI タグや型の版の違うプラグインの値を取り違える)ため。プラグインの中の inline 変数も同じく共有されるので、プラグインごとの状態は `static` にする。
+- あわせて直したもの: `juiz::Value` を辞書に書くときに `null` を落としていた(`T?` の空が消える)のを、`null` を書くようにした。そのため C++ の `ContainerManifest` の `arguments`(引数なしで `null`)は空の配列で書く。
+
+### 21.3 C ABI(libjuiz_sdk、`juiz_sdk.h` に足した関数)
+
+既存の関数は変えず、足しただけ(lazy-evaluation.md §11)。
+
+| 関数 | 内容 |
+|---|---|
+| `juiz_type_new(avro_json, &t)` / `juiz_type_free(t)` | Avro のスキーマから型を作る。§3 に合わなければ `JUIZ_TYPE_SCHEMA_INVALID_ERROR`(-701、理由はログ) |
+| `juiz_type_describe(t, callback, arg)` | `{"schema": 型参照, "type_name": manifest の type_name}` を `value` で渡す |
+| `capsule_ptr_read_typed_value(cp, t, path, callback, arg)` | 引数の値を §4 の規則で型 `t` で読み、読んだ値を渡す。合わなければ `JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR`(-702、理由はログ) |
+| `capsule_set_native(cp, obj, codec)` | C++ の値 `obj` を encode せずに戻り値に入れる。`obj` の持ち主は juiz になり、要らなくなったら `codec->destroy` で解放する |
+| `capsule_ptr_borrow_native(cp, codec, &obj, &ref)` / `juiz_native_ref_release(ref)` | 型タグが `codec` と同じ C++ のネイティブ値なら貸す(`ref` を返すまで生きている)。違えば `JUIZ_NATIVE_NOT_MATCHED`(-703) |
+
+- codec の表 `juiz_native_codec` は `{name, fingerprint, abi, encode, destroy}`。`encode(obj, capsule*)` は §4 の辞書を書く(Rust・Python・ブローカー越し・profile・ABI タグの違う C++ が読むときだけ呼ばれ、結果は覚えておく)。表はプラグインの中の static に置き、値と一緒に運ぶ(登録所には入れない。§19.4 の登録所は Factory の manifest から問い合わせのたびに作るので、そこに codec を置く場所がないため)。
+- issue #177 の案にあった `decode` と `clone` は C ABI に入れなかった。`decode` は C++ の中で閉じる(`from_value`)。値は共有されたまま const で読むだけ(貸す)なので、juiz が C++ の値を複製することはない。
+
+### 21.4 ABI タグ(§12)
+
+C++ の ABI タグは `cpp:<コンパイラ>:<標準ライブラリ>:<layout>[:<JUIZ_CPP_ABI_TAG_EXTRA>]`(`juiz::cpp_abi_tag`)。
+
+- コンパイラは `clang-<major>.<minor>` / `gcc-<major>.<minor>` / `msvc-<_MSC_VER>`、標準ライブラリは `libstdc++-<__GLIBCXX__>-cxx11abi<0|1>`(`_GLIBCXX_DEBUG` なら `-debug`)/ `libc++-<版>-abi<版>` / `msvcstl-<版>-idl<_ITERATOR_DEBUG_LEVEL>`。
+- `layout` は型のメモリ上の形の版。生成した型は `juiz-idl-<版>`、`JUIZ_TYPE` の型は書いた文字列。
+- 同じコンパイラ・同じ標準ライブラリ・同じ生成器の版でビルドしたプラグインどうしなら、**別のプラグインでも**ネイティブ値のまま渡る(Rust と違い、libjuiz_sdk は共有ライブラリで 1 つだけ読み込まれるので、値と codec を別のプラグインから読める)。ビルドの設定を区別したいときは `JUIZ_CPP_ABI_TAG_EXTRA` を定義する。
+
+### 21.5 テスト
+
+- `examples/cpp/component/cpp_typed_component`(`juiz_generate_types()` で `juiz_idl/test_package/idl/geometry.jidl` から型を作る。`JUIZ_TYPE` の `counted.Odometry` は encode・decode の回数を数える)と、同じ型を `JUIZ_CPP_ABI_TAG_EXTRA` で ABI タグを変えて受け取る `cpp_typed_component_other_abi`。
+- `juiz_core/tests/cpp_typed_test.rs`: manifest の型参照と Rust の指紋の一致、C++ どうしの Composite・接続で encode も decode も起きないこと、ABI タグの違う C++・C++ → Rust・Rust → C++ が辞書を通ること、辞書の引数が型で読まれること、すべての型のフィールドの往復、ContainerProcess の型付きの引数。
+- `juiz_idl/tests/idl_test.rs` の `cpp_code`(生成したコードの形、名前空間の循環とキーワードのエラー)。
+
