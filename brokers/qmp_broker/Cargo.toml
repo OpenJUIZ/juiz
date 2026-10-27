@@ -1,6 +1,6 @@
 [package]
 name = "juiz_qmp_broker"
-version = "0.0.24"
+version = "0.0.25"
 edition = "2021"
 description = "QUIC (qmp) broker for JUIZ. juiz_app includes it by default."
 license.workspace = true
