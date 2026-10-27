@@ -409,6 +409,7 @@ ROS 2 の `.msg` / `.srv` / `.idl` を JIDL / .avsc に変換する。juiz の�
 | 6 C++ | #195 | §11(§21) |
 | 7 Haskell | #196 | §11(§22) |
 | 8 CLI・管理画面 | #197 | §5.2(表示)、§6(§23) |
+| 10 配布・`juiz_std_types` | #199 | §5.2(型パッケージの版)、§7.3(§24) |
 | 13 ROS 2 の取り込み | #201 | §10 |
 | Composite C8 | #172 | §7、§8 |
 | 遅延評価 L1〜L3 | #175〜#177 | §12 |
@@ -451,7 +452,7 @@ ROS 2 の `.msg` / `.srv` / `.idl` を JIDL / .avsc に変換する。juiz の�
 juiz-idl [-o 出力先] [-g avsc,json-schema,processes,rust] [--check] 入力.jidl|入力.avsc ...
 ```
 
-- 入力は .jidl と .avsc(§9.4)。`import` した先も読み、**読んだすべてのファイルの名前付き型**を書き出す(生成した Rust のコードが参照する型をそろえるため)。`import` のパスは import を書いたファイルからの相対パス。import の循環はエラー。
+- 入力は .jidl と .avsc(§9.4)。`import` した先も読み、**読んだすべてのファイルの名前付き型**を書き出す(生成した Rust のコードが参照する型をそろえるため)。`import` のパスは import を書いたファイルからの相対パス(見つからなければ import の探し先と組み込みの型、§24.1)。import の循環はエラー。
 - 同じ完全名の型が複数のファイルにあるとき、中身(doc・既定値・aliases も含めた型のモデル)が同じなら 1 つにまとめ、違えばエラー。
 - `-g` を省いたときは `avsc,json-schema,processes`。`--check` は書き出さずに検査し、型の識別子(§5.2)を表示する。中身が同じファイルは書き直さない。
 - エラーは `ファイル:行:桁: 内容` の形。スキーマの規則(§3)の検査は `juiz_types` に任せる。
@@ -763,3 +764,84 @@ HTTP ブローカーの `/api-docs/openapi.json`(Swagger UI `/docs` が読むも
 - `juiz_app/src/types.rs` の単体テスト(表・JIDL・.avsc・JSON Schema の出力)と `juiz_app/tests/type_cli_test.rs`(native_pose_component を読み込んだ juiz を起動し、`juiz type list / show` を実行。ポート 8052)。
 - `juiz_core/src/types/openapi.rs` の単体テストと、`juiz_core/tests/type_check_test.rs` の `type_registry_api`(`/api-docs/openapi.json` と `process/openapi_spec`)。
 - 管理画面は `npm run typecheck` と `npm run lint`。フォームから呼ぶところは手で確かめた。
+
+## 24. 型パッケージの配布と標準の型 juiz_std(Step 10 #199 で決めたこと)
+
+型パッケージは、JIDL(と手で書いた .avsc)と、そこから作った各言語のコードをまとめて配るもの。型の同一性は指紋で決まり、パッケージの版は識別子に入れない(§5.2)ので、**同じ JIDL から作ったものなら、どの言語・どのパッケージから使っても同じ型**になる。
+
+### 24.1 import の探し先
+
+`import idl "x/y.jidl";` / `import schema "x/y.avsc";` は次の順に探し、最初に見つかったものを読む。
+
+1. import を書いたファイルからの相対パス(今まで通り)。組み込みのファイルの中では、組み込みのファイルどうしの相対パス。
+2. import の探し先。`juiz-idl -I <dir>`(`--import-dir`、繰り返し可)、build.rs の `Builder::import_dir`、CMake の `juiz_generate_types(… IMPORT_DIRS <dir>)` で指定した順、次に環境変数 `JUIZ_IDL_PATH`(`PATH` と同じ区切りのディレクトリの並び)の順。
+3. juiz-idl に組み込んだファイル(§24.4 の `juiz_std/…`)。
+
+- どこにもなければ `ファイル:行:桁: imported file '…' is not found …` のエラー。
+- コマンド・build.rs の入力に書いたパスは、ファイルがあればそれを、なければ組み込みのファイルを読む(`juiz-idl -g python juiz_std/geometry.jidl`)。
+- 組み込みのファイルは build.rs の `cargo:rerun-if-changed` に出さない(juiz_idl の中にあるので、juiz_idl が変われば作り直される)。`JUIZ_IDL_PATH` には `cargo:rerun-if-env-changed` を出す。
+- 同じ完全名の型が別のファイルにあるときの扱いは今まで通り(中身が同じなら 1 つにまとめ、違えばエラー、§16)。探し先の順で別のファイルが選ばれても、中身が同じなら結果は変わらない。
+
+### 24.2 ほかのパッケージの型を参照する(extern)
+
+`--extern <名前空間>[=<Rust のパス>]`(build.rs は `Builder::extern_path(名前空間, Rust のパス)`)を指定すると、その名前空間と下の名前空間(`juiz_std` なら `juiz_std.geometry` なども。`juiz_std2` は含まない)の型を**書き出さない**。型は import で読むので、指紋・検査・既定値の検査は今まで通り行う。
+
+| 出力 | extern の型の扱い |
+|---|---|
+| avsc・json-schema・processes | その名前空間のファイルを書かない |
+| rust・rust-skeleton | `<Rust のパス>::<残りの名前空間>::<型名>` を参照する(`juiz_std=::juiz_std_types::juiz_std` なら `::juiz_std_types::juiz_std::geometry::Pose2D`)。`juiz_idl.rs` にもその名前空間を入れない。Rust のパスがない extern の型を参照するとエラー |
+| python | パッケージを書かない。参照は今まで通り `import juiz_std.geometry as …` なので、そのパッケージが入っていればよい(pyjuiz の `juiz_std`) |
+| cpp | ヘッダを書かない。参照は今まで通り `#include "juiz_std.geometry.h"` なので、そのヘッダが include の探し先にあればよい |
+| haskell | モジュールを書かない。参照は今まで通り `import qualified …` なので、そのモジュールを公開しているパッケージに依存すればよい |
+| typescript | ファイルを書かない。参照は `./juiz_std.geometry.js` の相対パスのままなので、同じ出力先に置く |
+
+- 使い分け: Rust と Python は extern を使い、型を持つパッケージのものを使う(同じ型が 2 つの Rust の型になるのを避ける)。C++・Haskell・TypeScript はふつう extern を使わず、import した型も一緒に作る(ヘッダ・モジュールはプラグインやアプリごとにビルドするので、作り直しても困らない)。
+
+### 24.3 型パッケージの作り方と公開の手順
+
+JIDL を正本にして、各言語のパッケージにはそこから作ったものを入れる。どの言語でも **.jidl をパッケージに入れて配る**(使う側がそれを import して自分の型のフィールドに使えるようにするため)。
+
+- **Rust(crates.io)**
+  - `idl/*.jidl` をクレートに入れ、build.rs で `juiz_idl::build::compile`、`src/lib.rs` で `include!(concat!(env!("OUT_DIR"), "/juiz_idl.rs"));`。依存は `juiz_sdk`、`[build-dependencies]` に `juiz_idl`(juiz の版に揃える)。
+  - 使う側の build.rs が .jidl を見つけられるように、Cargo.toml に `links = "<クレート名>"` を書き、build.rs で `juiz_idl::build::export_idl_dir("idl")` を呼ぶ。直接依存するクレートの build.rs では、環境変数 `DEP_<links の値を大文字にし - を _ にしたもの>_IDL_DIR` にそのディレクトリの絶対パスが入るので、それを `import_dir` に渡し、`extern_path("<名前空間>", "::<クレート名>::<名前空間の先頭の要素>")` を足す(例は juiz_idl の README)。
+  - 公開は `cargo publish`。初めて公開するクレートはトークンに publish-new の権限が要る。
+- **Python(PyPI)**
+  - `juiz-idl -g python -o <パッケージの置き場所> idl/*.jidl` で作ったパッケージ(名前空間 `a.b` → `a/b/__init__.py`)をコミットして wheel に入れる。依存は `pyjuiz`(生成したコードが `juiz.datatype` を使う)。
+  - 自分の型が別の型パッケージの型を使うなら、`--extern <その名前空間>` を付けて作り、そのパッケージを依存に書く。
+  - JIDL の名前空間の先頭がそのまま Python のトップレベルのパッケージ名になるので、PyPI のほかのパッケージとぶつからない名前空間にする。`juiz` は pyjuiz のパッケージ名なので使えない(型の名前空間としても予約、§3.4)。
+  - 生成したコードが JIDL と一致するかを CI で確かめる(pyjuiz の `juiz_std` は juiz_idl の `pyjuiz_std_types_are_up_to_date` テスト)。
+- **C++(CMake パッケージ)**
+  - .jidl を `share/<パッケージ名>/idl` などに入れて配り、使う側は `juiz_generate_types(<target> IDL <使う .jidl> IMPORT_DIRS <その idl ディレクトリ>)` でヘッダを作る(ヘッダはビルドのたびに作るので、生成したヘッダは配らなくてよい)。CMake パッケージにするなら `<パッケージ名>Config.cmake` に idl ディレクトリの変数を置く。
+- **Haskell(Hackage)**
+  - `juiz-idl -g haskell -o src idl/*.jidl` で作ったモジュールをコミットして `exposed-modules` に書く(Template Haskell や Setup.hs で作らない。hsjuiz と同じく素の cabal で入るようにする)。依存は `hsjuiz`。.jidl は `extra-source-files` に入れる。
+  - 別の型パッケージの型を使うなら `--extern <その名前空間>` を付けて作り、そのパッケージを `build-depends` に書く。
+- **型を変えるとき**: 既存の型のフィールドの型・名前・順番を変えると指紋が変わり、古い版の型とは別の型になる(§7.3)。フィールドを足すときは既定値を付ける(互換のまま読める)。パッケージの版を上げても、指紋が同じなら同じ型として扱う。
+
+### 24.4 標準の型 juiz_std
+
+juiz-idl(`juiz_idl/std/juiz_std/*.jidl`)に組み込み、どこからでも `import idl "juiz_std/geometry.jidl";` で読める標準の型。名前空間は `juiz_std.*`(`juiz.*` は予約なので使わない)。長さは [m]、角度は [rad]、時間は [s]。**すべてのフィールドに既定値がある**(引数を省いても作れる)。
+
+| ファイル | 名前空間 | 型 |
+|---|---|---|
+| `juiz_std/common.jidl` | `juiz_std.common` | `Time {sec, nanosec}`、`Duration {sec, nanosec}`、`Header {stamp, frame_id}` |
+| `juiz_std/geometry.jidl` | `juiz_std.geometry` | `Point2D`、`Point3D`、`Vector2`、`Vector3`、`Quaternion`(既定は回転なし `w = 1`)、`Pose2D {position, theta}`、`Pose {position, orientation}`、`Twist2D {linear: Vector2, angular}`、`Twist {linear, angular}`、`Pose2DStamped`、`PoseStamped` |
+| `juiz_std/sensor.jidl` | `juiz_std.sensor` | `ImageInfo {header, width, height, encoding}`(画像のメタ情報。画素は `image` 型で別に渡す、§3.3)、`Imu`、`LaserScan`、`Range` |
+
+- 名前とフィールドは ROS 2 の `std_msgs`・`builtin_interfaces`・`geometry_msgs`・`sensor_msgs` に寄せた(Step 13 の取り込みで対応を付けやすくするため)。ただし juiz の型として別に定義したもので、`ros2.*` の型とは指紋が違う。
+- 一度出した型は変えない(フィールドを足すときは既定値を付ける)。指紋は `juiz_idl/tests/idl_test.rs` の `std_type_fingerprints_are_fixed` で固定する。
+
+| 言語 | 入手のしかた |
+|---|---|
+| Rust | クレート `juiz_std_types`(`juiz_std_types::geometry::Pose2D`)。build.rs で組み込みの JIDL から作る。自分の JIDL から参照するときは `extern_path("juiz_std", "::juiz_std_types::juiz_std")` |
+| Python | pyjuiz に同梱のパッケージ `juiz_std`(`from juiz_std.geometry import Pose2D`)。自分の JIDL から作るときは `--extern juiz_std` |
+| C++ | `juiz_generate_types(<target> IDL juiz_std/geometry.jidl)` か、自分の .jidl で import する(ヘッダは `juiz_std::geometry::Pose2D`) |
+| Haskell | `juiz-idl -g haskell juiz_std/geometry.jidl`(モジュールは `Juiz_std.Geometry`、§22.1 の名前の付け方どおり) |
+| TypeScript | `juiz-idl -g typescript juiz_std/geometry.jidl` |
+
+### 24.5 テスト
+
+- `juiz_idl/tests/idl_test.rs` の `builtin_std_types`(組み込みのファイルを入力・import に書ける、全フィールドに既定値)、`import_dirs`(`-I` の探し方と相対パスが先)、`extern_namespaces`(書き出さない・Rust のパス・Python の import)、`std_type_fingerprints_are_fixed`、`pyjuiz_std_types_are_up_to_date`。
+- `juiz_std_types/tests/std_types_test.rs`(辞書との変換、既定値)と `juiz_std_types/test_package`(`extern_path` で juiz_std_types の型を参照する型のクレート)。
+- `bindings/pyjuiz/test/std_types_test.py`(pyjuiz の `juiz_std` を Process の引数・戻り値に使う)。
+- C++ は組み込みの JIDL と `IMPORT_DIRS` を使う `juiz_generate_types` でヘッダを作り、g++ でビルドできることを手で確かめた。Haskell の生成コードは §22 のテスト(`haskell_code`)と同じ生成器で作る。
+

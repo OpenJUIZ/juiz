@@ -1,0 +1,81 @@
+// juiz の標準の型 (juiz_std): 点・ベクトル・姿勢・速度
+// juiz-idl に組み込まれていて、どこからでも `import idl "juiz_std/geometry.jidl";` で読める (docs/spec/datatype.md §24)。
+// 長さは [m]、角度は [rad]、時間は [s] で表す。
+namespace juiz_std.geometry;
+
+import idl "common.jidl";
+
+/** 平面上の点 */
+record Point2D {
+  double x = 0.0;
+  double y = 0.0;
+}
+
+/** 空間の点 */
+record Point3D {
+  double x = 0.0;
+  double y = 0.0;
+  double z = 0.0;
+}
+
+/** 平面上のベクトル */
+record Vector2 {
+  double x = 0.0;
+  double y = 0.0;
+}
+
+/** 空間のベクトル */
+record Vector3 {
+  double x = 0.0;
+  double y = 0.0;
+  double z = 0.0;
+}
+
+/** 回転を表す四元数 (既定値は回転なし) */
+record Quaternion {
+  double x = 0.0;
+  double y = 0.0;
+  double z = 0.0;
+  double w = 1.0;
+}
+
+/** 平面上の姿勢 */
+record Pose2D {
+  Point2D position = {"x": 0.0, "y": 0.0};
+  /** 向き [rad] */
+  double theta = 0.0;
+}
+
+/** 空間の姿勢 */
+record Pose {
+  Point3D position = {"x": 0.0, "y": 0.0, "z": 0.0};
+  Quaternion orientation = {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0};
+}
+
+/** 平面上の速度 */
+record Twist2D {
+  /** 並進 [m/s] */
+  Vector2 linear = {"x": 0.0, "y": 0.0};
+  /** 回転 [rad/s] */
+  double angular = 0.0;
+}
+
+/** 空間の速度 */
+record Twist {
+  /** 並進 [m/s] */
+  Vector3 linear = {"x": 0.0, "y": 0.0, "z": 0.0};
+  /** 回転 (各軸まわり) [rad/s] */
+  Vector3 angular = {"x": 0.0, "y": 0.0, "z": 0.0};
+}
+
+/** 時刻と座標系つきの平面上の姿勢 */
+record Pose2DStamped {
+  juiz_std.common.Header header = {"stamp": {"sec": 0, "nanosec": 0}, "frame_id": ""};
+  Pose2D pose = {"position": {"x": 0.0, "y": 0.0}, "theta": 0.0};
+}
+
+/** 時刻と座標系つきの空間の姿勢 */
+record PoseStamped {
+  juiz_std.common.Header header = {"stamp": {"sec": 0, "nanosec": 0}, "frame_id": ""};
+  Pose pose = {"position": {"x": 0.0, "y": 0.0, "z": 0.0}, "orientation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}};
+}

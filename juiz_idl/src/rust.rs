@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 
 use juiz_types::DataType;
 
-use crate::{GeneratedFile, IdlError};
+use crate::{GenerateOptions, GeneratedFile, IdlError};
 
 /// 名前空間の木のファイル名
 pub const MODULE_TREE_FILE: &str = "juiz_idl.rs";
@@ -19,6 +19,14 @@ pub(crate) const HEADER: &str =
 
 /// 名前付き型 (record・enum) の Rust のコード。名前空間ごとのファイルと `juiz_idl.rs`
 pub fn generate_rust(types: &[DataType]) -> Result<Vec<GeneratedFile>, IdlError> {
+    generate_rust_with(types, &GenerateOptions::default())
+}
+
+/// extern の名前空間 (仕様 §24.2) の型は `rust_path` の下の型を参照する。`types` に extern の型を入れないこと
+pub(crate) fn generate_rust_with(
+    types: &[DataType],
+    options: &GenerateOptions,
+) -> Result<Vec<GeneratedFile>, IdlError> {
     let mut by_namespace: BTreeMap<String, Vec<&DataType>> = BTreeMap::new();
     for t in types.iter() {
         let namespace = match t {
@@ -41,7 +49,7 @@ pub fn generate_rust(types: &[DataType]) -> Result<Vec<GeneratedFile>, IdlError>
         let mut out = String::from(HEADER);
         for t in ts.iter() {
             out.push('\n');
-            out.push_str(&type_code(t, namespace)?);
+            out.push_str(&type_code(t, namespace, options)?);
         }
         files.push(GeneratedFile {
             path: format!("{namespace}.rs").into(),
@@ -125,14 +133,36 @@ fn module_ident(name: &str) -> Result<String, IdlError> {
 }
 
 /// 名前付き型の Rust のパス (`namespace` のモジュールの中から見た相対パス)。
-/// `from_namespace` が空なら `crate::…` から始まるパス (`juiz_idl.rs` をクレートの一番上で読み込んだとき)
-fn named_path(t: &DataType, from_namespace: &str) -> Result<String, IdlError> {
+/// `from_namespace` が空なら `crate::…` から始まるパス (`juiz_idl.rs` をクレートの一番上で読み込んだとき)。
+/// extern の名前空間の型は `rust_path` から始まるパス
+fn named_path(
+    t: &DataType,
+    from_namespace: &str,
+    options: &GenerateOptions,
+) -> Result<String, IdlError> {
     let (namespace, name) = match t {
         DataType::Record(r) => (&r.namespace, &r.name),
         DataType::Enum(e) => (&e.namespace, &e.name),
         _ => unreachable!(),
     };
     let name = module_ident(name)?;
+    if let Some(ext) = options.extern_of(namespace) {
+        let base = ext.rust_path.as_deref().ok_or_else(|| IdlError::Generate {
+            message: format!(
+                "type '{}' is in extern namespace '{}', which has no Rust path (use --extern {}=<rust path>)",
+                t.display_name(),
+                ext.namespace,
+                ext.namespace
+            ),
+        })?;
+        let mut path = vec![base.trim_end_matches("::").to_owned()];
+        let rest = namespace[ext.namespace.len()..].trim_start_matches('.');
+        for element in rest.split('.').filter(|e| !e.is_empty()) {
+            path.push(module_ident(element)?);
+        }
+        path.push(name);
+        return Ok(path.join("::"));
+    }
     if namespace == from_namespace {
         return Ok(name);
     }
@@ -151,7 +181,11 @@ fn named_path(t: &DataType, from_namespace: &str) -> Result<String, IdlError> {
     Ok(path.join("::"))
 }
 
-pub(crate) fn rust_type(t: &DataType, from_namespace: &str) -> Result<String, IdlError> {
+pub(crate) fn rust_type(
+    t: &DataType,
+    from_namespace: &str,
+    options: &GenerateOptions,
+) -> Result<String, IdlError> {
     Ok(match t {
         DataType::Null => "()".to_owned(),
         DataType::Boolean => "bool".to_owned(),
@@ -161,18 +195,21 @@ pub(crate) fn rust_type(t: &DataType, from_namespace: &str) -> Result<String, Id
         DataType::Double => "f64".to_owned(),
         DataType::String => "::std::string::String".to_owned(),
         DataType::Bytes => "::std::vec::Vec<u8>".to_owned(),
-        DataType::Array(items) => format!("::std::vec::Vec<{}>", rust_type(items, from_namespace)?),
+        DataType::Array(items) => format!(
+            "::std::vec::Vec<{}>",
+            rust_type(items, from_namespace, options)?
+        ),
         DataType::Map(values) => format!(
             "::std::collections::HashMap<::std::string::String, {}>",
-            rust_type(values, from_namespace)?
+            rust_type(values, from_namespace, options)?
         ),
         DataType::Optional { inner, .. } => {
             format!(
                 "::std::option::Option<{}>",
-                rust_type(inner, from_namespace)?
+                rust_type(inner, from_namespace, options)?
             )
         }
-        DataType::Record(_) | DataType::Enum(_) => named_path(t, from_namespace)?,
+        DataType::Record(_) | DataType::Enum(_) => named_path(t, from_namespace, options)?,
         DataType::Any => "::juiz_sdk::prelude::Value".to_owned(),
         DataType::Image => "::juiz_sdk::image::DynamicImage".to_owned(),
     })
@@ -219,7 +256,7 @@ fn data_type_fn(t: &DataType) -> Result<String, IdlError> {
     ))
 }
 
-fn type_code(t: &DataType, namespace: &str) -> Result<String, IdlError> {
+fn type_code(t: &DataType, namespace: &str, options: &GenerateOptions) -> Result<String, IdlError> {
     let mut out = String::new();
     match t {
         DataType::Record(r) => {
@@ -232,7 +269,7 @@ fn type_code(t: &DataType, namespace: &str) -> Result<String, IdlError> {
             let mut from_values = String::new();
             for f in r.fields.iter() {
                 let fident = ident(&f.name);
-                let ty = rust_type(&f.data_type, namespace)?;
+                let ty = rust_type(&f.data_type, namespace, options)?;
                 out.push_str(&doc_lines(&f.doc, "    "));
                 out.push_str(&format!("    pub {fident}: {ty},\n"));
                 to_values.push_str(&format!(
@@ -353,7 +390,13 @@ mod tests {
     #[test]
     fn paths_across_namespaces() {
         let t = DataType::Record(juiz_types::RecordType::new("c.d", "T"));
-        assert_eq!(named_path(&t, "a.b").unwrap(), "super::super::c::d::T");
-        assert_eq!(named_path(&t, "c.d").unwrap(), "T");
+        assert_eq!(
+            named_path(&t, "a.b", &GenerateOptions::default()).unwrap(),
+            "super::super::c::d::T"
+        );
+        assert_eq!(
+            named_path(&t, "c.d", &GenerateOptions::default()).unwrap(),
+            "T"
+        );
     }
 }

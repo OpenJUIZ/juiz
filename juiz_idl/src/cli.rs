@@ -4,7 +4,10 @@ use std::path::PathBuf;
 
 use clap::{Args, ValueEnum};
 
-use crate::{generate, load_files, write_files, IdlError, OutputKind};
+use crate::{
+    generate_with, load_files_with, write_files, ExternNamespace, GenerateOptions, IdlError,
+    LoadOptions, OutputKind,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 pub enum Generator {
@@ -62,11 +65,32 @@ pub struct IdlArgs {
     /// 書き出さずに検査だけして、型の識別子を表示する
     #[arg(long)]
     pub check: bool,
+
+    /// import の探し先 (繰り返し可)。import を書いたファイルからの相対パスになければ、この順に探す。
+    /// 環境変数 JUIZ_IDL_PATH のディレクトリもこの後に探し、最後に組み込みの型 (juiz_std/…) を探す
+    #[arg(short = 'I', long = "import-dir")]
+    pub import_dirs: Vec<PathBuf>,
+
+    /// ほかのパッケージが持っている名前空間 (繰り返し可)。その型は書き出さない。
+    /// Rust を書き出すときは <名前空間>=<Rust のパス> (例 juiz_std=::juiz_std_types::juiz_std)
+    #[arg(long = "extern", value_name = "NAMESPACE[=RUST_PATH]")]
+    pub externs: Vec<String>,
 }
 
 /// `IdlArgs` のとおりに実行する
 pub fn run(args: &IdlArgs) -> Result<(), IdlError> {
-    let model = load_files(&args.files)?;
+    let load = LoadOptions {
+        import_dirs: args.import_dirs.clone(),
+    }
+    .with_env_import_path();
+    let model = load_files_with(&args.files, &load)?;
+    let options = GenerateOptions {
+        externs: args
+            .externs
+            .iter()
+            .map(|e| ExternNamespace::parse(e))
+            .collect::<Result<_, _>>()?,
+    };
     if args.check {
         for t in model.types.iter() {
             println!("{}@{}", t.display_name(), t.fingerprint());
@@ -90,7 +114,7 @@ pub fn run(args: &IdlArgs) -> Result<(), IdlError> {
     } else {
         args.generators.iter().map(|g| (*g).into()).collect()
     };
-    let files = generate(&model, &kinds)?;
+    let files = generate_with(&model, &kinds, &options)?;
     write_files(&files, &args.out_dir)?;
     for f in files.iter() {
         println!("{}", args.out_dir.join(&f.path).display());

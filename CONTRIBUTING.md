@@ -145,7 +145,8 @@ HTTP ブローカーの 8000 番ポートはホストに転送されるので、
 | `juiz_sdk` | 機能要素を開発するための crate |
 | `juiz_macro` | `#[juiz_process]` などのマクロ |
 | `juiz_types` | Process の引数・戻り値のデータ型 (Avro のスキーマ、指紋、互換性。juiz_sdk に依存しない) |
-| `juiz_idl` | IDL (.jidl) の生成器 `juiz-idl` (.avsc・JSON Schema・Rust のコード、build.rs ヘルパ。`juiz idl` からも呼べる)。`juiz_idl/test_package` は生成したコードのテスト |
+| `juiz_idl` | IDL (.jidl) の生成器 `juiz-idl` (.avsc・JSON Schema・Rust のコード、build.rs ヘルパ。`juiz idl` からも呼べる)。`juiz_idl/test_package` は生成したコードのテスト。組み込みの標準の型 `juiz_std` の JIDL は `juiz_idl/std` |
+| `juiz_std_types` | 標準の型 `juiz_std` の Rust のクレート (組み込みの JIDL から作る)。`juiz_std_types/test_package` は `extern_path` のテスト |
 | `juiz_core` | 機能要素を実体化・管理するコア (CoreBroker, Broker など) |
 | `juiz_app` | `juiz` コマンド |
 | `brokers` | 追加のブローカー実装 (QUIC の `juiz_qmp_broker` など) |

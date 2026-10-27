@@ -1,7 +1,7 @@
 name: Publish to crates.io
 
-# v* タグ(例: v0.0.9)の push で juiz_types / juiz_idl / juiz_macro / juiz_sdk / juiz_webui / juiz_core / juiz_qmp_broker / juiz_app を crates.io に公開する。
-# 8 つのクレートは同じバージョンで揃えて公開する。タグのバージョンがどれかの Cargo.toml と
+# v* タグ(例: v0.0.9)の push で juiz_types / juiz_idl / juiz_macro / juiz_sdk / juiz_std_types / juiz_webui / juiz_core / juiz_qmp_broker / juiz_app を crates.io に公開する。
+# 9 つのクレートは同じバージョンで揃えて公開する。タグのバージョンがどれかの Cargo.toml と
 # 一致しない場合は公開しない。
 # 手動実行(workflow_dispatch)では cargo publish --dry-run だけを行い、実際には公開しない。
 on:
@@ -18,10 +18,10 @@ env:
   RUST_BACKTRACE: 1
   # pyo3 が埋め込む Python をシステムの python3 に固定する
   PYO3_PYTHON: python3
-  # 公開するクレート。cargo publish が依存順(types → idl・macro → sdk → core → qmp_broker → app)に並べ替えて公開する。
+  # 公開するクレート。cargo publish が依存順(types → idl・macro → sdk → std_types・core → qmp_broker → app)に並べ替えて公開する。
   # juiz_webui(管理画面のビルド成果物、issue #117)はこれらより先に、git の外から別に公開する(publish ジョブを参照)。
-  PUBLISH_PACKAGES: juiz_types juiz_idl juiz_macro juiz_sdk juiz_webui juiz_core juiz_qmp_broker juiz_app
-  WORKSPACE_PUBLISH_PACKAGES: juiz_types juiz_idl juiz_macro juiz_sdk juiz_core juiz_qmp_broker juiz_app
+  PUBLISH_PACKAGES: juiz_types juiz_idl juiz_macro juiz_sdk juiz_std_types juiz_webui juiz_core juiz_qmp_broker juiz_app
+  WORKSPACE_PUBLISH_PACKAGES: juiz_types juiz_idl juiz_macro juiz_sdk juiz_std_types juiz_core juiz_qmp_broker juiz_app
 
 jobs:
   # タグのバージョンと公開する全クレートの Cargo.toml の version が一致するか確認する
