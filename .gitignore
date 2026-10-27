@@ -11,6 +11,8 @@ examples/haskell/gen/
 bindings/hsjuiz/dist-newstyle/
 /juiz_tutorial/rust/*/target/
 /bindings/pyjuiz/dist/
+# setup.py のビルドの中間物。リポジトリに入っていると、git から pip install したとき古いファイルが wheel に入る
+/bindings/pyjuiz/build/
 /bindings/pyjuiz/*.egg-info/
 !.devcontainer/
 !.vscode/
