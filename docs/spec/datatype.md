@@ -226,7 +226,7 @@ Avro 1.11 のスキーマ解決(Schema Resolution)の規則のうち、§4 の�
 | 接続時 | Connection を作るとき、source の `output_schema`(W)と destination の引数の `schema`(R)を §7 で比べる。互換でなければ接続しないでエラー | 常に行う |
 | Topic | Process が publish / subscribe を始めるとき、その Topic の既存の相手それぞれと比べる(publish 側が W、subscribe 側が R)。互換でない組ができるならエラーにして、始めない | 常に行う |
 | Composite の定義時 | 子の戻り値(W)と親の引数(R)を比べる(C8 #172)。`const` と `expose` の `default` は §4 で検査する | 常に行う |
-| 呼び出し時 | ブローカー越しの `call` / `execute` の入口で、引数の辞書を §4 の規則で引数の型と照らし合わせ、合わなければ関数を呼ばずにエラー | **オフ**。conf で入れる(キーは Step 4 で決める) |
+| 呼び出し時 | ブローカー越しの `call` / `execute` の入口で、引数の辞書を §4 の規則で引数の型と照らし合わせ、合わなければ関数を呼ばずにエラー | **オフ**。conf の `option.type_check.on_call` で入れる(§19.3) |
 
 - 型なしの相手とは、どの時機でも検査しない(今のまま)。
 - 型付きの Process を、型を知らないクライアント(CLI、curl、古い pyjuiz)が辞書で呼んでもよい。呼び出し時の検査がオフでも、生成コードの `from_value` が §4 の規則で読み、読めなければ型変換のエラーになる。
@@ -404,7 +404,7 @@ ROS 2 の `.msg` / `.srv` / `.idl` を JIDL / .avsc に変換する。juiz の�
 | 1 SDK | #190 | §3、§4、§5、§6、§7、§8 のエラー、§11 の `#[derive(JuizType)]`(§15) |
 | 2 生成器 `juiz-idl` | #191 | §5、§9、§11(Rust、JSON Schema)(§16) |
 | 3 Rust マクロ | #192 | §6、§11(`#[juiz_process]` 系が `JuizType` を受ける)(§17) |
-| 4 core | #193 | §7、§8(接続時・Topic・呼び出し時) |
+| 4 core | #193 | §7、§8(接続時・Topic・呼び出し時)(§19) |
 | 5 Python | #194 | §11 |
 | 6 C++ | #195 | §11 |
 | 7 Haskell | #196 | §11 |
@@ -423,7 +423,6 @@ ROS 2 の `.msg` / `.srv` / `.idl` を JIDL / .avsc に変換する。juiz の�
 - Avro のバイナリ形式での通信(QMP の高速化)。
 - JSON Schema の process の引数・戻り値への書き出し(管理画面のフォーム・Swagger 用、Step 8 で決める。型ごとの書き出しは §16)。
 - client stub(型付きで呼ぶ側の生成コード)。型と skeleton の後(計画書 §8 の 4)。
-- 型の登録所の API の形(`/type/list`、`/type/schema`、Step 4 で決める)。
 
 ## 15. Rust の SDK(Step 1 #190 で決めたこと)
 
@@ -527,3 +526,48 @@ fn move_to(target: Pose2D, speed: f64) -> JuizResult<Pose2D> { … }
 - マクロには `typed = "all"`(§17)を付け、説明は `description`、既定値は JSON の文字列で書く。したがってマクロが作る manifest の引数・戻り値の `type_name`・`schema`・`default` は、`<namespace>.processes.json` のシグネチャと一致する(`juiz_idl/test_package` で確かめている)。
 - 型は `crate::a::b::T` の絶対パスで参照する。`juiz_idl.rs` をクレートの一番上で読み込む前提。型の対応は §11。
 - 関数名・引数名はマクロがそのまま `type_name` と引数名にするので、Rust のキーワードの名前(`r#…` にしないと書けないもの)はエラーにする。
+
+## 19. core の型検査と型の登録所(Step 4 #193 で決めたこと)
+
+core の実装は `juiz_core::types` にある。
+
+### 19.1 接続時
+
+- Connection を作るとき(conf の `connections:`、`connection/create` の API、どちらも `connection_builder::connect` を通る)、source の profile の `output_schema`(W)と destination の profile の引数 `arg_name` の `schema`(R)を `juiz_core::types::check_connectable` で比べる。互換でなければ両端に何も足さずに `TypeIncompatibleError` を返す。
+- `check_connectable` は、両方が型付きのとき、比べる前に両方の型参照を `TypeSchema::validate` で検査する(他の言語・ブローカーから届いた型参照なので、§15)。名前・指紋が合わなければ `TypeSchemaInvalidError`。
+- リモートの Process の profile を取れないとき(相手が応答しないなど)は検査せず、今までの接続処理に任せる(警告をログに出す)。
+- Composition C8(#172)の定義時の検査も `check_connectable`(子の戻り値を W、親の引数を R)を呼ぶ。
+
+### 19.2 Topic
+
+- Process が publish を始めるとき(`CoreWorker::process_publish_topic`)、その戻り値の型(W)を、Topic に今つながっている型付きの subscribe 側の引数の型(R)それぞれと比べる。subscribe を始めるとき(`process_subscribe_topic`)は逆に、その引数の型(R)を、今つながっている型付きの publish 側の戻り値の型(W)それぞれと比べる。互換でない組があればエラーにして、Topic にはつながない。
+- Topic は型付きの相手の型を覚えておき、比べるときは Topic の Process に今つながっている相手の分だけを使う(消えた Process の型で断らない)。
+- publish 側どうし・subscribe 側どうしは比べない。
+- 同じ juiz プロセスの中の相手だけを比べる。サブシステムの Topic へ転送する先(`topic_push`)の型は比べない(後の課題)。
+- あわせて、Process の出力側の接続が引数名をキーにしていたため、同じ名前の引数へ別々の Process をつなぐと前の接続が上書きされていた(Topic の subscribe 側が 1 つしか残らなかった)のを、接続の識別子をキーにするよう直した。
+
+### 19.3 呼び出し時
+
+- conf の `option.type_check.on_call` を `true` にすると、CoreBroker の `process_call`・`container_process_call`(ブローカー越しの `call` の入口)で、渡された引数の辞書を引数の型と §4 の規則で照らし合わせ、合わなければ関数を呼ばずに `ValueDoesNotMatchTypeError` を返す。既定は `false`(検査しない)。
+  ```yaml
+  option:
+    type_check:
+      on_call: true
+  ```
+- 同じ設定で `process_p_apply`・`container_process_p_apply` で拘束する値も検査する。
+- `execute` には引数の辞書がないので検査しない(接続から届く値は接続時に、拘束値は p_apply のときに検査済み)。
+- 型なしの引数、渡されていない引数(既定値を使う)、値でないもの(画像、Rust のネイティブ値)は見ない。
+- 検査するのはこの juiz プロセスの Process だけで、リモートの Process は相手側の設定で検査する。
+
+### 19.4 型の登録所と API
+
+- 登録所(`juiz_core::types::TypeRegistry`)は、登録済みの Factory(Process・ContainerProcess・Composite)の manifest にある引数と戻り値の型参照から、名前付き型(record・enum)を入れ子も含めて集めたもの。問い合わせのたびに Factory から作るので、Factory を足し外しすれば中身も変わる(`CoreWorker::type_registry`)。予約名の `juiz.Any`・`juiz.Image` と名前のない型は載せない。サブシステムはたどらない。
+- 同じ完全名で指紋の違う型は、別の型として両方載る。
+- API(HTTP は `/api/type/…`、qmp・メッセンジャー系は汎用の経路。Rust は `TypeBrokerProxy`、`BrokerProxy` の親トレイト):
+
+| API | 返すもの |
+|---|---|
+| `type/list` | `[{identifier, name, fingerprint, short_identifier, kind, used_by}]`(`identifier` の順)。`kind` は `record` / `enum`、`used_by` はその型を使っている Factory の型名(名前順) |
+| `type/schema?identifier=…` | 型参照 `{name, fingerprint, avro}`(§6 と同じ形、`avro` は自己完結)。`identifier` は `<完全名>@sha256:…` か完全名だけ。完全名だけで指紋の違う型が複数あるか、見つからなければ `TypeNotFoundError` |
+
+- 遅延評価の codec の登録(L3 #177)は、この登録所に足す。CLI の `juiz type list / show` と管理画面での表示は Step 8(#197)。

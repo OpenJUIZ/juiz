@@ -454,6 +454,19 @@ impl CoreWorker {
             .collect())
     }
 
+    /// 型の登録所 (issue #193)。登録済みの Factory (Process・ContainerProcess・Composite) の
+    /// manifest にある引数と戻り値の型から作るので、Factory を足し外しすれば中身も変わる
+    pub fn type_registry(&self) -> JuizResult<crate::types::TypeRegistry> {
+        let mut registry = crate::types::TypeRegistry::new();
+        for pf in self.store().processes.factories().values() {
+            registry.add_manifest(&pf.lock()?.manifest()?);
+        }
+        for cpf in self.store().container_processes.factories().values() {
+            registry.add_manifest(&cpf.lock()?.manifest()?);
+        }
+        Ok(registry)
+    }
+
     /// 登録済みの Composite の Factory の manifest (型名の順)
     fn composite_manifests(&self) -> JuizResult<Vec<ProcessManifest>> {
         let mut manifests = Vec::new();
@@ -1044,7 +1057,12 @@ impl CoreWorker {
         log::error!("process_publish_topic({topic_info:?}) called");
         let topic_name = topic_info.name.as_str();
         let topic = self.create_topic(topic_name.to_owned())?;
-        self.connect_to_topic(process, topic)?;
+        // Topic の既存の subscribe 側と型を比べる (issue #193)
+        let schema = process.lock()?.profile()?.output_schema;
+        topic.check_publisher(schema.as_ref())?;
+        let process_id = process.identifier().to_string();
+        self.connect_to_topic(process, topic.clone())?;
+        topic.set_publisher_type(&process_id, schema)?;
         Ok(())
     }
 
@@ -1058,8 +1076,13 @@ impl CoreWorker {
         log::error!("process_subscribe_topic({arg_name}, {topic_info:?}) called");
         let topic_name = topic_info.name.as_str();
         let topic = self.create_topic(topic_name.to_owned())?;
+        // Topic の既存の publish 側と型を比べる (issue #193)
+        let schema = crate::types::argument_schema(&process.lock()?.profile()?, arg_name).cloned();
+        topic.check_subscriber(schema.as_ref())?;
+        let process_id = process.identifier().to_string();
         //let p = self.process_from_id(&id)?.clone();
-        self.connect_from_topic(process, arg_name, topic)?;
+        self.connect_from_topic(process, arg_name, topic.clone())?;
+        topic.set_subscriber_type(&process_id, arg_name, schema)?;
         Ok(())
     }
 

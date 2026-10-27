@@ -375,8 +375,7 @@ impl Process for ProcessImpl {
         let con = self
             .connection_factory
             .create_destination_connection(destination, connection_manifest.clone());
-        self.outlet
-            .insert(connection_manifest.arg_name.clone(), con);
+        self.outlet.insert(con);
         log::trace!(
             "【完了】ProcessImpl(id={:}).try_connect_to(destination=Process())",
             self.identifier()

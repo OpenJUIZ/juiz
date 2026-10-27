@@ -41,12 +41,11 @@ impl Outlet {
         }).into())
     }
 
-    pub(crate) fn insert(
-        &mut self,
-        name: String,
-        con: Box<dyn DestinationConnection + 'static>,
-    ) -> () {
-        self.destination_connections.insert(name, con);
+    /// コネクションを足す。キーはコネクションの識別子なので、同じ名前の引数へ別々の Process に
+    /// つないでも上書きしない (今までは引数名がキーで、Topic の subscribe 側が 1 つしか残らなかった、issue #193)
+    pub(crate) fn insert(&mut self, con: Box<dyn DestinationConnection + 'static>) -> () {
+        let key: String = con.identifier().into();
+        self.destination_connections.insert(key, con);
     }
 
     /// コネクションを外し、外したもののプロファイルを返す
