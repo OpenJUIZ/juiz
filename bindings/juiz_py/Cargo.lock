@@ -1277,11 +1277,12 @@ dependencies = [
 
 [[package]]
 name = "juiz_app"
-version = "0.0.22"
+version = "0.0.23"
 dependencies = [
  "clap",
  "home",
  "juiz_core",
+ "juiz_idl",
  "juiz_qmp_broker",
  "juiz_sdk",
  "pyo3",
@@ -1289,7 +1290,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_core"
-version = "0.0.22"
+version = "0.0.23"
 dependencies = [
  "axum",
  "futures",
@@ -1311,8 +1312,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "juiz_idl"
+version = "0.0.23"
+dependencies = [
+ "clap",
+ "juiz_types",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "juiz_macro"
-version = "0.0.22"
+version = "0.0.23"
 dependencies = [
  "anyhow",
  "litrs",
@@ -1324,7 +1336,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_py"
-version = "0.0.22"
+version = "0.0.23"
 dependencies = [
  "juiz_app",
  "juiz_core",
@@ -1333,7 +1345,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_qmp_broker"
-version = "0.0.22"
+version = "0.0.23"
 dependencies = [
  "bytes",
  "juiz_core",
@@ -1351,12 +1363,14 @@ dependencies = [
 
 [[package]]
 name = "juiz_sdk"
-version = "0.0.22"
+version = "0.0.23"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "env_logger",
  "image",
  "juiz_macro",
+ "juiz_types",
  "log",
  "mopa",
  "nalgebra",
@@ -1370,8 +1384,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "juiz_types"
+version = "0.0.23"
+dependencies = [
+ "base64 0.22.1",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "juiz_webui"
-version = "0.0.22"
+version = "0.0.23"
 dependencies = [
  "rust-embed",
 ]
