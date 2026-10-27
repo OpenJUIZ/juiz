@@ -376,7 +376,7 @@ ROS 2 の `.msg` / `.srv` / `.idl` を JIDL / .avsc に変換する。juiz の�
 | record | `struct` | `@dataclass` | `struct` | record | `interface` |
 | enum | `enum` | `enum.Enum`(値は記号の文字列) | `enum class` | 直和型 | 文字列リテラルの union |
 | `any` | `Value` | `Any` | `juiz::value` | `Value` | `unknown` |
-| `image` | `DynamicImage` | `PIL.Image.Image` | (まだ扱わない。cppjuiz に画像型がない、§21) | 今の hsjuiz の画像型 | (扱わない) |
+| `image` | `DynamicImage` | `PIL.Image.Image` | (まだ扱わない。cppjuiz に画像型がない、§21) | (まだ扱わない。hsjuiz に画像型がない、§22) | (扱わない) |
 
 - 生成コードは型ごとに、スキーマ(§6 の `TypeSchema`)を返す関数と、§4 の辞書との変換(`to_value` / `from_value` に当たるもの)を持つ。
 - Rust の `#[derive(JuizType)]` は、Rust の struct / enum から同じスキーマを作る。名前空間は `#[juiz(namespace = "robot.geometry")]` で書き、省略時はエラー。フィールドの順番は宣言順。JIDL で同じ形に書いた型と指紋が一致しなければならない。derive は Rust の中で閉じ、他の言語へは JIDL(または derive が書き出す .avsc)経由で渡す。
@@ -407,7 +407,7 @@ ROS 2 の `.msg` / `.srv` / `.idl` を JIDL / .avsc に変換する。juiz の�
 | 4 core | #193 | §7、§8(接続時・Topic・呼び出し時)(§19) |
 | 5 Python | #194 | §11(§20) |
 | 6 C++ | #195 | §11(§21) |
-| 7 Haskell | #196 | §11 |
+| 7 Haskell | #196 | §11(§22) |
 | 8 CLI・管理画面 | #197 | §5.2(表示)、§6 |
 | 13 ROS 2 の取り込み | #201 | §10 |
 | Composite C8 | #172 | §7、§8 |
@@ -684,3 +684,30 @@ C++ の ABI タグは `cpp:<コンパイラ>:<標準ライブラリ>:<layout>[:<
 - `juiz_core/tests/cpp_typed_test.rs`: manifest の型参照と Rust の指紋の一致、C++ どうしの Composite・接続で encode も decode も起きないこと、ABI タグの違う C++・C++ → Rust・Rust → C++ が辞書を通ること、辞書の引数が型で読まれること、すべての型のフィールドの往復、ContainerProcess の型付きの引数。
 - `juiz_idl/tests/idl_test.rs` の `cpp_code`(生成したコードの形、名前空間の循環とキーワードのエラー)。
 
+## 22. Haskell(Step 7 #196 で決めたこと)
+
+### 22.1 生成器の Haskell 出力
+
+`juiz-idl -g haskell`(`juiz idl` も同じ)は、名前空間 `a.b` ごとにモジュール `A.B`(ファイル `A/B.hs`)を書き出す。Template Haskell は使わない、ふつうの Haskell のソースで、hsjuiz に依存する(生成した Rust のコードが juiz_sdk に、Python が pyjuiz に、C++ が cppjuiz に依存するのと同じ)。既定の `-g` には入れない。cabal のパッケージの `hs-source-dirs` に出力先を足し、`other-modules` にモジュール名を書いて使う。
+
+- record は record 構文の `data`(構築子は型と同じ名前、`deriving (Eq, Show)`)、enum は直和型(`deriving (Eq, Ord, Show, Enum, Bounded)`)。型の対応は §11(`int` は `Int32`、`long` は `Int64`、`float` は `Float`、`bytes` は `ByteString`、`T?` は `Maybe T`、`map<T>` は `Map Text T`、`any` は hsjuiz の `Value`)。
+- 名前: モジュール名は名前空間の要素の先頭を大文字にしたもの、型名も先頭を大文字にする(英字で始まらなければエラー)。フィールドの関数は「先頭を小文字にした型名 + フィールド名を camelCase にしたもの」(`Pose2D` の `frame_id` は `pose2DFrameId`。Haskell の record のフィールド名はモジュールの中で重なれないため。辞書のキーは元の名前のまま)。列挙の構築子は「型名 + 先頭を大文字にした記号」(`MotorMode` の `Idle` は `MotorModeIdle`)。変換した名前がモジュールの中で重なる、または生成したコードが使う名前(`Maybe`・`Just`・`Value` など)と同じならエラー。名前空間の違う 2 つが同じモジュール名になってもエラー。名前空間のない型はエラー。
+- 型ごとに、型の情報 `typeInfo<型名> :: TypeInfo`(.avsc と同じスキーマを埋め込み、指紋は libjuiz_sdk が計算するので .avsc・Rust・Python・C++ と一致する。`NOINLINE` のトップレベルの値で、最初に使ったときに 1 度だけ作る)と、`JuizType`・`FromCapsule`・`ToCapsule` のインスタンスを書く。`toValue` はすべてのフィールドを出し、`fromValue` は §4 の規則で読む(足りないフィールドは既定値、型にないキーは無視、列挙の知らない記号は既定値)。
+- すべてのフィールドに既定値がある record には、その値 `default<型名>` も作る。
+- ほかの名前空間の型は `import qualified A.B` で参照する。名前空間どうしが互いに参照するときはモジュールが書けない(hs-boot なしでは互いに import できない)のでエラー。生成したコードは Prelude を必要な名前だけ読み込み、ほかは修飾して使うので、JIDL の型名が `Text`・`Map` などでもぶつからない。
+- `process` / `container` 宣言からは何も作らない(C++ と同じ)。`image` は hsjuiz に画像型がないのでまだ扱わない。
+
+### 22.2 hsjuiz
+
+- `Juiz.Type`: 型付きの型のクラス `JuizType`(`juizType :: Proxy a -> TypeInfo`)、`TypeInfo`(`typeInfoName`・`typeInfoFingerprint`・`typeInfoSchema`)、Avro のスキーマから型を作る `newTypeInfo` / `unsafeTypeInfo`(libjuiz_sdk の `juiz_type_new` と `juiz_type_describe`。合わなければ `JUIZ_TYPE_SCHEMA_INVALID_ERROR`)、生成したコードが使う `recordFromValue`・`field`・`enumFromValue`。手で書いた型も、`unsafeTypeInfo` で作った型の情報とインスタンスを書けば型付きにできる(IDL を使わないとき。C++ の `JUIZ_TYPE` に当たる)。
+- `FromCapsule` / `ToCapsule` に、既定の実装のあるメソッド `fromCapsuleType` / `toCapsuleType`(型付きの型なら `Just` の型の情報)を足した。今のインスタンスは変えなくてよい。あわせて `Float` と `ByteString`(base64)のインスタンスを足した。
+- manifest: `addTypedArg 名前 説明 既定値`(既定値は型の値。型は既定値から決まる)、`addTypedArgValue (Proxy :: Proxy T) 名前 説明 辞書の既定値`、`addTypedArgNoDefault (Proxy :: Proxy T) 名前 説明`(既定値なし、§6)、`returns (Proxy :: Proxy T)`。引数の `type_name` は §6 の表。Container の引数(`containerManifest`)にも使える。
+- manifest_entry_point(と Component の manifest)で、関数の型とマニフェストを比べる。関数の引数が型付きの型なら、マニフェストの引数も同じ型(名前と指紋が同じ)の型付きの引数でなければエラー(juiz は読み込むときに失敗する)。関数の引数が型なしの型(`Value` など)なら、型付きの引数も受け取れる。関数の結果が型付きの型なら、`returns` を書かなくても `output_schema` と、古いクライアント向けの `type_name` だけの `outputs` を載せる(`returns` を書いたときは同じ型でなければエラー)。`[Pose2D]` や `Maybe Pose2D` のような型付きの型を含む型は型なし(`fromCapsuleType` が `Nothing`)。
+- 呼び出し時、型付きの引数は libjuiz_sdk が型で読み(`capsule_ptr_read_typed_value`。§4 の規則。ネイティブ値は encode する)、読んだ辞書を `fromValue` で Haskell の値にする。合わなければ `JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR`(-702、理由は juiz のログ)。
+- 戻り値は今のとおり辞書にして返す。Haskell の値をネイティブ値(遅延評価 L1〜L3)で渡すことはしない(Haskell の値を C ABI 越しに貸すには StablePtr と型タグが要り、効果が出るのは Haskell どうしの接続だけなので、必要になってから)。
+
+### 22.3 テスト
+
+- `examples/haskell/src/TypedComponent.hs`(typed_component_hs。`examples/haskell/build.sh` が `juiz-idl -g haskell` で `juiz_idl/test_package/idl/geometry.jidl` から `examples/haskell/gen/` に型を作る。手で書いた型 `handwritten.Odometry` は `TypedOdometry.hs`)と、関数とマニフェストの型が合わない `BrokenTypedProcess.hs`(broken_typed_process_hs)。
+- `juiz_core/tests/haskell_typed_test.rs`: manifest の型参照と Rust の指紋の一致、`returns` を書かないときの `output_schema`、辞書の引数が型で読まれること、すべての型のフィールドの往復(C++ と同じ結果)、Haskell どうし・Haskell ↔ Rust の受け渡し、Container と ContainerProcess の型付きの引数、型の合わない Process を読み込めないこと。
+- `juiz_idl/tests/idl_test.rs` の `haskell_code`(生成したコードの形、名前の変換と重なりのエラー、名前空間の循環のエラー)。

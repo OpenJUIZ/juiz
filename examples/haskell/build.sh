@@ -41,6 +41,14 @@ if [[ "$(uname -s)" == Darwin && -z "${DEVELOPER_DIR:-}" ]]; then
         fi
     fi
 fi
+# 型付きの例 (typed_component_hs など) の型を juiz-idl で作る (docs/spec/datatype.md §22)
+juiz_idl="$sdk_dir/juiz-idl"
+if [[ ! -x "$juiz_idl" ]]; then
+    echo "error: $juiz_idl がありません。先にリポジトリの直下で cargo build -p juiz_idl を実行してください。" >&2
+    exit 1
+fi
+"$juiz_idl" -g haskell -o "$here/gen" "$repo_root/juiz_idl/test_package/idl/geometry.jidl" > /dev/null
+
 # libjuiz_sdk はビルドしたディレクトリから読み込めるよう rpath を入れる (C++ の例の cmake と同じ)
 cabal build all \
     --extra-lib-dirs="$sdk_dir" \
@@ -48,7 +56,8 @@ cabal build all \
 
 for name in increment_process_hs decrement_process_hs value_types_process_hs \
     example_container_hs example_container_hs_increment example_container_hs_get \
-    mismatched_container_process_hs example_component_hs broken_component_hs; do
+    mismatched_container_process_hs example_component_hs broken_component_hs \
+    typed_component_hs broken_typed_process_hs; do
     lib=$(find dist-newstyle -name "lib$name.$ext" -type f | head -n 1)
     if [[ -z "$lib" ]]; then
         echo "error: lib$name.$ext が dist-newstyle に見つかりません" >&2

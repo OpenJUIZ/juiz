@@ -10,6 +10,7 @@
 //! | [`OutputKind::Rust`] | `<namespace>.rs`、`juiz_idl.rs` | struct / enum と `juiz_sdk::types::JuizType` の実装 |
 //! | [`OutputKind::RustSkeleton`] | `<namespace>.skeleton.rs` | `process` / `container` 宣言の Rust の雛形 (コピーして本体を書く、仕様 §18) |
 //! | [`OutputKind::Cpp`] | `<namespace>.h`、`juiz_idl.h` | struct / enum class と cppjuiz の `juiz::type_traits` の特殊化 (仕様 §21) |
+//! | [`OutputKind::Haskell`] | `<A>/<B>.hs` (名前空間 `a.b`) | record・直和型と hsjuiz の `JuizType` / `FromCapsule` / `ToCapsule` のインスタンス (仕様 §22) |
 //! | [`OutputKind::Python`] | `<a>/<b>/__init__.py` (名前空間 `a.b`) | dataclass / enum.Enum と、`process` / `container` 宣言の型付き client stub (仕様 §20) |
 //!
 //! 型のモデル・指紋は `juiz_types` を使う (juiz_sdk には依存しない)。生成した Rust のコードは juiz_sdk を、
@@ -31,6 +32,7 @@
 pub mod build;
 pub mod cli;
 mod cpp;
+mod haskell;
 mod json_schema;
 mod model;
 mod parser;
@@ -43,6 +45,7 @@ use std::path::{Path, PathBuf};
 use juiz_types::TypeError;
 
 pub use cpp::{generate_cpp, CPP_ALL_HEADER};
+pub use haskell::generate_haskell;
 pub use json_schema::{json_schema_of, JSON_SCHEMA_DIALECT};
 pub use model::{
     load_files, load_str, ArgumentSignature, ContainerSignature, IdlModel, ProcessSignature,
@@ -97,10 +100,11 @@ pub enum OutputKind {
     RustSkeleton,
     Python,
     Cpp,
+    Haskell,
 }
 
 impl OutputKind {
-    pub const ALL: [OutputKind; 7] = [
+    pub const ALL: [OutputKind; 8] = [
         OutputKind::Avsc,
         OutputKind::JsonSchema,
         OutputKind::Processes,
@@ -108,6 +112,7 @@ impl OutputKind {
         OutputKind::RustSkeleton,
         OutputKind::Python,
         OutputKind::Cpp,
+        OutputKind::Haskell,
     ];
 }
 
@@ -240,6 +245,7 @@ pub fn generate(model: &IdlModel, kinds: &[OutputKind]) -> Result<Vec<GeneratedF
             OutputKind::RustSkeleton => files.extend(generate_rust_skeleton(&model.signatures)?),
             OutputKind::Python => files.extend(generate_python(&model.types, &model.signatures)?),
             OutputKind::Cpp => files.extend(generate_cpp(&model.types)?),
+            OutputKind::Haskell => files.extend(generate_haskell(&model.types)?),
         }
     }
     Ok(files)

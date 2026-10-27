@@ -103,9 +103,10 @@ jobs:
           ghc-version: "9.6"
           cabal-version: latest
 
-      # C++ の例のビルドに juiz-idl (juiz_generate_types) も使う
+      # C++ の例のビルドと Haskell の型付きの例 (gen/ の型) に juiz-idl も使う。
+      # haskell_typed_test は Rust の native_pose_component・native_pose_reader も読み込む
       - name: Build libjuiz_sdk and juiz-idl
-        run: cargo build -p juiz_sdk -p juiz_idl
+        run: cargo build -p juiz_sdk -p juiz_idl -p native_pose_component -p native_pose_reader
 
       # haskell_container_test は C++ の Container (example_container_cpp) も読み込む
       - name: Build C++ examples
@@ -124,6 +125,7 @@ jobs:
         run: >-
           cargo test -p juiz_core --no-fail-fast
           --test haskell_plugin_test --test haskell_container_test --test haskell_component_test
+          --test haskell_typed_test
           -- --test-threads=1
 
   # OpenCV を使うコンポーネント(examples/rust/component/juiz_opencv)のビルドとテスト。

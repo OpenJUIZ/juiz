@@ -13,6 +13,8 @@ module Juiz.Error
   , juizCapsuleNoValue
   , juizProcessFunctionError
   , juizHaskellContainerTypeError
+  , juizTypeSchemaInvalidError
+  , juizValueDoesNotMatchTypeError
   ) where
 
 import Control.Exception (Exception, throwIO)
@@ -52,3 +54,12 @@ juizProcessFunctionError = -501
 -- 別の言語の Container や、状態の型が違う Haskell の Container に結びつけたとき
 juizHaskellContainerTypeError :: Int64
 juizHaskellContainerTypeError = -602
+
+-- | Avro のスキーマが juiz のデータ型の規則に合わない (juiz_sdk.h の JUIZ_TYPE_SCHEMA_INVALID_ERROR)
+juizTypeSchemaInvalidError :: Int64
+juizTypeSchemaInvalidError = -701
+
+-- | 辞書の値が型に合わない (juiz_sdk.h の JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR)。
+-- 型付きの引数に合わない値が渡されたとき (理由は juiz のログに出る)
+juizValueDoesNotMatchTypeError :: Int64
+juizValueDoesNotMatchTypeError = -702

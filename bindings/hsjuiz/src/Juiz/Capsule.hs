@@ -11,6 +11,7 @@ module Juiz.Capsule
     -- * libjuiz_sdk の値の読み書き
   , peekValue
   , readArgument
+  , readTypedArgument
   , writeCapsule
   , writeCapsulePtr
   ) where
@@ -29,21 +30,31 @@ import Data.Word (Word16, Word32, Word64, Word8)
 import Foreign.C.String (CString)
 import Foreign.C.Types (CSize)
 import Foreign.Marshal.Alloc (alloca)
+import Data.Proxy (Proxy)
 import Foreign.Ptr (FunPtr, Ptr, freeHaskellFunPtr, nullPtr)
 import Foreign.Storable (Storable, peek)
 
 import Juiz.Error
+import Juiz.Internal.Base64
 import Juiz.Internal.FFI
+import Juiz.Internal.TypeInfo
 import Juiz.Value
 
 -- | juiz の値から Haskell の値への変換。Process の引数の型はこのクラスのインスタンスにする
 class FromCapsule a where
   -- | 変換できなければ理由を 'Left' で返す
   fromValue :: Value -> Either Text a
+  -- | 型付きの型 (juiz-idl -g haskell の生成した型など、docs/spec/datatype.md §22) ならその型。
+  -- 型付きの引数は、juiz が型で読んだ値 (足りないフィールドを既定値で埋めたもの) を受け取る
+  fromCapsuleType :: Proxy a -> Maybe TypeInfo
+  fromCapsuleType _ = Nothing
 
 -- | Haskell の値から juiz の値への変換。Process の戻り値の型はこのクラスのインスタンスにする
 class ToCapsule a where
   toValue :: a -> Value
+  -- | 型付きの型ならその型。Process の結果がこの型なら、manifest に output_schema を載せる
+  toCapsuleType :: Proxy a -> Maybe TypeInfo
+  toCapsuleType _ = Nothing
 
 instance FromCapsule Value where fromValue = Right
 instance ToCapsule Value where toValue = id
@@ -90,10 +101,21 @@ instance FromCapsule Double where
   fromValue v = typeMismatch "Double" v
 instance ToCapsule Double where toValue = JFloat
 
+-- | 整数も小数として受け取る (データ型の float)
+instance FromCapsule Float where
+  fromValue v = realToFrac <$> (fromValue v :: Either Text Double)
+instance ToCapsule Float where toValue = JFloat . realToFrac
+
 instance FromCapsule Text where
   fromValue (JString t) = Right t
   fromValue v = typeMismatch "Text" v
 instance ToCapsule Text where toValue = JString
+
+-- | バイト列は base64 (RFC 4648 §4、パディングあり) の文字列で表す (データ型の bytes、docs/spec/datatype.md §4)
+instance FromCapsule BS.ByteString where
+  fromValue (JString t) = maybe (Left "invalid base64 string") Right (decodeBase64 (T.unpack t))
+  fromValue v = typeMismatch "ByteString (base64 string)" v
+instance ToCapsule BS.ByteString where toValue = JString . T.pack . encodeBase64
 
 -- | 配列。文字列は 'String' ではなく 'Text' で受け取る
 instance FromCapsule a => FromCapsule [a] where
@@ -231,6 +253,21 @@ readArgument cm name =
     result <- newIORef JNull
     r' <- withLockCallback (\v -> peekValue v >>= writeIORef result) (c_capsule_ptr_lock_as_value_with_arg cp)
     unless (r' == juizOk) $ throwJuiz r' ("argument \"" <> name <> "\" is not a value")
+    readIORef result
+
+-- | 型付きの引数 name を型 t で読み出す (docs/spec/datatype.md §4。足りないフィールドは既定値で埋め、
+-- 型にないキーは落とす)。無ければ 'juizValueNotFoundError'、型に合わなければ 'juizValueDoesNotMatchTypeError'
+readTypedArgument :: Ptr CCapsuleMap -> Text -> TypeInfo -> IO Value
+readTypedArgument cm name t =
+  withText name $ \cname -> alloca $ \pcp -> do
+    r <- c_capsule_map_get_capsule cm cname pcp
+    unless (r == juizOk) $ throwJuiz r ("argument \"" <> name <> "\" not found")
+    cp <- peek pcp
+    result <- newIORef JNull
+    r' <- withLockCallback (\v -> peekValue v >>= writeIORef result)
+      (\fp arg -> c_capsule_ptr_read_typed_value cp (typeInfoHandle t) cname fp arg)
+    unless (r' == juizOk) $
+      throwJuiz r' ("argument \"" <> name <> "\" does not match the type " <> typeInfoName t)
     readIORef result
 
 -- | オブジェクトの要素を書き込む

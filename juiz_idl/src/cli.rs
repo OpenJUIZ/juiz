@@ -22,6 +22,8 @@ pub enum Generator {
     Python,
     /// C++ の struct / enum class と cppjuiz の juiz::type_traits の特殊化 (<namespace>.h と juiz_idl.h、ヘッダのみ)
     Cpp,
+    /// Haskell の record・直和型と hsjuiz のインスタンス (名前空間ごとのモジュール <A>/<B>.hs)
+    Haskell,
 }
 
 impl From<Generator> for OutputKind {
@@ -34,6 +36,7 @@ impl From<Generator> for OutputKind {
             Generator::RustSkeleton => OutputKind::RustSkeleton,
             Generator::Python => OutputKind::Python,
             Generator::Cpp => OutputKind::Cpp,
+            Generator::Haskell => OutputKind::Haskell,
         }
     }
 }
