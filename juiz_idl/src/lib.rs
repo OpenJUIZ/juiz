@@ -8,6 +8,7 @@
 //! | [`OutputKind::JsonSchema`] | `<完全名>.schema.json` | 辞書の表し方 (仕様 §4) の JSON Schema 2020-12 |
 //! | [`OutputKind::Processes`] | `<namespace>.processes.json` | `process` / `container` 宣言のシグネチャ (仕様 §9.3) |
 //! | [`OutputKind::Rust`] | `<namespace>.rs`、`juiz_idl.rs` | struct / enum と `juiz_sdk::types::JuizType` の実装 |
+//! | [`OutputKind::RustSkeleton`] | `<namespace>.skeleton.rs` | `process` / `container` 宣言の Rust の雛形 (コピーして本体を書く、仕様 §18) |
 //!
 //! 型のモデル・指紋は `juiz_types` を使う (juiz_sdk には依存しない)。生成した Rust のコードは juiz_sdk を使う。
 //! Java の avro-tools は使わない。
@@ -30,6 +31,7 @@ mod json_schema;
 mod model;
 mod parser;
 mod rust;
+mod rust_skeleton;
 
 use std::path::{Path, PathBuf};
 
@@ -42,6 +44,7 @@ pub use model::{
 };
 pub use parser::{parse_idl, IdlFile};
 pub use rust::{generate_rust, MODULE_TREE_FILE};
+pub use rust_skeleton::generate_rust_skeleton;
 
 /// juiz-idl のエラー。位置は 1 から数える
 #[derive(thiserror::Error, Debug, Clone, PartialEq)]
@@ -84,14 +87,16 @@ pub enum OutputKind {
     JsonSchema,
     Processes,
     Rust,
+    RustSkeleton,
 }
 
 impl OutputKind {
-    pub const ALL: [OutputKind; 4] = [
+    pub const ALL: [OutputKind; 5] = [
         OutputKind::Avsc,
         OutputKind::JsonSchema,
         OutputKind::Processes,
         OutputKind::Rust,
+        OutputKind::RustSkeleton,
     ];
 }
 
@@ -221,6 +226,7 @@ pub fn generate(model: &IdlModel, kinds: &[OutputKind]) -> Result<Vec<GeneratedF
                 }
             }
             OutputKind::Rust => files.extend(generate_rust(&model.types)?),
+            OutputKind::RustSkeleton => files.extend(generate_rust_skeleton(&model.signatures)?),
         }
     }
     Ok(files)

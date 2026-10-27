@@ -53,9 +53,15 @@ pub(crate) fn argument_manifest_statement(
     arg_name: &str,
     description: &str,
     default: Option<&Value>,
+    all_typed: bool,
 ) -> TokenStream {
     // 引数のタイプで分岐。タイプはitemから受け取ったタイプが優先。defaultが別のタイプだったらデフォルトのデフォルトが振られる。
-    match joined_type_name(type_path).as_str() {
+    let type_name = if all_typed {
+        String::new()
+    } else {
+        joined_type_name(type_path)
+    };
+    match type_name.as_str() {
         "bool" => {
             let default_value = default.and_then(|v| v.as_bool()).unwrap_or(false);
             quote! { manif = manif.add_bool_arg(#arg_name, #description, #default_value); }
@@ -79,7 +85,7 @@ pub(crate) fn argument_manifest_statement(
         "DynamicImage" => {
             quote! { manif = manif.add_image_arg(#arg_name, #description); }
         }
-        _ if is_untyped_argument(type_path) => {
+        _ if !all_typed && is_untyped_argument(type_path) => {
             // Vec<Value | f64 | i64>
             quote! { manif = manif.add_array_arg(#arg_name, #description, Vec::new()); }
         }
@@ -98,14 +104,41 @@ pub(crate) fn argument_manifest_statement(
     }
 }
 
+/// マクロの属性 `typed = "all"` があるか。あれば今までの型 (`f64` など) の引数・`Value` の戻り値も型付きにする
+/// (juiz-idl が process 宣言から作る雛形が使う。manifest がシグネチャ `<namespace>.processes.json` と一致する)
+pub(crate) fn all_typed(manifest_attr: &Value) -> bool {
+    match manifest_attr.get("typed") {
+        None => false,
+        Some(v) if v.as_str() == Some("all") => true,
+        Some(v) => panic!("typed の値は \"all\" だけです ({v})"),
+    }
+}
+
+/// 属性の `arguments = { default = ... }`。`{ 名前 = 値 ... }` のほか、JSON の文字列
+/// (`default = "{\"speed\": 1.0}"`) でも書ける (属性の書き方では書けない負の数・配列・null を書くため)
+fn argument_defaults(argument_value: &Value) -> Value {
+    match argument_value.get("default") {
+        None => json!({}),
+        Some(Value::String(s)) => match serde_json::from_str::<Value>(s) {
+            Ok(v) if v.is_object() => v,
+            Ok(v) => {
+                panic!("arguments の default の JSON はオブジェクトでなければなりません ({v})")
+            }
+            Err(e) => panic!("arguments の default の JSON が読めません ({e})"),
+        },
+        Some(v) => v.clone(),
+    }
+}
+
 /// マクロの属性の `arguments = { default = {...} description = {...} }` から、引数ごとの文を作る
 pub(crate) fn arguments_manifest_statements(
     manifest_attr: &Value,
     arg_map: &[(TypePath, syn::Ident)],
 ) -> TokenStream {
     let empty_value = json!({});
+    let all_typed = all_typed(manifest_attr);
     let argument_value = manifest_attr.get("arguments").unwrap_or(&empty_value);
-    let defaults = argument_value.get("default").unwrap_or(&empty_value);
+    let defaults = argument_defaults(argument_value);
     let descriptions = argument_value.get("description").unwrap_or(&empty_value);
     let mut statements = quote! {};
     for (type_path, arg_name_ident) in arg_map.iter() {
@@ -120,6 +153,7 @@ pub(crate) fn arguments_manifest_statements(
             &arg_name,
             description,
             defaults.get(arg_name.as_str()),
+            all_typed,
         );
         statements = quote! {
             #statements
@@ -196,10 +230,10 @@ fn result_ok_type(output: &ReturnType) -> Option<Type> {
     })
 }
 
-pub(crate) fn return_kind(output: &ReturnType) -> ReturnKind {
+pub(crate) fn return_kind(output: &ReturnType, all_typed: bool) -> ReturnKind {
     match result_ok_type(output) {
         Some(t) if is_named(&t, &["Capsule", "JuizResponse"]) => ReturnKind::AsIs,
-        Some(t) if is_named(&t, &["Value"]) => ReturnKind::Value,
+        Some(t) if !all_typed && is_named(&t, &["Value"]) => ReturnKind::Value,
         Some(t) => ReturnKind::Typed(t),
         // 戻り値が JuizResult でなければ、今のとおりそのまま (コンパイルエラーで知らせる)
         None => ReturnKind::AsIs,
@@ -207,8 +241,8 @@ pub(crate) fn return_kind(output: &ReturnType) -> ReturnKind {
 }
 
 /// 戻り値の型を `JuizResult<Capsule>` に書き換え、元の型を返す
-pub(crate) fn change_return_to_capsule(ast: &mut syn::ItemFn) -> ReturnKind {
-    let kind = return_kind(&ast.sig.output);
+pub(crate) fn change_return_to_capsule(ast: &mut syn::ItemFn, all_typed: bool) -> ReturnKind {
+    let kind = return_kind(&ast.sig.output, all_typed);
     if !matches!(kind, ReturnKind::AsIs) {
         ast.sig.output =
             syn::parse_quote!(-> juiz_sdk::prelude::JuizResult<juiz_sdk::prelude::Capsule>);

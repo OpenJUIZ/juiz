@@ -76,6 +76,13 @@ impl Builder {
         self
     }
 
+    /// `process` / `container` 宣言の Rust の雛形 `<namespace>.skeleton.rs` も書き出す。
+    /// 雛形はふつうはコマンド (`juiz-idl -g rust-skeleton`) で一度だけ作ってコピーする。これは雛形を検査するテスト用
+    pub fn rust_skeleton(mut self, enable: bool) -> Self {
+        self.set_kind(OutputKind::RustSkeleton, enable);
+        self
+    }
+
     /// 読んだファイル (import した先も) の `cargo:rerun-if-changed` を出すか。既定は出す
     pub fn emit_rerun_if_changed(mut self, enable: bool) -> Self {
         self.emit_rerun_if_changed = enable;

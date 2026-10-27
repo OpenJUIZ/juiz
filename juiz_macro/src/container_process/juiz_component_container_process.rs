@@ -8,9 +8,9 @@ use super::{
     },
     gen_process_factory::component_factory_tokenstream,
 };
-use crate::util::typed::change_return_to_capsule;
-use crate::util::{argument_statement, exit_tokenstream};
 use crate::util::parse_attr;
+use crate::util::typed::{all_typed, change_return_to_capsule};
+use crate::util::{argument_statement, exit_tokenstream};
 use crate::util::{change_container_process_argument_to_capsule_map, get_body_tokenstream};
 
 pub(crate) fn juiz_component_container_process_inner(
@@ -42,14 +42,15 @@ pub(crate) fn juiz_component_container_process_inner(
     let arg_map = change_container_process_argument_to_capsule_map(&mut ast);
     // このあとclearしちゃうのでまずbodyを保存。
     // 戻り値が JuizType の型なら JuizResult<Capsule> に書き換える (issue #192)
-    let return_kind = change_return_to_capsule(&mut ast);
+    let return_kind = change_return_to_capsule(&mut ast, all_typed(&manifest_attr));
     let body: TokenStream = get_body_tokenstream(&ast, &return_kind);
 
     ast.block.stmts.clear();
 
     // 最初に取得した引数のリストから、CapsuleMapから引数それぞれにtry_intoするコードを生成する。
     for (type_name, arg_name) in arg_map.iter() {
-        let set_original_argument_statement: TokenStream = argument_statement(type_name, arg_name);
+        let set_original_argument_statement: TokenStream =
+            argument_statement(type_name, arg_name, all_typed(&manifest_attr));
         ast.block
             .stmts
             .push(parse_macro_input!(set_original_argument_statement as Stmt));

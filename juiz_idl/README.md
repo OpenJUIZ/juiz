@@ -6,8 +6,9 @@
 - `<完全名>.schema.json`: 辞書での値の表し方の JSON Schema 2020-12
 - `<namespace>.processes.json`: `process` / `container` 宣言のシグネチャ
 - Rust: struct / enum と `juiz_sdk::types::JuizType` の実装
+- Rust の雛形 (`-g rust-skeleton`): `process` / `container` 宣言から、本体が `todo!()` のコンポーネント `<namespace>.skeleton.rs`
 
-仕様は [docs/spec/datatype.md](https://github.com/OpenJUIZ/juiz/blob/main/docs/spec/datatype.md) の §9・§16 にあります。
+仕様は [docs/spec/datatype.md](https://github.com/OpenJUIZ/juiz/blob/main/docs/spec/datatype.md) の §9・§16・§18 にあります。
 
 ## コマンド
 
@@ -39,6 +40,14 @@ fn main() {
 // src/lib.rs。名前空間 robot.geometry の型は robot::geometry::Pose2D になる
 include!(concat!(env!("OUT_DIR"), "/juiz_idl.rs"));
 ```
+
+## Process の雛形を作る
+
+```sh
+juiz-idl -o src -g rust-skeleton idl/geometry.jidl   # src/robot.geometry.skeleton.rs ができる
+```
+
+できたファイルを `src/lib.rs` などにコピーして `todo!()` の本体を書きます。型は `crate::robot::geometry::Pose2D` のように参照するので、クレートの一番上で `juiz_idl.rs` を読み込んでおきます。雛形は一度作って手で直していくものなので、build.rs では作りません。
 
 ## ライセンス
 
