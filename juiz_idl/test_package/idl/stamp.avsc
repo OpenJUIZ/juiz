@@ -1,0 +1,10 @@
+{
+  "type": "record",
+  "name": "Stamp",
+  "namespace": "robot.common",
+  "doc": "手で書いた .avsc",
+  "fields": [
+    {"name": "sec", "type": "long", "default": 0},
+    {"name": "nanosec", "type": "int", "default": 0}
+  ]
+}

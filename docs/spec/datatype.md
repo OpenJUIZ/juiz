@@ -316,8 +316,8 @@ annotation    = "@" , ( "aliases" | "namespace" ) , "(" , json_value , ")" ;
   "namespace": "robot.geometry",
   "processes": [
     { "type_name": "move_to", "description": "指定の姿勢まで動く",
-      "arguments": [ { "name": "target", "schema": { … §6 … } },
-                     { "name": "speed", "schema": { … }, "default": 1.0 } ],
+      "arguments": [ { "name": "target", "type_name": "Object", "schema": { … §6 … } },
+                     { "name": "speed", "type_name": "Float", "schema": { … }, "default": 1.0 } ],
       "output_schema": { … } }
   ],
   "containers": [
@@ -402,7 +402,7 @@ ROS 2 の `.msg` / `.srv` / `.idl` を JIDL / .avsc に変換する。juiz の�
 | Step | issue | この文書の節 |
 |---|---|---|
 | 1 SDK | #190 | §3、§4、§5、§6、§7、§8 のエラー、§11 の `#[derive(JuizType)]`(§15) |
-| 2 生成器 `juiz-idl` | #191 | §5、§9、§11(Rust、JSON Schema) |
+| 2 生成器 `juiz-idl` | #191 | §5、§9、§11(Rust、JSON Schema)(§16) |
 | 3 Rust マクロ | #192 | §6、§11(`#[juiz_process]` 系が `JuizType` を受ける) |
 | 4 core | #193 | §7、§8(接続時・Topic・呼び出し時) |
 | 5 Python | #194 | §11 |
@@ -421,7 +421,7 @@ ROS 2 の `.msg` / `.srv` / `.idl` を JIDL / .avsc に変換する。juiz の�
 - 再帰する型。
 - レコードの中の `image`。
 - Avro のバイナリ形式での通信(QMP の高速化)。
-- JSON Schema への書き出しの細部(管理画面のフォーム・Swagger 用、Step 2 / 8 で決める)。
+- JSON Schema の process の引数・戻り値への書き出し(管理画面のフォーム・Swagger 用、Step 8 で決める。型ごとの書き出しは §16)。
 - client stub(型付きで呼ぶ側の生成コード)。型と skeleton の後(計画書 §8 の 4)。
 - 型の登録所の API の形(`/type/list`、`/type/schema`、Step 4 で決める)。
 
@@ -445,3 +445,42 @@ ROS 2 の `.msg` / `.srv` / `.idl` を JIDL / .avsc に変換する。juiz の�
 - 基本型を `{"type": "long", …}` と書いたときの制約の属性(§10)は今は読み捨てる(Step 13 #201 で持つ)。
 - 指紋のテストの期待値は apache-avro の `canonical_form()` で作った。apache-avro は serde_json の `arbitrary_precision` を有効にして Value の形を変える(Rust のプラグインと食い違う)ので、依存には入れない。
 
+## 16. 生成器 juiz-idl(Step 2 #191 で決めたこと)
+
+生成器はクレート `juiz_idl`(依存は `juiz_types` だけで、juiz_sdk に依存しない)。コマンド `juiz-idl` と `juiz idl` は同じ引数を取る。
+
+```text
+juiz-idl [-o 出力先] [-g avsc,json-schema,processes,rust] [--check] 入力.jidl|入力.avsc ...
+```
+
+- 入力は .jidl と .avsc(§9.4)。`import` した先も読み、**読んだすべてのファイルの名前付き型**を書き出す(生成した Rust のコードが参照する型をそろえるため)。`import` のパスは import を書いたファイルからの相対パス。import の循環はエラー。
+- 同じ完全名の型が複数のファイルにあるとき、中身(doc・既定値・aliases も含めた型のモデル)が同じなら 1 つにまとめ、違えばエラー。
+- `-g` を省いたときは `avsc,json-schema,processes`。`--check` は書き出さずに検査し、型の識別子(§5.2)を表示する。中身が同じファイルは書き直さない。
+- エラーは `ファイル:行:桁: 内容` の形。スキーマの規則(§3)の検査は `juiz_types` に任せる。
+
+| 出力 | ファイル | 内容 |
+|---|---|---|
+| avsc | `<完全名>.avsc` | 名前付き型ごとの、それだけで完結したスキーマ(§6 の `avro` と同じもの) |
+| json-schema | `<完全名>.schema.json` | §4 の辞書の表し方の JSON Schema 2020-12 |
+| processes | `<namespace>.processes.json` | §9.3 のシグネチャ。同じ名前空間のファイルは 1 つにまとめる |
+| rust | `<namespace>.rs`、`juiz_idl.rs` | struct / enum と `JuizType` の実装、名前空間のモジュールの木 |
+
+- JIDL の細部:
+  - `/** … */` は宣言・フィールド・引数・`container_process` の前に書く。注釈との順番は問わない。行頭の `*` は落とす。
+  - `union { null, T }` / `union { T, null }` は書いた並びを守り、既定値が先頭の型に合わなければエラー(Avro の決まり)。`T?` の並びは §9.2 のとおり既定値で決める。
+  - `@namespace` で名前空間を変えた型は、ほかの型からは完全名で参照する。
+  - 引数の既定値は §6 のとおり検査する(`image` と、`T?` でない型の `null` は検査しない)。`null` 単独・`void` は引数の型にできない。
+- processes.json の引数は `name`・`type_name`(§6 の表)・`description`(あれば)・`schema`・`default`(あれば)を持つ。`void` の戻り値は `{"name": "null", …}`。
+- JSON Schema:
+  - record は `type: object`、既定値のないフィールドを `required` にする。型にないキーは読むときに無視する(§4)ので `additionalProperties` は付けない。
+  - 参照する名前付き型は `$defs` に完全名で入れ、`{"$ref": "#/$defs/<完全名>"}` で参照する。
+  - `int` / `long` は `integer` に範囲を付ける。`bytes` は `{"type": "string", "contentEncoding": "base64"}`、`T?` は `anyOf: [T, null]`、enum は `type: string` と `enum`、`any` は `{}`、`image` は `{"x-juiz-type": "image"}`。
+  - 一番外に `x-juiz-fingerprint`(指紋)を付ける。互換性の判定には使わない(正本は .avsc)。
+- Rust:
+  - 名前空間 `a.b` の型は `a.b.rs` に置き、`juiz_idl.rs` が `pub mod a { pub mod b { include!("a.b.rs"); } }` の形で読み込む。使う側は `include!(concat!(env!("OUT_DIR"), "/juiz_idl.rs"));` と書く。ほかの名前空間の型は `super::…` の相対パスで参照するので、`juiz_idl.rs` を通して使う。名前空間のない型は Rust には書き出せない(エラー)。
+  - record は `#[derive(Clone, Debug, PartialEq)]` の struct、enum は `#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]` の enum(既定の記号があれば `Default` も)。型の対応は §11。
+  - `JuizType::data_type` は .avsc と同じスキーマの文字列を埋め込んで読む(1 回だけ読んで使い回す)。したがって指紋・doc・aliases・既定値が .avsc と一致し、同じ形の `#[derive(JuizType)]` とも指紋が一致する。`to_value` / `from_value` は `#[derive(JuizType)]` と同じ。
+  - serde の `Serialize` / `Deserialize` は付けない。serde の既定の表し方(`Vec<u8>` が数の配列になるなど)が §4 と違うため。辞書との変換は `JuizType` を使う。
+  - フィールド名・記号が Rust のキーワードなら `r#type` のような raw identifier に、`self` / `Self` / `super` / `crate` なら末尾に `_` を付ける(辞書のキーは元の名前のまま)。型名・名前空間の要素にこの 4 つは使えない(エラー)。
+  - `process` / `container` 宣言からの Rust のコード(skeleton)は Step 3 #192 で扱う。
+- build.rs 用ヘルパ(tonic-build と同じ流れ)は別クレートにせず `juiz_idl::build` に置く: `juiz_idl::build::compile(&["idl/geometry.jidl"])` か `juiz_idl::build::configure().avsc(true).processes(true).compile(…)`。出力先の既定は `OUT_DIR`、読んだファイルの `cargo:rerun-if-changed` を出す。

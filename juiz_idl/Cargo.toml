@@ -1,0 +1,22 @@
+[package]
+name = "juiz_idl"
+rust-version = "1.81"
+version = "0.0.22"
+edition = "2021"
+description = "IDL (JIDL) compiler for juiz: generates Avro schemas, JSON Schema and Rust code."
+license.workspace = true
+repository = "https://github.com/OpenJUIZ/juiz"
+readme = "README.md"
+keywords = ["juiz", "idl", "avro", "codegen", "robotics"]
+categories = ["development-tools::build-utils", "encoding"]
+
+[[bin]]
+name = "juiz-idl"
+path = "src/bin/juiz-idl.rs"
+
+[dependencies]
+clap = {workspace = true}
+juiz_types = {workspace = true}
+serde = {workspace = true, features = ["derive"]}
+serde_json = {workspace = true}
+thiserror = {workspace = true}

@@ -1528,6 +1528,7 @@ dependencies = [
  "clap",
  "home",
  "juiz_core",
+ "juiz_idl",
  "juiz_qmp_broker",
  "juiz_sdk",
  "predicates",
@@ -1555,6 +1556,25 @@ dependencies = [
  "utoipa",
  "utoipa-swagger-ui",
  "uuid",
+]
+
+[[package]]
+name = "juiz_idl"
+version = "0.0.22"
+dependencies = [
+ "clap",
+ "juiz_types",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "juiz_idl_test_package"
+version = "0.0.0"
+dependencies = [
+ "juiz_idl",
+ "juiz_sdk",
 ]
 
 [[package]]
