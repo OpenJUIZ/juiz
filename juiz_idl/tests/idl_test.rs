@@ -567,7 +567,10 @@ fn python_gen_is_up_to_date() {
     }
     for f in files.iter() {
         let path = gen.join(&f.path);
-        let on_disk = std::fs::read_to_string(&path).unwrap_or_default();
+        // Windows の git は改行を CRLF にして取り出すことがあるので揃えて比べる
+        let on_disk = std::fs::read_to_string(&path)
+            .unwrap_or_default()
+            .replace("\r\n", "\n");
         assert!(
             on_disk == f.contents,
             "{} is out of date; regenerate with JUIZ_IDL_UPDATE_PYTHON_GEN=1",
