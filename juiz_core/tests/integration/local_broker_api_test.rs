@@ -147,7 +147,18 @@ fn check_create_destroy(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     let created =
         bp.ec_create(&jvalue!({"type_name": "TimerEC", "name": "timer1", "rate": 100.0}))?;
     assert_eq!(created["__value__"]["name"], jvalue!("timer1"));
-    // ec_destroy はメッセンジャーブローカーのスレッド内で tokio のランタイムを落として panic するので、ここでは試さない
+    // ec_destroy はメッセンジャーブローカーのスレッド内で EC を drop する。
+    // EC が持つ tokio のランタイムをそこで落としても panic しないこと (issue #231)
+    let id = created["__value__"]["identifier"]
+        .as_str()
+        .expect("identifier")
+        .to_owned();
+    bp.ec_destroy(&id)?;
+    assert!(!bp.ec_list(false)?["__value__"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v.as_str() == Some(id.as_str())));
     Ok(())
 }
 

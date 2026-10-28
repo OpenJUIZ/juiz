@@ -21,6 +21,8 @@ use juiz_sdk::{
 };
 use uuid::Uuid;
 
+use super::messenger_broker::ERROR_RESPONSE_FUNCTION_NAME;
+
 /// 応答のカプセルから値をそのまま取り出す。
 ///
 /// capsule_to_value は値を `{"__value__": ..., "__option__": ...}` で包むので、
@@ -113,6 +115,19 @@ impl MessengerBrokerProxy {
         log::trace!("reponse_function_name is {response_function_name_result:?}");
         let response_function_name = response_function_name_result?;
         let result = match response_function_name.as_str() {
+            ERROR_RESPONSE_FUNCTION_NAME => {
+                // サーバ側で処理が失敗した。エラーの内容を受け取ってそのまま返す (issue #231)
+                let message = value
+                    .extract_value()
+                    .ok()
+                    .and_then(|v| v["message"].as_str().map(|s| s.to_owned()))
+                    .unwrap_or_default();
+                return Err(anyhow::Error::from(JuizError::BrokerProxyRemoteError {
+                    class_name: class_name.to_string(),
+                    function_name: function_name.to_string(),
+                    message,
+                }));
+            }
             "RequestFunctionNameNotSupported" => {
                 log::error!("MessengerBrokerProxy::send_recv_and() error. Requested function name {function_name} is not supported.");
                 return Err(anyhow::Error::from(
@@ -915,9 +930,13 @@ impl TypeBrokerProxy for MessengerBrokerProxy {
 }
 
 impl BrokerProxy for MessengerBrokerProxy {
-    fn is_in_charge_for_process(&self, _id: &Identifier) -> JuizResult<bool> {
-        todo!()
-        //self.send_recv_and("process", "is_in_charge_for_process", jvalue!({"id": id}), |value| obj_get_bool(&value, "return"))
+    fn is_in_charge_for_process(&self, id: &Identifier) -> JuizResult<bool> {
+        let v = capsule_value(self.read_by_id("process", "is_in_charge", id)?)?;
+        v.as_bool().ok_or_else(|| {
+            anyhow::Error::from(JuizError::InvalidArgumentError {
+                message: format!("process/is_in_charge returned non-boolean value ({v})"),
+            })
+        })
     }
 
     //fn profile_full(&self) -> crate::JuizResult<crate::Value> {

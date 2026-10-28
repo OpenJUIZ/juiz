@@ -113,8 +113,56 @@ fn check_topics(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
         bp.topic_request_publish("topic0", uuid)?,
         jvalue!({"publish": false})
     );
-    // 無い Topic への push はエラーになる (メッセンジャー系は応答が来ずタイムアウトする)
+    // 無い Topic への push はエラーになる
     assert!(bp.topic_push("topic0", jvalue!(1).into(), uuid).is_err());
+    Ok(())
+}
+
+/// サーバ側で失敗したら、タイムアウト (3 秒) を待たずにサーバ側のエラーが返る (issue #231)
+fn check_remote_error(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
+    let missing: ProcessIdentifier =
+        "core://core/process/missing0::increment_process".try_into()?;
+    let started = std::time::Instant::now();
+    let err = bp
+        .process_profile_full(&missing)
+        .expect_err("profile of missing process must fail");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(1),
+        "error took {:?}",
+        started.elapsed()
+    );
+    match err.downcast_ref::<JuizError>() {
+        Some(JuizError::BrokerProxyRemoteError {
+            class_name,
+            function_name,
+            message,
+        }) => {
+            assert_eq!(
+                (class_name.as_str(), function_name.as_str()),
+                ("process", "profile_full")
+            );
+            assert!(message.contains("missing0"), "{message}");
+        }
+        _ => panic!("unexpected error: {err:?}"),
+    }
+
+    let started = std::time::Instant::now();
+    assert!(bp
+        .topic_push("topic_missing", jvalue!(1).into(), None)
+        .is_err());
+    assert!(started.elapsed() < std::time::Duration::from_secs(1));
+
+    // エラーのあとも同じ BrokerProxy で続けて呼べる
+    assert!(!bp.process_list(false, None)?.is_empty());
+    Ok(())
+}
+
+fn check_is_in_charge_for_process(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
+    let ids = bp.process_list(false, None)?;
+    let id = find_process(&ids, "inc0");
+    assert!(bp.is_in_charge_for_process(&id.to_string())?);
+    assert!(!bp
+        .is_in_charge_for_process(&"core://core/process/missing0::increment_process".to_owned())?);
     Ok(())
 }
 
@@ -305,6 +353,8 @@ fn messenger_broker_proxy_api() -> JuizResult<()> {
                 check_container_processes(&mut *bp)?;
                 check_ec_start_stop(&mut *bp)?;
                 check_topics(&mut *bp)?;
+                check_remote_error(&mut *bp)?;
+                check_is_in_charge_for_process(&mut *bp)?;
                 check_connection_by_try_connect_to(&mut *bp)?;
                 check_composite(&mut *bp)?;
                 check_types(&mut *bp)?;

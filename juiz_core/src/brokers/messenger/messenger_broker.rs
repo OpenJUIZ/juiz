@@ -3,8 +3,6 @@ use std::{
     time::Duration,
 };
 
-use tokio::runtime;
-
 use juiz_sdk::anyhow;
 
 use super::super::core_broker::CoreBrokerPtr;
@@ -18,12 +16,17 @@ use super::super::crud_broker::CRUDBroker;
 #[derive(Debug)]
 pub struct MessengerBroker {
     core: ObjectCore,
-    thread_handle: Option<tokio::task::JoinHandle<()>>,
+    thread_handle: Option<std::thread::JoinHandle<()>>,
     end_flag: Arc<Mutex<AtomicBool>>,
     crud_broker: Arc<Mutex<CRUDBroker>>,
     messenger_core: Arc<Mutex<dyn MessengerBrokerCore>>,
-    tokio_runtime: Option<runtime::Runtime>,
 }
+
+/// サーバ側の処理が失敗したときの応答に付ける function_name。
+///
+/// エラーでも応答を返さないとクライアントはタイムアウトまで待つことになるので、
+/// エラーの内容をこの名前の応答で返し、MessengerBrokerProxy で JuizError::BrokerProxyRemoteError に戻す (issue #231)
+pub const ERROR_RESPONSE_FUNCTION_NAME: &str = "__error__";
 
 pub trait MessengerBrokerCore: Send + std::fmt::Debug {
     fn receive_and_send(
@@ -60,15 +63,6 @@ impl MessengerBroker {
             messenger_core: messenger,
             crud_broker: Arc::new(Mutex::new(CRUDBroker::new(core_broker.clone(), manifest)?)),
             end_flag: Arc::new(Mutex::new(AtomicBool::from(false))),
-            //tokio_runtime: Some(runtime::Builder::new_multi_thread().enable_all().build().unwrap()),
-            tokio_runtime: Some(
-                tokio::runtime::Builder::new_multi_thread()
-                    .thread_name("messenger_broker")
-                    .worker_threads(4)
-                    .enable_all()
-                    .build()
-                    .unwrap(),
-            ),
         })
     }
 }
@@ -137,6 +131,25 @@ fn handle_function(
     }
 }
 
+/// handle_function を呼び、失敗したらエラーの内容を応答のカプセルにして返す
+fn handle_function_or_error_response(
+    crud_broker: Arc<Mutex<CRUDBroker>>,
+    args: CapsuleMap,
+) -> JuizResult<CapsulePtr> {
+    let class_name = args.get_param("class_name").cloned().unwrap_or_default();
+    let function_name = args.get_param("function_name").cloned().unwrap_or_default();
+    handle_function(crud_broker, args).or_else(|e| {
+        log::error!(
+            "MessengerBroker failed to handle {class_name}/{function_name}. Error is {e:#}"
+        );
+        let mut capsule: CapsulePtr = jvalue!({"message": format!("{e:#}")}).into();
+        capsule
+            .set_option("function_name", ERROR_RESPONSE_FUNCTION_NAME)?
+            .set_option("class_name", class_name.as_str())?;
+        Ok(capsule)
+    })
+}
+
 impl JuizObjectCoreHolder for MessengerBroker {
     fn core(&self) -> &ObjectCore {
         &self.core
@@ -152,15 +165,17 @@ impl Broker for MessengerBroker {
         let messenger_core = self.messenger_core.clone();
 
         let cb = self.crud_broker.clone();
-        self.thread_handle = Some(self.tokio_runtime.as_mut().unwrap().spawn(
-        async move {
+        // 受信待ちも処理もブロッキングなので、tokio のタスクではなく普通のスレッドで回す。
+        // tokio のタスク内だと、ec_destroy などで処理中にランタイムを drop したときに panic する (issue #231)
+        self.thread_handle = Some(std::thread::Builder::new().name("messenger_broker".to_owned()).spawn(
+        move || {
                 let timeout = Duration::new(0, 100*1000*1000);
 
                 loop {
                     let crud = cb.clone();
                     let func: Arc<Mutex<dyn Fn(CapsuleMap)->JuizResult<CapsulePtr>>> =
                         Arc::new(Mutex::new(move |value:CapsuleMap| -> JuizResult<CapsulePtr> {
-                            handle_function(Arc::clone(&crud), value)
+                            handle_function_or_error_response(Arc::clone(&crud), value)
                         }));
 
                     std::thread::sleep(Duration::new(0, 10 * 1000));
@@ -195,7 +210,7 @@ impl Broker for MessengerBroker {
                 }
                 log::debug!("LocalBroker::routine() end!!!");
             }
-        ));
+        )?);
         Ok(())
     }
 
@@ -207,7 +222,13 @@ impl Broker for MessengerBroker {
                 f.swap(true, SeqCst);
             }
         };
-        let _ = futures::executor::block_on(self.thread_handle.take().unwrap())?;
+        if let Some(handle) = self.thread_handle.take() {
+            handle.join().map_err(|_| {
+                anyhow::Error::from(JuizError::BrokerStopFailedError {
+                    type_name: self.type_name().to_owned(),
+                })
+            })?;
+        }
         log::debug!("LocalBroker stopped.");
         Ok(())
     }

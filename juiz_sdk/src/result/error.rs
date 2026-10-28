@@ -128,6 +128,12 @@ pub enum JuizError {
     },
     #[error("Requested Function Name ({request_function_name:}) is not supported by Broker")]
     BrokerProxyRequestFunctionNameNotSupportedError { request_function_name: String },
+    #[error("Broker returned an error for {class_name:}/{function_name:}: {message:}")]
+    BrokerProxyRemoteError {
+        class_name: String,
+        function_name: String,
+        message: String,
+    },
     #[error("Broker Send Error ()")]
     BrokerSendError {},
     #[error("Broker can not Lock sender mutex.")]
