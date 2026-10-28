@@ -46,7 +46,7 @@
 
 - Unix は `std::os::unix::net::{UnixListener, UnixStream}` を使うのがよい。読み取りのタイムアウトが標準で使え、共有メモリ(large-data.md §6.6)で記述子を `SCM_RIGHTS` で渡せる。
 - Windows は `interprocess` の名前付きパイプを使ってよい。
-- #233 の実装: Unix は std の `UnixListener` / `UnixStream`、Windows は `interprocess` の local socket(セキュリティ記述子は SDDL `D:P(A;;GA;;;OW)(A;;GA;;;SY)`、作ったユーザーと SYSTEM だけ)。通り道の違いは `juiz_core/src/brokers/ipc/transport.rs` に閉じ込めてある。
+- #233 の実装: Unix は std の `UnixListener` / `UnixStream`、Windows は `interprocess` の local socket(セキュリティ記述子は SDDL `D:P(A;;GA;;;OW)(A;;GA;;;SY)`、作ったユーザーと SYSTEM だけ)。通り道の違いは `juiz_core/src/brokers/ipc/transport.rs` に閉じ込めてある。Windows でサーバーを止めるときは、受け付けた接続を `DisconnectNamedPipe` で切り、`CancelIoEx` で読み取り待ちを取り消す。
 
 ### 2.5 残ったソケット
 
@@ -98,7 +98,7 @@ brokers:
 - 要求を書き終わる前に失敗したら(繋がらない、相手が閉じていた)、接続を作り直して 1 回だけ送り直す。
 - 要求を書き終わった後に失敗したら(応答の途中で切れた、タイムアウト)、送り直さずにエラーを返し、接続を捨てる。次の要求で作り直す。サーバーで処理が済んだかどうかわからないため。
 - 応答の待ち時間の上限は既定 10 秒。BrokerProxy の manifest の `timeout_ms` で変えてよい。Windows の名前付きパイプには読み取りのタイムアウトが無いので、今は待ち時間の上限を設けない(#233 の時点の制限)。
-- 使い回す接続は、要求を書く前に相手が閉じていないかを確かめ(Unix はノンブロッキングの読み取りで EOF を見る)、閉じていれば作り直す。サーバーを再起動した後の最初の要求も、送り直しなしで届く。
+- 使い回す接続は、要求を書く前に相手が閉じていないかを確かめ(Unix はノンブロッキングの読み取りで EOF を見る、Windows は `PeekNamedPipe` が失敗するかを見る)、閉じていれば作り直す。サーバーを再起動した後の最初の要求も、送り直しなしで届く。
 - 応答の `id` が要求と合わなければ、エラーにして接続を捨てる。
 
 ## 6. 組み込み

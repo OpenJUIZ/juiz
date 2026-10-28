@@ -1557,6 +1557,7 @@ dependencies = [
  "utoipa-swagger-ui",
  "uuid",
  "widestring",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
