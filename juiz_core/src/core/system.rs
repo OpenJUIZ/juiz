@@ -331,8 +331,9 @@ impl System {
 
     ///
     /// run中およびrun_and_do中に呼ばれる周期実行関数。
+    /// set_spin_callback で設定した関数 (main_loop_ec が使う) を 1 回呼ぶ。
     ///
-    fn spin(&mut self) -> () {
+    pub fn spin(&mut self) -> () {
         // log::debug!("System::spin() called");
         if self.spin_callback.is_some() {
             let _ = self.spin_callback.as_ref().unwrap()();

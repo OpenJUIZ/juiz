@@ -85,3 +85,108 @@ pub unsafe extern "Rust" fn execution_context_factory(
     let _ = env_logger::try_init();
     Ok(Arc::new(Mutex::new(MainLoopECFactory {})))
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicI64, Ordering};
+
+    use super::*;
+    use juiz_core::anyhow;
+
+    static EXECUTE_COUNT: AtomicI64 = AtomicI64::new(0);
+    static SPIN_COUNT: AtomicI64 = AtomicI64::new(0);
+
+    fn count_execute(_v: CapsuleMap) -> JuizResult<Capsule> {
+        Ok(jvalue!(EXECUTE_COUNT.fetch_add(1, Ordering::SeqCst) + 1).into())
+    }
+
+    fn count_spin(_v: CapsuleMap) -> JuizResult<Capsule> {
+        Ok(jvalue!(SPIN_COUNT.fetch_add(1, Ordering::SeqCst) + 1).into())
+    }
+
+    fn fail(_v: CapsuleMap) -> JuizResult<Capsule> {
+        Err(anyhow::Error::from(JuizError::InvalidValueError {
+            message: "fail".to_owned(),
+        }))
+    }
+
+    fn bound_core(
+        name: &str,
+        func: fn(CapsuleMap) -> JuizResult<Capsule>,
+    ) -> Arc<Mutex<ExecutionContextCore>> {
+        let core = ExecutionContextCore::new();
+        let p = process_new(ProcessManifest::new("counter").name(name), func).unwrap();
+        core.lock().unwrap().bind(ProcessPtr::new(p)).unwrap();
+        core
+    }
+
+    /// ExecutionContextHolder の start / stop と同じく core の状態を切り替える
+    fn set_state(core: &Arc<Mutex<ExecutionContextCore>>, state: ExecutionContextState) {
+        core.lock()
+            .unwrap()
+            .state
+            .store(state.to_i64(), Ordering::SeqCst);
+    }
+
+    #[test]
+    fn factory_creates_main_loop_ec() {
+        let factory = unsafe { execution_context_factory() }.unwrap();
+        let factory = factory.lock().unwrap();
+        assert_eq!(factory.type_name(), "main_loop_ec");
+        let ec = factory
+            .create(jvalue!({"name": "ec0", "rate": 10.0}))
+            .unwrap();
+        let ec = ec.read().unwrap();
+        assert_eq!(ec.name(), "ec0");
+        assert_eq!(ec.type_name(), "main_loop_ec");
+        assert_eq!(ec.profile().unwrap(), jvalue!({"rate": 10.0}));
+        // 自前のスレッドではなく System のメインループ (spin) で動く
+        assert!(!ec.is_periodic());
+    }
+
+    #[test]
+    fn factory_without_name_or_rate_is_error() {
+        let factory = unsafe { execution_context_factory() }.unwrap();
+        let factory = factory.lock().unwrap();
+        assert!(factory.create(jvalue!({"rate": 10.0})).is_err());
+        assert!(factory.create(jvalue!({"name": "ec0"})).is_err());
+    }
+
+    #[test]
+    fn execute_runs_bound_process_once() {
+        let ec = MainLoopEC::new("ec0", 10.0);
+        let core = bound_core("exec0", count_execute);
+        assert!(!ec.read().unwrap().execute(&core).unwrap());
+        assert_eq!(EXECUTE_COUNT.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn execute_returns_process_error() {
+        let ec = MainLoopEC::new("ec0", 10.0);
+        let core = bound_core("fail0", fail);
+        assert!(ec.read().unwrap().execute(&core).is_err());
+    }
+
+    #[test]
+    fn spin_runs_bound_process_only_while_started() {
+        let ec = MainLoopEC::new("ec0", 1000.0);
+        let core = bound_core("spin0", count_spin);
+        let mut system = System::new(jvalue!({"name": "test_system"})).unwrap();
+        ec.write().unwrap().on_load(&mut system, core.clone());
+
+        // start 前は spin しても実行されない
+        system.spin();
+        assert_eq!(SPIN_COUNT.load(Ordering::SeqCst), 0);
+
+        // start 後は spin のたびに 1 回ずつ実行される
+        set_state(&core, ExecutionContextState::STARTED);
+        system.spin();
+        system.spin();
+        assert_eq!(SPIN_COUNT.load(Ordering::SeqCst), 2);
+
+        // stop 後はまた実行されない
+        set_state(&core, ExecutionContextState::STOPPED);
+        system.spin();
+        assert_eq!(SPIN_COUNT.load(Ordering::SeqCst), 2);
+    }
+}
