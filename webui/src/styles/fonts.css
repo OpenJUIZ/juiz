@@ -1,7 +1,7 @@
 /*
  * 画面の書体はここだけで決める。
  *
- * 漢字・かなは Zen Old Mincho(SIL Open Font License 1.1、src/assets/fonts/OFL.txt)を同梱する(#111)。
+ * 漢字・かなは Zen Old Mincho(SIL Open Font License 1.1、public/fonts/ZenOldMincho-OFL.txt)を同梱する(#111)。
  * juiz に埋め込んで /ui で配信するので外部 CDN は使わず、画面で使う字だけに絞った woff2 を置く。
  * 画面に新しい字を足したら npm run fonts:chars と scripts/subset-fonts.sh で作り直す
  * (npm run check:fonts が CI で足りない字を知らせる)。一覧に無い字(系から届く名前など)は
