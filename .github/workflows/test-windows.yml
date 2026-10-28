@@ -109,7 +109,7 @@ jobs:
           RUST_BACKTRACE: "0"
         run: |
           set -o pipefail
-          for v in 1 2 3 4; do TMPV=$v scripts/test.sh -p juiz_core --test integration -- tmp_info_variant --nocapture 2>&1 | grep -E "TEMP|hsjuiz|panicked|0xc0|ERROR" | tail -10 || true; done
+          for v in probea probeb probec probed probee info; do TMPV=$v scripts/test.sh -p juiz_core --test integration -- tmp_info_variant --nocapture 2>&1 | grep -E "TEMP|hsjuiz|panicked|0xc0|ERROR" | tail -10 || true; done
           scripts/test.sh -p juiz_core --test integration -- haskell plugin_images_through_ipc > /tmp/t.log 2>&1 || { tail -n 30 /tmp/t.log; grep -n -E "^test |panicked|rror|hsjuiz:" /tmp/t.log | grep -v "warning" | head -120; exit 1; }
       - name: inspect
         if: always()

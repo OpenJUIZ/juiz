@@ -309,20 +309,20 @@ fn tmp_info_variant() -> JuizResult<()> {
     if v.is_empty() || !has_haskell_example() {
         return Ok(());
     }
-    System::new(conf("tmp_info", None, &["cpp", "hs"]))?
+    let mut c = conf("tmp_info", None, &["cpp", "hs"]);
+    for p in ["a", "b", "c", "d", "e"] {
+        if let Some(a) = c["processes"].as_array_mut() {
+            a.push(jvalue!({ "type_name": format!("image_probe{p}_hs"), "name": format!("image_probe{p}_hs0"), "use_memo": false }));
+        }
+    }
+    System::new(c)?
         .setup()?
         .run_and_do_once(|system| {
             let cb = system.core_broker().lock()?;
             let ids = cb.process_list(false, None)?;
-            let info = find_process(&ids, "image_info_hs0").clone();
-            let mut args = match v.as_str() {
-                "1" | "2" => image_args("img", &image_of_format("la16", 6, 4)),
-                "3" => image_args("img", &image_of_format("rgb8", 6, 4)),
-                _ => CapsuleMap::new(),
-            };
-            if v != "2" {
-                args.insert("label".to_owned(), jvalue!("cam").into());
-            }
+            let info = find_process(&ids, &format!("image_{v}_hs0")).clone();
+            let mut args = image_args("img", &image_of_format("rgb8", 6, 4));
+            args.insert("label".to_owned(), jvalue!("CaM").into());
             eprintln!("TEMP calling {v}");
             let r = cb.process_call(&info, args);
             eprintln!("TEMP returned {v} ok={}", r.is_ok());
