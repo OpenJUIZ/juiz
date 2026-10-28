@@ -130,4 +130,27 @@ brokers:
 
 - 別マシンとの通信。
 - 他のユーザーのプロセスからの接続。
-- 他言語のクライアント(pyjuiz の IPC クライアントは #236 で検討する)。
+- pyjuiz 以外の言語のクライアント(pyjuiz は #236 で足した、§10)。
+
+## 10. pyjuiz の IPC クライアント(#236 で決めたこと)
+
+`juiz.proxy.IpcProxy`(`bindings/pyjuiz/juiz/proxy/ipc.py` と `__init__.py`)。`HttpProxy` と同じ `CRUDProxy` なので、`SystemProxy` / `ProcessProxy` / `ContainerProxy` の上の使い方は HTTP と変わらない。
+
+```python
+from juiz.proxy import ProcessProxy, ContainerProxy, connect
+
+cam = ProcessProxy("capture0", ipc="cam0")    # ipc://cam0 に繋ぎ、名前で探す
+img = cam.call()                              # 画像は PNG を経由せず画素のまま届く
+system = connect("ipc://cam0")                # SystemProxy。connect("http://localhost:8000") も同じ形
+```
+
+- 名前と場所: §2.1 の名前の検証と、§2.2 の場所(`JUIZ_IPC_DIR` → `$XDG_RUNTIME_DIR/juiz` → `/tmp/juiz-<uid>`)を Rust と同じ順で求める。クライアントなのでディレクトリは作らない。Windows は `\\.\pipe\juiz-<name>` をファイルとして開く(読み取りのタイムアウトは無い。Rust の BrokerProxy と同じ制限)。
+- 接続: §5.2 と同じ。最初の要求で繋いで使い回し、要求は 1 つずつ(スレッドからはロックで順に)送る。書く前に相手が閉じていれば(`MSG_PEEK` で EOF)繋ぎ直し、書き終わる前の失敗は 1 回だけ送り直し、書き終わった後の失敗は送り直さずに接続を捨てる。待ち時間の上限は既定 10 秒(`IpcProxy(name, timeout=秒)`)。`close()` と `with` で閉じられる。
+- 要求: `param` に `method_name`(小文字)・`class_name`・`function_name`・`accessed_broker_name` と、HTTP のクエリにあたるもの(`identifier` など)を入れる。create の `{"__map__": ..., "__param__": ...}` は中身を取り出す(Rust の `IpcBrokerProxy` と同じ)。
+- 画像を送る: PIL の `Image`(`L`→`l8`、`LA`→`la8`、`RGB`→`rgb8`、`RGBA`→`rgba8`、`I;16`→`l16`。ほかのモード(`P` など)は `RGB` か `RGBA` にしてから)と、numpy の配列(`uint8` / `uint16` の 1〜4 チャンネル、`float32` の 3・4 チャンネル。高さ × 幅 [× チャンネル])。numpy の配列は連続でなければ詰めてから送る。
+- 画像を受け取る: PIL で表せる `l8` / `la8` / `rgb8` / `rgba8` / `l16` は PIL の `Image`(HTTP と違い `RGB` に変換しない)、それ以外(`la16` / `rgb16` / `rgba16` / `rgb32f` / `rgba32f`)は numpy の配列。numpy が無ければエラー。余白のある `stride` は取り除く。
+- 数の配列: large-data.md §3.4 の規則で、1024 要素以上の整数だけ(`bool` は含めない)・小数だけの `list` を `i64le` / `f64le` の本体にし、受け取った本体は `list` に戻す。
+- エラー応答は `IpcRemoteError`(`InternalServerError` の子。`class_name`・`function_name` を持つ)、繋がらない・フレームが読めないなどの通り道の失敗は `IpcError`。
+- 共有メモリ(B)は使わない。B は Topic の push で送り手が Rust のときだけで、pyjuiz はサーバーにならないため。
+- あわせて直したもの: `ProcessProxy.call` / `ContainerProcessProxy.call` に位置で 2 つ以上の引数を渡すと、画像以外を JSON の文字列にしていたので、HTTP の PATCH では文字列のまま届いていた。値のまま渡し、HTTP の multipart(画像があるとき)で画像以外を JSON の文字列にするのは `HttpProxy` が受け持つようにした(`datatype.typed_call` も同じ)。
+- テスト: `bindings/pyjuiz/test/ipc_frame_test.py`(サーバーなしでフレームの往復、余白のある画像、不正なフレーム、偽のサーバーでのエラー応答と画像)と、`juiz_core/tests/integration/pyjuiz_ipc_proxy_test.rs`(System を起動して `bindings/pyjuiz/test/ipc_proxy_test.py` を別プロセスで実行。Process / Container、画像の形式ごとの引数と戻り値、数の配列、エラー応答、繋ぎ直し、HTTP との比べ)。

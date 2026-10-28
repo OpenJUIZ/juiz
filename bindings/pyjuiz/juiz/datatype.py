@@ -433,25 +433,12 @@ def typed_call(proxy, arguments, returns: Converter):
     arguments は (引数名, 値, 変換器) の列。値が OMIT の引数は渡さない (呼ばれる側の既定値を使う)。
     proxy は juiz.proxy の ProcessProxy か ContainerProcessProxy。戻り値は returns で読む。
     """
+    # 画像はそのまま渡す。HTTP の multipart で画像以外を JSON の文字列にするのは proxy が受け持つ (issue #236)
     body = {}
-    has_image = False
     for name, value, converter in arguments:
         if value is OMIT:
             continue
-        v = converter.to_value(value, name)
-        if converter is Image:
-            has_image = True
-        body[name] = v
-    if has_image:
-        # 画像があると multipart で送るので、ほかの引数は JSON の文字列にする (proxy の決まり)
-        body = {k: (v if _is_pil_image(v) else json.dumps(v)) for k, v in body.items()}
+        body[name] = converter.to_value(value, name)
     result = proxy.call(body=body)
     return returns.from_value(result)
 
-
-def _is_pil_image(v):
-    try:
-        from PIL.Image import Image as PILImage
-    except ImportError:
-        return False
-    return isinstance(v, PILImage)

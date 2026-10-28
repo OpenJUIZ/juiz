@@ -1,9 +1,12 @@
 import re
+import threading
 import httpx
 import json, io
 from PIL import Image
 from io import BytesIO
 from ..datatype import to_value as _to_value
+from . import ipc as _ipc
+from .ipc import IpcError, DEFAULT_IPC_NAME, ipc_address
 
 
 class UnsupportedMediaTypeError(Exception): pass
@@ -122,7 +125,7 @@ class HttpProxy(CRUDProxy):
                 img_key_value[1].save(output, 'PNG')
                 files = {}
                 for k, v in serializable_data.items():
-                    files[k] = (None, v, "application/json")
+                    files[k] = (None, json.dumps(v), "application/json")
                 files[img_key_value[0]] = (None, output.getvalue(), "image/png")
                 return self._do_response(client.put(self._base_url + url,
                             # data=json.dumps(serializable_data),
@@ -135,6 +138,107 @@ class HttpProxy(CRUDProxy):
                                     headers={"Content-Type": "application/json"}
                                     )) 
         return None
+
+class IpcRemoteError(InternalServerError):
+    """IPC ブローカーが返したエラー応答。class_name と function_name は失敗した要求のもの"""
+
+    def __init__(self, message, class_name='', function_name=''):
+        super().__init__(message)
+        self.class_name = class_name
+        self.function_name = function_name
+
+
+class IpcProxy(CRUDProxy):
+    """IPC ブローカー (ipc://<name>) に繋ぐ (issue #236、docs/spec/ipc-broker.md §5.2)。
+
+    同じマシンの juiz -d --ipc <name> (か conf の brokers: の type_name: ipc) に、ポートを使わずに繋ぐ。
+    画像は PNG にせず画素のまま送るので、HTTP より速い。接続は最初の要求で作って使い回す。
+    """
+
+    def __init__(self, name=DEFAULT_IPC_NAME, timeout=_ipc.DEFAULT_TIMEOUT,
+                 max_frame_bytes=_ipc.DEFAULT_MAX_FRAME_BYTES):
+        self._name = name
+        self._address = ipc_address(name)
+        self._timeout = timeout
+        self._max_frame_bytes = max_frame_bytes
+        self._lock = threading.Lock()
+        self._conn = None
+        self._next_id = 1
+
+    def __repr__(self):
+        return f'IpcProxy("ipc://{self._name}")'
+
+    def close(self):
+        with self._lock:
+            self._drop()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+    def _drop(self):
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
+
+    def _request(self, method_name, class_name, function_name, map, param):
+        param = {k: str(v) for k, v in (param or {}).items()}
+        param.update(method_name=method_name, class_name=class_name, function_name=function_name,
+                     accessed_broker_name=self._name)
+        with self._lock:
+            id = self._next_id
+            self._next_id += 1
+            buffers = _ipc.request_frame(id, param, map).to_buffers()
+            # 書き終わる前に失敗したら (繋がらない、相手が閉じていた)、接続を作り直して 1 回だけ送り直す
+            if self._conn is not None and self._conn.is_closed():
+                self._drop()
+            for attempt in range(2):
+                if self._conn is None:
+                    try:
+                        self._conn = _ipc._connect(self._address, self._timeout)
+                    except OSError as e:
+                        raise IpcError(f'can not connect to ipc://{self._name} ({self._address}): {e}') from e
+                try:
+                    self._conn.write(buffers)
+                    break
+                except OSError as e:
+                    self._drop()
+                    if attempt:
+                        raise IpcError(f'sending a request to ipc://{self._name} failed: {e}') from e
+            # 書き終わった後の失敗は、サーバーで処理が済んだかわからないので送り直さない。接続は捨てる
+            try:
+                header, bodies = _ipc.read_frame(self._conn.reader, self._max_frame_bytes)
+            except (OSError, EOFError, ValueError, IpcError) as e:
+                self._drop()
+                raise IpcError(f'receiving a response from ipc://{self._name} failed: {e}') from e
+            if header.get('id') != id or header.get('kind') not in ('response', 'error'):
+                self._drop()
+                raise IpcError(f'ipc://{self._name}: unexpected response '
+                               f'(id {header.get("id")}, kind {header.get("kind")} for request {id})')
+        if header['kind'] == 'error':
+            e = header.get('error') or {}
+            raise IpcRemoteError(e.get('message', ''), e.get('class_name', ''), e.get('function_name', ''))
+        return _ipc.capsule_from_repr(header.get('result'), bodies)
+
+    def read(self, class_name, function_name, param_dict={}):
+        return self._request('read', class_name, function_name, {}, param_dict)
+
+    def delete(self, class_name, function_name, param_dict={}):
+        return self._request('delete', class_name, function_name, {}, param_dict)
+
+    def create(self, class_name, function_name, body: dict, param_dict: dict={}):
+        # {"__map__": ..., "__param__": ...} の形なら中身を取り出す (HTTP の POST と同じ)
+        param = dict(param_dict)
+        if isinstance(body, dict) and '__map__' in body:
+            param.update(body.get('__param__') or {})
+            body = body['__map__']
+        return self._request('create', class_name, function_name, body or {}, param)
+
+    def update(self, class_name, function_name, body, param_dict={}, profile=None):
+        return self._request('update', class_name, function_name, body or {}, param_dict)
+
 
 class SystemProxy():
 
@@ -227,6 +331,29 @@ class SystemProxy():
         return self._container_processes
 
     
+def connect(address: str):
+    """'ipc://<name>' か 'http://<host>:<port>' に繋ぐ SystemProxy を返す (issue #236)"""
+    m = re.match(r'^(ipc|http)://([^/:]*)(?::(\d+))?/?$', address)
+    if m is None:
+        raise ValueError(f"invalid address '{address}'. Use 'ipc://<name>' or 'http://<host>:<port>'")
+    protocol, host, port = m.groups()
+    if protocol == 'ipc':
+        if port is not None:
+            raise ValueError(f"ipc address must not have a port ('{address}')")
+        return SystemProxy(IpcProxy(host or DEFAULT_IPC_NAME))
+    return SystemProxy(HttpProxy(host or 'localhost', int(port) if port else 8000))
+
+
+def _connect_system(host, port, protocol, ipc):
+    """(SystemProxy, エラーメッセージ用の接続先) を返す"""
+    if ipc is not None or protocol == 'ipc':
+        name = ipc if ipc is not None else (host or DEFAULT_IPC_NAME)
+        return SystemProxy(IpcProxy(name)), f'ipc://{name}'
+    if protocol == 'http':
+        return SystemProxy(HttpProxy(host, port)), f'http://{host}:{port}'
+    raise ValueError(f"unknown protocol '{protocol}'. Use 'http' or 'ipc'")
+
+
 class ObjectProxy(object):
     
     def __init__(self, system_proxy, class_name, identifier):
@@ -295,18 +422,21 @@ def _find_by_name(objs, name, namespace=None):
 
 
 class ProcessProxy(ObjectProxy):
-    def __init__(self, name, host, port, protocol='http', namespace=None):
-        if protocol is None:
+    def __init__(self, name, host=None, port=None, protocol='http', namespace=None, ipc=None):
+        """名前で Process を探す。HTTP なら ProcessProxy(name, host, port)、
+        IPC なら ProcessProxy(name, ipc='<IPC ブローカーの名前>') (issue #236)"""
+        if protocol is None and ipc is None:
             super().__init__(None, 'process', None)
             self._name = name
-        elif protocol == 'http':
-            super().__init__(SystemProxy(HttpProxy(host,port)), 'process', None)
+        else:
+            system, address = _connect_system(host, port, protocol, ipc)
+            super().__init__(system, 'process', None)
             self._name = None
             p = _find_by_name(self.system.processes(), name, namespace)
             if p is not None:
                 self._id = p.identifier()
                 return
-            raise NotFoundError(f'process "{join_namespace(namespace or "", name)}" not found in http://{host}:{port}')
+            raise NotFoundError(f'process "{join_namespace(namespace or "", name)}" not found in {address}')
             
     def __repr__(self):
         return f'ProcessProxy("{self.identifier()}")'
@@ -330,11 +460,10 @@ class ProcessProxy(ObjectProxy):
         else:
             body = {}
             args_prof = prof['arguments']
+            # 画像はそのまま渡す (HTTP は multipart、IPC は生バイトで送る)。
+            # 以前は画像以外を JSON の文字列にしていたので、HTTP で引数が 2 つ以上あると文字列で届いていた
             for a, a_prof in zip(args, args_prof):
-                if isinstance(a, Image.Image):
-                    body[a_prof['name']] = a
-                else:
-                    body[a_prof['name']] = json.dumps(_to_value(a))
+                body[a_prof['name']] = _to_value(a)
             for k, v in kwargs.items():
                 body[k] = _to_value(v)
         return self.system.crud.update(self._cn, 'call', body, {'identifier': self._id}, profile=self._profile)
@@ -350,12 +479,14 @@ class ProcessProxy(ObjectProxy):
 
 class ContainerProxy(ObjectProxy):
         
-    def __init__(self, name, host, port, protocol='http', namespace=None):
-        if protocol is None:
+    def __init__(self, name, host=None, port=None, protocol='http', namespace=None, ipc=None):
+        """名前 (か型名) で Container を探す。IPC なら ContainerProxy(name, ipc='<IPC ブローカーの名前>')"""
+        if protocol is None and ipc is None:
             super().__init__(None, 'container', None)
             self._name = name
-        elif protocol == 'http':
-            super().__init__(SystemProxy(HttpProxy(host,port)), 'container', None)
+        else:
+            system, address = _connect_system(host, port, protocol, ipc)
+            super().__init__(system, 'container', None)
             self._name = None
             cs = self.system.containers()
             # 名前で探し、見つからなければ従来どおり型名で探す
@@ -368,7 +499,7 @@ class ContainerProxy(ObjectProxy):
                     if c.type_name() == name:
                         self._id = c.identifier()
                         return
-            raise NotFoundError(f'container "{join_namespace(namespace or "", name)}" not found in http://{host}:{port}')
+            raise NotFoundError(f'container "{join_namespace(namespace or "", name)}" not found in {address}')
                 
     @classmethod
     def new(cls, system_proxy, identifier):
@@ -428,11 +559,10 @@ class ContainerProcessProxy(ObjectProxy):
         else:
             body = {}
             args_prof = prof['arguments']
+            # 画像はそのまま渡す (HTTP は multipart、IPC は生バイトで送る)。
+            # 以前は画像以外を JSON の文字列にしていたので、HTTP で引数が 2 つ以上あると文字列で届いていた
             for a, a_prof in zip(args, args_prof):
-                if isinstance(a, Image.Image):
-                    body[a_prof['name']] = a
-                else:
-                    body[a_prof['name']] = json.dumps(_to_value(a))
+                body[a_prof['name']] = _to_value(a)
             for k, v in kwargs.items():
                 body[k] = _to_value(v)
             #body = kwargs
