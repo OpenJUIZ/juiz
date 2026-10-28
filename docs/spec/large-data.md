@@ -154,7 +154,7 @@ HTTP の時間の約 8 割が PNG の圧縮と展開なので、A で PNG をや
 
 - `stride` は 1 行のバイト数。`width × 1 画素のバイト数` 以上でなければならない。本体の長さは `stride × height` でなければならない。合わなければエラーにする。
 - Rust の送り手は `DynamicImage::as_bytes()` をそのまま書き、`stride` は `width × 1 画素のバイト数` にする(余白なし)。余白のある `stride` は、行の終わりに余白を持つ画像(C++ の `cv::Mat` など)の送り手のためにある。受け手は余白を取り除いて `DynamicImage` を作る。
-- 上の表にない形式(BGR など)は送れない。足すときはこの表を直す(C++ の画像型を足す #236 で `bgr8` などを検討する)。
+- 上の表にない形式(BGR など)はフレームでは送らない。`bgr8` は足さず、C++ / Haskell のプラグインが BGR で返した画像は libjuiz_sdk が RGB に並べ替えてから `Capsule::Image` に入れる(§10、#253 で決めた)。
 
 #### 数値の配列 `array`
 
@@ -381,7 +381,8 @@ Topic の profile に、送り手と受け手のそれぞれで次の数を出�
 | 3 | #233 | §3 のフレーム(IPC)、§4 の IPC と HTTP、§5、§7 |
 | 4 | #234 | §4 の qmp(実装済み) |
 | 5 | #235 | §6(実装済み、§6.9) |
-| 6 | #236 | pyjuiz の IPC クライアント(実装済み、ipc-broker.md §10)。C++ / Haskell の画像型と `bgr8` などは別の issue に分けた(§9) |
+| 6 | #236 | pyjuiz の IPC クライアント(実装済み、ipc-broker.md §10)。C++ / Haskell の画像型と `bgr8` などは#253 に分けた(§10) |
+| 6 | #253 | C++ / Haskell の画像(§10、実装済み) |
 | 8 | #237 | リリース(qmp の非互換をリリースノートに書く) |
 
 目標の目安: 別プロセスへの call の戻り値で、720p は 2ms 以下、1080p は 4ms 以下(A)。#233 の IPC で 720p 1.2ms、1080p 3.0ms、4K 12.7ms(§1.1 と同じクラウドの Xeon 4 コア、release。HTTP の 12〜16 倍速い)。4K の Topic の push は、生バイトの Unix ソケット(16ms)より速いこと(B)。#235 の B で 4K の publish は 8ms(A は 19ms)。受け手に届くまでは A と同じく約 19ms(§6.9)。どれも #230 のベンチに IPC と B を足して確かめる。
@@ -392,6 +393,42 @@ Topic の profile に、送り手と受け手のそれぞれで次の数を出�
 - **B を call の引数と戻り値に使うこと。** 戻り値の寿命(いつ枠を再利用してよいか)を決める必要がある。Topic で効果を確かめてから検討する。
 - **Value の一部を本体に出すこと。** 辞書のフィールドにある画像や配列。datatype.md §3.3 で `image` は引数・戻り値の型そのものとしてだけ使えるので、今は要らない。
 - **`bytes` を生バイトで送ること**(§3.4)。#236 でも扱わなかった。
-- **C++ / Haskell の画像型。** 両方とも画像型をまだ持たない(datatype.md §21・§22)。プラグインは同じプロセスで動くのでブローカーの影響を受けず、外から繋ぐクライアントは pyjuiz なので、#236 では pyjuiz だけにした(2026-10-28 ユーザー判断)。画像型と `bgr8` などの形式は別の issue で判断する。
 - **HTTP でフレームを使うこと。** 必要になったら、`Content-Type: application/x-juiz-frame` で受け付ける形で足す。
 - **別マシンへの共有メモリ。** qmp は A だけ。
+
+## 10. C++ / Haskell の画像(#253 で決めたこと)
+
+C++ / Haskell のプラグインが画像(`Capsule::Image`)を引数で受け取り、戻り値で返せるようにした。プラグインは juiz と同じプロセスで動くので、画像は libjuiz_sdk の C ABI を通る。一度 `Capsule::Image` になれば Rust の画像と同じなので、IPC・qmp のブローカー越しには §3 のフレームの生バイトで渡り、Rust・Python・ほかの言語の Process とも接続できる。
+
+### 10.1 C ABI(libjuiz_sdk、`juiz_sdk.h`)
+
+既存の関数は変えず、足しただけ。
+
+| 関数・型 | 内容 |
+|---|---|
+| `juiz_image` | `{uint32_t width, height, format, reserved; size_t stride; const uint8_t* data}`。`stride` は 1 行のバイト数で、`width × 1 画素のバイト数` 以上(行の終わりに余白があってよい) |
+| `JUIZ_IMAGE_FORMAT_*` | 0〜9 は §3.4 の表と同じ並び(`L8`・`LA8`・`RGB8`・`RGBA8`・`L16`・`LA16`・`RGB16`・`RGBA16`・`RGB32F`・`RGBA32F`)。10 `BGR8`・11 `BGRA8` は送るときだけ使える |
+| `capsule_ptr_is_image(cp)` | 値が画像か(Native の画像も含む) |
+| `capsule_ptr_lock_as_image(cp, callback, arg)` | 画像を**複製せずに** callback の間だけ貸す(その間は値がロックされる。`stride` は余白なし)。画像でなければ `JUIZ_CAPSULE_TYPE_ERROR`(-401)、表にない形式なら `JUIZ_IMAGE_FORMAT_ERROR` |
+| `capsule_set_image(cp, image)` | 画像を複製して戻り値に入れる。行の余白を取り除き、`BGR8` / `BGRA8` は赤と青を入れ替えて `RGB8` / `RGBA8` にする。合わなければ `JUIZ_IMAGE_FORMAT_ERROR`(-704、理由はログ) |
+
+- 16 bit・f32 の形式の画素はホストのバイト順(フレームはリトルエンディアンだが、C ABI はプロセスの中なのでホストの順のまま)。
+- `bgr8` をフレームの形式(§3.4)や `DynamicImage` に足さなかったのは、`image` クレートに BGR の形式がなく、足すと Rust・Python・HTTP(PNG)のすべてで扱いを決める必要があるため。並べ替えは 720p で 1ms 未満で、どのみち複製は 1 度起きる。
+
+### 10.2 C++(cppjuiz、`juiz/image.h`・`juiz/opencv.h`)
+
+- `juiz::Image`(画素を持つ。行の余白なし)、`juiz::ImageView`(借りた画像)、`juiz::PixelFormat`、`juiz::ImageFormatError`(Process の関数から投げると `JUIZ_IMAGE_FORMAT_ERROR`)。
+- manifest は `ProcessManifest::add_image_arg(name, description)`(Rust の `add_image_arg` と同じく `type_name` は `Image`、既定値は空のオブジェクト)。
+- Process / ContainerProcess の関数の引数に `juiz::Image` か `const juiz::Image&` を書くと、届いた画像を 1 度複製して受け取る。戻り値を `std::optional<juiz::Image>` にすると、`capsule_set_image` で返す。複製せずに読みたいときは `juiz::with_image(cm, name, f)` で callback の間だけ借りる。
+- `juiz/opencv.h`(OpenCV の core だけを使う。include しなければ OpenCV は要らない): `to_mat`(BGR の並びの `cv::Mat` に複製)、`from_mat`(BGR の並びの `cv::Mat` から複製。8 bit は `BGR8` / `BGRA8` のまま持ち、返すときに libjuiz_sdk が並べ替える。ROI のように行の余白がある Mat も受け付ける)、`wrap_mat`(複製せずに包む。色の並びは juiz のまま)。
+
+### 10.3 Haskell(hsjuiz、`Juiz.Image`)
+
+- `Image`(`imageWidth`・`imageHeight`・`imageFormat`・`imageStride`・`imageData :: ByteString`)、`PixelFormat`(`L8` 〜 `RGBA32F`、`BGR8`・`BGRA8`)、`newImage`(余白なしの画像を作る。バイト数が合わなければ `Left`)、`bytesPerPixel`。
+- manifest は `addImageArg 名前 説明`。Process の引数を `Image` にすると受け取り(`ByteString` に複製する)、結果を `Image` にすると返す。
+- `FromCapsule` に既定の実装のあるメソッド `fromArgument`、`ToCapsule` に `toResult` を足した(今のインスタンスは変えなくてよい)。型なしの引数は、届いた値が画像なら `ArgImage` として読み、`Image` 以外の型では変換エラーになる。`Image` を辞書の中(`[Image]` など)には入れられない(datatype.md §3.3)。
+
+### 10.4 テストと手元の数字
+
+- `juiz_core/tests/integration/plugin_image_test.rs`: C++(`examples/cpp/component/cpp_image_component`)と Haskell(`examples/haskell/src/ImageComponent.hs`)で、10 形式の引数と戻り値、`BGR8` で返した画像が `RGB8` になること、画像の後ろに続く引数、ContainerProcess、C++ ↔ Haskell の接続(Composite)を、同じプロセスの中と IPC ブローカー越し(720p を含む)で確かめる。OpenCV があれば `cpp_image_opencv_component` で `to_mat` / `from_mat` の往復(ROI を含む)も確かめる(無ければ飛ばす)。
+- `juiz_sdk/src/value/image_converter.rs` の単体テスト: 余白のある `BGR8`、16 bit のバイト順、不正な画像。

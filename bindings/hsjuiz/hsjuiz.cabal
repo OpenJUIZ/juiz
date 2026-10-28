@@ -50,6 +50,7 @@ library
                       Juiz.Component
                       Juiz.TH
                       Juiz.Type
+                      Juiz.Image
                       Juiz.Internal.FFI
                       Juiz.Internal.TypeInfo
                       Juiz.Internal.Base64

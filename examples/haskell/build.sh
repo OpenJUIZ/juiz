@@ -57,7 +57,7 @@ cabal build all \
 for name in increment_process_hs decrement_process_hs value_types_process_hs \
     example_container_hs example_container_hs_increment example_container_hs_get \
     mismatched_container_process_hs example_component_hs broken_component_hs \
-    typed_component_hs broken_typed_process_hs; do
+    typed_component_hs broken_typed_process_hs image_component_hs; do
     lib=$(find dist-newstyle -name "lib$name.$ext" -type f | head -n 1)
     if [[ -z "$lib" ]]; then
         echo "error: lib$name.$ext が dist-newstyle に見つかりません" >&2

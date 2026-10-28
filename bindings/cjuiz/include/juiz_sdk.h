@@ -42,6 +42,8 @@ extern "C" {
 #define JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR               INT64_C(-702)
 /* 値が型タグの同じ C++ のネイティブ値でない (capsule_ptr_borrow_native が返す。辞書を通して読む) */
 #define JUIZ_NATIVE_NOT_MATCHED                            INT64_C(-703)
+/* 画像の形式・大きさ・stride が正しくない、または扱えない形式 (capsule_set_image / capsule_ptr_lock_as_image が返す) */
+#define JUIZ_IMAGE_FORMAT_ERROR                            INT64_C(-704)
 
 /* ---- 不透明な型 ----
  * 中身は Rust 側の CapsulePtr / Capsule / CapsuleMap / Value。ポインタとしてだけ使う。 */
@@ -197,6 +199,42 @@ int64_t capsule_set_native(capsule* cp, void* obj, const juiz_native_codec* code
 int64_t capsule_ptr_borrow_native(capsule_ptr* cp, const juiz_native_codec* codec,
                                   const void** obj, juiz_native_ref** ref);
 void juiz_native_ref_release(juiz_native_ref* ref);
+
+/* ---- 画像 (docs/spec/large-data.md §10) ----
+ * juiz の画像 (Rust の Capsule::Image) を読み書きする。形式は large-data.md §3.4 の表と同じ並び。
+ * 16 bit・f32 の形式の画素はホストのバイト順。 */
+#define JUIZ_IMAGE_FORMAT_L8       0u
+#define JUIZ_IMAGE_FORMAT_LA8      1u
+#define JUIZ_IMAGE_FORMAT_RGB8     2u
+#define JUIZ_IMAGE_FORMAT_RGBA8    3u
+#define JUIZ_IMAGE_FORMAT_L16      4u
+#define JUIZ_IMAGE_FORMAT_LA16     5u
+#define JUIZ_IMAGE_FORMAT_RGB16    6u
+#define JUIZ_IMAGE_FORMAT_RGBA16   7u
+#define JUIZ_IMAGE_FORMAT_RGB32F   8u
+#define JUIZ_IMAGE_FORMAT_RGBA32F  9u
+/* 送るとき (capsule_set_image) だけ使える。juiz はチャンネルを並べ替えて RGB8 / RGBA8 で持つ */
+#define JUIZ_IMAGE_FORMAT_BGR8     10u
+#define JUIZ_IMAGE_FORMAT_BGRA8    11u
+
+typedef struct juiz_image {
+    uint32_t width;
+    uint32_t height;
+    uint32_t format;     /* JUIZ_IMAGE_FORMAT_* */
+    uint32_t reserved;   /* 0 にしておく */
+    size_t stride;       /* 1 行のバイト数。width × 1 画素のバイト数 以上 (行の終わりに余白があってよい) */
+    const uint8_t* data; /* 先頭の行。stride × (height - 1) + width × 1 画素のバイト数 だけ読む */
+} juiz_image;
+
+/* capsule_ptr の値が画像か */
+bool capsule_ptr_is_image(capsule_ptr* cp);
+/* capsule_ptr の画像を、複製せずに callback の間だけ貸す (callback の間はロックされる。stride は余白なし)。
+ * 画像でなければ JUIZ_CAPSULE_TYPE_ERROR、表にない形式なら JUIZ_IMAGE_FORMAT_ERROR、
+ * そうでなければ callback の戻り値が返る。 */
+int64_t capsule_ptr_lock_as_image(capsule_ptr* cp, int64_t (*callback)(void*, const juiz_image*), void* arg);
+/* 画像を複製して capsule (Process の戻り値) に入れる。行の余白は取り除き、BGR8 / BGRA8 は RGB8 / RGBA8 に並べ替える。
+ * 合わなければ JUIZ_IMAGE_FORMAT_ERROR (理由はログ)。 */
+int64_t capsule_set_image(capsule* cp, const juiz_image* image);
 
 #ifdef __cplusplus
 }

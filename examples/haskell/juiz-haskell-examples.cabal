@@ -84,6 +84,13 @@ foreign-library typed_component_hs
                       Robot.Common
                       Robot.Geometry
 
+-- 画像の引数・戻り値 (docs/spec/large-data.md §10)
+foreign-library image_component_hs
+    import:           plugin
+    type:             native-shared
+    build-depends:    bytestring, text
+    other-modules:    ImageComponent
+
 -- 誤った型付きの Process。juiz が読み込むときにエラーになる (juiz のテスト用)
 foreign-library broken_typed_process_hs
     import:           plugin

@@ -8,6 +8,7 @@
 #include <utility>
 #include "process_manifest.h"
 #include "bind_process.h"
+#include "image.h"
 
 
 #if WIN32
@@ -154,6 +155,8 @@ JUIZ_API int64_t process_entry_point(capsule_map* cm, capsule* cp) {\
         return JUIZ_VALUE_CONVERTER_ERROR;\
     } catch (juiz::ValueDoesNotMatchTypeError &e) {\
         return JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR;\
+    } catch (juiz::ImageFormatError &e) {\
+        return JUIZ_IMAGE_FORMAT_ERROR;\
     }\
 }\
 \
@@ -178,6 +181,8 @@ JUIZ_API int64_t container_create_entry_point(capsule_map* cm, void** container_
         return JUIZ_VALUE_CONVERTER_ERROR;\
     } catch (juiz::ValueDoesNotMatchTypeError &e) {\
         return JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR;\
+    } catch (juiz::ImageFormatError &e) {\
+        return JUIZ_IMAGE_FORMAT_ERROR;\
     }\
 }\
 \
@@ -213,6 +218,8 @@ JUIZ_API int64_t container_process_entry_point(void* container, capsule_map* cm,
         return JUIZ_VALUE_CONVERTER_ERROR;\
     } catch (juiz::ValueDoesNotMatchTypeError &e) {\
         return JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR;\
+    } catch (juiz::ImageFormatError &e) {\
+        return JUIZ_IMAGE_FORMAT_ERROR;\
     }\
 }\
 \
@@ -241,6 +248,8 @@ int64_t container_process_entry_point(container_type* container, capsule_map* cm
         return JUIZ_VALUE_CONVERTER_ERROR;\
     } catch (juiz::ValueDoesNotMatchTypeError &e) {\
         return JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR;\
+    } catch (juiz::ImageFormatError &e) {\
+        return JUIZ_IMAGE_FORMAT_ERROR;\
     }\
 }\
 int64_t (*container_process_factory())(container_type*,capsule_map*,capsule*) {\
@@ -275,6 +284,8 @@ JUIZ_API int64_t process_function##_entry_point(capsule_map* cm, capsule* cp) {\
         return JUIZ_VALUE_CONVERTER_ERROR;\
     } catch (juiz::ValueDoesNotMatchTypeError &e) {\
         return JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR;\
+    } catch (juiz::ImageFormatError &e) {\
+        return JUIZ_IMAGE_FORMAT_ERROR;\
     }\
 }\
 JUIZ_API int64_t (*process_function##_factory_entry_point())(capsule_map*,capsule*) {\
@@ -301,6 +312,8 @@ JUIZ_API int64_t construct_function##_entry_point(capsule_map* cm, void** contai
         return JUIZ_VALUE_CONVERTER_ERROR;\
     } catch (juiz::ValueDoesNotMatchTypeError &e) {\
         return JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR;\
+    } catch (juiz::ImageFormatError &e) {\
+        return JUIZ_IMAGE_FORMAT_ERROR;\
     }\
 }\
 \
@@ -340,6 +353,8 @@ JUIZ_API int64_t process_function##_entry_point(void* container, capsule_map* cm
         return JUIZ_VALUE_CONVERTER_ERROR;\
     } catch (juiz::ValueDoesNotMatchTypeError &e) {\
         return JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR;\
+    } catch (juiz::ImageFormatError &e) {\
+        return JUIZ_IMAGE_FORMAT_ERROR;\
     }\
 }\
 \

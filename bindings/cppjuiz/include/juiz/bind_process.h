@@ -6,6 +6,7 @@
 #include "value.h"
 #include "capsule_map.h"
 #include "types.h"
+#include "image.h"
 
 // 型付きの引数 (juiz::is_typed_v<A>、docs/spec/datatype.md §21) の bind。
 // ほかの bind_process の中から呼ばれるので、先に宣言だけしておき、定義はこのファイルの最後に置く。
@@ -19,6 +20,19 @@ template<typename T, typename U, typename A, std::enable_if_t<juiz::is_typed_v<A
 std::function<std::optional<T>(U*, juiz::CapsuleMap)> bind_container_process(std::vector<ArgumentManifest>::iterator iter, std::function<std::optional<T>(U*, A arg)> f);
 
 template<typename T, typename U, typename A, typename... R, std::enable_if_t<juiz::is_typed_v<A>, bool> = true>
+std::function<std::optional<T>(U*, juiz::CapsuleMap)> bind_container_process(std::vector<ArgumentManifest>::iterator iter, std::function<std::optional<T>(U*, A arg, R... arg2)> f);
+
+// 画像の引数 (juiz::Image か const juiz::Image&、docs/spec/large-data.md §10)。型付きの引数と同じく、定義はこのファイルの最後に置く。
+template<typename T, typename A, std::enable_if_t<juiz::is_image_arg_v<A>, bool> = true>
+std::function<std::optional<T>(juiz::CapsuleMap)> bind_process(std::vector<ArgumentManifest>::iterator iter, std::function<std::optional<T>(A arg)> f);
+
+template<typename T, typename A, typename... R, std::enable_if_t<juiz::is_image_arg_v<A>, bool> = true>
+std::function<std::optional<T>(juiz::CapsuleMap)> bind_process(std::vector<ArgumentManifest>::iterator iter, std::function<std::optional<T>(A arg, R... arg2)> f);
+
+template<typename T, typename U, typename A, std::enable_if_t<juiz::is_image_arg_v<A>, bool> = true>
+std::function<std::optional<T>(U*, juiz::CapsuleMap)> bind_container_process(std::vector<ArgumentManifest>::iterator iter, std::function<std::optional<T>(U*, A arg)> f);
+
+template<typename T, typename U, typename A, typename... R, std::enable_if_t<juiz::is_image_arg_v<A>, bool> = true>
 std::function<std::optional<T>(U*, juiz::CapsuleMap)> bind_container_process(std::vector<ArgumentManifest>::iterator iter, std::function<std::optional<T>(U*, A arg, R... arg2)> f);
 
 template<typename T>
@@ -337,6 +351,51 @@ std::function<std::optional<T>(U*, juiz::CapsuleMap)> bind_container_process(std
     using D = std::remove_cv_t<std::remove_reference_t<A>>;
     return [iter, f](U* u, juiz::CapsuleMap cm) -> std::optional<T> {
         auto v = juiz::get_typed_arg<D>(cm, (*iter).name_);
+        auto i = iter;
+        ++i;
+        auto binded = [v, f](U* uu, R... rem) {
+            return f(uu, *v, rem...);
+        };
+        return bind_container_process<T>(i, std::function(binded))(u, cm);
+    };
+}
+
+////////
+// 画像の引数。届いた画像を 1 度だけ複製し、関数には同じ juiz::Image を渡す (std::function の複製で画像を複製しないよう shared_ptr で持つ)
+
+template<typename T, typename A, std::enable_if_t<juiz::is_image_arg_v<A>, bool>>
+std::function<std::optional<T>(juiz::CapsuleMap)> bind_process(std::vector<ArgumentManifest>::iterator iter, std::function<std::optional<T>(A arg)> f) {
+    return [=](juiz::CapsuleMap cm) -> std::optional<T> {
+        auto v = std::make_shared<const juiz::Image>(juiz::get_image(cm, (*iter).name_));
+        return f(*v);
+    };
+}
+
+template<typename T, typename A, typename... R, std::enable_if_t<juiz::is_image_arg_v<A>, bool>>
+std::function<std::optional<T>(juiz::CapsuleMap)> bind_process(std::vector<ArgumentManifest>::iterator iter, std::function<std::optional<T>(A arg, R... arg2)> f) {
+    return [iter, f](juiz::CapsuleMap cm) -> std::optional<T> {
+        auto v = std::make_shared<const juiz::Image>(juiz::get_image(cm, (*iter).name_));
+        auto i = iter;
+        ++i;
+        auto binded = [v, f](R... rem) {
+            return f(*v, rem...);
+        };
+        return bind_process<T>(i, std::function(binded))(cm);
+    };
+}
+
+template<typename T, typename U, typename A, std::enable_if_t<juiz::is_image_arg_v<A>, bool>>
+std::function<std::optional<T>(U*, juiz::CapsuleMap)> bind_container_process(std::vector<ArgumentManifest>::iterator iter, std::function<std::optional<T>(U*, A arg)> f) {
+    return [=](U* u, juiz::CapsuleMap cm) -> std::optional<T> {
+        auto v = std::make_shared<const juiz::Image>(juiz::get_image(cm, (*iter).name_));
+        return f(u, *v);
+    };
+}
+
+template<typename T, typename U, typename A, typename... R, std::enable_if_t<juiz::is_image_arg_v<A>, bool>>
+std::function<std::optional<T>(U*, juiz::CapsuleMap)> bind_container_process(std::vector<ArgumentManifest>::iterator iter, std::function<std::optional<T>(U*, A arg, R... arg2)> f) {
+    return [iter, f](U* u, juiz::CapsuleMap cm) -> std::optional<T> {
+        auto v = std::make_shared<const juiz::Image>(juiz::get_image(cm, (*iter).name_));
         auto i = iter;
         ++i;
         auto binded = [v, f](U* uu, R... rem) {

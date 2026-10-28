@@ -19,6 +19,7 @@ pub mod capsule_ptr;
 pub mod capsule_ptr_converter;
 
 pub mod native_converter;
+pub mod image_converter;
 
 pub use capsule::*;
 pub use native::*;

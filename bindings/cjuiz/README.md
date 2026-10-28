@@ -45,6 +45,13 @@ Process の引数・戻り値の型(docs/spec/datatype.md §21)のための関�
 `capsule_set_native` は C++ の値を辞書にせずに戻り値に入れ、`capsule_ptr_borrow_native` は型タグの同じ値をそのまま貸します
 (遅延評価 L3、docs/spec/lazy-evaluation.md)。C++ では `bindings/cppjuiz/include/juiz/types.h` と `juiz-idl -g cpp` の生成コードがこれらを使います。
 
+## 画像(`juiz_image`、`capsule_ptr_lock_as_image`、`capsule_set_image`)
+
+Process の引数・戻り値の画像(Rust の `Capsule::Image`)を読み書きする関数です(docs/spec/large-data.md §10)。
+`capsule_ptr_lock_as_image` は引数の画像を複製せずに callback の間だけ貸し、`capsule_set_image` は画像を複製して戻り値に入れます
+(行の余白を取り除き、`JUIZ_IMAGE_FORMAT_BGR8` / `BGRA8` は RGB に並べ替えます)。C++ では `bindings/cppjuiz/include/juiz/image.h` の
+`juiz::Image`(OpenCV との変換は `juiz/opencv.h`)、Haskell では hsjuiz の `Juiz.Image` がこれらを使います。
+
 ## Haskell のプラグイン(`language: "haskell"`)
 
 読み込み方は C++ と同じで、上の関数に加えて次の関数が必要です。
