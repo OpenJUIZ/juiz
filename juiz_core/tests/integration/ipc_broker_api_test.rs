@@ -486,11 +486,12 @@ fn ipc_broker_api_between_processes() -> JuizResult<()> {
     crate::common::logger::init();
     let ipc_name = "ipc_cli_test";
     let conf = std::env::temp_dir().join(format!("juiz_ipc_cli_test_{}.conf", std::process::id()));
-    let path = target_dir().to_string_lossy().into_owned();
+    // YAML の二重引用符では Windows のパスの \ がエスケープとして読まれるので、一重引用符で書く
+    let path = target_dir().to_string_lossy().replace('\'', "''");
     std::fs::write(
         &conf,
         format!(
-            "name: ipc_cli_test_server\nplugins:\n  process_factories:\n    increment_process:\n      path: \"{path}\"\nprocesses:\n  - type_name: increment_process\n    name: inc0\n"
+            "name: ipc_cli_test_server\nplugins:\n  process_factories:\n    increment_process:\n      path: '{path}'\nprocesses:\n  - type_name: increment_process\n    name: inc0\n"
         ),
     )?;
     let juiz = target_dir().join(if cfg!(windows) { "juiz.exe" } else { "juiz" });
