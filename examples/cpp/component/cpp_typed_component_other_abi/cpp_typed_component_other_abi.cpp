@@ -1,5 +1,5 @@
 // cpp_typed_component と同じ型を、ABI タグを変えて (CMakeLists.txt の JUIZ_CPP_ABI_TAG_EXTRA) 受け取る
-// テスト用コンポーネント (juiz_core/tests/cpp_typed_test.rs)。ABI タグが違うので、値は辞書を通して届く。
+// テスト用コンポーネント (juiz_core/tests/integration/cpp_typed_test.rs)。ABI タグが違うので、値は辞書を通して届く。
 
 #include "juiz/juiz.h"
 #include "juiz_idl.h"

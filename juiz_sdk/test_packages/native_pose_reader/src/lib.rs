@@ -1,4 +1,4 @@
-//! 遅延評価 L2 (#176) のテスト用 Process (juiz_core/tests/rust_native_test.rs)
+//! 遅延評価 L2 (#176) のテスト用 Process (juiz_core/tests/integration/rust_native_test.rs)
 //!
 //! native_pose_component と同じ形の Pose2D を、別のプラグインで受け取る。
 //! ABI タグが違うので、辞書を通して受け取る。

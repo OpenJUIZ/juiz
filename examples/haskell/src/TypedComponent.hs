@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
--- | 型付きの引数・戻り値のテスト用 Component (typed_component_hs、juiz_core/tests/haskell_typed_test.rs、
+-- | 型付きの引数・戻り値のテスト用 Component (typed_component_hs、juiz_core/tests/integration/haskell_typed_test.rs、
 -- issue #196、docs/spec/datatype.md §22)。
 --
 -- 型は juiz-idl -g haskell が juiz_idl/test_package/idl/geometry.jidl から作ったもの (build.sh が gen/ に作る) と、

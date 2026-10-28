@@ -619,7 +619,7 @@ core の実装は `juiz_core::types` にある。
 ### 20.5 テスト
 
 - `bindings/pyjuiz/test/gen` は `juiz_idl/test_package/idl/geometry.jidl` から作った Python のコードで、リポジトリに入れておく。juiz_idl の `python_gen_is_up_to_date` が生成器の出力と一致するかを確かめる(作り直しは `JUIZ_IDL_UPDATE_PYTHON_GEN=1 cargo test -p juiz_idl --test idl_test python_gen_is_up_to_date`)。
-- `bindings/pyjuiz/test/datatype_test.py`(変換・デコレータ・client stub、juiz を起動しない)、`juiz_core/tests/python_datatype_test.rs`(manifest の型参照と Rust の指紋の一致、Python 同士でネイティブ値のまま渡ること、Python ↔ Rust の辞書の受け渡し、接続時の型検査、`bindings/pyjuiz/test/typed_client_test.py` で HTTP 越しの client stub)。
+- `bindings/pyjuiz/test/datatype_test.py`(変換・デコレータ・client stub、juiz を起動しない)、`juiz_core/tests/integration/python_datatype_test.rs`(manifest の型参照と Rust の指紋の一致、Python 同士でネイティブ値のまま渡ること、Python ↔ Rust の辞書の受け渡し、接続時の型検査、`bindings/pyjuiz/test/typed_client_test.py` で HTTP 越しの client stub)。
 
 ## 21. C++(Step 6 #195 と遅延評価 L3 #177 で決めたこと)
 
@@ -681,7 +681,7 @@ C++ の ABI タグは `cpp:<コンパイラ>:<標準ライブラリ>:<layout>[:<
 ### 21.5 テスト
 
 - `examples/cpp/component/cpp_typed_component`(`juiz_generate_types()` で `juiz_idl/test_package/idl/geometry.jidl` から型を作る。`JUIZ_TYPE` の `counted.Odometry` は encode・decode の回数を数える)と、同じ型を `JUIZ_CPP_ABI_TAG_EXTRA` で ABI タグを変えて受け取る `cpp_typed_component_other_abi`。
-- `juiz_core/tests/cpp_typed_test.rs`: manifest の型参照と Rust の指紋の一致、C++ どうしの Composite・接続で encode も decode も起きないこと、ABI タグの違う C++・C++ → Rust・Rust → C++ が辞書を通ること、辞書の引数が型で読まれること、すべての型のフィールドの往復、ContainerProcess の型付きの引数。
+- `juiz_core/tests/integration/cpp_typed_test.rs`: manifest の型参照と Rust の指紋の一致、C++ どうしの Composite・接続で encode も decode も起きないこと、ABI タグの違う C++・C++ → Rust・Rust → C++ が辞書を通ること、辞書の引数が型で読まれること、すべての型のフィールドの往復、ContainerProcess の型付きの引数。
 - `juiz_idl/tests/idl_test.rs` の `cpp_code`(生成したコードの形、名前空間の循環とキーワードのエラー)。
 
 ## 22. Haskell(Step 7 #196 で決めたこと)
@@ -709,7 +709,7 @@ C++ の ABI タグは `cpp:<コンパイラ>:<標準ライブラリ>:<layout>[:<
 ### 22.3 テスト
 
 - `examples/haskell/src/TypedComponent.hs`(typed_component_hs。`examples/haskell/build.sh` が `juiz-idl -g haskell` で `juiz_idl/test_package/idl/geometry.jidl` から `examples/haskell/gen/` に型を作る。手で書いた型 `handwritten.Odometry` は `TypedOdometry.hs`)と、関数とマニフェストの型が合わない `BrokenTypedProcess.hs`(broken_typed_process_hs)。
-- `juiz_core/tests/haskell_typed_test.rs`: manifest の型参照と Rust の指紋の一致、`returns` を書かないときの `output_schema`、辞書の引数が型で読まれること、すべての型のフィールドの往復(C++ と同じ結果)、Haskell どうし・Haskell ↔ Rust の受け渡し、Container と ContainerProcess の型付きの引数、型の合わない Process を読み込めないこと。
+- `juiz_core/tests/integration/haskell_typed_test.rs`: manifest の型参照と Rust の指紋の一致、`returns` を書かないときの `output_schema`、辞書の引数が型で読まれること、すべての型のフィールドの往復(C++ と同じ結果)、Haskell どうし・Haskell ↔ Rust の受け渡し、Container と ContainerProcess の型付きの引数、型の合わない Process を読み込めないこと。
 - `juiz_idl/tests/idl_test.rs` の `haskell_code`(生成したコードの形、名前の変換と重なりのエラー、名前空間の循環のエラー)。
 
 ## 23. CLI・管理画面・OpenAPI・TypeScript(Step 8 #197 で決めたこと)
@@ -762,7 +762,7 @@ HTTP ブローカーの `/api-docs/openapi.json`(Swagger UI `/docs` が読むも
 
 - `juiz_idl/tests/idl_test.rs` の `typescript_code`(生成したコードの形、名前の重なりのエラー)と `jidl_round_trip`(JIDL の表示を読み直すと同じ型)。生成した TypeScript は `tsc --strict`(`bundler`・`nodenext`)で通ることを手で確かめた。
 - `juiz_app/src/types.rs` の単体テスト(表・JIDL・.avsc・JSON Schema の出力)と `juiz_app/tests/type_cli_test.rs`(native_pose_component を読み込んだ juiz を起動し、`juiz type list / show` を実行。ポート 8052)。
-- `juiz_core/src/types/openapi.rs` の単体テストと、`juiz_core/tests/type_check_test.rs` の `type_registry_api`(`/api-docs/openapi.json` と `process/openapi_spec`)。
+- `juiz_core/src/types/openapi.rs` の単体テストと、`juiz_core/tests/integration/type_check_test.rs` の `type_registry_api`(`/api-docs/openapi.json` と `process/openapi_spec`)。
 - 管理画面は `npm run typecheck` と `npm run lint`。フォームから呼ぶところは手で確かめた。
 
 ## 24. 型パッケージの配布と標準の型 juiz_std(Step 10 #199 で決めたこと)

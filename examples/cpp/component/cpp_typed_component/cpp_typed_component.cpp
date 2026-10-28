@@ -1,5 +1,5 @@
 // 型付きの引数・戻り値とネイティブ値 (遅延評価 L3) のテスト用コンポーネント
-// (juiz_core/tests/cpp_typed_test.rs、issue #195・#177、docs/spec/datatype.md §21)
+// (juiz_core/tests/integration/cpp_typed_test.rs、issue #195・#177、docs/spec/datatype.md §21)
 //
 // 型は juiz-idl -g cpp が juiz_idl/test_package/idl/geometry.jidl から作ったもの (juiz_idl.h) と、
 // 手で書いて JUIZ_TYPE で登録したもの (odometry.h) を使う。

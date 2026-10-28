@@ -1,4 +1,4 @@
-//! 遅延評価 L2 (#176) のテスト用コンポーネント (juiz_core/tests/rust_native_test.rs)
+//! 遅延評価 L2 (#176) のテスト用コンポーネント (juiz_core/tests/integration/rust_native_test.rs)
 //!
 //! Pose2D を作る・動かす Process と、Pose2D を clone した回数を返す Process を持つ。
 //! 同じプラグインの中なので、Pose2D はネイティブ値のまま渡る。

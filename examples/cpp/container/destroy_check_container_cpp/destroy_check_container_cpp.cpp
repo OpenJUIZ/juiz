@@ -1,7 +1,7 @@
 // Container を削除したときに juiz が解放関数 (container_factory_destroy_entry_point) を呼び、
 // C++ のオブジェクトが delete されることを確かめるためのテスト用 Container (issue #130)。
 // 生きているオブジェクトの数を destroy_check_container_cpp_alive_count() で返す。
-// テストは juiz_core/tests/cpp_container_destroy_test.rs。
+// テストは juiz_core/tests/integration/cpp_container_destroy_test.rs。
 #include <atomic>
 #include "juiz/juiz.h"
 

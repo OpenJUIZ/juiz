@@ -51,6 +51,23 @@
         "PYTHONPATH": "${workspaceFolder}/bindings/pyjuiz",
         "RUST_BACKTRACE": "1"
       }
+    },
+    {
+      // juiz_core/tests/integration の統合テスト(1 本のバイナリ)をモジュール名で絞り込んで実行する
+      "type": "lldb",
+      "request": "launch",
+      "name": "juiz_core: 統合テスト",
+      "cargo": {
+        "env": { "PYO3_PYTHON": "python3" },
+        "args": ["test", "--no-run", "--test=integration", "--package=juiz_core"],
+        "filter": { "name": "integration", "kind": "test" }
+      },
+      "args": ["--test-threads=1", "${input:testFilter}"],
+      "cwd": "${workspaceFolder}/juiz_core",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/bindings/pyjuiz",
+        "RUST_BACKTRACE": "1"
+      }
     }
   ],
   "inputs": [
@@ -59,6 +76,12 @@
       "type": "promptString",
       "description": "juiz に渡す設定ファイルのパス",
       "default": "juiz.conf"
+    },
+    {
+      "id": "testFilter",
+      "type": "promptString",
+      "description": "実行するテストの絞り込み(例: system_test。空ならすべて)",
+      "default": ""
     }
   ]
 }

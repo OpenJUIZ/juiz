@@ -378,9 +378,9 @@ Composition が向くもの:
 | C1 SDK | #166 | §3.2 の式の木の型(`CompositeManifest`)、§4 の公開引数を作る関数と衝突検出、§8.2 の `composition`。juiz_sdk の `manifests::composite_manifest`(`CompositeManifest::build_process_manifest`) |
 | C2 core(Container なし) | #167 | `ProcessFactory::body()` / `manifest()`、§5 の評価、§6 のエラー、§3.2 の入れ子と循環の検出。juiz_core の `CompositeProcessFactory`、`composite_process_factory_create`、`CoreWorker::register_composite`(conf を使わずにコードから登録する入口)。スロットを持つ Composite はエラーにする(C3 まで) |
 | C3 core(Container あり) | #168 | §7 の CompositeContainer、ロック、寿命。`ContainerProcessFactory::body()` / `manifest()`、juiz_core の `CompositeContainerProcessFactory`、`composite_container_process_factory_create`、`CoreWorker::register_composite_container`(スロットを持つ Composite の登録)と `CoreWorker::create_composite_container`(CompositeContainer を作る入口)。conf を使わずにコードから作る |
-| C4 conf とベンチマーク | #169 | §3.1 / §3.3 / §7.1 の conf の読み込み、ネームスペース、ベンチマーク。juiz_core の system_builder(`composites.rs`)。ベンチマークは `juiz_core/tests/composite_bench.rs`(`#[ignore]`、結果は #169 に残す) |
-| C5 表示 | #170 | §8.2 の `composition` と `slots` が HTTP / qmp で読めること、§8.3 の CLI と管理画面の表示。§5.4 の trace のログの確認。テストは `juiz_core/tests/composite_display_test.rs` と `brokers/qmp_broker/tests/qmp_composite_test.rs` |
-| C7 実行時の定義 | #171 | §8.4 のブローカー API(`composite` / `composite_container`)、`CompositeBrokerProxy`、CLI の `juiz composite`、pyjuiz。テストは `juiz_core/tests/composite_api_test.rs` と `brokers/qmp_broker/tests/qmp_composite_api_test.rs` |
+| C4 conf とベンチマーク | #169 | §3.1 / §3.3 / §7.1 の conf の読み込み、ネームスペース、ベンチマーク。juiz_core の system_builder(`composites.rs`)。ベンチマークは `juiz_core/tests/integration/composite_bench.rs`(`#[ignore]`、結果は #169 に残す) |
+| C5 表示 | #170 | §8.2 の `composition` と `slots` が HTTP / qmp で読めること、§8.3 の CLI と管理画面の表示。§5.4 の trace のログの確認。テストは `juiz_core/tests/integration/composite_display_test.rs` と `brokers/qmp_broker/tests/qmp_composite_test.rs` |
+| C7 実行時の定義 | #171 | §8.4 のブローカー API(`composite` / `composite_container`)、`CompositeBrokerProxy`、CLI の `juiz composite`、pyjuiz。テストは `juiz_core/tests/integration/composite_api_test.rs` と `brokers/qmp_broker/tests/qmp_composite_api_test.rs` |
 | C8 型検査 | #172 | §3.4。ノードの戻り値の型と親の引数の型の定義時検査(#163 Step 4 の `check_connectable`)。juiz_core の `CompositeBody::build`(`check_types`)と juiz_sdk の `build_process_manifest`(`const`・`default`・公開名) |
 
 ## 13. 対象外(後の Step か、未定)
