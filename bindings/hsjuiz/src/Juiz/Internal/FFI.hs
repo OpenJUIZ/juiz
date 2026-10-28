@@ -5,7 +5,7 @@
 -- 宣言は juiz_sdk.h と合わせること。callback で Haskell に戻ってくる関数は safe で呼ぶ。
 module Juiz.Internal.FFI
   ( -- * 不透明な型
-    CCapsulePtr, CCapsule, CCapsuleMap, CValue, CJuizType
+    CCapsulePtr, CCapsule, CCapsuleMap, CValue, CJuizType, CImage
     -- * プラグインが公開する関数の型
   , ProcessFunction, ManifestFunction, ProcessFactoryFunction
   , ContainerCreateFunction, ContainerFactoryFunction, ContainerDestroyFunction
@@ -13,6 +13,7 @@ module Juiz.Internal.FFI
     -- * callback の型
   , LockCallback, ObjectCallback, ArrayCallback
   , mkLockCallback, mkObjectCallback, mkArrayCallback
+  , ImageCallback, mkImageCallback
     -- * capsule_map
   , c_capsule_map_get_capsule
     -- * capsule_ptr
@@ -35,6 +36,8 @@ module Juiz.Internal.FFI
   , c_value_array_push_empty_object, c_value_array_push_empty_array
     -- * juiz_type (データ型、docs/spec/datatype.md §22)
   , c_juiz_type_new, c_juiz_type_describe, c_capsule_ptr_read_typed_value
+    -- * 画像 (docs/spec/large-data.md §10)
+  , c_hsjuiz_capsule_ptr_is_image, c_capsule_ptr_lock_as_image, c_capsule_set_image
   ) where
 
 import Data.Int (Int64)
@@ -53,6 +56,8 @@ data CCapsuleMap
 data CValue
 -- | juiz_sdk.h の juiz_type (Rust の型のモデル)。juiz_type_new で作る
 data CJuizType
+-- | juiz_sdk.h の juiz_image (画像の幅・高さ・形式・stride・画素の先頭)。"Juiz.Image" が読み書きする
+data CImage
 
 -- | Process の関数 (int64_t (*)(capsule_map*, capsule*))
 type ProcessFunction = Ptr CCapsuleMap -> Ptr CCapsule -> IO Int64
@@ -82,6 +87,10 @@ type ArrayCallback = Ptr () -> Ptr CValue -> IO ()
 foreign import ccall "wrapper" mkLockCallback :: LockCallback -> IO (FunPtr LockCallback)
 foreign import ccall "wrapper" mkObjectCallback :: ObjectCallback -> IO (FunPtr ObjectCallback)
 foreign import ccall "wrapper" mkArrayCallback :: ArrayCallback -> IO (FunPtr ArrayCallback)
+
+-- | capsule_ptr_lock_as_image の callback (int64_t (*)(void*, const juiz_image*))
+type ImageCallback = Ptr () -> Ptr CImage -> IO Int64
+foreign import ccall "wrapper" mkImageCallback :: ImageCallback -> IO (FunPtr ImageCallback)
 
 -- capsule_map
 foreign import ccall unsafe "capsule_map_get_capsule"
@@ -147,3 +156,11 @@ foreign import ccall safe "juiz_type_describe"
 foreign import ccall safe "capsule_ptr_read_typed_value"
   c_capsule_ptr_read_typed_value
     :: Ptr CCapsulePtr -> Ptr CJuizType -> CString -> FunPtr LockCallback -> Ptr () -> IO Int64
+
+-- 画像。capsule_ptr_is_image は C の bool を返すので、cbits の整数を返す関数を使う
+foreign import ccall unsafe "hsjuiz_capsule_ptr_is_image"
+  c_hsjuiz_capsule_ptr_is_image :: Ptr CCapsulePtr -> IO Int64
+foreign import ccall safe "capsule_ptr_lock_as_image"
+  c_capsule_ptr_lock_as_image :: Ptr CCapsulePtr -> FunPtr ImageCallback -> Ptr () -> IO Int64
+foreign import ccall unsafe "capsule_set_image"
+  c_capsule_set_image :: Ptr CCapsule -> Ptr CImage -> IO Int64

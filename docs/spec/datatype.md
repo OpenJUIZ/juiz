@@ -376,7 +376,7 @@ ROS 2 の `.msg` / `.srv` / `.idl` を JIDL / .avsc に変換する。juiz の�
 | record | `struct` | `@dataclass` | `struct` | record | `interface` |
 | enum | `enum` | `enum.Enum`(値は記号の文字列) | `enum class` | 直和型 | 文字列リテラルの union |
 | `any` | `Value` | `Any` | `juiz::value` | `Value` | `unknown` |
-| `image` | `DynamicImage` | `PIL.Image.Image` | (まだ扱わない。cppjuiz に画像型がない、§21) | (まだ扱わない。hsjuiz に画像型がない、§22) | (扱わない) |
+| `image` | `DynamicImage` | `PIL.Image.Image` | `juiz::Image`(large-data.md §10) | `Image`(`Juiz.Image`、large-data.md §10) | (扱わない) |
 
 - 生成コードは型ごとに、スキーマ(§6 の `TypeSchema`)を返す関数と、§4 の辞書との変換(`to_value` / `from_value` に当たるもの)を持つ。
 - Rust の `#[derive(JuizType)]` は、Rust の struct / enum から同じスキーマを作る。名前空間は `#[juiz(namespace = "robot.geometry")]` で書き、省略時はエラー。フィールドの順番は宣言順。JIDL で同じ形に書いた型と指紋が一致しなければならない。derive は Rust の中で閉じ、他の言語へは JIDL(または derive が書き出す .avsc)経由で渡す。
@@ -632,7 +632,7 @@ core の実装は `juiz_core::types` にある。
 - 型ごとに `juiz::type_traits<T>` を特殊化する。`type_info()`(型参照。.avsc と同じスキーマを埋め込み、指紋は libjuiz_sdk(Rust の juiz_types)が計算するので .avsc・Rust・Python と一致する)、`to_value` / `from_value`(§4 の辞書との変換)、`native`(record は true、enum は false)、`layout()`(ABI タグに入れる生成器の版 `juiz-idl-<版>`)。
 - 参照する型が先に来るように並べ直す(record は値で持つので)。ほかの名前空間の型を参照するヘッダはそのヘッダを `#include` する。名前空間どうしが互いに参照するときはヘッダが書けないのでエラー(Rust・Python は書ける)。
 - フィールド名・記号が C++ のキーワード(と `NULL`)なら末尾に `_` を付ける(辞書のキーは元の名前のまま)。型名・名前空間の要素がキーワードならエラー。名前空間のない型はエラー。
-- `process` / `container` 宣言からは何も作らない(雛形・client stub は後、§14)。`image` は cppjuiz に画像型がないのでまだ扱わない。
+- `process` / `container` 宣言からは何も作らない(雛形・client stub は後、§14)。`image` は引数・戻り値の型そのものとしてだけ使える(§3.3)ので、生成器は何も作らない。C++ では `juiz::Image` で受け取り、返す(large-data.md §10、#253)。
 
 CMake の関数 `juiz_generate_types()`(`bindings/cppjuiz/cmake/juiz_idl.cmake`)は、ビルドのときに `juiz-idl -g cpp` を実行してヘッダを作り、そのディレクトリをターゲットの include ディレクトリに足す。
 
@@ -695,7 +695,7 @@ C++ の ABI タグは `cpp:<コンパイラ>:<標準ライブラリ>:<layout>[:<
 - 型ごとに、型の情報 `typeInfo<型名> :: TypeInfo`(.avsc と同じスキーマを埋め込み、指紋は libjuiz_sdk が計算するので .avsc・Rust・Python・C++ と一致する。`NOINLINE` のトップレベルの値で、最初に使ったときに 1 度だけ作る)と、`JuizType`・`FromCapsule`・`ToCapsule` のインスタンスを書く。`toValue` はすべてのフィールドを出し、`fromValue` は §4 の規則で読む(足りないフィールドは既定値、型にないキーは無視、列挙の知らない記号は既定値)。
 - すべてのフィールドに既定値がある record には、その値 `default<型名>` も作る。
 - ほかの名前空間の型は `import qualified A.B` で参照する。名前空間どうしが互いに参照するときはモジュールが書けない(hs-boot なしでは互いに import できない)のでエラー。生成したコードは Prelude を必要な名前だけ読み込み、ほかは修飾して使うので、JIDL の型名が `Text`・`Map` などでもぶつからない。
-- `process` / `container` 宣言からは何も作らない(C++ と同じ)。`image` は hsjuiz に画像型がないのでまだ扱わない。
+- `process` / `container` 宣言からは何も作らない(C++ と同じ)。`image` は引数・戻り値の型そのものとしてだけ使える(§3.3)ので、生成器は何も作らない。Haskell では `Juiz.Image` の `Image` で受け取り、返す(large-data.md §10、#253)。
 
 ### 22.2 hsjuiz
 

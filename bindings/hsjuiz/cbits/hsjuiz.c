@@ -74,3 +74,15 @@ int64_t hsjuiz_value_type(value* v)
     if (value_is_object(v)) return 7;
     return -1;
 }
+
+/*
+ * capsule_ptr の値が画像なら 1、そうでなければ 0 (Juiz.Internal.FFI の c_hsjuiz_capsule_ptr_is_image)。
+ * capsule_ptr_is_image は C の bool を返すので、ここで整数にする。
+ */
+typedef struct capsule_ptr_struct capsule_ptr;
+bool capsule_ptr_is_image(capsule_ptr* cp);
+
+int64_t hsjuiz_capsule_ptr_is_image(capsule_ptr* cp)
+{
+    return capsule_ptr_is_image(cp) ? 1 : 0;
+}

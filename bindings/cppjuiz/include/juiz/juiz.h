@@ -6,6 +6,7 @@
 #include "value.h"
 #include "debug.h"
 #include "capsule_map.h"
+#include "image.h"
 #include "manifest.h"
 #include "process_manifest.h"
 

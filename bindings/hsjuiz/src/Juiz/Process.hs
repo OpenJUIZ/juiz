@@ -61,7 +61,7 @@ class ProcessFn f where
   -- | 引数の数
   processArity :: Proxy f -> Int
   -- | 引数 (名前と値の組) を順に渡して呼ぶ
-  applyArgs :: f -> [(Text, Value)] -> IO (FnResult f)
+  applyArgs :: f -> [(Text, Argument)] -> IO (FnResult f)
   -- | 引数ごとの型 (型付きの型なら 'Just'、'Juiz.Capsule.fromCapsuleType')
   argumentTypes :: Proxy f -> [Maybe TypeInfo]
 
@@ -69,7 +69,7 @@ instance (FromCapsule a, ProcessFn b) => ProcessFn (a -> b) where
   type FnResult (a -> b) = FnResult b
   processArity _ = 1 + processArity (Proxy :: Proxy b)
   argumentTypes _ = fromCapsuleType (Proxy :: Proxy a) : argumentTypes (Proxy :: Proxy b)
-  applyArgs f ((name, v) : rest) = case fromValue v of
+  applyArgs f ((name, v) : rest) = case fromArgument v of
     Right a -> applyArgs (f a) rest
     Left msg -> throwJuiz juizValueConverterError ("argument \"" <> name <> "\": " <> msg)
   applyArgs _ [] = throwJuiz juizValueNotFoundError "too few arguments"
@@ -137,19 +137,22 @@ processEntryPoint :: (ProcessFn f, ToCapsule (FnResult f)) => ProcessManifest ->
 processEntryPoint m f cm out = guardEntryPoint (pmTypeName m) $ applyAndWrite (pmArguments m) f cm out
 
 -- | マニフェストの引数を順に読み出す
-readArguments :: [ArgumentManifest] -> Ptr CCapsuleMap -> IO [(Text, Value)]
+readArguments :: [ArgumentManifest] -> Ptr CCapsuleMap -> IO [(Text, Argument)]
 readArguments as cm = mapM read1 as
   where
-    -- 型付きの引数は型で読む (足りないフィールドは既定値、型に合わなければ juizValueDoesNotMatchTypeError)
-    read1 a = (,) (argName a) <$> maybe (readArgument cm (argName a)) (readTypedArgument cm (argName a)) (argType a)
+    -- 型付きの引数は型で読む (足りないフィールドは既定値、型に合わなければ juizValueDoesNotMatchTypeError)。
+    -- 型なしの引数は、画像ならそのまま画像として読む (docs/spec/large-data.md §10)
+    read1 a = (,) (argName a) <$> case argType a of
+      Just t -> ArgValue <$> readTypedArgument cm (argName a) t
+      Nothing -> readArgumentOrImage cm (argName a)
 
 -- | 引数を読み出して関数を呼び、結果を capsule に書き込む
 applyAndWrite :: (ProcessFn f, ToCapsule (FnResult f)) => [ArgumentManifest] -> f -> Ptr CCapsuleMap -> Ptr CCapsule -> IO Int64
 applyAndWrite as f cm out = do
   args <- readArguments as cm
   r <- applyArgs f args
-  result <- evaluate (toValue r)
-  writeCapsule out result
+  result <- evaluate (toResult r)
+  writeResult out result
 
 -- | Haskell の例外を C の呼び出し元に出さず、juiz のエラーコードに変える。
 -- 'JuizError' はそのコード、それ以外の例外は 'juizProcessFunctionError'。内容は標準エラー出力に書く

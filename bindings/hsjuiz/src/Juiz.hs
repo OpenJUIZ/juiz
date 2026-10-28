@@ -86,6 +86,7 @@ module Juiz
   , addStringArg
   , addArrayArg
   , addObjectArg
+  , addImageArg
   , addTypedArg
   , addTypedArgValue
   , addTypedArgNoDefault
@@ -97,6 +98,12 @@ module Juiz
   , ToCapsule (..)
   , object
   , (.=)
+    -- * 画像 (docs/spec/large-data.md §10)
+  , Image (..)
+  , PixelFormat (..)
+  , bytesPerPixel
+  , newImage
+  , imageRowBytes
     -- * データ型 (juiz-idl -g haskell の生成した型、docs/spec/datatype.md §22)
   , JuizType (..)
   , TypeInfo
@@ -110,6 +117,7 @@ module Juiz
   , throwJuiz
   , juizHaskellContainerTypeError
   , juizValueDoesNotMatchTypeError
+  , juizImageFormatError
     -- * よく使う型
   , Int64
   , Word64
@@ -160,6 +168,7 @@ import Juiz.Capsule
 import Juiz.Component
 import Juiz.Container
 import Juiz.Error
+import Juiz.Image
 import Juiz.Internal.FFI
   ( ContainerCreateFunction
   , ContainerDestroyFunction

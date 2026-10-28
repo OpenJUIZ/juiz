@@ -6,17 +6,21 @@ module Juiz.Capsule
   ( -- * 変換の型クラス
     FromCapsule (..)
   , ToCapsule (..)
+  , Argument (..)
+  , Result (..)
   , object
   , (.=)
     -- * libjuiz_sdk の値の読み書き
   , peekValue
   , readArgument
+  , readArgumentOrImage
   , readTypedArgument
   , writeCapsule
+  , writeResult
   , writeCapsulePtr
   ) where
 
-import Control.Exception (SomeException, throwIO, try)
+import Control.Exception (SomeException, throw, throwIO, try)
 import Control.Monad (forM_, unless, void)
 import qualified Data.ByteString as BS
 import Data.IORef
@@ -35,15 +39,28 @@ import Foreign.Ptr (FunPtr, Ptr, freeHaskellFunPtr, nullPtr)
 import Foreign.Storable (Storable, peek)
 
 import Juiz.Error
+import Juiz.Image
 import Juiz.Internal.Base64
 import Juiz.Internal.FFI
 import Juiz.Internal.TypeInfo
 import Juiz.Value
 
+-- | Process に届いた引数。辞書の値か画像 (docs/spec/large-data.md §10)
+data Argument = ArgValue Value | ArgImage Image
+  deriving (Eq, Show)
+
+-- | Process の結果として juiz に返すもの。辞書の値か画像
+data Result = ResultValue Value | ResultImage Image
+  deriving (Eq, Show)
+
 -- | juiz の値から Haskell の値への変換。Process の引数の型はこのクラスのインスタンスにする
 class FromCapsule a where
   -- | 変換できなければ理由を 'Left' で返す
   fromValue :: Value -> Either Text a
+  -- | 届いた引数からの変換。既定では辞書の値を 'fromValue' で読み、画像はエラーにする ('Image' は画像を受け取る)
+  fromArgument :: Argument -> Either Text a
+  fromArgument (ArgValue v) = fromValue v
+  fromArgument (ArgImage _) = Left "expected a dictionary value, but got an image"
   -- | 型付きの型 (juiz-idl -g haskell の生成した型など、docs/spec/datatype.md §22) ならその型。
   -- 型付きの引数は、juiz が型で読んだ値 (足りないフィールドを既定値で埋めたもの) を受け取る
   fromCapsuleType :: Proxy a -> Maybe TypeInfo
@@ -52,6 +69,9 @@ class FromCapsule a where
 -- | Haskell の値から juiz の値への変換。Process の戻り値の型はこのクラスのインスタンスにする
 class ToCapsule a where
   toValue :: a -> Value
+  -- | Process の結果として返すもの。既定では 'toValue' の辞書 ('Image' は画像のまま返す)
+  toResult :: a -> Result
+  toResult = ResultValue . toValue
   -- | 型付きの型ならその型。Process の結果がこの型なら、manifest に output_schema を載せる
   toCapsuleType :: Proxy a -> Maybe TypeInfo
   toCapsuleType _ = Nothing
@@ -134,6 +154,16 @@ instance FromCapsule a => FromCapsule (Maybe a) where
   fromValue JNull = Right Nothing
   fromValue v = Just <$> fromValue v
 instance ToCapsule a => ToCapsule (Maybe a) where toValue = maybe JNull toValue
+
+-- | 画像は辞書には入らないので、引数か結果そのものとしてだけ使える (docs/spec/datatype.md §3.3)。
+-- 配列やオブジェクトの中の画像は変換できない
+instance FromCapsule Image where
+  fromValue _ = Left "an image cannot be read from a dictionary value"
+  fromArgument (ArgImage img) = Right img
+  fromArgument (ArgValue v) = typeMismatch "Image" v
+instance ToCapsule Image where
+  toValue _ = throw (JuizError juizImageFormatError "an image cannot be put in a dictionary value")
+  toResult = ResultImage
 
 -- | 何も返さない Process の戻り値は null になる
 instance ToCapsule () where toValue () = JNull
@@ -255,6 +285,21 @@ readArgument cm name =
     unless (r' == juizOk) $ throwJuiz r' ("argument \"" <> name <> "\" is not a value")
     readIORef result
 
+-- | Process の引数 name を読み出す。画像なら 'ArgImage'、そうでなければ辞書の値 ('readArgument') の 'ArgValue'
+readArgumentOrImage :: Ptr CCapsuleMap -> Text -> IO Argument
+readArgumentOrImage cm name = do
+  isImage <- withText name $ \cname -> alloca $ \pcp -> do
+    r <- c_capsule_map_get_capsule cm cname pcp
+    if r /= juizOk
+      then pure Nothing
+      else do
+        cp <- peek pcp
+        b <- c_hsjuiz_capsule_ptr_is_image cp
+        pure (if b /= 0 then Just cp else Nothing)
+  case isImage of
+    Just cp -> ArgImage <$> readImage cp
+    Nothing -> ArgValue <$> readArgument cm name
+
 -- | 型付きの引数 name を型 t で読み出す (docs/spec/datatype.md §4。足りないフィールドは既定値で埋め、
 -- 型にないキーは落とす)。無ければ 'juizValueNotFoundError'、型に合わなければ 'juizValueDoesNotMatchTypeError'
 readTypedArgument :: Ptr CCapsuleMap -> Text -> TypeInfo -> IO Value
@@ -324,6 +369,11 @@ writeCapsule cap x = case x of
   JObject _ -> c_capsule_set_empty_object cap `andThen` lock
   where
     lock = withLockCallback (fill x) (c_capsule_lock_as_value_with_arg cap)
+
+-- | Process の結果を capsule に書き込む。戻り値は juiz のエラーコード
+writeResult :: Ptr CCapsule -> Result -> IO Int64
+writeResult cap (ResultValue v) = writeCapsule cap v
+writeResult cap (ResultImage img) = writeImage cap img
 
 -- | capsule_ptr にオブジェクトを書き込む (マニフェストを返すのに使う)
 writeCapsulePtr :: Ptr CCapsulePtr -> Map Text Value -> IO Int64

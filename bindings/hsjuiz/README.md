@@ -92,6 +92,30 @@ juizProcess 'poseMove 'moveManifest
 
 詳しくは juiz の docs/spec/datatype.md §22 にあります。
 
+### 画像
+
+画像は `Image`(`Juiz.Image`)で受け取り、返します。マニフェストでは `addImageArg` で引数を足します。
+juiz の中では Rust の画像になるので、ほかの言語の Process と接続でき、IPC のブローカー越しにも生バイトのまま渡ります。
+
+```haskell
+invertManifest :: ProcessManifest
+invertManifest = processManifest "image_invert_hs"
+  & addImageArg "img" "image to invert"
+
+invert :: Image -> Image
+invert img = img { imageData = BS.map (255 -) (imageData img) }   -- 8 bit の形式のとき
+
+juizProcess 'invert 'invertManifest
+```
+
+- `Image` は `imageWidth`・`imageHeight`・`imageFormat`・`imageStride`(1 行のバイト数)・`imageData`(`ByteString`)を持ちます。
+  受け取った画像は行の余白がありません。新しく作るときは `newImage 幅 高さ 形式 バイト列` を使います(バイト数が合わなければ `Left`)。
+- 形式 `PixelFormat` は `L8`・`LA8`・`RGB8`・`RGBA8`・`L16`・`LA16`・`RGB16`・`RGBA16`・`RGB32F`・`RGBA32F` と、
+  返すときだけ使える `BGR8`・`BGRA8`(juiz が赤と青を入れ替えて `RGB8`・`RGBA8` にします)。16 bit・f32 の画素はホストのバイト順です。
+- 画像は辞書の中(`[Image]` や record のフィールド)には入れられません。
+
+詳しくは juiz の docs/spec/large-data.md §10 にあります。
+
 ### エラー
 
 関数の中の例外は C の呼び出し元(juiz)に出さず、エラーコードに変えて返します。内容は標準エラー出力に書きます。

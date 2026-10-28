@@ -15,6 +15,7 @@ module Juiz.Error
   , juizHaskellContainerTypeError
   , juizTypeSchemaInvalidError
   , juizValueDoesNotMatchTypeError
+  , juizImageFormatError
   ) where
 
 import Control.Exception (Exception, throwIO)
@@ -63,3 +64,7 @@ juizTypeSchemaInvalidError = -701
 -- 型付きの引数に合わない値が渡されたとき (理由は juiz のログに出る)
 juizValueDoesNotMatchTypeError :: Int64
 juizValueDoesNotMatchTypeError = -702
+
+-- | 画像の形式・大きさ・stride が正しくない、または扱えない形式 (juiz_sdk.h の JUIZ_IMAGE_FORMAT_ERROR)
+juizImageFormatError :: Int64
+juizImageFormatError = -704

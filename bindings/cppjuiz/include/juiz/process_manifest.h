@@ -100,6 +100,12 @@ public:
     return *this;
   }
 
+  // 画像の引数 (juiz::Image で受け取る、docs/spec/large-data.md §10)。Rust の add_image_arg と同じく既定値は空のオブジェクト
+  ProcessManifest add_image_arg(const std::string& name, const std::string& description) {
+    arguments_.push_back(ArgumentManifest("Image", name, description, juiz::Value::object()));
+    return *this;
+  }
+
   // 型付きの引数 (juiz-idl -g cpp の生成した型か JUIZ_TYPE で登録した型、docs/spec/datatype.md §21)。既定値なし
   template<typename T, std::enable_if_t<juiz::is_typed_v<T>, bool> = true>
   ProcessManifest add_typed_arg(const std::string& name, const std::string& description) {

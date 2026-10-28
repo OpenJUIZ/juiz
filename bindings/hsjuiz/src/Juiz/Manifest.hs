@@ -37,6 +37,7 @@ module Juiz.Manifest
   , addStringArg
   , addArrayArg
   , addObjectArg
+  , addImageArg
   , addTypedArg
   , addTypedArgValue
   , addTypedArgNoDefault
@@ -218,6 +219,11 @@ addArrayArg name desc def = addArg "Array" name desc (JArray def)
 
 addObjectArg :: HasArguments m => Text -> Text -> [(Text, Value)] -> m -> m
 addObjectArg name desc def = addArg "Object" name desc (JObject (Map.fromList def))
+
+-- | 画像の引数を足す ('Juiz.Image.Image' で受け取る、docs/spec/large-data.md §10)。名前 → 説明。
+-- Rust の add_image_arg と同じく、既定値は空のオブジェクト
+addImageArg :: HasArguments m => Text -> Text -> m -> m
+addImageArg name desc = addArg "Image" name desc (JObject Map.empty)
 
 -- | 型付きの引数を足す (型は juiz-idl -g haskell の生成した型など、docs/spec/datatype.md §22)。
 -- 名前 → 説明 → 既定値 (その型の値)。
