@@ -1,0 +1,6 @@
+# pyo3 は環境変数 PYO3_PYTHON が変わるとビルドし直し、juiz_core 以下も巻き込む。
+# 端末(scripts/test.sh は PYO3_PYTHON=python3 を設定する)とエディタの rust-analyzer などで
+# この値が揃わないと、交互にビルドするたびに pyo3・juiz_core・juiz_app などがビルドし直しになる。
+# ここで既定値を決めておき、値を揃える。環境変数で PYO3_PYTHON を渡せばそちらが優先される。
+[env]
+PYO3_PYTHON = "python3"
