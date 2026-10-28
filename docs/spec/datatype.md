@@ -833,7 +833,7 @@ juiz-idl(`juiz_idl/std/juiz_std/*.jidl`)に組み込み、どこからでも `im
 
 - 名前とフィールドは ROS 2 の `std_msgs`・`builtin_interfaces`・`geometry_msgs`・`sensor_msgs` に寄せた(Step 13 の取り込みで対応を付けやすくするため)。ただし juiz の型として別に定義したもので、`ros2.*` の型とは指紋が違う。ROS 2 の型を取り込むと、辞書の形が同じものは juiz_std に置き換わる(§25.2)。
 - 一度出した型は変えない(フィールドを足すときは既定値を付ける)。指紋は `juiz_idl/tests/idl_test.rs` の `std_type_fingerprints_are_fixed` で固定する。
-- 0.1.0 で `Imu`(`orientation_covariance`・`angular_velocity_covariance`・`linear_acceleration_covariance`)、`LaserScan`(`time_increment`・`scan_time`・`intensities`)、`Range`(`radiation_type`・`field_of_view`、定数 `ULTRASOUND`・`INFRARED`)に ROS 2 にあるフィールドを既定値つきで足した(#201)。指紋は変わったが、前の版の型とは両方向に互換(§7、`ros2_test.rs` の `extended_std_types_are_compatible_with_previous_ones`)。
+- 0.0.26 で `Imu`(`orientation_covariance`・`angular_velocity_covariance`・`linear_acceleration_covariance`)、`LaserScan`(`time_increment`・`scan_time`・`intensities`)、`Range`(`radiation_type`・`field_of_view`、定数 `ULTRASOUND`・`INFRARED`)に ROS 2 にあるフィールドを既定値つきで足した(#201)。指紋は変わったが、前の版の型とは両方向に互換(§7、`ros2_test.rs` の `extended_std_types_are_compatible_with_previous_ones`)。
 
 | 言語 | 入手のしかた |
 |---|---|
@@ -884,7 +884,7 @@ juiz-idl -I idl -g rust,python idl/ros2/my_msgs/msg/Status.jidl
 | `std_msgs/Header` | `juiz_std.common.Header` |
 | `geometry_msgs/Point` | `juiz_std.geometry.Point3D` |
 | `geometry_msgs/Vector3`・`Quaternion`・`Pose`・`Twist`・`PoseStamped` | `juiz_std.geometry` の同じ名前の型 |
-| `sensor_msgs/Imu`・`LaserScan`・`Range` | `juiz_std.sensor` の同じ名前の型(0.1.0 で ROS 2 のフィールドを足した、§24.4) |
+| `sensor_msgs/Imu`・`LaserScan`・`Range` | `juiz_std.sensor` の同じ名前の型(0.0.26 で ROS 2 のフィールドを足した、§24.4) |
 
 - 置き換える型そのものを入力に書いたときは、警告して書き出さない。
 - 置き換えないもの: `geometry_msgs/Pose2D`(ROS 2 は `x, y, theta`、juiz_std は `position, theta`)、`sensor_msgs/Image`(画素を `image` で渡す juiz_std の `ImageInfo` と形が違う)など、辞書の形が違うもの。
