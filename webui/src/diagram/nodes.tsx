@@ -1,5 +1,5 @@
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
-import { ecStateLabel } from "../labels.ts";
+import { ecStateLabel, formatValue, shortValue } from "../labels.ts";
 import { TERMS, type TermKey } from "../terms.ts";
 import type { ArgInfo, DiagramNodeData, DiagramNodeKind } from "./graph.ts";
 
@@ -93,7 +93,7 @@ const ARG_SPAN: [number, number] = [128, 232];
 
 /**
  * 選んだ要素に重ねる照準の輪(#111)。目盛り付きの輪、回る弧、引き出し線の先の「種類 "名前"」。
- * 処理なら輪の左に引数ごとの弧、右に出力の弧を出し、つながっているものを光らせる。
+ * 処理なら輪の左に引数ごとの弧、右に出力の弧を出し、未接続・接続あり・拘束中を弧の塗りで分ける。
  */
 function Reticle({ data, w, h }: { data: DiagramNodeData; w: number; h: number }) {
   const r = Math.max(w, h) / 2 + 30;
@@ -136,6 +136,13 @@ function Reticle({ data, w, h }: { data: DiagramNodeData; w: number; h: number }
   );
 }
 
+/** 弧の塗り分け。接続ありを優先し、未接続で値があれば拘束中 */
+function portState(a: ArgInfo): string {
+  if (a.connected) return " connected";
+  if (a.bound) return " bound";
+  return "";
+}
+
 function ArgArcs({ args, outputConnected, c, r }: { args: ArgInfo[]; outputConnected: boolean; c: number; r: number }) {
   const [from, to] = ARG_SPAN;
   const seg = args.length > 0 ? (to - from) / args.length : 0;
@@ -146,12 +153,17 @@ function ArgArcs({ args, outputConnected, c, r }: { args: ArgInfo[]; outputConne
         const a1 = from + (i + 1) * seg - 2;
         const [tx, ty] = polar(c, c, r + 12, (a0 + a1) / 2);
         return (
-          <g key={a.name} className={`reticle-port${a.connected ? " connected" : ""}`}>
+          <g key={a.name} className={`reticle-port${portState(a)}`}>
             <path d={arcPath(c, c, r, a0, a1)} />
             <text x={tx} y={ty} textAnchor="end" dominantBaseline="middle">
               {a.name}
               <tspan className="reticle-port-type"> {a.typeName}</tspan>
             </text>
+            {a.bound && (
+              <text className="reticle-port-value" x={tx} y={ty + 14} textAnchor="end" dominantBaseline="middle">
+                <title>拘束値 {formatValue(a.value)}</title>= {shortValue(a.value)}
+              </text>
+            )}
           </g>
         );
       })}

@@ -28,6 +28,8 @@ export interface ArgumentProfile {
   type_name: string;
   default?: unknown;
   description?: Description;
+  /** 次の実行で使われる値(p_apply で拘束した値か、押込で届いた値)。値が無ければ無い(#112) */
+  value?: unknown;
   /** 型付きの引数の型参照。型なしなら無い */
   schema?: TypeSchemaRef;
 }

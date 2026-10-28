@@ -27,6 +27,12 @@ export function connectionTypeLabel(type: string): string {
 }
 
 /** 値を一行で見せる */
+/** 値を JSON で短く出す。max 文字を超えたら末尾を … にする */
+export function shortValue(v: unknown, max = 16): string {
+  const s = formatValue(v);
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+}
+
 export function formatValue(v: unknown): string {
   if (v === undefined) return "";
   try {

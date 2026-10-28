@@ -365,8 +365,11 @@ function ProcessBody({ element: e, model, onSelect, serverUrl }: BodyProps<Proce
         </Section>
       )}
       <Section title="引数">
-        {/* 拘束値(p_apply で与えた値)は profile にまだ出ていない(#112) */}
-        <ArgumentTable args={args} valueHeader="拘束値" valueOf={() => <span className="none" title="juiz 側の対応待ち(#112)">—</span>} />
+        <ArgumentTable
+          args={args}
+          valueHeader="拘束値"
+          valueOf={(a) => (a.value !== undefined ? <Mono>{formatValue(a.value)}</Mono> : <span className="none">—</span>)}
+        />
         {args.some((a) => descriptionText(a.description)) && (
           <dl className="arg-descriptions">
             {args.map((a) => (
