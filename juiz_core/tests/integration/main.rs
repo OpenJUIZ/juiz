@@ -54,6 +54,8 @@ mod namespace_broker_test;
 mod namespace_test;
 mod process_factory_test;
 mod process_test;
+#[cfg(feature = "ipc-broker")]
+mod pyjuiz_ipc_proxy_test;
 mod pyjuiz_proxy_test;
 mod python_datatype_test;
 mod python_plugin_path_test;

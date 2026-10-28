@@ -46,6 +46,10 @@ jobs:
         working-directory: bindings/pyjuiz
         run: python test/datatype_test.py
 
+      - name: Run pyjuiz IPC frame test
+        working-directory: bindings/pyjuiz
+        run: python test/ipc_frame_test.py
+
       - name: Run pyjuiz standard types test
         working-directory: bindings/pyjuiz
         run: python test/std_types_test.py

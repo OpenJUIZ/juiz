@@ -28,7 +28,7 @@ fn args(name: &str, v: i64) -> CapsuleMap {
 }
 
 /// IPC ブローカーを持ち、Process / Container / EC を読み込んだ System の設定
-fn server_manifest(system_name: &str, ipc_name: &str) -> Value {
+pub(crate) fn server_manifest(system_name: &str, ipc_name: &str) -> Value {
     let path = target_dir().to_string_lossy().into_owned();
     jvalue!({
         "name": system_name,
@@ -122,7 +122,7 @@ fn ipc_always_fail(_args: CapsuleMap) -> JuizResult<Capsule> {
     Err(juiz_sdk::anyhow::anyhow!("ipc_always_fail fails on purpose"))
 }
 
-fn setup_test_processes(system: &System) -> JuizResult<(ProcessPtr, ProcessPtr)> {
+pub(crate) fn setup_test_processes(system: &System) -> JuizResult<(ProcessPtr, ProcessPtr)> {
     let mut cb = system.core_broker().lock_mut()?;
     let worker = cb.worker_mut();
     let factories: Vec<(ProcessManifest, juiz_sdk::processes::ProcessBodyFunctionType)> = vec![
