@@ -1,4 +1,4 @@
-use crate::brokers::ProcessBrokerProxy;
+use crate::brokers::{BrokerProxy, ProcessBrokerProxy};
 use juiz_sdk::{
     anyhow::anyhow, log, manifests::ProcessProfile, prelude::*,
     process_identifier::ProcessIdentifier, serde_json,
@@ -36,6 +36,15 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
             .try_into()?;
         let profile: ProcessProfile = cb.lock()?.process_profile_full(&process_id)?;
         Ok(process_profile_value(&profile)?.into())
+    });
+    proc_cbs.insert("is_in_charge", |_crud, cb, args| {
+        log::debug!("[READ  ] process/is_in_charge called");
+        let id = args.get_param("identifier").ok_or_else(|| {
+            anyhow!(JuizError::CRUDBrokerCanNotParameterFunctionError {
+                key_name: "identifier".to_owned()
+            })
+        })?;
+        Ok(jvalue!(cb.lock()?.is_in_charge_for_process(id)?).into())
     });
     proc_cbs.insert("list", |_crud, cb, args| {
         let accessed_broker_id = args.get_param("accessed_broker_id");
