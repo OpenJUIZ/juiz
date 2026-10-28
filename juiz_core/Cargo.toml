@@ -13,7 +13,10 @@ swagger-ui = ["dep:utoipa-swagger-ui"]
 # 管理画面(webui)を埋め込み、HTTP ブローカーの /ui で配信する(issue #117)。
 webui = ["dep:juiz_webui"]
 
-default = ["embed-python", "swagger-ui", "webui"]
+# IPC ブローカー (同じマシンの別プロセスと Unix ソケット / 名前付きパイプでやり取りする、docs/spec/ipc-broker.md)
+ipc-broker = ["dep:interprocess", "dep:widestring"]
+
+default = ["embed-python", "swagger-ui", "webui", "ipc-broker"]
 # Python の Process・Container・Component を読み込む。オフにすると pyo3 を使わず、libpython なしで動く。
 python = ["dep:pyo3"]
 # Python インタプリタを juiz の中で起動する(ネイティブバイナリ juiz_app 向け、libpython にリンクする)。
@@ -25,7 +28,6 @@ extension-module = ["python", "pyo3/extension-module"]
 [dependencies]
 axum = {workspace = true}
 futures ={workspace = true}
-interprocess = {workspace = true, features=["tokio"]}
 libloading = {workspace = true}
 
 home = {workspace = true}
@@ -53,3 +55,11 @@ utoipa-swagger-ui = {workspace = true, features = ["axum"], optional = true }
 juiz_webui = { workspace = true, optional = true }
 
 juiz_sdk = { workspace = true}
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# Windows の IPC ブローカーは名前付きパイプ (feature "ipc-broker" のときだけ)
+[target.'cfg(windows)'.dependencies]
+interprocess = { workspace = true, optional = true }
+widestring = { version = "1", optional = true }

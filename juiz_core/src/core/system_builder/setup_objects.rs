@@ -78,8 +78,9 @@ pub(crate) fn setup_objects(system: &mut System, manifest: &Value) -> JuizResult
     setup_local_broker(system)
         .context("system_builder::setup_local_broker in System::setup() failed.")?;
 
-    // system_builder::setup_ipc_broker_factory(self).context("system_builder::setup_ipc_broker_factory in System::setup() failed.")?;
-    //system_builder::setup_ipc_broker(self).context("system_builder::setup_ipc_broker in System::setup() failed.")?;
+    #[cfg(feature = "ipc-broker")]
+    crate::core::system_builder::ipc_broker::setup_ipc_broker_factory(system)
+        .context("system_builder::setup_ipc_broker_factory in System::setup() failed.")?;
 
     let _ = when_contains_do_mut(&manifest_copied, "brokers", |v| {
         setup_brokers(system, v).context("system_builder::setup_brokers in System::setup() failed.")

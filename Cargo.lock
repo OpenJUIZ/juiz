@@ -1378,10 +1378,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fe388dd743f24e2e350318bd4bc67b2ab99599c2c63076cd9397293206779186"
 dependencies = [
  "doctest-file",
- "futures-core",
  "libc",
  "recvmsg",
- "tokio",
  "widestring",
  "windows-sys 0.61.2",
 ]
@@ -1545,6 +1543,7 @@ dependencies = [
  "interprocess",
  "juiz_sdk",
  "juiz_webui",
+ "libc",
  "libloading",
  "pyo3",
  "reqwest",
@@ -1556,6 +1555,7 @@ dependencies = [
  "utoipa",
  "utoipa-swagger-ui",
  "uuid",
+ "widestring",
 ]
 
 [[package]]

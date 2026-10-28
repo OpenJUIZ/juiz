@@ -15,7 +15,7 @@ name = "juiz"
 path = "src/bin/juiz/main.rs"
 
 [features]
-default = ["embed-python", "swagger-ui", "qmp-broker", "webui"]
+default = ["embed-python", "swagger-ui", "qmp-broker", "webui", "ipc-broker"]
 # Python の Process などを読み込む。Python を使わないなら
 # cargo install juiz_app --no-default-features で libpython なしのバイナリになる。
 embed-python = ["juiz_core/embed-python"]
@@ -26,6 +26,8 @@ webui = ["juiz_core/webui"]
 # QUIC (qmp) ブローカーを組み込む。設定ファイルの brokers / broker_proxies に type_name: qmp を書くだけで使える
 # (plugins.broker_factories でプラグインを読み込む必要が無い)。issue #63
 qmp-broker = ["dep:juiz_qmp_broker"]
+# IPC ブローカーを組み込む。juiz -d --ipc <name> で起動し、同じマシンから -s ipc://<name> で繋ぐ (issue #233)
+ipc-broker = ["juiz_core/ipc-broker"]
 # Python から juiz を起動する入口(juiz_app::python)。pip で入る juiz コマンドが使う(issue #88)。
 # libpython へのリンクは embed-python か juiz_core/extension-module で別に選ぶ。
 python-entry = ["juiz_core/python", "dep:pyo3"]

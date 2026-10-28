@@ -86,6 +86,12 @@ struct Args {
     filepath: String,
 
     #[arg(
+        long = "ipc",
+        help = "Start an IPC broker with this name (ex., cam0) for processes on the same machine. Clients connect with -s ipc://<name>."
+    )]
+    ipc: Option<String>,
+
+    #[arg(
         long = "namespace",
         help = "Default namespace of the system. Overrides 'namespace' in the system definition file (ex., robot1). Use '/' for the root."
     )]
@@ -649,12 +655,32 @@ where
     }
 }
 
+/// --ipc <name> で、conf の brokers に IPC ブローカーを足す (docs/spec/ipc-broker.md §4.2)
+fn add_ipc_broker(mut manifest: Value, ipc: Option<&str>) -> JuizResult<Value> {
+    let Some(name) = ipc else {
+        return Ok(manifest);
+    };
+    let obj = manifest
+        .as_object_mut()
+        .ok_or_else(|| juiz_core::anyhow::anyhow!("the system definition file must be a map"))?;
+    let brokers = obj.entry("brokers").or_insert_with(|| jvalue!([]));
+    if brokers.is_null() {
+        *brokers = jvalue!([]);
+    }
+    brokers
+        .as_array_mut()
+        .ok_or_else(|| juiz_core::anyhow::anyhow!("'brokers' in the system definition file must be a list"))?
+        .push(jvalue!({ "type_name": "ipc", "name": name }));
+    Ok(manifest)
+}
+
 fn run(args: Args) -> JuizResult<()> {
     log::trace!("【呼出】juiz_app::run called");
     let manifest = namespace::override_namespace(
         yaml_conf_load(args.filepath.clone())?,
         args.namespace.as_deref(),
     )?;
+    let manifest = add_ipc_broker(manifest, args.ipc.as_deref())?;
     let flag_start = if args.daemonize {
         true
     } else {

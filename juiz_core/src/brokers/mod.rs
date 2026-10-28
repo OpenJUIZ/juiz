@@ -11,7 +11,9 @@ pub mod broker_proxy;
 pub mod broker_proxy_factory;
 
 pub mod crud;
+pub mod frame;
 pub mod http;
+#[cfg(feature = "ipc-broker")]
 pub mod ipc;
 pub mod local;
 pub mod messenger;

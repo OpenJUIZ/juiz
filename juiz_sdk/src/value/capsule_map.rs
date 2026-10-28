@@ -157,36 +157,44 @@ impl TryFrom<Value> for CapsuleMap {
     }
 }
 
-impl From<CapsuleMap> for Value {
-    fn from(capsule_map: CapsuleMap) -> Self {
-        // log::trace!("Value From CapusleMap ({capsule_map:?}) called");
-        // let mut v1 = jvalue!({});
-        // let map = v1.as_object_mut().unwrap();
-        // for (key, value) in capsule_map.map.iter() {
-        //     let _ = value.lock_as_value(|vv| -> () {
-        //         map.insert(key.clone(), vv.clone());
-        //     });
-        //     //map.insert(k, Value::try_from(v.lock().unwrap().clone()).unwrap());
-        // }
-        // let mut v2 = jvalue!({});
-        // let param = v2.as_object_mut().unwrap();
-        // for (key, value) in capsule_map.param.iter() {
-        //     param.insert(key.clone(), jvalue!(value));
-        // }
+/// 値 (Value) だけの CapsuleMap を `{"__map__": ..., "__param__": ...}` にする。
+/// 画像などの Value にできない値があればエラー (以前は panic していた、issue #233)
+impl TryFrom<CapsuleMap> for Value {
+    type Error = anyhow::Error;
 
+    fn try_from(capsule_map: CapsuleMap) -> Result<Self, Self::Error> {
         let map_map = capsule_map
             .map
             .into_iter()
-            .map(|(k, v)| -> (String, Value) { (k, v.extract_value().unwrap()) })
-            .collect::<Map<String, Value>>();
+            .map(|(k, v)| -> JuizResult<(String, Value)> {
+                let v = v.extract_value().map_err(|e| {
+                    anyhow::Error::from(JuizError::ValueTypeError {
+                        message: format!("argument '{k}' can not be converted to a value ({e})"),
+                    })
+                })?;
+                Ok((k, v))
+            })
+            .collect::<JuizResult<Map<String, Value>>>()?;
 
         // jvalue! は map_map を複製する。複製しない形も試したが、HTTP ブローカーの呼び出し側で
         // glibc のヒープ末尾の縮小と再拡張が毎回起き（1 MB の引数で 1 要求あたり約 650 回の
         // ページフォールト）、複製 1 回より遅くなったので、この形のままにしている。
-        return jvalue!({
+        Ok(jvalue!({
             "__map__": map_map,
             "__param__": capsule_map.param,
-        });
+        }))
+    }
+}
+
+impl CapsuleMap {
+    /// 値が Value (と Value の Native) だけか。画像があれば false
+    pub fn is_all_value(&self) -> JuizResult<bool> {
+        for v in self.map.values() {
+            if !v.is_value()? && !v.is_empty()? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 }
 

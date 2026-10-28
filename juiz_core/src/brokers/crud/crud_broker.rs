@@ -193,7 +193,8 @@ impl CRUDBroker {
             }
         }
         let retval = self.update_class(class_name, function_name, cp);
-        log::info!("retval: {retval:?}");
+        // 戻り値は画像のこともあるので中身は出さない (Debug で画素を全部書くと 720p で数十 ms かかる)
+        log::trace!("on_update({class_name}, {function_name}) finished (ok={})", retval.is_ok());
 
         return retval;
     }
@@ -203,10 +204,28 @@ impl CRUDBroker {
         val: Value,
         opt_requesting_host_addr: Option<SocketAddr>,
     ) -> JuizResult<CapsulePtr> {
-        let mut cp: CapsuleMap = val.try_into()?;
-        let class_name = cp.get_param("class_name").unwrap().clone();
-        let method_name = cp.get_param("method_name").unwrap().clone();
-        let function_name = cp.get_param("function_name").unwrap().clone();
+        self.on_capsule_map_request(val.try_into()?, opt_requesting_host_addr)
+    }
+
+    /// param の method_name (create / read / update / delete)・class_name・function_name で処理を振り分ける。
+    ///
+    /// フレームで受け取るブローカー (IPC) は、画像を Value にせずに CapsuleMap のまま渡す
+    /// (docs/spec/large-data.md §3.2)。
+    pub fn on_capsule_map_request(
+        &self,
+        mut cp: CapsuleMap,
+        opt_requesting_host_addr: Option<SocketAddr>,
+    ) -> JuizResult<CapsulePtr> {
+        let param = |cp: &CapsuleMap, name: &str| -> JuizResult<String> {
+            cp.get_param(name).cloned().ok_or_else(|| {
+                anyhow!(JuizError::CapsuleDoesNotIncludeParamError {
+                    name: name.to_owned()
+                })
+            })
+        };
+        let class_name = param(&cp, "class_name")?;
+        let method_name = param(&cp, "method_name")?;
+        let function_name = param(&cp, "function_name")?;
         if let Some(requesting_host_addr) = opt_requesting_host_addr {
             cp.set_param(
                 "requesting_host_addr",
@@ -226,7 +245,7 @@ impl CRUDBroker {
             ),
             _ => Err(anyhow!(JuizError::InvalidValueError {
                 message: format!(
-                    "qmp_broker received invalid value. Its method name is unknown ({})",
+                    "broker received invalid value. Its method name is unknown ({})",
                     method_name
                 )
             })),

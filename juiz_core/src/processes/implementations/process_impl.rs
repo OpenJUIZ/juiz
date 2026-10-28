@@ -23,6 +23,8 @@ pub struct ProcessImpl {
     // manifest: ProcessManifest,
     profile: ProcessProfile,
     function: Arc<ProcessBodyFunctionTrait>,
+    /// 受け取ったカプセルをそのまま返す関数 (Topic が使う)。あれば function の代わりに呼ぶ
+    passthrough_function: Option<Arc<dyn Fn(CapsuleMap) -> JuizResult<CapsulePtr> + 'static>>,
     identifier: ProcessIdentifier,
     outlet: Outlet,
     inlets: Vec<Inlet>,
@@ -100,12 +102,31 @@ impl ProcessImpl {
         Ok(Self {
             //core: ObjectCore::create(class_name, manifest.type_name.clone(), manifest.name.as_ref().unwrap()),
             function: func,
+            passthrough_function: None,
             identifier: manifest.identifier()?, //identifier_from_manifest("core", "core", "Process", &manifest)?,
             outlet: Outlet::new(manifest.name.as_ref().unwrap().as_str(), manifest.use_memo),
             inlets: Self::create_inlets(&manifest),
             profile: process_profile,
             connection_factory,
         })
+    }
+
+    /// カプセルを複製せずに返す関数で Process を作る。Topic は受け取った画像などを
+    /// 中身を複製せずに購読者へ渡す (docs/spec/large-data.md §5)
+    pub(crate) fn new_passthrough_with_class_name(
+        class_name: JuizObjectClass,
+        manifest: ProcessManifest,
+        func: impl Fn(CapsuleMap) -> JuizResult<CapsulePtr> + 'static,
+        connection_factory: Box<impl ConnectionFactory + 'static>,
+    ) -> JuizResult<Self> {
+        let mut p = ProcessImpl::new_from_clousure_and_class_name(
+            class_name,
+            manifest,
+            |_| Ok(Capsule::empty()),
+            connection_factory,
+        )?;
+        p.passthrough_function = Some(Arc::new(func));
+        Ok(p)
     }
 
     pub fn new_with_class(
@@ -237,10 +258,14 @@ impl Process for ProcessImpl {
     fn call(&self, args: RequestMap) -> JuizResult<ResponsePtr> {
         log::trace!("【呼出】ProcessImpl({:})::call({args})", self.identifier());
         check_manifest_before_call(&(self.profile), &args)?;
-        (self.function)(args)
+        let result = match self.passthrough_function.as_ref() {
+            Some(f) => f(args),
+            None => (self.function)(args).map(|v| v.into()),
+        };
+        result
             .and_then(|v| {
                 log::trace!("【完了】ProcessImpl({:})::call()", self.identifier());
-                Ok(v.into())
+                Ok(v)
             })
             .or_else(|e| {
                 log::error!(

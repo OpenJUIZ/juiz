@@ -255,16 +255,7 @@ pub async fn object_put_handler(
             let r = json_output_wrap(v.unwrap());
             r.into_response()
         }
-        Err(e) => {
-            log::error!("multipart_to_capsule_map() failed. Err({e:?})");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(jvalue!({
-                    "message": format!("Internal Server Error:  {:#}, {:}", e, e.to_string())
-                })),
-            )
-                .into_response()
-        }
+        Err(e) => e.into_response(),
     }
 }
 

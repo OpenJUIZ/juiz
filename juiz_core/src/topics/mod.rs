@@ -46,29 +46,14 @@ pub struct TopicPtr {
     ptr: ProcessPtr,
 }
 
-// #[cfg(feature="opencv4")]
-// fn capsule_ptr_to_capsule(v: &CapsulePtr) -> JuizResult<Capsule> {
-//     if v.is_value()? {
-//         v.lock_as_value(|v| -> Capsule { Capsule::from(v.clone()) } )
-//     } else if v.is_mat()? {
-//         v.lock_as_mat(|m| -> Capsule { Capsule::from(m.clone()) })
-//     } else {
-//         Err(anyhow!(JuizError::ArgumentError { message: "CapsulePtr is not available for Topic".to_owned() }))
-//     }
-// }
-
-// #[cfg(not(feature="opencv4"))]
-fn capsule_ptr_to_capsule(v: &CapsulePtr) -> JuizResult<Capsule> {
-    if v.is_value()? {
-        v.lock_as_value(|v| -> Capsule { Capsule::from(v.clone()) })
-    } else {
-        Err(anyhow!(JuizError::ArgumentError {
-            message: "CapsulePtr is not available for Topic".to_owned()
-        }))
+/// Topic は Value・Image・Native を通す。Empty はエラー (docs/spec/large-data.md §5)
+fn check_topic_capsule(v: &CapsulePtr) -> JuizResult<()> {
+    if v.is_empty()? {
+        return Err(anyhow!(JuizError::ArgumentError {
+            message: "Topic can not pass an empty value".to_owned()
+        }));
     }
-    /* else if v.is_image()? {
-        v.lock_as_mat(|m| -> Capsule { Capsule::from(m.clone()) })
-    }; */
+    Ok(())
 }
 
 impl TopicPtr {
@@ -86,12 +71,11 @@ impl TopicPtr {
         let my_topic_name = name.to_owned();
         let my_topic = topic.clone();
         let my_uuid = system_uuid.clone();
-        let topic_func = move |arg: CapsuleMap| -> JuizResult<Capsule> {
-            //println!("Topic {my_topic:?}");
+        // 受け取った CapsulePtr を、中身を複製せずに転送先のブローカーと購読者に渡す (docs/spec/large-data.md §5)
+        let topic_func = move |mut arg: CapsuleMap| -> JuizResult<CapsulePtr> {
             log::trace!("Topic ({my_topic_name}) / topic_func called");
-            let v = arg.get("input")?;
-            let result = capsule_ptr_to_capsule(&v);
-            log::trace!("- value is copied");
+            let v = arg.take("input")?;
+            check_topic_capsule(&v)?;
             match my_topic.read() {
                 Ok(t) => {
                     log::trace!(" - my_topic.read() OK.");
@@ -118,7 +102,7 @@ impl TopicPtr {
                 }
             }
             log::trace!("Topic ({my_topic_name}) / topic_func exit");
-            result
+            Ok(v)
         };
         TopicPtr {
             name: name.to_owned(),
@@ -126,7 +110,7 @@ impl TopicPtr {
             topic,
             ptr: ProcessPtr::new(
                 //ProcessImpl::clousure_new_with_class_name(JuizObjectClass::Topic("Topic"), manifest, Box::new(topic_func)).unwrap()))
-                ProcessImpl::new_from_clousure_and_class_name(
+                ProcessImpl::new_passthrough_with_class_name(
                     JuizObjectClass::Topic("Topic"),
                     manifest,
                     topic_func,

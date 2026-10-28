@@ -304,6 +304,17 @@ impl CapsulePtr {
         }
     }
 
+    /// ロックして中身の Capsule を渡す。Native はロックの外で encode してから渡すので、
+    /// 渡された Capsule の as_value() や as_image() は encode しない (lock_encoded)。
+    /// 種類を問わずに値とオプションを読むとき (ブローカーのフレームを書くときなど) に使う
+    pub fn lock_as_capsule<T, F>(&self, func: F) -> JuizResult<T>
+    where
+        F: FnOnce(&Capsule) -> T,
+    {
+        let c = lock_encoded(&self.value, "lock_as_capsule")?;
+        Ok(func(&c))
+    }
+
     /// 中身が Native か (encode しない)
     pub fn is_native(&self) -> JuizResult<bool> {
         match self.value.lock() {
