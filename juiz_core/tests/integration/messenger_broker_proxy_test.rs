@@ -246,9 +246,15 @@ fn check_types(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     Ok(())
 }
 
+/// ../target/debug にある Rust のプラグインのパス (Windows は talker.dll、Linux は libtalker.so など)
+fn rust_plugin_path(name: &str) -> String {
+    use std::env::consts::{DLL_PREFIX, DLL_SUFFIX};
+    format!("../target/debug/{DLL_PREFIX}{name}{DLL_SUFFIX}")
+}
+
 fn check_load_plugins(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     // EC の API と同じく、Value を返す読み込みの API も __value__ で包んだまま返す
-    let p = bp.system_load_process("rust".to_owned(), "../target/debug/libtalker.so".to_owned())?;
+    let p = bp.system_load_process("rust".to_owned(), rust_plugin_path("talker"))?;
     assert_eq!(p["__value__"]["type_name"], jvalue!("talker"), "{p:?}");
     let p = bp.system_load_process(
         "python".to_owned(),
@@ -264,7 +270,7 @@ fn check_load_plugins(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     assert!(c.is_err() || c?["__value__"]["type_name"] == jvalue!("py_counter"));
     let m = bp.system_load_component(
         "rust".to_owned(),
-        "../target/debug/libnative_pose_component.so".to_owned(),
+        rust_plugin_path("native_pose_component"),
     )?;
     assert_eq!(m.type_name, "native_pose_component");
     Ok(())
