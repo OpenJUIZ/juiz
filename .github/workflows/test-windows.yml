@@ -30,13 +30,16 @@ env:
   RUST_BACKTRACE: 1
   # pyo3 が埋め込む Python をシステムの python3 に固定する
   PYO3_PYTHON: python3
+  # Haskell の例(examples/haskell)に使う GHC と cabal の版(test-linux.yml と同じ)
+  GHC_VERSION: "9.6.7"
+  CABAL_VERSION: "3.18.1.0"
 
 jobs:
   # Windows でのビルドとテスト。Python は actions/setup-python で入れ、
   # pyo3(auto-initialize)がその libpython にリンクする。C++ の例は MSVC と cmake でビルドする。
+  # Haskell の例は GHC で DLL にする(issue #137、bindings/hsjuiz/README.md の「Windows」)。
   windows:
     name: Windows build & test
-    if: ${{ false }} # TEMP: issue #137 の調査中
     runs-on: windows-latest
     env:
       # windows-latest の python3 は Microsoft Store のスタブになることがあるので python を使う
@@ -58,8 +61,34 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # Haskell の例のビルドに使う GHC と cabal を入れる。インストールに約 3 分かかるので、
+      # test-linux.yml と同じく入れた GHC をキャッシュする。Windows の ghcup は C:\ghcup に入れる
+      - name: Restore GHC
+        id: ghc-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: C:\ghcup\ghc\${{ env.GHC_VERSION }}
+          key: ghc-${{ env.GHC_VERSION }}-${{ runner.os }}-${{ runner.arch }}
+      # キャッシュに GHC があれば、haskell-actions/setup はインストールを飛ばして ghcup set だけする
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: ${{ env.GHC_VERSION }}
+          cabal-version: ${{ env.CABAL_VERSION }}
+          # examples/haskell の依存は GHC に付いてくるパッケージだけなので、Hackage の索引は使わない
+          cabal-update: false
+      # テストが失敗しても次から使えるよう、インストールした直後に保存する
+      - name: Save GHC
+        if: steps.ghc-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: C:\ghcup\ghc\${{ env.GHC_VERSION }}
+          key: ${{ steps.ghc-cache.outputs.cache-primary-key }}
+
       # Windows で失敗するテストをまとめて把握できるよう --no-fail-fast で最後まで実行する
       - name: Build & test
+        env:
+          # GHC が入っていなければ Haskell のテストを飛ばさずにエラーにする
+          JUIZ_REQUIRE_HASKELL: "1"
         run: scripts/test.sh --no-fail-fast
 
       - name: Test python-entry
@@ -68,58 +97,6 @@ jobs:
   # pip で入れる juiz(bindings/juiz_py、issue #88)の wheel を Windows でビルドし、
   # インストールした juiz コマンドで Python の Process とサンプルを動かす(juiz-wheels.yml)
   juiz-wheels:
-    if: ${{ false }} # TEMP: issue #137 の調査中
     uses: ./.github/workflows/juiz-wheels.yml
     with:
       os: windows
-
-  # TEMP: issue #137 の調査
-  haskell-probe:
-    name: Haskell probe
-    runs-on: windows-latest
-    env:
-      PYO3_PYTHON: python
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install pyyaml httpx pillow docstring_parser numpy
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: haskell-actions/setup@v2
-        with:
-          ghc-version: "9.6.7"
-          cabal-version: "3.18.1.0"
-          cabal-update: false
-      - run: |
-          which ghc cabal; ghc --version; cabal --version; ghc --info | grep -i -E "dynamic|ld|cc|linker" || true
-          echo "HOME=$HOME"; ls /c/ghcup 2>/dev/null | head || true
-      - run: cargo build -p juiz_sdk -p juiz_idl
-      - run: ls target/debug | grep -i -E "juiz_sdk|idl"
-      - name: build haskell
-        run: examples/haskell/build.sh -v1 || (echo BUILD FAILED; exit 1)
-      - name: test
-        if: always()
-        env:
-          JUIZ_REQUIRE_HASKELL: "1"
-          RUST_BACKTRACE: "0"
-        run: |
-          set -o pipefail
-          for v in probeg probeh probee info; do TMPV=$v scripts/test.sh -p juiz_core --test integration -- tmp_info_variant --nocapture 2>&1 | grep -E "TEMP|hsjuiz|panicked|0xc0|ERROR" | tail -10 || true; done
-          scripts/test.sh -p juiz_core --test integration -- haskell plugin_images_through_ipc > /tmp/t.log 2>&1 || { tail -n 30 /tmp/t.log; grep -n -E "^test |panicked|rror|hsjuiz:" /tmp/t.log | grep -v "warning" | head -120; exit 1; }
-      - name: inspect
-        if: always()
-        run: |
-          BIN="$(dirname "$(find /c/ghcup -name llvm-objdump.exe | head -n 1)")"
-          cd examples/haskell
-          o=$(find dist-newstyle -path "*hsjuiz*" -name "Image.o" | head -n 1)
-          echo "obj=$o"; "$BIN/llvm-objdump.exe" -r "$o" | awk 'NF==3 {print $2}' | sort | uniq -c
-          o2=$(find dist-newstyle -path "*image_component_hs*" -name "ImageComponent.o" | head -n 1)
-          echo "obj=$o2"; "$BIN/llvm-objdump.exe" -r "$o2" | awk 'NF==3 {print $2}' | sort | uniq -c
-          "$BIN/llvm-objdump.exe" -r "$o" | grep -i "ADDR32 " | head -20
-          d=../../target/image_component_hs.dll
-          "$BIN/llvm-readobj.exe" --file-headers "$d" | grep -i -E "ImageBase|Characteristics|DLL" | head -20

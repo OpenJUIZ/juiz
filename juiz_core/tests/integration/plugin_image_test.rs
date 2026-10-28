@@ -157,13 +157,9 @@ fn image_args(name: &str, img: &DynamicImage) -> CapsuleMap {
 /// 言語 l の Process / Container を bp で確かめる
 fn check_language(bp: &dyn BrokerProxy, l: &str, large: bool) -> JuizResult<()> {
     let ids = bp.process_list(false, None)?;
-    eprintln!("TEMP {l} step 1");
     let invert = find_process(&ids, &format!("image_invert_{l}0")).clone();
-    eprintln!("TEMP {l} step 2");
     let bgr = find_process(&ids, &format!("image_bgr_{l}0")).clone();
-    eprintln!("TEMP {l} step 3");
     let info = find_process(&ids, &format!("image_info_{l}0")).clone();
-    eprintln!("TEMP {l} step 4");
 
     for format in FORMATS {
         let img = image_of_format(format, 13, 5);
@@ -177,42 +173,26 @@ fn check_language(bp: &dyn BrokerProxy, l: &str, large: bool) -> JuizResult<()> 
     }
 
     let args: CapsuleMap = vec![("width", jvalue!(5)), ("height", jvalue!(2))].into();
-    eprintln!("TEMP {l} step 17");
     assert_eq!(bp.process_call(&bgr, args)?.extract_image()?, bgr_expected(5, 2), "{l} bgr");
-    eprintln!("TEMP {l} step 18");
 
     let mut args = image_args("img", &image_of_format("la16", 6, 4));
-    eprintln!("TEMP {l} step 20");
     args.insert("label".to_owned(), jvalue!("cam").into());
-    eprintln!("TEMP {l} step 21");
     let text = bp.process_call(&info, args)?.extract_value()?;
-    eprintln!("TEMP {l} step 22");
     assert_eq!(text, jvalue!("cam:6x4:la16"), "{l} info");
-    eprintln!("TEMP {l} step 23");
 
     // 画像でない値を画像の引数に渡すとエラー
     let not_image: CapsuleMap = vec![("img", jvalue!(1))].into();
-    eprintln!("TEMP {l} step 26");
     assert!(bp.process_call(&invert, not_image).is_err(), "{l} not an image");
-    eprintln!("TEMP {l} step 27");
 
     // ContainerProcess の画像の引数と戻り値
     let cids = bp.container_process_list(false, None)?;
-    eprintln!("TEMP {l} step 30");
     let put = find_process(&cids, &format!("store_{l}_put")).clone();
-    eprintln!("TEMP {l} step 31");
     let get = find_process(&cids, &format!("store_{l}_get")).clone();
-    eprintln!("TEMP {l} step 32");
     let img = image_of_format("rgba8", 8, 3);
-    eprintln!("TEMP {l} step 33");
     let n = bp.container_process_call(&put, image_args("img", &img))?.extract_value()?;
-    eprintln!("TEMP {l} step 34");
     assert!(n.as_i64().unwrap_or(0) >= 1, "{l} put {n}");
-    eprintln!("TEMP {l} step 35");
     let got = bp.container_process_call(&get, CapsuleMap::new())?.extract_image()?;
-    eprintln!("TEMP {l} step 36");
     assert_eq!(got, img, "{l} container");
-    eprintln!("TEMP {l} step 37");
     Ok(())
 }
 
@@ -299,35 +279,4 @@ fn opencv_mat_conversion() -> JuizResult<()> {
         }
         Ok(())
     })
-}
-
-// TEMP: issue #137 の調査
-#[test]
-fn tmp_info_variant() -> JuizResult<()> {
-    crate::common::logger::init();
-    let v = std::env::var("TMPV").unwrap_or_default();
-    if v.is_empty() || !has_haskell_example() {
-        return Ok(());
-    }
-    let mut c = conf("tmp_info", None, &["cpp", "hs"]);
-    for p in ["a", "b", "c", "d", "e", "f", "g", "h"] {
-        if let Some(a) = c["processes"].as_array_mut() {
-            a.push(jvalue!({ "type_name": format!("image_probe{p}_hs"), "name": format!("image_probe{p}_hs0"), "use_memo": false }));
-        }
-    }
-    System::new(c)?
-        .setup()?
-        .run_and_do_once(|system| {
-            let cb = system.core_broker().lock()?;
-            let ids = cb.process_list(false, None)?;
-            let info = find_process(&ids, &format!("image_{v}_hs0")).clone();
-            let mut args = image_args("img", &image_of_format("rgb8", 6, 4));
-            args.insert("label".to_owned(), jvalue!("CaM").into());
-            eprintln!("TEMP calling {v}");
-            let r = cb.process_call(&info, args);
-            eprintln!("TEMP returned {v} ok={}", r.is_ok());
-            let r = r?.extract_value();
-            eprintln!("TEMP value {v} {r:?}");
-            Ok(())
-        })
 }

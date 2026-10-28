@@ -17,19 +17,3 @@ EXPORTS
     storePut_factory_entry_point
     storeGet_manifest_entry_point
     storeGet_factory_entry_point
-    probeA_manifest_entry_point
-    probeA_factory_entry_point
-    probeB_manifest_entry_point
-    probeB_factory_entry_point
-    probeC_manifest_entry_point
-    probeC_factory_entry_point
-    probeD_manifest_entry_point
-    probeD_factory_entry_point
-    probeE_manifest_entry_point
-    probeE_factory_entry_point
-    probeF_manifest_entry_point
-    probeF_factory_entry_point
-    probeG_manifest_entry_point
-    probeG_factory_entry_point
-    probeH_manifest_entry_point
-    probeH_factory_entry_point

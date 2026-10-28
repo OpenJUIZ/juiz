@@ -42,9 +42,15 @@ infoManifest = processManifest "image_info_hs"
 
 info :: Image -> Text -> Text
 info img label = T.concat
-  [ label, ":", tshow (imageWidth img), "x", tshow (imageHeight img), ":", T.toLower (tshow (imageFormat img)) ]
+  [ label, ":", tshow (imageWidth img), "x", tshow (imageHeight img), ":", formatName (imageFormat img) ]
   where tshow :: Show a => a -> Text
         tshow = T.pack . show
+
+-- 形式名 (la16 など)。Windows の DLL では構成子が 8 個以上の型の show や case が落ちるので (issue #262)、
+-- fromEnum で表を引く
+formatName :: PixelFormat -> Text
+formatName f = names !! fromEnum f
+  where names = ["l8", "la8", "rgb8", "rgba8", "l16", "la16", "rgb16", "rgba16", "rgb32f", "rgba32f", "bgr8", "bgra8"]
 
 -- 最後に受け取った画像を持つ Container
 storeManifest :: ContainerManifest
@@ -66,51 +72,10 @@ storeGetManifest = containerProcessManifest "image_store_hs_get" "image_store_hs
 storeGet :: IORef (Int64, Maybe Image) -> IO Image
 storeGet ref = readIORef ref >>= maybe (throwJuiz juizImageFormatError "no image yet") pure . snd
 
--- TEMP: issue #137 の調査
-pm :: Text -> ProcessManifest
-pm n = processManifest n & addImageArg "img" "" & addStringArg "label" "" ""
-probeAManifest, probeBManifest, probeCManifest, probeDManifest, probeEManifest, probeFManifest, probeGManifest, probeHManifest :: ProcessManifest
-probeAManifest = pm "image_probea_hs"
-probeBManifest = pm "image_probeb_hs"
-probeCManifest = pm "image_probec_hs"
-probeDManifest = pm "image_probed_hs"
-probeEManifest = pm "image_probee_hs"
-probeFManifest = pm "image_probef_hs"
-probeGManifest = pm "image_probeg_hs"
-probeHManifest = pm "image_probeh_hs"
-data Small = SA | SB | SC deriving (Show, Enum)
-data Big = B0 | B1 | B2 | B3 | B4 | B5 | B6 | B7 | B8 | B9 | B10 | B11 deriving (Show, Enum)
-probeF :: Image -> Text -> Text
-probeF img _ = T.pack (show (toEnum (imageWidth img `mod` 3) :: Small))
-probeG :: Image -> Text -> Text
-probeG img _ = T.pack (show (toEnum (imageWidth img) :: Big))
-probeH :: Image -> Text -> Text
-probeH img _ = case imageFormat img of
-  L8 -> "l8"; LA8 -> "la8"; RGB8 -> "rgb8"; RGBA8 -> "rgba8"; L16 -> "l16"; LA16 -> "la16"
-  RGB16 -> "rgb16"; RGBA16 -> "rgba16"; RGB32F -> "rgb32f"; RGBA32F -> "rgba32f"; BGR8 -> "bgr8"; BGRA8 -> "bgra8"
-probeA :: Image -> Text -> Text
-probeA _ label = label
-probeB :: Image -> Text -> Int64
-probeB img _ = fromIntegral (imageWidth img)
-probeC :: Image -> Text -> Text
-probeC _ label = T.toLower label
-probeD :: Image -> Text -> Text
-probeD img _ = T.pack (show (imageWidth img))
-probeE :: Image -> Text -> Text
-probeE img _ = T.pack (show (imageFormat img))
-
 juizComponent 'component
   [ componentProcess 'invert 'invertManifest
   , componentProcess 'bgr 'bgrManifest
   , componentProcess 'info 'infoManifest
-  , componentProcess 'probeA 'probeAManifest
-  , componentProcess 'probeB 'probeBManifest
-  , componentProcess 'probeC 'probeCManifest
-  , componentProcess 'probeD 'probeDManifest
-  , componentProcess 'probeE 'probeEManifest
-  , componentProcess 'probeF 'probeFManifest
-  , componentProcess 'probeG 'probeGManifest
-  , componentProcess 'probeH 'probeHManifest
   , componentContainer 'createStore 'storeManifest
   , componentContainerProcess 'storePut 'storePutManifest
   , componentContainerProcess 'storeGet 'storeGetManifest

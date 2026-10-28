@@ -65,7 +65,8 @@ Haskell のライブラリ hsjuiz(`bindings/hsjuiz`)を使うと、これらの�
 - juiz は `juiz_hs_init` を一度に一つずつ呼びます(`hs_init` はスレッド安全ではないため)。
 - GHC は `hs_exit` の後に `hs_init` し直すことができないので、juiz は `hs_exit` を呼ばず、Haskell のライブラリを閉じません。RTS はプロセスの終了とともに片付きます。
 - juiz は Process をワーカースレッドから呼ぶので、`-threaded` の RTS でビルドしてください。hsjuiz の `juiz_hs_init` は、`-threaded` でなければ初期化せずに `JUIZ_HASKELL_NOT_THREADED_RTS_ERROR`(-601)を返します。
-- GHC の静的ライブラリは位置独立コード(`-fPIC`)ではないため、RTS を静的に抱えた共有ライブラリは作れません。cabal の `foreign-library` は RTS と base を GHC の共有ライブラリ(`libHSrts_thr` など)にリンクするので、同じプロセスに読み込んだ Haskell のライブラリは一つの RTS を共有します。そのため **一つの juiz で読み込む Haskell のライブラリは、すべて同じ GHC でビルドしてください**。
+- Linux / macOS では、GHC の静的ライブラリは位置独立コード(`-fPIC`)ではないため、RTS を静的に抱えた共有ライブラリは作れません。cabal の `foreign-library` は RTS と base を GHC の共有ライブラリ(`libHSrts_thr` など)にリンクするので、同じプロセスに読み込んだ Haskell のライブラリは一つの RTS を共有します。そのため **一つの juiz で読み込む Haskell のライブラリは、すべて同じ GHC でビルドしてください**。
+- Windows では逆に、GHC が Haskell の共有ライブラリを持たないので、DLL ごとに RTS を静的に抱えます(`options: standalone`)。DLL ごとに RTS が別になるため、ある DLL の Container の `void*` を別の DLL の ContainerProcess に渡すと、hsjuiz は `JUIZ_HASKELL_CONTAINER_TYPE_ERROR`(-602)を返します(Container の領域に、作った RTS の目印を入れて比べています)。
 - Haskell の例外を C の呼び出し元に出すとプロセスが落ちるので、公開する関数の中で捕まえてエラーコードに変えてください。
 - `juiz_hs_init` を自分で書くときは、`hs_init` の前に `setKeepCAFs()`(`Rts.h`)を呼んでください。GHC は `foreign export` した関数を GC の根に登録する処理を `hs_init` の中でしか行わないので、`hs_init` の後に開いた 2 つ目以降のライブラリでは、foreign export した CAF が major GC で回収され、次に呼んだときにプロセスが落ちます。
 - Container の `void*` には、hsjuiz は先頭に目印を置いた領域(中身は `StablePtr`)を渡します。hsjuiz の ContainerProcess は、目印が無い(別の言語の Container)か状態の型が違うときに `JUIZ_HASKELL_CONTAINER_TYPE_ERROR`(-602)を返します。

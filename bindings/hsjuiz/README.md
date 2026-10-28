@@ -1,6 +1,6 @@
 # hsjuiz
 
-juiz の Process / Container を Haskell で書くためのライブラリです(Linux / macOS、GHC 9.6 以降)。
+juiz の Process / Container を Haskell で書くためのライブラリです(Linux / macOS / Windows、GHC 9.6 以降。Windows の注意は「[Windows](#windows)」)。
 
 Haskell の関数を cabal の `foreign-library`(共有ライブラリ)として公開し、juiz が設定ファイルの
 `language: "haskell"` のプラグインとして読み込みます。値の受け渡しには libjuiz_sdk の C 関数
@@ -377,7 +377,7 @@ plugins:
 ```
 
 - RTS(GHC のランタイム)は GHC の共有ライブラリで、同じプロセスに読み込んだ Haskell のライブラリすべてで共有されます。
-  **一つの juiz で読み込む Haskell のライブラリは、すべて同じ GHC でビルドしてください。**
+  **一つの juiz で読み込む Haskell のライブラリは、すべて同じ GHC でビルドしてください。**(Windows は違います。下の「Windows」)
 - RTS の初期化(`juiz_hs_init`)は hsjuiz が用意しているので、自分で書く必要はありません。
   GHC は `hs_exit` の後に初期化し直せないため、hsjuiz は `hs_exit` を呼ばず、`juiz_hs_exit` も用意していません。
 - hsjuiz の `juiz_hs_init` は、RTS を初期化する前に `setKeepCAFs()` を呼び、CAF(トップレベルの値)を GC で
@@ -385,6 +385,47 @@ plugins:
   エントリポイントが回収されてプロセスが落ちるのを防ぐためです(issue #133)。
 
 例は `examples/haskell` にあります。
+
+### Windows
+
+Windows(GHC 9.6、x86_64)では、できるライブラリは lib の付かない `<名前>.dll` です。Linux / macOS と次の点が違います(issue #137)。
+
+- Windows の GHC は Haskell の共有ライブラリを持たないので、RTS と依存するパッケージを DLL に静的に取り込みます。
+  `foreign-library` ごとに `options: standalone` を書きます(`common` に書いても cabal は受け付けません)。
+- 公開するシンボルを `.def` ファイルに並べ、`mod-def-file` で渡します。書かないと、リンカがすべてのシンボルを公開しようとして
+  DLL が公開できる数(65535)を超えるか、GHC がモジュールをアーカイブにするためにプラグインのコードが DLL に入りません。
+  並べるのは `juiz_hs_init` と、juiz が探す関数(`manifest_entry_point`、`process_factory_entry_point` など。
+  `bindings/cjuiz/README.md` の「プラグインが公開する関数」)です。Component では `component_manifest_entry_point` と、
+  `componentProcess 'func` ごとの `func_manifest_entry_point` / `func_factory_entry_point`
+  (Container は `func_factory_destroy_entry_point` も)です。
+
+  ```cabal
+  foreign-library increment_process_hs
+      type:             native-shared
+      if os(windows)
+          options:      standalone
+          mod-def-file: increment_process_hs.def
+      ...
+  ```
+
+  ```text
+  EXPORTS
+      juiz_hs_init
+      manifest_entry_point
+      process_factory_entry_point
+  ```
+
+- Rust が作る libjuiz_sdk のインポートライブラリは `juiz_sdk.dll.lib` という名前で、GHC の `-ljuiz_sdk` は見つけられないので、
+  `juiz_sdk.lib` という名前で複製して `--extra-lib-dirs` で渡します。Windows に rpath は無く、`juiz_sdk.dll` は juiz の実行ファイルと
+  同じディレクトリ(または `PATH`)から読み込まれます。
+- **DLL ごとに RTS が別になります。** そのため、ある DLL の Container を別の DLL の ContainerProcess に渡すことはできません
+  (`JUIZ_HASKELL_CONTAINER_TYPE_ERROR`(-602)になります)。Container とその ContainerProcess は `juizComponent` で
+  一つの Component(一つの DLL)にまとめてください。別の GHC でビルドした DLL を同じ juiz に読み込むことはできます。
+- **構成子が 8 個以上ある型の値で枝分かれする `case`(`deriving Show` の `show` を含む)を実行すると、プロセスが落ちます**(issue #262、
+  原因を調査中)。`==`(`deriving Eq`)や `fromEnum` は使えるので、たとえば `PixelFormat` の名前は `fromEnum` で表を引いて作ります
+  (`examples/haskell/src/ImageComponent.hs` の `formatName`)。
+
+`examples/haskell/build.sh` は Git Bash(MSYS2)で動き、上の手順を行います。
 
 ## Template Haskell を使わずに書く
 
