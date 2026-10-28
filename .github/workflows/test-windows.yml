@@ -36,6 +36,7 @@ jobs:
   # pyo3(auto-initialize)がその libpython にリンクする。C++ の例は MSVC と cmake でビルドする。
   windows:
     name: Windows build & test
+    if: ${{ false }} # TEMP: issue #137 の調査中
     runs-on: windows-latest
     env:
       # windows-latest の python3 は Microsoft Store のスタブになることがあるので python を使う
@@ -67,6 +68,55 @@ jobs:
   # pip で入れる juiz(bindings/juiz_py、issue #88)の wheel を Windows でビルドし、
   # インストールした juiz コマンドで Python の Process とサンプルを動かす(juiz-wheels.yml)
   juiz-wheels:
+    if: ${{ false }} # TEMP: issue #137 の調査中
     uses: ./.github/workflows/juiz-wheels.yml
     with:
       os: windows
+
+  # TEMP: issue #137 の調査
+  haskell-probe:
+    name: Haskell probe
+    runs-on: windows-latest
+    env:
+      PYO3_PYTHON: python
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pyyaml httpx pillow docstring_parser numpy
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: "9.6.7"
+          cabal-version: "3.18.1.0"
+          cabal-update: false
+      - run: |
+          which ghc cabal; ghc --version; cabal --version; ghc --info | grep -i -E "dynamic|ld|cc|linker" || true
+          echo "HOME=$HOME"; ls /c/ghcup 2>/dev/null | head || true
+      - run: cargo build -p juiz_sdk -p juiz_idl
+      - run: ls target/debug | grep -i -E "juiz_sdk|idl"
+      - name: build haskell
+        run: examples/haskell/build.sh -v1 || (echo BUILD FAILED; exit 1)
+      - name: inspect
+        if: always()
+        run: |
+          OBJDUMP=$(find "$(dirname "$(dirname "$(which ghc)")")" /c/ghcup -name "llvm-objdump.exe" -o -name "objdump.exe" 2>/dev/null | head -n 1)
+          echo "objdump=$OBJDUMP"
+          for f in target/increment_process_hs.dll target/example_component_hs.dll; do
+            ls -la "$f" || continue
+            "$OBJDUMP" -p "$f" > /tmp/dump.txt || true
+            grep -n -i "DLL Name" /tmp/dump.txt || true
+            grep -c "^\s*\[" /tmp/dump.txt || true
+            grep -n -E "juiz_hs_init|manifest|factory|hs_init" /tmp/dump.txt | head -40 || true
+            grep -n -i -A3 "Export" /tmp/dump.txt | head -20 || true
+          done
+      - name: test
+        if: always()
+        env:
+          JUIZ_REQUIRE_HASKELL: "1"
+        run: scripts/test.sh -p juiz_core --test integration -- haskell plugin_image

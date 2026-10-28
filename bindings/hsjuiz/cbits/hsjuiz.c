@@ -20,14 +20,22 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <pthread.h>
+#endif
 #include <HsFFI.h>
 #include <Rts.h> /* rtsSupportsBoundThreads, setKeepCAFs */
 
 /* -threaded でない RTS にリンクされている */
 #define HSJUIZ_NOT_THREADED_RTS_ERROR INT64_C(-601)
 
+#ifdef _WIN32
+static INIT_ONCE juiz_hs_init_once = INIT_ONCE_STATIC_INIT;
+#else
 static pthread_once_t juiz_hs_init_once = PTHREAD_ONCE_INIT;
+#endif
 
 static void juiz_hs_init_impl(void)
 {
@@ -39,12 +47,25 @@ static void juiz_hs_init_impl(void)
     hs_init(&argc, &argv);
 }
 
+#ifdef _WIN32
+static BOOL CALLBACK juiz_hs_init_once_callback(PINIT_ONCE once, PVOID param, PVOID *context)
+{
+    (void)once; (void)param; (void)context;
+    juiz_hs_init_impl();
+    return TRUE;
+}
+#endif
+
 int64_t juiz_hs_init(void)
 {
     if (!rtsSupportsBoundThreads()) {
         return HSJUIZ_NOT_THREADED_RTS_ERROR;
     }
+#ifdef _WIN32
+    InitOnceExecuteOnce(&juiz_hs_init_once, juiz_hs_init_once_callback, NULL, NULL);
+#else
     pthread_once(&juiz_hs_init_once, juiz_hs_init_impl);
+#endif
     return 0;
 }
 

@@ -12,12 +12,13 @@ sdk_dir="$repo_root/target/debug"
 out_dir="$repo_root/target"
 
 case "$(uname -s)" in
-    Darwin) ext=dylib ;;
-    *) ext=so ;;
+    Darwin) ext=dylib; prefix=lib ;;
+    MINGW* | MSYS* | CYGWIN*) ext=dll; prefix=""; exe=.exe ;;
+    *) ext=so; prefix=lib ;;
 esac
 
-if [[ ! -e "$sdk_dir/libjuiz_sdk.$ext" ]]; then
-    echo "error: $sdk_dir/libjuiz_sdk.$ext がありません。先にリポジトリの直下で cargo build を実行してください。" >&2
+if [[ ! -e "$sdk_dir/${prefix}juiz_sdk.$ext" ]]; then
+    echo "error: $sdk_dir/${prefix}juiz_sdk.$ext がありません。先にリポジトリの直下で cargo build を実行してください。" >&2
     exit 1
 fi
 
@@ -42,25 +43,37 @@ if [[ "$(uname -s)" == Darwin && -z "${DEVELOPER_DIR:-}" ]]; then
     fi
 fi
 # 型付きの例 (typed_component_hs など) の型を juiz-idl で作る (docs/spec/datatype.md §22)
-juiz_idl="$sdk_dir/juiz-idl"
+juiz_idl="$sdk_dir/juiz-idl${exe:-}"
 if [[ ! -x "$juiz_idl" ]]; then
     echo "error: $juiz_idl がありません。先にリポジトリの直下で cargo build -p juiz_idl を実行してください。" >&2
     exit 1
 fi
 "$juiz_idl" -g haskell -o "$here/gen" "$repo_root/juiz_idl/test_package/idl/geometry.jidl" > /dev/null
 
-# libjuiz_sdk はビルドしたディレクトリから読み込めるよう rpath を入れる (C++ の例の cmake と同じ)
-cabal build all \
-    --extra-lib-dirs="$sdk_dir" \
-    --ghc-options="-optl-Wl,-rpath,$sdk_dir"
+if [[ "$ext" == dll ]]; then
+    # Windows: Rust が作る libjuiz_sdk のインポートライブラリは juiz_sdk.dll.lib という名前で、
+    # GHC のリンカ (-ljuiz_sdk) は juiz_sdk.lib / libjuiz_sdk.dll.a などしか探さないので、juiz_sdk.lib として置く。
+    # Windows に rpath は無く、juiz_sdk.dll は juiz (または PATH) と同じディレクトリから読み込まれる
+    import_dir="$here/dist-newstyle/juiz_sdk-import"
+    mkdir -p "$import_dir"
+    cp "$sdk_dir/juiz_sdk.dll.lib" "$import_dir/juiz_sdk.lib"
+    cabal build all \
+        --extra-lib-dirs="$import_dir" \
+        --extra-lib-dirs="$sdk_dir"
+else
+    # libjuiz_sdk はビルドしたディレクトリから読み込めるよう rpath を入れる (C++ の例の cmake と同じ)
+    cabal build all \
+        --extra-lib-dirs="$sdk_dir" \
+        --ghc-options="-optl-Wl,-rpath,$sdk_dir"
+fi
 
 for name in increment_process_hs decrement_process_hs value_types_process_hs \
     example_container_hs example_container_hs_increment example_container_hs_get \
     mismatched_container_process_hs example_component_hs broken_component_hs \
     typed_component_hs broken_typed_process_hs image_component_hs; do
-    lib=$(find dist-newstyle -name "lib$name.$ext" -type f | head -n 1)
+    lib=$(find dist-newstyle -name "$prefix$name.$ext" -type f | head -n 1)
     if [[ -z "$lib" ]]; then
-        echo "error: lib$name.$ext が dist-newstyle に見つかりません" >&2
+        echo "error: $prefix$name.$ext が dist-newstyle に見つかりません" >&2
         exit 1
     fi
     cp "$lib" "$out_dir/"

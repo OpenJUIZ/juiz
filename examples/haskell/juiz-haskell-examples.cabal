@@ -17,6 +17,10 @@ common plugin
                     , hsjuiz
     hs-source-dirs:   src
     ghc-options:      -Wall -threaded
+    -- Windows の GHC は Haskell の共有ライブラリ (DLL) を持たないので、RTS と依存するパッケージを DLL に
+    -- 静的に取り込む (cabal は Windows の foreign-library にこの指定を求める)
+    if os(windows)
+        options:      standalone
 
 foreign-library increment_process_hs
     import:           plugin
