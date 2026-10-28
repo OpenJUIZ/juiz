@@ -6,6 +6,7 @@ use std::path::Path;
 
 use juiz_core::log;
 use juiz_core::prelude::*;
+use juiz_sdk::connection_identifier::ConnectionIdentifier;
 
 use crate::Args;
 
@@ -31,15 +32,25 @@ pub(crate) enum ConnectionSubCommands {
         destination: String,
     },
 
-    #[clap(arg_required_else_help = false)]
+    /// Delete a connection by an ID from `connection list`, or by <src> <arg> <dst> as in create
+    #[clap(arg_required_else_help = true)]
     Delete {
-        #[arg(help = "ID of Conection")]
-        connection_id: String,
+        #[arg(
+            num_args = 1..=3,
+            help = "ID of connection (connection://<src>|<arg>|<dst>), or <src> <arg> <dst> as in create"
+        )]
+        connection: Vec<String>,
     },
 
-    /// get logs
+    /// List connections. IDs are printed as a JSON array and can be passed to delete
     #[clap(arg_required_else_help = false)]
-    List {},
+    List {
+        #[arg(
+            long = "long",
+            help = "Show source, arg and destination of each connection"
+        )]
+        long: bool,
+    },
 }
 
 pub(crate) fn on_connection(
@@ -81,25 +92,16 @@ pub(crate) fn on_connection_inner(
                     on_connection_create(system, source, arg_name, destination, connection_type)
                 })
         }
-        #[allow(unused)]
-        ConnectionSubCommands::Delete { connection_id } => {
-            log::trace!("connection connect command is selected. args={args:?}");
-            //let manifest2 = yaml_conf_load(filepath.clone())?;
+        ConnectionSubCommands::Delete { connection } => {
+            log::trace!("connection delete command is selected. args={args:?}");
+            let id = connection_identifier_from_args(connection)?;
             System::new(manifest)?
                 .set_working_dir(working_dir)
                 .start_http_broker(args.start_http_broker)
                 .setup()?
-                .add_systemproxy_by_id(Some(server.clone()))?
-                .run_and_do_once(|system| {
-                    // if any_process {
-                    //     //on_any_process_list(system, Some(server), recursive)
-                    // } else {
-                    //     //on_process_list(system, Some(server), recursive)
-                    // }
-                    Ok(())
-                })
+                .run_and_do_once(|system| on_connection_delete(system, server, id))
         }
-        ConnectionSubCommands::List {} => {
+        ConnectionSubCommands::List { long } => {
             log::trace!("connection list command is selected. args={args:?}");
             // let manifest2 = yaml_conf_load(filepath.clone())?;
             System::new(manifest)?
@@ -107,7 +109,7 @@ pub(crate) fn on_connection_inner(
                 .start_http_broker(args.start_http_broker)
                 .setup()?
                 //.add_systemproxy_by_id(Some(server.clone()))?
-                .run_and_do_once(|system| on_connection_list(system, server, recursive))
+                .run_and_do_once(|system| on_connection_list(system, server, recursive, long))
         }
     }
 }
@@ -143,24 +145,73 @@ fn on_connection_create(
     Ok(())
 }
 
-fn on_connection_list(system: &mut System, server: String, _recursive: bool) -> JuizResult<()> {
-    log::info!("Connection list");
-    //let con_list = system.core_broker().lock()?.connection_list(recursive)?;
+/// delete の引数を接続の ID にする。1 個なら connection://<src>|<arg>|<dst>、3 個なら <src> <arg> <dst>
+fn connection_identifier_from_args(args: Vec<String>) -> JuizResult<ConnectionIdentifier> {
+    match <[String; 3]>::try_from(args) {
+        Ok([source, arg_name, destination]) => Ok(ConnectionIdentifier::new(
+            source.try_into()?,
+            arg_name.as_str(),
+            destination.try_into()?,
+        )),
+        Err(args) if args.len() == 1 => args[0].clone().try_into(),
+        Err(args) => Err(juiz_core::anyhow::Error::from(
+            JuizError::InvalidConnectionIdentifierError {
+                identifier: args.join(" "),
+            },
+        )),
+    }
+}
+
+/// -s のサーバーのブローカーの proxy
+fn server_broker_proxy(
+    system: &mut System,
+    server: String,
+) -> JuizResult<std::sync::Arc<std::sync::Mutex<dyn BrokerProxy>>> {
     let id_struct = IdentifierStruct::new_broker_id(server.clone())?;
-    let proxy = system.create_broker_proxy(&serde_json::json!({
+    system.create_broker_proxy(&serde_json::json!({
         "identifier": server,
         "type_name": id_struct.broker_type_name,
         "name": id_struct.broker_name,
-    }))?;
-    let con_list = proxy.lock().unwrap().connection_list(true)?;
+    }))
+}
 
-    println!(
-        "[{}]",
-        con_list
-            .iter()
-            .map(|id| { id.to_string() })
-            .collect::<Vec<String>>()
-            .join(",")
-    );
+fn on_connection_delete(
+    system: &mut System,
+    server: String,
+    id: ConnectionIdentifier,
+) -> JuizResult<()> {
+    log::info!("Connection delete {id}");
+    let proxy = server_broker_proxy(system, server)?;
+    juiz_lock(&proxy)?.connection_destroy(&id)?;
+    Ok(())
+}
+
+fn on_connection_list(
+    system: &mut System,
+    server: String,
+    _recursive: bool,
+    long: bool,
+) -> JuizResult<()> {
+    log::info!("Connection list");
+    let proxy = server_broker_proxy(system, server)?;
+    let con_list = juiz_lock(&proxy)?.connection_list(true)?;
+    // 同じ接続は接続元と接続先の両方から返ってくるので 1 つにまとめる
+    let mut ids: Vec<ConnectionIdentifier> = Vec::new();
+    for id in con_list.into_iter() {
+        if !ids.iter().any(|i| i.is_same_connection(&id)) {
+            ids.push(id);
+        }
+    }
+    if long {
+        for id in ids.iter() {
+            println!(
+                "{}  -({})->  {}",
+                id.source_identifier, id.arg_name, id.destination_identifier
+            );
+        }
+    } else {
+        let strs: Vec<String> = ids.into_iter().map(|id| id.into()).collect();
+        println!("{}", serde_json::to_string(&strs)?);
+    }
     Ok(())
 }
