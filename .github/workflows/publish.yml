@@ -52,7 +52,7 @@ jobs:
           done
           $ok
 
-  # 公開前にビルドとテストを通す(test.yml の rust ジョブと同じ手順)
+  # 公開前にビルドとテストを通す(test-linux.yml の rust ジョブと同じ手順)
   test:
     name: Rust build & test
     needs: check-version

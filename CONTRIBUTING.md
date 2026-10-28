@@ -102,11 +102,11 @@ cargo build -p juiz_opencv
 cargo test -p juiz_opencv    # カメラや画面を使わない処理(画像の変換、色変換、ファイルの読み書き)のテスト
 ```
 
-CI では `.github/workflows/test.yml` の `opencv` ジョブ(Ubuntu)で同じことを実行しています。
+CI では `.github/workflows/test-linux.yml` の `opencv` ジョブ(Ubuntu)で同じことを実行しています。
 
 ### テストを実行する
 
-`scripts/test.sh` が、テストの前提になる準備(ワークスペースの `cargo build`、C++ の例の cmake ビルド、Haskell の例の cabal ビルド、Python の例が使うパッケージの確認と `PYTHONPATH=bindings/pyjuiz` の設定)を済ませてから `cargo test -- --test-threads=1` を実行します。CI(`.github/workflows/test.yml`)も同じスクリプトを使います。
+`scripts/test.sh` が、テストの前提になる準備(ワークスペースの `cargo build`、C++ の例の cmake ビルド、Haskell の例の cabal ビルド、Python の例が使うパッケージの確認と `PYTHONPATH=bindings/pyjuiz` の設定)を済ませてから `cargo test -- --test-threads=1` を実行します。CI(`.github/workflows/test-linux.yml` など)も同じスクリプトを使います。
 
 ```terminal
 scripts/test.sh                              # すべてのテスト

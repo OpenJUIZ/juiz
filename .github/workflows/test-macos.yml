@@ -1,0 +1,118 @@
+name: Test (macOS)
+
+# macOS での Haskell のプラグインのテストと macOS の wheel。
+# macOS は Linux の 10 倍、Windows は 2 倍で数えられ、PR のたびに動かすと Actions の
+# 実行時間の大半を占めていたため、PR では動かさず main への push と手動実行でだけ動かす。
+# PR で確かめたいときは、Actions の画面から PR のブランチを指定して手動実行する。
+# Linux のジョブは test-linux.yml。
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      # Rust のビルドとテストに影響しないファイルだけの変更ではジョブを走らせない。
+      # examples/python と bindings/pyjuiz は Rust のテストから使われるので対象に含める。
+      - "**.md"
+      - "juiz_tutorial/**"
+      - "Dockerfile"
+      - "compose.yml"
+      - "build_docker.sh"
+      - ".github/workflows/python.yml"
+      - "webui/**"
+      - ".github/workflows/webui.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # pyo3 が埋め込む Python をシステムの python3 に固定する
+  PYO3_PYTHON: python3
+  # Haskell の例のビルドに使う GHC と cabal の版。対応するのは GHC 9.6 以降(issue #131)で、その最小の系列で確かめる。
+  # 入れた GHC はキャッシュするので、キャッシュのキーが変わらないよう版は細かく固定する
+  GHC_VERSION: "9.6.7"
+  CABAL_VERSION: "3.18.1.0"
+
+jobs:
+  # macOS での Haskell のプラグインのビルドとテスト(issue #143)。macos-latest は Xcode 26 に
+  # Command Line Tools 27 (MacOSX27.0.sdk) が入っていて、GHC のリンクでその SDK を読む組み合わせを確かめる。
+  # examples/haskell/build.sh が DEVELOPER_DIR を切り替える。Haskell 以外のテストは Linux のジョブで確かめる。
+  haskell-macos:
+    name: Haskell plugin test (macOS)
+    runs-on: macos-latest
+    env:
+      # macOS の python3 は新しすぎて PyO3 が対応していないので、setup-python の 3.13 を使う(issue #100)
+      PYO3_PYTHON: python3.13
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install pyjuiz dependencies (used by the embedded Python)
+        run: python3.13 -m pip install pyyaml httpx pillow docstring_parser numpy
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Haskell の例(examples/haskell)のビルドに使う GHC と cabal を入れる。
+      # ghcup での GHC のインストールに Linux で約 2 分、macOS で約 4 分かかるので、入れた GHC をキャッシュする。
+      # GHC の置き場所は ghcup と同じく ${GHCUP_INSTALL_BASE_PREFIX:-$HOME}/.ghcup/ghc/<版>
+      - name: Locate ghcup directory
+        id: ghcup
+        shell: bash
+        run: echo "dir=${GHCUP_INSTALL_BASE_PREFIX:-$HOME}/.ghcup" >> "$GITHUB_OUTPUT"
+      - name: Restore GHC
+        id: ghc-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ steps.ghcup.outputs.dir }}/ghc/${{ env.GHC_VERSION }}
+          key: ghc-${{ env.GHC_VERSION }}-${{ runner.os }}-${{ runner.arch }}
+      # キャッシュに GHC があれば、haskell-actions/setup はインストールを飛ばして ghcup set だけする
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: ${{ env.GHC_VERSION }}
+          cabal-version: ${{ env.CABAL_VERSION }}
+          # examples/haskell の依存は GHC に付いてくるパッケージだけなので、Hackage の索引は使わない
+          cabal-update: false
+      # テストが失敗しても次から使えるよう、インストールした直後に保存する
+      - name: Save GHC
+        if: steps.ghc-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.ghcup.outputs.dir }}/ghc/${{ env.GHC_VERSION }}
+          key: ${{ steps.ghc-cache.outputs.cache-primary-key }}
+
+      # C++ の例のビルドと Haskell の型付きの例 (gen/ の型) に juiz-idl も使う。
+      # haskell_typed_test は Rust の native_pose_component・native_pose_reader も読み込む
+      - name: Build libjuiz_sdk and juiz-idl
+        run: cargo build -p juiz_sdk -p juiz_idl -p native_pose_component -p native_pose_reader
+
+      # haskell_container_test は C++ の Container (example_container_cpp) も読み込む
+      - name: Build C++ examples
+        run: |
+          cmake -S examples/cpp -B examples/cpp/build -DCMAKE_BUILD_TYPE=Debug
+          cmake --build examples/cpp/build --config Debug --parallel
+
+      - name: Build Haskell examples
+        run: examples/haskell/build.sh
+
+      - name: Test
+        env:
+          PYTHONPATH: ${{ github.workspace }}/bindings/pyjuiz
+          # Haskell の例が無いときにテストを飛ばさない
+          JUIZ_REQUIRE_HASKELL: "1"
+        run: >-
+          cargo test -p juiz_core --no-fail-fast --test integration
+          -- --test-threads=1 haskell_
+
+  # pip で入れる juiz(bindings/juiz_py、issue #88)の wheel を macOS でビルドし、
+  # インストールした juiz コマンドで Python の Process とサンプルを動かす(juiz-wheels.yml)
+  juiz-wheels:
+    uses: ./.github/workflows/juiz-wheels.yml
+    with:
+      os: macos
