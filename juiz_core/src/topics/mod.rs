@@ -8,6 +8,10 @@ use crate::{
 };
 use juiz_sdk::{anyhow::anyhow, identifier::split_namespace, types::TypeSchema};
 use uuid::Uuid;
+
+pub mod shared_memory;
+pub use shared_memory::{SharedMemoryConfig, SharedMemoryStats, TopicSharedMemory};
+
 pub type TopicName = String;
 
 #[derive(Clone)]
@@ -19,6 +23,8 @@ pub struct Topic {
     typed_publishers: HashMap<String, TypeSchema>,
     /// 型付きの subscribe 側 ((Process の ID, 引数名) → 引数の型)
     typed_subscribers: HashMap<(String, String), TypeSchema>,
+    /// 共有メモリ (B) の設定とリング。conf の topics: に shared_memory があるときだけ (docs/spec/large-data.md §6)
+    shared_memory: Option<Arc<TopicSharedMemory>>,
 }
 
 #[allow(unused)]
@@ -29,6 +35,7 @@ impl Topic {
             subsystem_proxies: Vec::new(),
             typed_publishers: HashMap::new(),
             typed_subscribers: HashMap::new(),
+            shared_memory: None,
         }
     }
 
@@ -44,6 +51,8 @@ pub struct TopicPtr {
     system_uuid: Uuid,
     topic: Arc<RwLock<Topic>>,
     ptr: ProcessPtr,
+    /// 共有メモリの数え上げ。送り手 (Topic) と受け手 (IPC ブローカー) が足す
+    shm_stats: Arc<SharedMemoryStats>,
 }
 
 /// Topic は Value・Image・Native を通す。Empty はエラー (docs/spec/large-data.md §5)
@@ -79,10 +88,28 @@ impl TopicPtr {
             match my_topic.read() {
                 Ok(t) => {
                     log::trace!(" - my_topic.read() OK.");
+                    // 共有メモリ (B) に書くのは、最初に IPC の転送先が見つかったときに 1 回だけ。
+                    // None はまだ書いていない、Some(None) は B で送らない (A で送る)
+                    #[cfg(feature = "ipc-broker")]
+                    let mut shared: Option<Option<shared_memory::SharedPush>> = None;
                     // 送れない転送先(止まったサブシステムなど)があっても、残りの転送先には送る (issue #67)
                     for subsystem in t.subsystem_proxies.iter() {
                         log::trace!("- broker_proxy: subsystem={:?}", subsystem.uuid());
                         let r = juiz_lock(&subsystem.broker_proxy()).and_then(|bp| {
+                            #[cfg(feature = "ipc-broker")]
+                            if let Some(shm) = t.shared_memory.as_ref() {
+                                if bp.supports_shared_memory() {
+                                    if shared.is_none() {
+                                        shared = Some(shm.prepare(&my_topic_name, &v).unwrap_or_else(|e| {
+                                            log::error!("Topic({my_topic_name}): writing to shared memory failed. {e:#}");
+                                            None
+                                        }));
+                                    }
+                                    if let Some(Some(push)) = shared.as_ref() {
+                                        return bp.topic_push_shared(my_topic_name.as_str(), push, Some(my_uuid));
+                                    }
+                                }
+                            }
                             bp.topic_push(my_topic_name.as_str(), v.clone(), Some(my_uuid))
                         });
                         match r {
@@ -108,6 +135,7 @@ impl TopicPtr {
             name: name.to_owned(),
             system_uuid,
             topic,
+            shm_stats: Arc::new(SharedMemoryStats::default()),
             ptr: ProcessPtr::new(
                 //ProcessImpl::clousure_new_with_class_name(JuizObjectClass::Topic("Topic"), manifest, Box::new(topic_func)).unwrap()))
                 ProcessImpl::new_passthrough_with_class_name(
@@ -130,7 +158,22 @@ impl TopicPtr {
     }
 
     pub fn profile(&self) -> JuizResult<Value> {
-        crate::core::process_profile_value(&self.ptr.lock()?.profile()?)
+        let mut v = crate::core::process_profile_value(&self.ptr.lock()?.profile()?)?;
+        if let (Some(shm), Some(obj)) = (self.shm_stats.profile(), v.as_object_mut()) {
+            obj.insert("shared_memory".to_owned(), shm);
+        }
+        Ok(v)
+    }
+
+    /// 共有メモリ (B) の設定を当てる。None なら使わない
+    pub fn set_shared_memory(&self, config: Option<SharedMemoryConfig>) -> JuizResult<()> {
+        let shm = config.map(|c| Arc::new(TopicSharedMemory::new(c, self.shm_stats.clone())));
+        self.write_topic()?.shared_memory = shm;
+        Ok(())
+    }
+
+    pub fn shared_memory_stats(&self) -> Arc<SharedMemoryStats> {
+        self.shm_stats.clone()
     }
 
     pub fn push(&self, capsule: CapsulePtr, pushed_system_uuid: Option<Uuid>) -> JuizResult<()> {

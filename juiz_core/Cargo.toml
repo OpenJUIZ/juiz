@@ -14,7 +14,7 @@ swagger-ui = ["dep:utoipa-swagger-ui"]
 webui = ["dep:juiz_webui"]
 
 # IPC ブローカー (同じマシンの別プロセスと Unix ソケット / 名前付きパイプでやり取りする、docs/spec/ipc-broker.md)
-ipc-broker = ["dep:interprocess", "dep:widestring"]
+ipc-broker = ["dep:interprocess", "dep:widestring", "dep:windows-sys"]
 
 default = ["embed-python", "swagger-ui", "webui", "ipc-broker"]
 # Python の Process・Container・Component を読み込む。オフにすると pyo3 を使わず、libpython なしで動く。
@@ -63,6 +63,8 @@ libc = "0.2"
 [target.'cfg(windows)'.dependencies]
 interprocess = { workspace = true, optional = true }
 widestring = { version = "1", optional = true }
+# 共有メモリ (名前付きファイルマッピング、docs/spec/large-data.md §6.6) と名前付きパイプの操作
+windows-sys = { version = "0.61", optional = true, features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_IO", "Win32_System_Memory", "Win32_System_Pipes"] }
 
 [dev-dependencies]
 # ベンチ (tests/integration/image_transfer_bench.rs) で qmp ブローカーも測るため。

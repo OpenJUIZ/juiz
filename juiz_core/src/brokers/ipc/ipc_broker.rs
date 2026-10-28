@@ -17,7 +17,8 @@ use std::time::Duration;
 use juiz_sdk::anyhow::anyhow;
 
 use super::ipc_name::{validate_ipc_name, DEFAULT_IPC_NAME};
-use super::transport::{self, Listener, Stream};
+use super::shm_delivery::{is_request, Regions, ShmDelivery};
+use super::transport::{self, Listener, RecvStream, Stream};
 use crate::brokers::core_broker::CoreBrokerPtr;
 use crate::brokers::frame::{read_frame, FrameLimits, FrameReadError, OutgoingFrame};
 use crate::brokers::{
@@ -67,6 +68,8 @@ pub struct IpcBroker {
     listener: Option<Arc<Listener>>,
     accept_thread: Option<JoinHandle<()>>,
     connections: Connections,
+    /// 共有メモリ (B) の Topic の push の受け箱と配達 (docs/spec/large-data.md §6.5)
+    shm: Arc<ShmDelivery>,
 }
 
 impl std::fmt::Debug for IpcBroker {
@@ -84,10 +87,18 @@ impl IpcBroker {
             .as_object_mut()
             .ok_or_else(|| anyhow!("ipc broker manifest must be an object"))?
             .insert("name".to_owned(), jvalue!(name));
+        let crud_broker = Arc::new(Mutex::new(CRUDBroker::new(core_broker.clone(), manifest)?));
+        let (crud, own_name) = (crud_broker.clone(), name.clone());
+        let shm = Arc::new(ShmDelivery::new(
+            name.clone(),
+            core_broker,
+            Arc::new(move |cm| handle_request(&crud, &own_name, cm)),
+        ));
         Ok(IpcBroker {
             name,
             limits,
-            crud_broker: Arc::new(Mutex::new(CRUDBroker::new(core_broker, manifest)?)),
+            shm,
+            crud_broker,
             stopping: Arc::new(AtomicBool::new(false)),
             listener: None,
             accept_thread: None,
@@ -128,9 +139,15 @@ fn serve_connection(
     own_name: String,
     limits: FrameLimits,
     stopping: Arc<AtomicBool>,
+    shm: Arc<ShmDelivery>,
 ) -> JuizResult<()> {
-    let mut reader = BufReader::with_capacity(64 * 1024, transport::try_clone(&stream)?);
+    let mut reader = BufReader::with_capacity(
+        64 * 1024,
+        RecvStream::new(transport::try_clone(&stream)?),
+    );
     let mut writer = stream;
+    // この接続で対応付けた共有メモリの領域。接続が閉じたら外す (§6.6)
+    let mut regions = Regions::new();
     loop {
         let frame = match read_frame(&mut reader, &limits) {
             Ok(f) => f,
@@ -165,10 +182,22 @@ fn serve_connection(
             .as_ref()
             .and_then(|p| p.get("function_name").cloned())
             .unwrap_or_default();
-        let result = frame
-            .into_capsule_map()
-            .and_then(|cm| handle_request(&crud_broker, &own_name, cm))
-            .and_then(|capsule| OutgoingFrame::response(id, &capsule));
+        let result = if is_request(&frame, "shm", "attach") {
+            #[cfg(unix)]
+            let r = shm.attach(&frame, &mut regions, reader.get_mut().take_fd());
+            #[cfg(windows)]
+            let r = shm.attach(&frame, &mut regions);
+            r.and_then(|_| OutgoingFrame::response(id, &CapsulePtr::new()))
+        } else if frame.has_shared_body() {
+            // 本体を読まずにすぐ応答する (§6.5)
+            shm.enqueue(frame, &regions)
+                .and_then(|_| OutgoingFrame::response(id, &CapsulePtr::new()))
+        } else {
+            frame
+                .into_capsule_map()
+                .and_then(|cm| handle_request(&crud_broker, &own_name, cm))
+                .and_then(|capsule| OutgoingFrame::response(id, &capsule))
+        };
         // 失敗したら必ずエラー応答を返し、接続は保つ
         match result {
             Ok(response) => response.write_to(&mut writer)?,
@@ -193,6 +222,7 @@ impl Broker for IpcBroker {
         let limits = self.limits;
         let stopping = self.stopping.clone();
         let connections = self.connections.clone();
+        let shm = self.shm.clone();
         let next_conn_id = AtomicU64::new(0);
         self.accept_thread = Some(
             std::thread::Builder::new()
@@ -216,13 +246,18 @@ impl Broker for IpcBroker {
                             conns.insert(conn_id, c);
                         }
                     }
-                    let (crud, conn_name, stopping, connections) =
-                        (crud.clone(), name.clone(), stopping.clone(), connections.clone());
+                    let (crud, conn_name, stopping, connections, shm) = (
+                        crud.clone(),
+                        name.clone(),
+                        stopping.clone(),
+                        connections.clone(),
+                        shm.clone(),
+                    );
                     let r = std::thread::Builder::new()
                         .name(format!("ipc-conn-{name}-{conn_id}"))
                         .spawn(move || {
                             if let Err(e) =
-                                serve_connection(stream, crud, conn_name.clone(), limits, stopping)
+                                serve_connection(stream, crud, conn_name.clone(), limits, stopping, shm)
                             {
                                 log::warn!("ipc://{conn_name}: connection {conn_id} closed. {e:#}");
                             }
@@ -265,6 +300,7 @@ impl Broker for IpcBroker {
                 transport::shutdown(&c);
             }
         }
+        self.shm.stop();
         juiz_lock(&self.crud_broker)?.clear_started();
         Ok(())
     }

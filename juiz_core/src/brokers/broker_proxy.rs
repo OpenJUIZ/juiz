@@ -264,6 +264,24 @@ pub trait TopicBrokerProxy {
         pushed_system: Option<Uuid>,
     ) -> JuizResult<()>;
 
+    /// Topic の push で共有メモリ (B) を使えるか。IPC だけ (docs/spec/large-data.md §6.1)
+    fn supports_shared_memory(&self) -> bool {
+        false
+    }
+
+    /// 共有メモリに書いた本体の場所を送る Topic の push。supports_shared_memory が true のときだけ呼ぶ
+    #[cfg(feature = "ipc-broker")]
+    fn topic_push_shared(
+        &self,
+        name: &str,
+        _push: &crate::topics::shared_memory::SharedPush,
+        _pushed_system: Option<Uuid>,
+    ) -> JuizResult<()> {
+        Err(juiz_sdk::anyhow::anyhow!(
+            "topic_push_shared({name}) is not supported by this broker proxy"
+        ))
+    }
+
     /// Topic をSubscribeする必要があるか問い合わせる
     /// {"subscribe": true/false } が返る
     fn topic_request_subscribe(

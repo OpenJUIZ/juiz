@@ -1052,12 +1052,26 @@ impl CoreWorker {
         });
     }
 
+    /// conf の topics: の設定を覚え、もうある Topic にも当てる (docs/spec/large-data.md §6.1)
+    pub fn set_topic_settings(
+        &mut self,
+        settings: HashMap<String, crate::topics::SharedMemoryConfig>,
+    ) -> JuizResult<()> {
+        for (name, topic) in self.store().topics.iter() {
+            if let Some(c) = settings.get(name) {
+                topic.set_shared_memory(Some(c.clone()))?;
+            }
+        }
+        self.store_mut().topic_settings = settings;
+        Ok(())
+    }
+
     fn do_create_topic(&mut self, topic_name: String) -> JuizResult<TopicPtr> {
-        log::error!("do_create_topic({topic_name}) called");
+        log::trace!("do_create_topic({topic_name}) called");
         let uuid = self.system_uuid.clone();
-        self.store_mut()
-            .topics
-            .insert(topic_name.clone(), TopicPtr::new(topic_name.as_str(), uuid));
+        let topic = TopicPtr::new(topic_name.as_str(), uuid);
+        topic.set_shared_memory(self.store().topic_settings.get(&topic_name).cloned())?;
+        self.store_mut().topics.insert(topic_name.clone(), topic);
         Ok(self.store().topics.get(&topic_name).unwrap().clone())
     }
 

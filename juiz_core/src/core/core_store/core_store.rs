@@ -23,6 +23,8 @@ pub struct CoreStore {
     broker_factories_manifests: HashMap<Identifier, Value>,
     brokers_manifests: Vec<BrokerProfile>,
     pub topics: HashMap<Identifier, TopicPtr>,
+    /// conf の topics: の共有メモリの設定 (解決した Topic の名前 → 設定)。Topic を作るときに当てる
+    pub topic_settings: HashMap<String, crate::topics::SharedMemoryConfig>,
 
     pub processes: Box<ObjectCollection<ProcessPtr, ProcessFactoryPtr>>,
     pub containers: Box<ObjectCollection<ContainerPtr, ContainerFactoryPtr>>,
@@ -49,6 +51,7 @@ impl CoreStore {
             broker_proxies: BufferObjectCollection::new("broker_proxy"),
             broker_factories_manifests: HashMap::new(),
             topics: HashMap::new(),
+            topic_settings: HashMap::new(),
             //processes: RwObjectCollection::new("process"),
             processes: ObjectCollection::new("process"),
             //containers: RwObjectCollection::new("container"),

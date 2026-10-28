@@ -13,6 +13,8 @@
 //! - 内訳: PNG の圧縮と展開を同じ画像で別に測り、残りを「転送ほか」とする
 //! - 比較: 同じ大きさの生バイトを Unix ソケットで受け取るだけの時間
 //! - Topic: 画像を Topic に流せるかを確かめる (#233 で通るようになった)
+//! - Topic (別プロセス、#235): IPC で subscribe している別プロセスへ、フレーム (A) と共有メモリ (B) で
+//!   画像を publish する。publish が返るまでの時間と、受け手の Process に届くまでの時間を測る
 //!
 //! 画像はカメラ画像に近づけるため、なめらかな模様に小さなノイズを足したものにする
 //! (単純な模様だと PNG がよく縮み、実際より速く見える)。画像は大きさごとに 1 度だけ作り、
@@ -26,6 +28,7 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Cursor, Read, Write};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -48,6 +51,11 @@ const SIZES: [(u32, u32, &str); 3] = [
     (1920, 1080, "1080p"),
     (3840, 2160, "4K"),
 ];
+/// 別プロセスへの Topic。A はフレームで、B は共有メモリで送る (送り手の conf の topics: で決める)
+const TOPIC_A: &str = "bench/topic_a";
+const TOPIC_B: &str = "bench/topic_b";
+/// B の枠の大きさ。4K RGB (24,883,200 バイト) が入る
+const TOPIC_B_SLOT_BYTES: u64 = 24 << 20;
 const WARMUP: usize = 2;
 const ROUNDS: usize = 5;
 
@@ -146,6 +154,68 @@ fn bench_sink(args: CapsuleMap) -> JuizResult<Capsule> {
     Ok(jvalue!(args.get("img")?.lock_as_image(mean_of)?).into())
 }
 
+/// 別プロセスの Topic で届いた画像の数 (A, B)
+static TOPIC_RECEIVED: [AtomicU64; 2] = [AtomicU64::new(0), AtomicU64::new(0)];
+
+fn bench_topic_sink_a(args: CapsuleMap) -> JuizResult<Capsule> {
+    args.get("img")?.lock_as_image(|img| std::hint::black_box(img.width()))?;
+    TOPIC_RECEIVED[0].fetch_add(1, Ordering::SeqCst);
+    Ok(jvalue!(0).into())
+}
+
+fn bench_topic_sink_b(args: CapsuleMap) -> JuizResult<Capsule> {
+    args.get("img")?.lock_as_image(|img| std::hint::black_box(img.width()))?;
+    TOPIC_RECEIVED[1].fetch_add(1, Ordering::SeqCst);
+    Ok(jvalue!(0).into())
+}
+
+fn bench_topic_count(_args: CapsuleMap) -> JuizResult<Capsule> {
+    Ok(jvalue!([
+        TOPIC_RECEIVED[0].load(Ordering::SeqCst),
+        TOPIC_RECEIVED[1].load(Ordering::SeqCst)
+    ])
+    .into())
+}
+
+/// 別プロセスの juiz だけが持つ、Topic を subscribe する Process
+fn setup_server_topic_processes(system: &System) -> JuizResult<()> {
+    let mut cb = system.core_broker().lock_mut()?;
+    let worker = cb.worker_mut();
+    let factories: Vec<(ProcessManifest, juiz_sdk::processes::ProcessBodyFunctionType)> = vec![
+        (
+            ProcessManifest::new("bench_topic_sink_a")
+                .use_memo(false)
+                .add_image_arg("img", "input image"),
+            bench_topic_sink_a,
+        ),
+        (
+            ProcessManifest::new("bench_topic_sink_b")
+                .use_memo(false)
+                .add_image_arg("img", "input image"),
+            bench_topic_sink_b,
+        ),
+        (ProcessManifest::new("bench_topic_count").use_memo(false), bench_topic_count),
+    ];
+    for (manifest, function) in factories {
+        let type_name = manifest.type_name.clone();
+        let pf = process_factory_create(manifest, function)?;
+        worker.store_mut().processes.register_factory(&type_name, pf)?;
+    }
+    for (type_name, name, topic) in [
+        ("bench_topic_sink_a", "topic_sink_a", TOPIC_A),
+        ("bench_topic_sink_b", "topic_sink_b", TOPIC_B),
+    ] {
+        let p = worker.create_process_ref(&ProcessManifest::new(type_name).name(name).use_memo(false))?;
+        worker.process_subscribe_topic(p, &"img".to_owned(), TopicManifest::new(topic))?;
+    }
+    worker.create_process_ref(
+        &ProcessManifest::new("bench_topic_count")
+            .name("topic_count")
+            .use_memo(false),
+    )?;
+    Ok(())
+}
+
 fn setup_bench_processes(system: &System) -> JuizResult<(ProcessPtr, ProcessPtr)> {
     let mut cb = system.core_broker().lock_mut()?;
     let worker = cb.worker_mut();
@@ -220,6 +290,7 @@ fn serve_for_image_transfer_bench() -> JuizResult<()> {
     .setup()?
     .run_and_do_once(|system| {
         setup_bench_processes(system)?;
+        setup_server_topic_processes(system)?;
         println!("{READY}");
         std::io::stdout().flush()?;
         // 親が stdin を閉じる (終わるか落ちる) まで待ち受ける
@@ -330,6 +401,25 @@ fn unix_socket_raw(_width: u32, _height: u32) -> JuizResult<Duration> {
     Ok(Duration::ZERO)
 }
 
+/// 別プロセスへの Topic (A, B) に publish する Process を作り、受け手に subscribe するかを問い合わせる
+fn setup_topic_sources(system: &System) -> JuizResult<[ProcessPtr; 2]> {
+    let mut cb = system.core_broker().lock_mut()?;
+    let mut sources = Vec::new();
+    for (name, topic) in [("topic_source_a", TOPIC_A), ("topic_source_b", TOPIC_B)] {
+        let worker = cb.worker_mut();
+        let p = worker.create_process_ref(&ProcessManifest::new("bench_source").name(name).use_memo(false))?;
+        worker.process_publish_topic(p.clone(), TopicManifest::new(topic))?;
+        sources.push(p);
+    }
+    // setup の後で publish を足したので、setup_topic_synchronization と同じ問い合わせをする
+    let uuid = uuid::Uuid::parse_str(cb.system_uuid()?.as_str().unwrap())?;
+    let bp: &mut dyn BrokerProxy = &mut *cb;
+    for topic in [TOPIC_A, TOPIC_B] {
+        assert_eq!(bp.topic_request_subscribe(topic, Some(uuid))?, jvalue!({"subscribe": true}));
+    }
+    Ok([sources.remove(0), sources.remove(0)])
+}
+
 /// 画像を出す Process を Topic に publish し、受け取る Process を subscribe して、届くかを確かめる
 fn topic_result(system: &System, source: &ProcessPtr, sink: &ProcessPtr) -> JuizResult<String> {
     {
@@ -369,6 +459,9 @@ struct Row {
     qmp_return: Duration,
     qmp_arg: Duration,
     unix_raw: Duration,
+    /// Topic (別プロセス) の [A, B]
+    topic_push: [Duration; 2],
+    topic_delivered: [Duration; 2],
 }
 
 #[test]
@@ -382,6 +475,12 @@ fn bench_image_transfer() -> JuizResult<()> {
     System::new(jvalue!({
         "name": "image_transfer_bench_client",
         "option": { "http_broker": { "start": false } },
+        // 別プロセスの juiz を IPC のサブシステムにし、Topic を IPC で流す
+        "brokers": [ { "type_name": "ipc", "name": format!("{SERVER_IPC_NAME}_client") } ],
+        "subsystems": [ { "type_name": "ipc", "name": SERVER_IPC_NAME } ],
+        "topics": [
+            { "name": TOPIC_B, "shared_memory": { "slot_bytes": TOPIC_B_SLOT_BYTES } },
+        ],
     }))?
     .setup()?
     .run_and_do_once(|system| {
@@ -423,6 +522,8 @@ fn bench_image_transfer() -> JuizResult<()> {
         let qmp_ids = juiz_lock(&qmp)?.process_list(false, None)?;
         let qmp_source = find(&qmp_ids, "source0");
         let qmp_sink = find(&qmp_ids, "sink0");
+        let topic_count = find(&ipc_ids, "topic_count");
+        let topic_sources = setup_topic_sources(system)?;
         let local_ids = juiz_lock(&local)?.process_list(false, None)?;
         let local_source = find(&local_ids, "source0");
         let core_source = source.identifier();
@@ -555,6 +656,52 @@ fn bench_image_transfer() -> JuizResult<()> {
 
             let unix_raw = unix_socket_raw(width, height)?;
 
+            // Topic (別プロセス): publish が返るまでと、受け手の Process に届くまで
+            let received = |i: usize| -> JuizResult<u64> {
+                let v = juiz_lock(&ipc)?
+                    .process_call(&topic_count, CapsuleMap::new())?
+                    .extract_value()?;
+                Ok(v[i].as_u64().expect("count must be a number"))
+            };
+            let mut topic_push = [Duration::ZERO; 2];
+            let mut topic_delivered = [Duration::ZERO; 2];
+            for (i, source) in topic_sources.iter().enumerate() {
+                let publish = |seed: i64| -> JuizResult<()> {
+                    let mut p = source.lock_mut()?;
+                    p.p_apply("width", jvalue!(width).into())?;
+                    p.p_apply("height", jvalue!(height).into())?;
+                    p.p_apply("seed", jvalue!(seed).into())?;
+                    drop(p);
+                    source.lock()?.execute()?;
+                    Ok(())
+                };
+                let wait_for = |count: u64| -> JuizResult<()> {
+                    let deadline = Instant::now() + Duration::from_secs(10);
+                    // 問い合わせ続けると受け手の CPU とロックを取り合うので、少し間を空ける
+                    while received(i)? < count {
+                        assert!(Instant::now() < deadline, "{label}: the topic frame is not delivered");
+                        std::thread::sleep(Duration::from_micros(100));
+                    }
+                    Ok(())
+                };
+                topic_delivered[i] = time_per_call(width, |seed| {
+                    let before = received(i)?;
+                    publish(seed)?;
+                    wait_for(before + 1)
+                })?;
+                // B は受け手を待たないので、続けて publish すると受け手が古いフレームを捨てる。間を空けて測る
+                let mut total = Duration::ZERO;
+                let n = 5;
+                for seed in 0..n {
+                    let before = received(i)?;
+                    let start = Instant::now();
+                    publish(seed)?;
+                    total += start.elapsed();
+                    wait_for(before + 1)?;
+                }
+                topic_push[i] = total / n as u32;
+            }
+
             rows.push(Row {
                 label,
                 png_bytes: png.len(),
@@ -571,6 +718,8 @@ fn bench_image_transfer() -> JuizResult<()> {
                 qmp_return,
                 qmp_arg,
                 unix_raw,
+                topic_push,
+                topic_delivered,
             });
         }
 
@@ -675,6 +824,26 @@ fn bench_image_transfer() -> JuizResult<()> {
             ms(r.qmp_arg),
             r.http_return.as_secs_f64() / r.qmp_return.as_secs_f64(),
             r.qmp_return.as_secs_f64() / r.ipc_return.as_secs_f64(),
+        );
+    }
+    println!("\n### Topic (別プロセス、IPC で subscribe、#235)");
+    header(&[
+        "",
+        "A: publish が返るまで",
+        "A: 受け手に届くまで",
+        "B: publish が返るまで",
+        "B: 受け手に届くまで",
+        "届くまでの A との比",
+    ]);
+    for r in rows.iter() {
+        println!(
+            "| {} | {} | {} | {} | {} | {:.1} 倍速い |",
+            r.label,
+            ms(r.topic_push[0]),
+            ms(r.topic_delivered[0]),
+            ms(r.topic_push[1]),
+            ms(r.topic_delivered[1]),
+            r.topic_delivered[0].as_secs_f64() / r.topic_delivered[1].as_secs_f64(),
         );
     }
     println!("\n### 送れないもの");

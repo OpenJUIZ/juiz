@@ -52,6 +52,21 @@ pub trait CRUDBrokerProxy: Send + Sync {
         payload: CapsuleMap,
         param: HashMap<String, String>,
     ) -> JuizResult<CapsulePtr>;
+
+    /// Topic の push で共有メモリ (B) を使えるか (IPC だけ)
+    fn supports_shared_memory(&self) -> bool {
+        false
+    }
+
+    /// 共有メモリに書いた本体の場所を送る Topic の push (update / topic / push)。param は topic_name など
+    #[cfg(feature = "ipc-broker")]
+    fn topic_push_shared(
+        &self,
+        _push: &crate::topics::shared_memory::SharedPush,
+        _param: HashMap<String, String>,
+    ) -> JuizResult<()> {
+        Err(anyhow!("topic_push_shared is not supported by this broker proxy"))
+    }
 }
 
 pub struct CRUDBrokerProxyHolder {
@@ -824,6 +839,29 @@ impl TopicBrokerProxy for CRUDBrokerProxyHolder {
         self.broker
             .update("topic", "push", args, param_var)
             .and_then(|_| Ok(()))
+    }
+
+    fn supports_shared_memory(&self) -> bool {
+        self.broker.supports_shared_memory()
+    }
+
+    #[cfg(feature = "ipc-broker")]
+    fn topic_push_shared(
+        &self,
+        name: &str,
+        push: &crate::topics::shared_memory::SharedPush,
+        pushed_system_uuid: Option<Uuid>,
+    ) -> JuizResult<()> {
+        log::trace!("topic_push_shared({name}) called");
+        let param_var = if let Some(system_uuid) = pushed_system_uuid {
+            topic_param(&[
+                ("topic_name", name),
+                ("system_uuid", system_uuid.to_string().as_str()),
+            ])
+        } else {
+            topic_param(&[("topic_name", name)])
+        };
+        self.broker.topic_push_shared(push, param_var)
     }
 
     fn topic_request_subscribe(
