@@ -246,7 +246,7 @@ fn check_types(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     Ok(())
 }
 
-/// ../target/debug にビルドされた Rust のプラグインのパス (OS ごとのファイル名)
+/// ../target/debug にある Rust のプラグインのパス (Windows は talker.dll、Linux は libtalker.so など)
 fn rust_plugin_path(name: &str) -> String {
     use std::env::consts::{DLL_PREFIX, DLL_SUFFIX};
     format!("../target/debug/{DLL_PREFIX}{name}{DLL_SUFFIX}")

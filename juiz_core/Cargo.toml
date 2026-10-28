@@ -64,3 +64,8 @@ libc = "0.2"
 interprocess = { workspace = true, optional = true }
 widestring = { version = "1", optional = true }
 windows-sys = { version = "0.61", optional = true, features = ["Win32_Foundation", "Win32_System_IO", "Win32_System_Pipes"] }
+
+[dev-dependencies]
+# ベンチ (tests/integration/image_transfer_bench.rs) で qmp ブローカーも測るため。
+# 版を書かない path だけの dev-dependency は、crates.io に公開するときに外される
+juiz_qmp_broker = { path = "../brokers/qmp_broker" }

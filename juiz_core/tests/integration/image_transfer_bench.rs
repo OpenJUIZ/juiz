@@ -9,10 +9,10 @@
 //! - HTTP (別プロセス): (1) call の戻り値で画像を受け取る (HttpBrokerProxy)、
 //!   (2) 画像を引数で送る (multipart の PUT を reqwest で直接。HttpBrokerProxy も同じ形で送る)
 //! - IPC (別プロセス、#233): (1) call の戻り値、(2) 引数で送る。画像は生バイトのフレーム (large-data.md §3)
+//! - qmp (別プロセス、#234): (1) call の戻り値、(2) 引数で送る。IPC と同じ生バイトのフレームを QUIC で送る
 //! - 内訳: PNG の圧縮と展開を同じ画像で別に測り、残りを「転送ほか」とする
 //! - 比較: 同じ大きさの生バイトを Unix ソケットで受け取るだけの時間
 //! - Topic: 画像を Topic に流せるかを確かめる (#233 で通るようになった)
-//! - qmp は画像を送れないので対象外 (#234 で扱う)
 //!
 //! 画像はカメラ画像に近づけるため、なめらかな模様に小さなノイズを足したものにする
 //! (単純な模様だと PNG がよく縮み、実際より速く見える)。画像は大きさごとに 1 度だけ作り、
@@ -35,6 +35,8 @@ use juiz_sdk::process_identifier::ProcessIdentifier;
 
 /// 別プロセスの juiz が待ち受けるポート
 const SERVER_PORT: i64 = 8050;
+/// 別プロセスの juiz の qmp ブローカーのポート
+const SERVER_QMP_PORT: i64 = 8051;
 /// 別プロセスの juiz の IPC ブローカーの名前
 const SERVER_IPC_NAME: &str = "image_transfer_bench";
 /// 別プロセスの juiz として動くときに、このテストに渡す環境変数 (値はポート)
@@ -206,10 +208,14 @@ fn serve_for_image_transfer_bench() -> JuizResult<()> {
     };
     crate::common::logger::init();
     let port: i64 = port.parse()?;
+    qmp_broker::register();
     System::new(jvalue!({
         "name": "image_transfer_bench_server",
         "option": { "http_broker": { "start": true, "port": port } },
-        "brokers": [ { "type_name": "ipc", "name": SERVER_IPC_NAME } ],
+        "brokers": [
+            { "type_name": "ipc", "name": SERVER_IPC_NAME },
+            { "type_name": "qmp", "name": format!("127.0.0.1:{SERVER_QMP_PORT}"), "host": "127.0.0.1", "port": SERVER_QMP_PORT },
+        ],
     }))?
     .setup()?
     .run_and_do_once(|system| {
@@ -360,6 +366,8 @@ struct Row {
     http_arg: Result<Duration, String>,
     ipc_return: Duration,
     ipc_arg: Duration,
+    qmp_return: Duration,
+    qmp_arg: Duration,
     unix_raw: Duration,
 }
 
@@ -370,6 +378,7 @@ fn bench_image_transfer() -> JuizResult<()> {
     let server = Server::start(SERVER_PORT)?;
     let mut rows = Vec::new();
     let mut topic = String::new();
+    qmp_broker::register();
     System::new(jvalue!({
         "name": "image_transfer_bench_client",
         "option": { "http_broker": { "start": false } },
@@ -406,6 +415,14 @@ fn bench_image_transfer() -> JuizResult<()> {
         let ipc_ids = juiz_lock(&ipc)?.process_list(false, None)?;
         let ipc_source = find(&ipc_ids, "source0");
         let ipc_sink = find(&ipc_ids, "sink0");
+        let qmp = system
+            .core_broker()
+            .lock()?
+            .worker()
+            .broker_proxy("qmp", &format!("127.0.0.1:{SERVER_QMP_PORT}"), true)?;
+        let qmp_ids = juiz_lock(&qmp)?.process_list(false, None)?;
+        let qmp_source = find(&qmp_ids, "source0");
+        let qmp_sink = find(&qmp_ids, "sink0");
         let local_ids = juiz_lock(&local)?.process_list(false, None)?;
         let local_source = find(&local_ids, "source0");
         let core_source = source.identifier();
@@ -516,6 +533,26 @@ fn bench_image_transfer() -> JuizResult<()> {
             // 引数の画像の複製 (args に入れるため) も含む。HTTP の (2) も PNG にする前の画像を使う
             let ipc_arg = time_per_call(width, |_| ipc_send(&image).map(|_| ()))?;
 
+            // qmp: IPC と同じフレームを QUIC (ループバック) で送る
+            let qmp_return = time_per_call(width, |seed| {
+                let out = juiz_lock(&qmp)?
+                    .process_call(&qmp_source, source_args(width, height, seed))?;
+                out.lock_as_image(|img| assert_eq!(img.width(), width))?;
+                Ok(())
+            })?;
+            let returned = juiz_lock(&qmp)?
+                .process_call(&qmp_source, source_args(width, height, 1))?
+                .lock_as_image(mean_of)?;
+            assert_eq!(returned, expected, "{label}: qmp で画素が変わってはいけない");
+            let qmp_send = |img: &DynamicImage| -> JuizResult<f64> {
+                let mut args = CapsuleMap::new();
+                args.insert("img".to_owned(), img.clone().into());
+                let out = juiz_lock(&qmp)?.process_call(&qmp_sink, args)?;
+                Ok(out.extract_value()?.as_f64().expect("mean must be a number"))
+            };
+            assert!((qmp_send(&image)? - expected).abs() < 1e-9, "{label}: qmp の引数の画像が届く");
+            let qmp_arg = time_per_call(width, |_| qmp_send(&image).map(|_| ()))?;
+
             let unix_raw = unix_socket_raw(width, height)?;
 
             rows.push(Row {
@@ -531,6 +568,8 @@ fn bench_image_transfer() -> JuizResult<()> {
                 http_arg,
                 ipc_return,
                 ipc_arg,
+                qmp_return,
+                qmp_arg,
                 unix_raw,
             });
         }
@@ -620,6 +659,24 @@ fn bench_image_transfer() -> JuizResult<()> {
             ms(r.unix_raw)
         );
     }
+    println!("\n### qmp (別プロセス、QUIC のループバック、生バイトのフレーム、#234)");
+    header(&[
+        "",
+        "(1) call の戻り値",
+        "(2) 引数で送る",
+        "HTTP (1) との比",
+        "IPC (1) との比",
+    ]);
+    for r in rows.iter() {
+        println!(
+            "| {} | {} | {} | {:.1} 倍速い | {:.1} 倍 |",
+            r.label,
+            ms(r.qmp_return),
+            ms(r.qmp_arg),
+            r.http_return.as_secs_f64() / r.qmp_return.as_secs_f64(),
+            r.qmp_return.as_secs_f64() / r.ipc_return.as_secs_f64(),
+        );
+    }
     println!("\n### 送れないもの");
     for r in rows.iter() {
         if let Err(e) = &r.http_arg {
@@ -631,6 +688,5 @@ fn bench_image_transfer() -> JuizResult<()> {
         }
     }
     println!("- Topic (同じプロセス内): {topic}");
-    println!("- qmp: 画像を送れない (#234)");
     Ok(())
 }
