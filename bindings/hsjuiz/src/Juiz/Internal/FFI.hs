@@ -24,7 +24,7 @@ module Juiz.Internal.FFI
   , c_capsule_set_empty_object, c_capsule_set_empty_array
   , c_capsule_lock_as_value_with_arg
     -- * value
-  , c_hsjuiz_value_type
+  , c_hsjuiz_value_type, c_hsjuiz_runtime_tag
   , c_value_get_bool, c_value_get_int, c_value_get_uint, c_value_get_float
   , c_value_get_string_with_len
   , c_value_object_foreach, c_value_array_foreach
@@ -116,6 +116,8 @@ foreign import ccall safe "capsule_lock_as_value_with_arg"
 
 -- value (読み出し)
 foreign import ccall unsafe "hsjuiz_value_type" c_hsjuiz_value_type :: Ptr CValue -> IO Int64
+-- この hsjuiz (と RTS) の実体を表す値 (cbits/hsjuiz.c、Juiz.Container が使う)
+foreign import ccall unsafe "hsjuiz_runtime_tag" c_hsjuiz_runtime_tag :: IO (Ptr ())
 -- value_get_bool は bool* (1 バイト) に書き込む
 foreign import ccall unsafe "value_get_bool" c_value_get_bool :: Ptr CValue -> Ptr Word8 -> IO Int64
 foreign import ccall unsafe "value_get_int" c_value_get_int :: Ptr CValue -> Ptr Int64 -> IO Int64

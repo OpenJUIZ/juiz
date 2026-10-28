@@ -70,6 +70,20 @@ int64_t juiz_hs_init(void)
 }
 
 /*
+ * この hsjuiz (と GHC の RTS) の実体を表す値 (Juiz.Container が Container の目印と一緒に置く)。
+ * Linux / macOS では hsjuiz も RTS も共有ライブラリで、すべての Haskell のプラグインが同じものを使うので、
+ * どのプラグインでも同じ値になる。Windows では RTS と hsjuiz がプラグインの DLL ごとに静的に入るので、
+ * DLL ごとに違う値になる。違う RTS の StablePtr は読めないので、ContainerProcess はこの値を比べて、
+ * 別の DLL で作られた Container を受け付けない (issue #137)
+ */
+static const char hsjuiz_runtime_tag_value = 0;
+
+const void* hsjuiz_runtime_tag(void)
+{
+    return &hsjuiz_runtime_tag_value;
+}
+
+/*
  * value の型を整数で返す (Juiz.Internal.FFI の valueType*)。
  * value_is_* は C の bool を返すので、Haskell から直接呼ばずにここで整数にする。
  */
