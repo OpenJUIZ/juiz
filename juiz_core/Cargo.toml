@@ -6,10 +6,6 @@ description = "Core library for JUIZ application. This package is not required i
 license.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[lib]
-crate-type = ["cdylib", "lib"]
-
-
 [features]
 # HTTP ブローカーの /docs で Swagger UI を提供する。オフでも /api-docs/openapi.json は提供する。
 swagger-ui = ["dep:utoipa-swagger-ui"]
