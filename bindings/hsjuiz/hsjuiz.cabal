@@ -64,3 +64,11 @@ library
     -- libjuiz_sdk の場所は利用者が cabal.project の extra-lib-dirs (または --extra-lib-dirs) で渡す (README を参照)
     extra-libraries:  juiz_sdk
     ghc-options:      -Wall
+    -- Windows: GHC はプラグインの DLL に RTS と依存するパッケージを静的に取り込み (options: standalone)、
+    -- リンカは既定ですべてのシンボルを公開しようとして、DLL が公開できる数 (65535) を超える。
+    -- そこで、ライブラリ (.a) から取り込んだシンボルは公開せず (--exclude-libs)、プラグインのモジュール
+    -- (foreign export した関数) のシンボルだけを公開する。juiz_hs_init は hsjuiz (ライブラリ) にあるので、
+    -- cbits/hsjuiz.c で明示的に公開し、取り込まれるよう -u で指定する。
+    -- ld-options は hsjuiz を使うパッケージのリンクにも引き継がれる
+    if os(windows)
+        ld-options:   -Wl,--export-all-symbols -Wl,--exclude-libs,ALL -Wl,-u,juiz_hs_init

@@ -63,8 +63,6 @@ module Juiz
   , componentContainer
   , componentContainerWithDestroy
   , componentContainerProcess
-    -- * 自分で書いた foreign export を Windows の DLL から公開する
-  , juizDllExport
     -- * マニフェスト
   , ProcessManifest
   , ContainerManifest

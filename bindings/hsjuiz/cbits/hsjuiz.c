@@ -57,9 +57,9 @@ static BOOL CALLBACK juiz_hs_init_once_callback(PINIT_ONCE once, PVOID param, PV
 #endif
 
 /*
- * Windows では、公開するシンボルを dllexport (リンカへの -export:) で指定する (Juiz.TH の juizDllExport)。
- * 指定が一つでもあると、リンカはほかのシンボルを公開しないので、juiz が探す juiz_hs_init と、
- * テストで RTS の GC を起こすのに使う performMajorGC もここで公開する。
+ * Windows では、hsjuiz と RTS のシンボルは DLL から公開しない (hsjuiz.cabal の ld-options の --exclude-libs)。
+ * juiz が探す juiz_hs_init と、テストで RTS の GC を起こすのに使う performMajorGC は、
+ * dllexport (リンカへの -export:) で明示的に公開する。
  */
 #ifdef _WIN32
 #define HSJUIZ_EXPORT __declspec(dllexport)

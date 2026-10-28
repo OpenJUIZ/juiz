@@ -34,7 +34,5 @@ getAliveCount :: IO Int64
 getAliveCount = readIORef aliveCount
 
 foreign export ccall "example_container_hs_alive_count" getAliveCount :: IO Int64
--- Windows の DLL からも公開する (juizProcess などが生成する関数は自動で公開される)
-juizDllExport ["example_container_hs_alive_count"]
 
 juizContainerWithDestroy 'create 'destroy 'manifest

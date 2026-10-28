@@ -103,7 +103,7 @@ jobs:
       - name: build haskell
         run: examples/haskell/build.sh -v1 || (echo BUILD FAILED; exit 1)
       - name: test
-        if: false
+        if: always()
         env:
           JUIZ_REQUIRE_HASKELL: "1"
           RUST_BACKTRACE: "0"

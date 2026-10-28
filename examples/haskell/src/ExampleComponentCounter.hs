@@ -1,4 +1,3 @@
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
 -- | example_component_hs に入れる Container (example_component_hs_counter) と、その ContainerProcess。
 --
@@ -62,5 +61,3 @@ getAliveCount :: IO Int64
 getAliveCount = readIORef aliveCount
 
 foreign export ccall "example_component_hs_alive_count" getAliveCount :: IO Int64
--- Windows の DLL からも公開する (juizProcess などが生成する関数は自動で公開される)
-juizDllExport ["example_component_hs_alive_count"]
