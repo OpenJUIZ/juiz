@@ -80,32 +80,6 @@ where
         self.get(&id)
     }
 
-    pub fn deregister(&mut self, p: Arc<Mutex<T>>) -> JuizResult<Arc<Mutex<T>>> {
-        let id = p.lock().unwrap().identifier().clone();
-        self.deregister_by_id(&id)
-    }
-
-    pub fn deregister_by_id(&mut self, id: &Identifier) -> JuizResult<Arc<Mutex<T>>> {
-        log::trace!(
-            "StoreWorker({})::deregister(Object(id={:?})) called",
-            self.name,
-            id
-        );
-        match self.objects.borrow_mut().remove(id) {
-            Some(p) => Ok(p),
-            None => {
-                log::trace!(
-                    "StoreWorker({})::deregister(id={:}) failed. Not found.",
-                    self.name,
-                    id
-                );
-                Err(anyhow::Error::from(JuizError::ObjectCanNotFoundByIdError {
-                    id: id.clone(),
-                }))
-            }
-        }
-    }
-
     pub fn get_with_error_ignore(&self, id: &Identifier) -> JuizResult<Arc<Mutex<T>>> {
         match self.objects.borrow().get(id) {
             Some(p) => Ok(Arc::clone(p)),
@@ -144,50 +118,6 @@ where
         }
     }
 
-    pub fn factories_profile_full(&self) -> JuizResult<Value> {
-        let mut prof = jvalue!({});
-        let o_hashmap = get_hashmap_mut(&mut prof)?;
-        self.factories
-            .iter()
-            .for_each(|(identifier, arc_obj)| match juiz_lock(&arc_obj) {
-                Err(e) => {
-                    o_hashmap.insert(identifier.clone(), jvalue!(format!("Err({})", e)));
-                }
-                Ok(p) => {
-                    o_hashmap.insert(
-                        identifier.clone(),
-                        p.profile_full().unwrap().try_into().unwrap(),
-                    );
-                }
-            });
-        Ok(prof)
-    }
-
-    pub fn objects_profile_full(&self) -> JuizResult<Value> {
-        let name = &self.name;
-        log::trace!("StoreWorker({name})::objects_profile_full() called");
-        let mut prof = jvalue!({});
-        let o_hashmap = get_hashmap_mut(&mut prof)?;
-        self.objects
-            .borrow()
-            .iter()
-            .for_each(|(identifier, arc_obj)| {
-                log::trace!(" - {identifier}");
-                match juiz_try_lock(&arc_obj) {
-                    Err(e) => {
-                        o_hashmap.insert(identifier.clone(), jvalue!(format!("Err({})", e)));
-                    }
-                    Ok(p) => {
-                        o_hashmap.insert(
-                            identifier.clone(),
-                            p.profile_full().unwrap().try_into().unwrap(),
-                        );
-                    }
-                }
-            });
-        Ok(prof)
-    }
-
     pub fn list_ids(&self) -> JuizResult<Value> {
         let mut prof = jvalue!([]);
         let o_array = get_array_mut(&mut prof)?;
@@ -206,26 +136,5 @@ where
                 o_array.push(jvalue!(identifier));
             });
         Ok(prof)
-    }
-
-    pub fn list_manifests(&self) -> JuizResult<Vec<Value>> {
-        let mut o_array: Vec<Value> = Vec::new();
-        self.objects
-            .borrow()
-            .iter()
-            .for_each(|(_identifier, arc_obj)| match juiz_try_lock(&arc_obj) {
-                Err(e) => {
-                    o_array.push(jvalue!(format!("Err({})", e)));
-                }
-                Ok(p) => {
-                    o_array.push(p.profile_full().unwrap().try_into().unwrap());
-                }
-            });
-        Ok(o_array)
-    }
-
-    pub fn cleanup_objects(&mut self) -> JuizResult<()> {
-        self.objects.borrow_mut().clear();
-        Ok(())
     }
 }
