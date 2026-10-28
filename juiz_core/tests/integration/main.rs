@@ -50,6 +50,7 @@ mod process_test;
 mod pyjuiz_proxy_test;
 mod python_datatype_test;
 mod python_plugin_path_test;
+mod python_plugin_test;
 mod rust_native_test;
 mod subsystem_test;
 mod system_test;
