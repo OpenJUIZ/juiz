@@ -1,5 +1,5 @@
 from dataclasses import dataclass, asdict
-from typing import List, Any, Optional, Dict, ForwardRef
+from typing import List, Any, Optional, Dict, ForwardRef, Union
 from PIL.Image import Image
 
 @dataclass
@@ -26,7 +26,7 @@ StructProfile = ForwardRef('StructProfile')
 @dataclass
 class StructProfile: 
     type_name: str
-    members: Dict[str, PrimitiveProfile|StructProfile]
+    members: Dict[str, Union[PrimitiveProfile, StructProfile]]
     enum_type: str = 'Struct'
     
 @dataclass

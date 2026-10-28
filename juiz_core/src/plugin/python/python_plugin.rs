@@ -13,9 +13,11 @@ use pyo3::{
     exceptions::{PyModuleNotFoundError, PyTypeError, PyValueError},
     prelude::*,
     types::{PyBool, PyBytes, PyDict, PyFloat, PyInt, PyList, PyNone, PySet, PyString, PyTuple},
+    IntoPyObjectExt,
 };
 use std::{
     collections::HashMap,
+    ffi::CString,
     fs,
     io::{BufWriter, Cursor},
     path::{Path, PathBuf},
@@ -74,9 +76,9 @@ impl PythonPlugin {
         let fullpath = self.full_path(&working_dir);
         let pythonpaths = self.pythonpaths.clone();
         log::debug!("【デバッグ情報】pythonpaths:{pythonpaths:?}");
-        Python::with_gil(|py| -> PyResult<()> {
+        Python::attach(|py| -> PyResult<()> {
             log::trace!(
-                "in get_manifest_with_name(), Python:with_gil called (fullpath={:?}",
+                "in get_manifest_with_name(), Python::attach called (fullpath={:?}",
                 fullpath.clone()
             );
             log::debug!(
@@ -86,7 +88,7 @@ impl PythonPlugin {
             // サブモジュールのためにルートディレクトリをpathに入れとく。
             // Windows のパスの \ がエスケープ文字として解釈されないよう、Python の raw 文字列(r"...")で埋め込む。
             let parent = fullpath.parent().unwrap().to_str().unwrap();
-            let _ = PyModule::from_code_bound(
+            let _ = run_python_code(
                 py,
                 &format!(
                     r#"
@@ -95,8 +97,6 @@ if not r"{parent:}" in sys.path:
     sys.path.append(r"{parent:}")
             "#
                 ),
-                "",
-                "",
             );
             if let Some(paths) = pythonpaths {
                 paths.iter().for_each(|p| {
@@ -106,7 +106,7 @@ if not r"{parent:}" in sys.path:
                         fullpath.parent().unwrap().join(p)
                     };
                     let path_str = path.to_str().unwrap();
-                    let _ = PyModule::from_code_bound(
+                    let _ = run_python_code(
                         py,
                         &format!(
                             r#"
@@ -115,8 +115,6 @@ if not r"{path_str:}" in sys.path:
     sys.path.append(r"{path_str:}")
             "#
                         ),
-                        "",
-                        "",
                     );
                 });
             }
@@ -132,15 +130,15 @@ if not r"{path_str:}" in sys.path:
     ) -> JuizResult<Value> {
         let fullpath = self.full_path(&working_dir);
         let pythonpaths = self.pythonpaths.clone();
-        match Python::with_gil(|py| -> anyhow::Result<Value> {
+        match Python::attach(|py| -> anyhow::Result<Value> {
             log::trace!(
-                "in get_manifest_with_name(), Python:with_gil called (fullpath={:?}",
+                "in get_manifest_with_name(), Python::attach called (fullpath={:?}",
                 fullpath.clone()
             );
             log::debug!("PythonPlugin uses python version={:?}", py.version_info());
             // サブモジュールのためにルートディレクトリをpathに入れとく。
             let parent = fullpath.parent().unwrap().to_str().unwrap();
-            let _ = PyModule::from_code_bound(
+            let _ = run_python_code(
                 py,
                 &format!(
                     r#"
@@ -149,8 +147,6 @@ if not r"{parent:}" in sys.path:
     sys.path.append(r"{parent:}")
             "#
                 ),
-                "",
-                "",
             );
             if let Some(paths) = pythonpaths {
                 paths.iter().for_each(|p| {
@@ -160,7 +156,7 @@ if not r"{parent:}" in sys.path:
                         fullpath.join(p)
                     };
                     let path_str = path.to_str().unwrap();
-                    let _ = PyModule::from_code_bound(
+                    let _ = run_python_code(
                         py,
                         &format!(
                             r#"
@@ -169,8 +165,6 @@ if not r"{path_str:}" in sys.path:
     sys.path.append(r"{path_str:}")
             "#
                         ),
-                        "",
-                        "",
                     );
                 });
             }
@@ -185,16 +179,18 @@ if not r"{path_str:}" in sys.path:
             let module = module_from_code(py, &py_app, "", &module_name)?;
             match module.getattr(symbol_name) {
                 Ok(manifest_bound) => {
-                    let manifest_func: Py<PyAny> = manifest_bound.into();
                     Ok(pydict_to_value(
-                        manifest_func.call0(py)?.extract::<&PyDict>(py)?,
+                        manifest_bound
+                            .call0()?
+                            .cast::<PyDict>()
+                            .map_err(PyErr::from)?,
                     )?) // 関数コールしてPyDictを抽出してvalueに変換する
                 }
                 Err(_e) => {
                     let attrs = module.dir()?;
                     // println!("attrs: {attrs:?}");
                     if attrs.is_instance_of::<PyList>() {
-                        let attr_list = attrs.extract::<&PyList>()?;
+                        let attr_list = attrs.cast::<PyList>().map_err(PyErr::from)?;
                         let attr_name_list = attr_list
                             .iter()
                             .map(|attr| Ok(attr.str()?.to_string()))
@@ -206,7 +202,7 @@ if not r"{path_str:}" in sys.path:
                             .map(|attr_name| {
                                 Ok((
                                     attr_name.clone(),
-                                    Into::<Py<PyAny>>::into(module.getattr(attr_name.as_str())?),
+                                    module.getattr(attr_name.as_str())?.unbind(),
                                 ))
                             })
                             .collect::<anyhow::Result<Vec<(String, Py<PyAny>)>>>();
@@ -246,8 +242,7 @@ if not r"{path_str:}" in sys.path:
                             .map(|(_proc_name, proc_obj)| {
                                 let manifest_function = proc_obj.getattr(py, "manifest")?;
                                 let manifest_pyobj = manifest_function.call0(py)?;
-                                pyany_to_value(manifest_pyobj.extract::<&PyAny>(py)?)
-                                    .or_else(|e| Err(anyhow!(e)))
+                                pyany_to_value(manifest_pyobj.bind(py)).or_else(|e| Err(anyhow!(e)))
                             })
                             .collect::<anyhow::Result<Vec<Value>>>()?;
                         let mut conts_vec = conts
@@ -255,8 +250,7 @@ if not r"{path_str:}" in sys.path:
                             .map(|(_cont_name, cont_obj)| {
                                 let manifest_function = cont_obj.getattr(py, "manifest")?;
                                 let manifest_pyobj = manifest_function.call0(py)?;
-                                pyany_to_value(manifest_pyobj.extract::<&PyAny>(py)?)
-                                    .or_else(|e| Err(anyhow!(e)))
+                                pyany_to_value(manifest_pyobj.bind(py)).or_else(|e| Err(anyhow!(e)))
                             })
                             .collect::<anyhow::Result<Vec<Value>>>()?;
                         let _cont_procs_vec = cont_procs
@@ -264,9 +258,8 @@ if not r"{path_str:}" in sys.path:
                             .map(|(_cont_proc_name, cont_proc_obj)| {
                                 let manifest_function = cont_proc_obj.getattr(py, "manifest")?;
                                 let manifest_pyobj = manifest_function.call0(py)?;
-                                let manif_value =
-                                    pyany_to_value(manifest_pyobj.extract::<&PyAny>(py)?)
-                                        .or_else(|e| Err(anyhow!(e)))?;
+                                let manif_value = pyany_to_value(manifest_pyobj.bind(py))
+                                    .or_else(|e| Err(anyhow!(e)))?;
                                 let container_type = manif_value
                                     .as_object()
                                     .unwrap()
@@ -348,27 +341,27 @@ if not r"{path_str:}" in sys.path:
         log::trace!("【load_process_factory】fullpath = {type_name}");
         let mut manifest = jvalue!({});
         let py_app = read_python_source(&fullpath)?;
-        let pyfunc2 = Python::with_gil(|py| -> PyResult<Py<PyAny>> {
+        let pyfunc2 = Python::attach(|py| -> PyResult<Py<PyAny>> {
             let module = module_from_code(py, &py_app, fullpath.to_str().unwrap(), "")?;
             //let tuple = module.getattr(symbol_name)?.into_py(py).call0(py)?;
             // manifest = pyany_to_value(pytuple.get_item(0)?)?;
-            let proc_object = module.getattr(type_name)?.into_py(py); // .call0(py)?;
-                                                                      //println!("tuple: {:?}", tuple.to_string());
-                                                                      //let pytuple = tuple.extract::<&PyTuple>(py)?;
-            let manifest_object = proc_object.getattr(py, "manifest")?.into_py(py).call0(py)?;
-            manifest = pyany_to_value(manifest_object.extract::<&PyAny>(py)?)?;
+            let proc_object = module.getattr(type_name)?.unbind(); // .call0(py)?;
+                                                                   //println!("tuple: {:?}", tuple.to_string());
+                                                                   //let pytuple = tuple.extract::<&PyTuple>(py)?;
+            let manifest_object = proc_object.getattr(py, "manifest")?.call0(py)?;
+            manifest = pyany_to_value(manifest_object.bind(py))?;
             let pyfunc = proc_object;
             //Ok(tuple)
-            Ok(pyfunc.to_object(py))
+            Ok(pyfunc)
         })?;
         let signature = get_python_function_signature(&pyfunc2)?;
         log::trace!("Python関数の読み込みに成功。宣言： {manifest:}, シグネチャ： {signature}");
         let function = move |argument: CapsuleMap| -> JuizResult<Capsule> {
-            Python::with_gil(|py| {
+            Python::attach(|py| {
                 python_process_call(
                     py,
                     &pyfunc2,
-                    PyTuple::new_bound(py, capsulemap_to_pytuple(py, &argument, &signature, 0)?),
+                    PyTuple::new(py, capsulemap_to_pytuple(py, &argument, &signature, 0)?)?,
                 )
             })
             .or_else(|e| Err(anyhow!(e)))
@@ -403,21 +396,21 @@ if not r"{path_str:}" in sys.path:
         let fullpath = self.full_path(&working_dir);
         let mut manifest = jvalue!({});
         let py_app = read_python_source(&fullpath)?;
-        let pyfunc2 = match Python::with_gil(|py| -> PyResult<Py<PyAny>> {
-            log::debug!("Python::with_gil({py_app}) for load_Container_process_factory({symbol_name}, {type_name_opt:?}), fullpath={fullpath:?}");
+        let pyfunc2 = match Python::attach(|py| -> PyResult<Py<PyAny>> {
+            log::debug!("Python::attach({py_app}) for load_Container_process_factory({symbol_name}, {type_name_opt:?}), fullpath={fullpath:?}");
             let module = module_from_code(py, &py_app, fullpath.to_str().unwrap(), "")?;
-            let proc_object = module.getattr(type_name)?.into_py(py);
-            let manifest_object = proc_object.getattr(py, "manifest")?.into_py(py).call0(py)?;
-            manifest = pyany_to_value(manifest_object.extract::<&PyAny>(py)?)?;
+            let proc_object = module.getattr(type_name)?.unbind();
+            let manifest_object = proc_object.getattr(py, "manifest")?.call0(py)?;
+            manifest = pyany_to_value(manifest_object.bind(py))?;
             let pyfunc = proc_object;
 
-            Ok(pyfunc.to_object(py))
+            Ok(pyfunc)
         }) {
             Ok(v) => Ok(v),
             Err(e) => {
-                Python::with_gil(|py| {
-                    log::error!("Python::with_gil() failed. Error({e:?})");
-                    if let Some(tb) = e.traceback_bound(py) {
+                Python::attach(|py| {
+                    log::error!("Python::attach() failed. Error({e:?})");
+                    if let Some(tb) = e.traceback(py) {
                         log::error!("Traceback: {}", tb);
                     }
                 });
@@ -430,12 +423,11 @@ if not r"{path_str:}" in sys.path:
                              argument: CapsuleMap|
               -> JuizResult<Capsule> {
             // println!("container process impl called: {argument:?}");
-            Python::with_gil(|py| {
+            Python::attach(|py| {
                 let start_index = 1;
                 let v = capsulemap_to_pytuple(py, &argument, &signature, start_index)?;
                 let elements = arg_to_pyargs(container, &v);
-                let return_value =
-                    python_process_call(py, &pyfunc2, PyTuple::new_bound(py, elements));
+                let return_value = python_process_call(py, &pyfunc2, PyTuple::new(py, elements)?);
                 // println!("return_value : {return_value:?}");
                 return_value
             })
@@ -476,7 +468,7 @@ if not r"{path_str:}" in sys.path:
         let fullpath = self.full_path(&working_dir);
         let mut manifest = jvalue!({});
         let py_app = read_python_source(&fullpath)?;
-        let pyfunc2 = Python::with_gil(|py| -> PyResult<Py<PyAny>> {
+        let pyfunc2 = Python::attach(|py| -> PyResult<Py<PyAny>> {
             let module = module_from_code(py, &py_app, fullpath.to_str().unwrap(), "")?;
             //let tuple = module.getattr(symbol_name)?.into_py(py).call0(py)?;
             //let pytuple = tuple.extract::<&PyTuple>(py)?;
@@ -485,27 +477,27 @@ if not r"{path_str:}" in sys.path:
 
             //let tuple = module.getattr(symbol_name)?.into_py(py).call0(py)?;
 
-            let proc_object = module.getattr(type_name)?.into_py(py); // .call0(py)?;
-                                                                      // println!("loaded proc_object: {proc_object:?}");
-                                                                      //println!("tuple: {:?}", tuple.to_string());
-                                                                      //let pytuple = tuple.extract::<&PyTuple>(py)?;
-            let manifest_object = proc_object.getattr(py, "manifest")?.into_py(py).call0(py)?;
-            manifest = pyany_to_value(manifest_object.extract::<&PyAny>(py)?)?;
+            let proc_object = module.getattr(type_name)?.unbind(); // .call0(py)?;
+                                                                   // println!("loaded proc_object: {proc_object:?}");
+                                                                   //println!("tuple: {:?}", tuple.to_string());
+                                                                   //let pytuple = tuple.extract::<&PyTuple>(py)?;
+            let manifest_object = proc_object.getattr(py, "manifest")?.call0(py)?;
+            manifest = pyany_to_value(manifest_object.bind(py))?;
             let pyfunc = proc_object;
 
-            Ok(pyfunc.to_object(py))
+            Ok(pyfunc)
         })?;
         let signature = get_python_function_signature(&pyfunc2)?;
         let constructor =
             move |cm: ContainerManifest, argument: CapsuleMap| -> JuizResult<ContainerPtr> {
-                let pyobj = Python::with_gil(|py| {
+                let pyobj = Python::attach(|py| {
                     //    let v: Value = arg.into();
                     let start_index = 0;
                     let v = capsulemap_to_pytuple(py, &argument, &signature, start_index).unwrap();
                     //let elements = arg_to_pyargs(container, &v);
                     //let return_value = python_process_call(py, &pyfunc2, PyTuple::new_bound(py, v));
                     //return_value
-                    pyfunc2.call1(py, PyTuple::new_bound(py, v))
+                    pyfunc2.call1(py, PyTuple::new(py, v)?)
                 })?;
                 Ok(ContainerPtr::new(ContainerImpl::new(
                     cm,
@@ -552,7 +544,10 @@ fn module_from_code<'py>(
     file_name: &str,
     module_name: &str,
 ) -> PyResult<Bound<'py, PyModule>> {
-    PyModule::from_code_bound(py, code, file_name, module_name).map_err(|e| {
+    let code = to_cstring(code)?;
+    let file_name = to_cstring(file_name)?;
+    let module_name = to_cstring(module_name)?;
+    PyModule::from_code(py, &code, &file_name, &module_name).map_err(|e| {
         if !e.is_instance_of::<PyModuleNotFoundError>(py) {
             return e;
         }
@@ -561,10 +556,22 @@ fn module_from_code<'py>(
              run `python3 -m pip install pyyaml httpx pillow docstring_parser` and add \
              bindings/pyjuiz to PYTHONPATH (or `python3 -m pip install pyjuiz`). \
              For juiz's own tests, `scripts/test.sh` checks these.",
-            e.value_bound(py)
+            e.value(py)
         ));
         hinted.set_cause(py, Some(e));
         hinted
+    })
+}
+
+/// sys.path の追加など、結果のモジュールを使わない Python コードを実行する
+fn run_python_code<'py>(py: Python<'py>, code: &str) -> PyResult<Bound<'py, PyModule>> {
+    module_from_code(py, code, "", "")
+}
+
+/// PyModule::from_code に渡す C 文字列にする。途中に NUL があれば ValueError
+fn to_cstring(s: &str) -> PyResult<CString> {
+    CString::new(s).map_err(|e| {
+        PyValueError::new_err(format!("Python のコードに NUL 文字が含まれています: {e}"))
     })
 }
 
@@ -579,7 +586,7 @@ fn arg_to_pyargs<'a>(
 }
 
 pub fn get_python_function_signature(func: &Py<PyAny>) -> PyResult<Value> {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let py_app = r#"
 from inspect import signature
 def argument_info(func):
@@ -595,24 +602,21 @@ def argument_info(func):
         } )
     return sig_dict
         "#;
-        let module = PyModule::from_code_bound(py, &py_app.to_string(), "", "")?;
-        let value = module
-            .getattr("argument_info")?
-            .into_py(py)
-            .call1(py, PyTuple::new_bound(py, [func.clone_ref(py)]))?;
-        pyany_to_value(value.extract::<&PyAny>(py)?)
+        let module = module_from_code(py, py_app, "", "")?;
+        let value = module.getattr("argument_info")?.call1((func.bind(py),))?;
+        pyany_to_value(&value)
     })
 }
 
 // pub fn get_entry_point(fullpath: &PathBuf, symbol_name: &str) -> PyResult<Py<PyAny>> {
-//     Python::with_gil(|py| -> PyResult<Py<PyAny>> {
+//     Python::attach(|py| -> PyResult<Py<PyAny>> {
 //         let py_app = fs::read_to_string(fullpath).unwrap();
 //         let module = PyModule::from_code_bound(py, &py_app.to_string(), fullpath.to_str().unwrap(), "")?;
 //         module.getattr(symbol_name)?.into_py(py).call0(py)
 //     })
 // }
 
-pub fn check_object_is_ndarray(_py: &Python, value: &PyAny) -> bool {
+pub fn check_object_is_ndarray(_py: &Python, value: &Bound<PyAny>) -> bool {
     value.get_type().to_string() == "<class 'numpy.ndarray'>".to_owned()
 }
 
@@ -656,29 +660,31 @@ fn valuearray_to_pyany(py: Python, arr: &Vec<Value>) -> Py<PyAny> {
     arr.iter()
         .map(|v| value_to_pyany(py, v))
         .collect::<Vec<Py<PyAny>>>()
-        .into_py(py)
+        .into_py_any(py)
+        .unwrap()
 }
 
 fn valueobj_to_pyany(py: Python, map: &Map<String, Value>) -> Py<PyAny> {
     map.iter()
         .map(|(k, v)| (k.clone(), value_to_pyany(py, v)))
         .collect::<HashMap<String, Py<PyAny>>>()
-        .into_py(py)
+        .into_py_any(py)
+        .unwrap()
 }
 
 fn value_to_pyany(py: Python, value: &Value) -> Py<PyAny> {
     if value.is_i64() {
-        return (value.as_i64().unwrap()).into_py(py);
+        return (value.as_i64().unwrap()).into_py_any(py).unwrap();
     } else if value.is_f64() {
-        return (value.as_f64().unwrap()).into_py(py);
+        return (value.as_f64().unwrap()).into_py_any(py).unwrap();
     } else if value.is_boolean() {
-        return (value.as_bool().unwrap()).into_py(py);
+        return (value.as_bool().unwrap()).into_py_any(py).unwrap();
     } else if value.is_string() {
-        return (value.as_str().unwrap()).into_py(py);
+        return (value.as_str().unwrap()).into_py_any(py).unwrap();
     } else if value.is_null() {
-        return (value.as_null().unwrap()).into_py(py);
+        return py.None();
     } else if value.is_u64() {
-        return (value.as_u64().unwrap()).into_py(py);
+        return (value.as_u64().unwrap()).into_py_any(py).unwrap();
     } else if value.is_array() {
         return valuearray_to_pyany(py, value.as_array().unwrap());
     } else if value.is_object() {
@@ -708,8 +714,7 @@ fn image_to_pyany(py: Python, image: &DynamicImage) -> Py<PyAny> {
     //image.as_bytes()
     let w = image.width();
     let h = image.height();
-    unsafe {
-        let py_app = r"
+    let py_app = r"
 import io
 from PIL import Image
 def image_from_bytes(w, h, image_data):
@@ -717,18 +722,14 @@ def image_from_bytes(w, h, image_data):
     return Image.frombytes('RGB', (w,h), image_data)
     # return Image.open(io.BytesIO(image_data))
 ";
-        let b = PyBytes::bound_from_ptr(py, image.as_bytes().as_ptr(), image.as_bytes().len());
-        let module = PyModule::from_code_bound(py, &py_app.to_string(), "", "").unwrap();
-        module
-            .getattr("image_from_bytes")
-            .unwrap()
-            .into_py(py)
-            .call1(
-                py,
-                PyTuple::new_bound(py, [w.into_py(py), h.into_py(py), b.into()]),
-            )
-            .unwrap()
-    }
+    let b = PyBytes::new(py, image.as_bytes());
+    let module = module_from_code(py, py_app, "", "").unwrap();
+    module
+        .getattr("image_from_bytes")
+        .unwrap()
+        .call1((w, h, b))
+        .unwrap()
+        .unbind()
 }
 
 // pub fn python_process_call(py: Python, entry_point: &Py<PyAny>, arguments: Vec<Py<PyAny>>) -> JuizResult<Capsule> {
@@ -755,8 +756,8 @@ def image_from_bytes(w, h, image_data):
 //             })
 //         },
 //         Err(e) => {
-//             let trace_str = e.traceback_bound(py).and_then(|trace| { Some(format!("{:}", trace.format().unwrap())) }).or(Some("".to_owned())).unwrap();
-//             log::error!("Error in Python::with_gil for ContainerProcess.call(). Error({e:}). Traceback: {trace_str:}");
+//             let trace_str = e.traceback(py).and_then(|trace| { Some(format!("{:}", trace.format().unwrap())) }).or(Some("".to_owned())).unwrap();
+//             log::error!("Error in Python::attach for ContainerProcess.call(). Error({e:}). Traceback: {trace_str:}");
 //             Err(anyhow!(e))
 //         },
 //     }
@@ -771,17 +772,14 @@ pub fn python_process_call(
 ) -> JuizResult<Capsule> {
     log::trace!("【呼出】python_process_call()");
     match entry_point.call1(py, pytuple) {
-        Ok(v) => {
-            let object = v.extract::<&PyAny>(py)?;
-            Ok(pyany_to_capsule(object)?)
-        }
+        Ok(v) => Ok(pyany_to_capsule(v.bind(py))?),
         Err(e) => {
             let trace_str = e
-                .traceback_bound(py)
+                .traceback(py)
                 .and_then(|trace| Some(format!("{:}", trace.format().unwrap())))
                 .or(Some("".to_owned()))
                 .unwrap();
-            log::error!("Error in Python::with_gil for ContainerProcess.call(). Error({e:}). Traceback: {trace_str:}");
+            log::error!("Error in Python::attach for ContainerProcess.call(). Error({e:}). Traceback: {trace_str:}");
             Err(anyhow!(e))
         }
     }
@@ -812,7 +810,7 @@ pub fn python_process_call(
 //     pytuple_to_mat(result.extract::<&PyTuple>(py)?)
 // }
 
-pub fn pyany_to_value(value: &PyAny) -> PyResult<Value> {
+pub fn pyany_to_value(value: &Bound<PyAny>) -> PyResult<Value> {
     if value.is_instance_of::<PyBool>() {
         Ok(Value::from(value.extract::<bool>()?))
     } else if value.is_instance_of::<PyString>() {
@@ -822,21 +820,21 @@ pub fn pyany_to_value(value: &PyAny) -> PyResult<Value> {
     } else if value.is_instance_of::<PyInt>() {
         pyint_to_value(value)
     } else if value.is_instance_of::<PyList>() {
-        pylist_to_value(value.extract::<&PyList>()?)
+        pylist_to_value(value.cast::<PyList>()?)
     } else if value.is_instance_of::<PyTuple>() {
-        pytuple_to_value(value.extract::<&PyTuple>()?)
+        pytuple_to_value(value.cast::<PyTuple>()?)
     } else if value.is_instance_of::<PySet>() {
-        pyset_to_value(value.extract::<&PySet>()?)
+        pyset_to_value(value.cast::<PySet>()?)
     } else if value.is_instance_of::<PyDict>() {
-        pydict_to_value(value.extract::<&PyDict>()?)
+        pydict_to_value(value.cast::<PyDict>()?)
     } else if value.is_instance_of::<PyNone>() {
         Ok(Value::Null)
     } else if is_juiz_typed(value) {
         // juiz-idl が生成した型 (dataclass・enum.Enum) は to_value() で辞書の表し方にする (datatype.md §20)
-        pyany_to_value(value.call_method0("to_value")?)
+        pyany_to_value(&value.call_method0("to_value")?)
     } else if value.hasattr("tolist")? {
         // numpy の配列とスカラーは tolist() で Python の値にしてから変換する (lazy-evaluation.md §11)
-        pyany_to_value(value.call_method0("tolist")?)
+        pyany_to_value(&value.call_method0("tolist")?)
     } else {
         let pytype = value.get_type();
         log::error!("Error for pyany_to_value. Error({pytype:?} is not available)");
@@ -851,7 +849,7 @@ pub fn pyany_to_value(value: &PyAny) -> PyResult<Value> {
 ///
 /// str・int・float・bool・None は今のまま Value にし、それ以外 (dict、list、numpy の配列、
 /// PIL の画像など) は変換せずに Native(python) で包む (lazy-evaluation.md §4)。
-pub fn pyany_to_capsule(value: &PyAny) -> PyResult<Capsule> {
+pub fn pyany_to_capsule(value: &Bound<PyAny>) -> PyResult<Capsule> {
     if value.is_instance_of::<PyBool>() {
         Ok(Value::from(value.extract::<bool>()?).into())
     } else if value.is_instance_of::<PyString>() {
@@ -877,14 +875,14 @@ pub struct PythonNative {
 
 impl PythonNative {
     /// GIL を持っている間に作る。kind と型名はここで決める
-    pub fn new(value: &PyAny) -> Self {
+    pub fn new(value: &Bound<PyAny>) -> Self {
         let kind = if is_pil_image(value) {
             NativeKind::Image
         } else {
             NativeKind::Value
         };
         Self {
-            object: value.into(),
+            object: value.clone().unbind(),
             kind,
             type_name: python_type_name(value),
         }
@@ -906,8 +904,8 @@ impl NativeValue for PythonNative {
 
     fn encode(&self) -> JuizResult<EncodedValue> {
         log::trace!("PythonNative({}).encode() called", self.type_name);
-        Python::with_gil(|py| -> PyResult<EncodedValue> {
-            let object = self.object.extract::<&PyAny>(py)?;
+        Python::attach(|py| -> PyResult<EncodedValue> {
+            let object = self.object.bind(py);
             Ok(match self.kind {
                 NativeKind::Image => EncodedValue::Image(pil_to_image(py, object)?),
                 NativeKind::Value => EncodedValue::Value(pyany_to_value(object)?),
@@ -922,7 +920,7 @@ impl NativeValue for PythonNative {
 }
 
 /// 表示用の型名。組み込み型は "dict"、それ以外は "numpy.ndarray" のようにモジュール名を付ける
-fn python_type_name(value: &PyAny) -> String {
+fn python_type_name(value: &Bound<PyAny>) -> String {
     let pytype = value.get_type();
     let qualname = pytype
         .getattr("__qualname__")
@@ -938,17 +936,17 @@ fn python_type_name(value: &PyAny) -> String {
 }
 
 /// juiz-idl が生成した型 (pyjuiz の juiz.datatype が型参照 `__juiz_type__` を付けたクラス) の値か
-fn is_juiz_typed(value: &PyAny) -> bool {
+fn is_juiz_typed(value: &Bound<PyAny>) -> bool {
     value.get_type().hasattr("__juiz_type__").unwrap_or(false)
         && value.hasattr("to_value").unwrap_or(false)
 }
 
-fn is_pil_image(value: &PyAny) -> bool {
+fn is_pil_image(value: &Bound<PyAny>) -> bool {
     // PIL.Image.Image の派生 (PngImageFile など) も画像として扱う
     match value
         .get_type()
         .getattr("__mro__")
-        .and_then(|m| m.extract::<&PyTuple>())
+        .and_then(|m| Ok(m.cast_into::<PyTuple>()?))
     {
         Ok(mro) => mro
             .iter()
@@ -957,7 +955,7 @@ fn is_pil_image(value: &PyAny) -> bool {
     }
 }
 
-fn pil_to_image(py: Python, value: &PyAny) -> PyResult<DynamicImage> {
+fn pil_to_image(py: Python, value: &Bound<PyAny>) -> PyResult<DynamicImage> {
     let app_code = r"
 import io
 
@@ -966,12 +964,9 @@ def convert_img(img):
     img.save(output, format='PNG')
     return output.getvalue() # Hex Data
 ";
-    let module = PyModule::from_code_bound(py, &app_code.to_owned(), "", "")?;
-    let byte_output = module
-        .getattr("convert_img")?
-        .into_py(py)
-        .call1(py, PyTuple::new_bound(py, vec![value]))?
-        .extract::<&PyBytes>(py)?;
+    let module = module_from_code(py, app_code, "", "")?;
+    let output = module.getattr("convert_img")?.call1((value,))?;
+    let byte_output = output.cast::<PyBytes>()?;
     image::load_from_memory_with_format(byte_output.as_bytes(), ImageFormat::Png).or_else(|e| {
         log::error!("Image load from memmory error. Error: {e:?}");
         Err(PyValueError::new_err(format!(
@@ -980,40 +975,40 @@ def convert_img(img):
     })
 }
 
-fn pylist_to_value(pylist: &PyList) -> PyResult<Value> {
+fn pylist_to_value(pylist: &Bound<PyList>) -> PyResult<Value> {
     let mut vec: Vec<Value> = Vec::new();
-    for value in pylist.into_iter() {
-        vec.push(pyany_to_value(value)?);
+    for value in pylist.iter() {
+        vec.push(pyany_to_value(&value)?);
     }
     Ok(vec.into())
 }
 /// i64 に入らない正の整数は u64 として読む (juiz から渡した u64 をそのまま返せるように)
-fn pyint_to_value(value: &PyAny) -> PyResult<Value> {
+fn pyint_to_value(value: &Bound<PyAny>) -> PyResult<Value> {
     match value.extract::<i64>() {
         Ok(v) => Ok(Value::from(v)),
         Err(_) => Ok(Value::from(value.extract::<u64>()?)),
     }
 }
 
-fn pytuple_to_value(pytuple: &PyTuple) -> PyResult<Value> {
+fn pytuple_to_value(pytuple: &Bound<PyTuple>) -> PyResult<Value> {
     let mut vec: Vec<Value> = Vec::new();
-    for value in pytuple.into_iter() {
-        vec.push(pyany_to_value(value)?);
+    for value in pytuple.iter() {
+        vec.push(pyany_to_value(&value)?);
     }
     Ok(vec.into())
 }
-fn pyset_to_value(pyset: &PySet) -> PyResult<Value> {
+fn pyset_to_value(pyset: &Bound<PySet>) -> PyResult<Value> {
     let mut vec: Vec<Value> = Vec::new();
-    for value in pyset.into_iter() {
-        vec.push(pyany_to_value(value)?);
+    for value in pyset.iter() {
+        vec.push(pyany_to_value(&value)?);
     }
     Ok(vec.into())
 }
 
-pub fn pydict_to_value(pydict: &PyDict) -> PyResult<Value> {
+pub fn pydict_to_value(pydict: &Bound<PyDict>) -> PyResult<Value> {
     let mut map: HashMap<String, Value> = HashMap::new();
-    for (key, value) in pydict.into_iter() {
-        map.insert(key.extract::<String>()?, pyany_to_value(value)?);
+    for (key, value) in pydict.iter() {
+        map.insert(key.extract::<String>()?, pyany_to_value(&value)?);
     }
     Ok(jvalue!(map))
 }

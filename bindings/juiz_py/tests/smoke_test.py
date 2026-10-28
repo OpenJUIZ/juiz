@@ -92,7 +92,9 @@ def run_case(juiz: str, cwd: str, conf: str, port: int, calls: list, webui: bool
     webui が True なら管理画面の配信も確かめる。
     """
     print(f"--- {conf}")
-    wait_for_port_free(port, 30)
+    # 直前の juiz(別の Python の版で続けて動かしたときを含む)のソケットが TIME_WAIT に残ると
+    # Linux では 60 秒ほど bind できないので、それより長く待つ(issue #100)
+    wait_for_port_free(port, 90)
     kwargs = {}
     if os.name == "nt":
         kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP

@@ -19,4 +19,4 @@ juiz_app = { path = "../../juiz_app", default-features = false, features = ["pyt
 # libpython にはリンクせず、juiz を起動した Python プロセスの中で動く
 juiz_core = { path = "../../juiz_core", default-features = false, features = ["extension-module", "swagger-ui", "webui"] }
 # abi3: Python 3.10 以降の各版で同じ wheel を使う
-pyo3 = { version = "0.22.2", features = ["abi3-py310"] }
+pyo3 = { version = "0.30", features = ["abi3-py310"] }
