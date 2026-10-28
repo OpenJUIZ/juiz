@@ -113,13 +113,17 @@ jobs:
       - name: inspect
         if: always()
         run: |
-          OBJDUMP=$(find "$(dirname "$(dirname "$(which ghc)")")" /c/ghcup -name "llvm-objdump.exe" -o -name "objdump.exe" 2>/dev/null | head -n 1)
-          echo "objdump=$OBJDUMP"
-          for f in target/increment_process_hs.dll target/example_component_hs.dll; do
-            ls -la "$f" || continue
-            "$OBJDUMP" -p "$f" > /tmp/dump.txt || true
-            grep -n -i "DLL Name" /tmp/dump.txt || true
-            grep -c "^\s*\[" /tmp/dump.txt || true
-            grep -n -E "juiz_hs_init|manifest|factory|hs_init" /tmp/dump.txt | head -40 || true
-            grep -n -i -A3 "Export" /tmp/dump.txt | head -20 || true
-          done
+          BIN="$(dirname "$(find /c/ghcup -name llvm-objdump.exe | head -n 1)")"
+          echo "bin=$BIN"
+          find examples/haskell/dist-newstyle -name "*.dll" -printf "%s %p\n" | head -20
+          cd examples/haskell
+          d=$(dirname "$(find dist-newstyle -name increment_process_hs.dll | head -n 1)")
+          echo "dir=$d"; ls -la "$d" "$d"/* | head -40
+          o=$(find dist-newstyle -path "*increment_process_hs*" -name "IncrementProcess.o" | head -n 1)
+          echo "obj=$o"; "$BIN/llvm-nm.exe" "$o" | grep -v " [tdrb] " | head -30
+          "$BIN/llvm-objdump.exe" -s -j .drectve "$o" | head -20 || true
+          find dist-newstyle -path "*increment_process_hs*" -name "*.o" | head -20
+          rm -f "$d/increment_process_hs.dll"
+          cabal build flib:increment_process_hs --extra-lib-dirs="$PWD/dist-newstyle/juiz_sdk-import" --extra-lib-dirs="$PWD/../../target/debug" -v2 > /tmp/link.log 2>&1 || true
+          grep -n -i -E "clang|lld|shared|export|\.def" /tmp/link.log | cut -c1-3000 | head -20
+          "$BIN/llvm-objdump.exe" -p "$d/increment_process_hs.dll" | grep -v -E "  (base|ghczmprim|ghczmbignum|integerzmgmp|rts|textzm|containerszm|bytestringzm|templatezmhaskell|__gmp|stg_|ghc)" | sed -n '/Export Table/,$p' | head -60
