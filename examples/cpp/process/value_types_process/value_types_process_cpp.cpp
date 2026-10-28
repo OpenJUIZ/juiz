@@ -2,7 +2,7 @@
 // 受け取った値を型が分かる文字列にして返す。
 // cm.get_array / cm.get_object は、libjuiz_sdk の value_array_foreach / value_object_foreach の戻り値と
 // value_get_bool を使うので、それらの C の宣言が Rust 側の定義と合っていないと結果が壊れる。
-// テストは juiz_core/tests/cpp_value_types_test.rs。
+// テストは juiz_core/tests/integration/cpp_value_types_test.rs。
 #include <string>
 #include "juiz/juiz.h"
 

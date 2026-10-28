@@ -3,7 +3,7 @@
 --
 -- Component の要素は別のモジュールに書いてもよい。関数とマニフェストを公開し、
 -- ExampleComponent.hs の juizComponent に渡す。
--- Container を削除すると destroy が呼ばれ、juiz のテスト (juiz_core/tests/haskell_component_test.rs) が
+-- Container を削除すると destroy が呼ばれ、juiz のテスト (juiz_core/tests/integration/haskell_component_test.rs) が
 -- 数えられるよう、生きている Container の数を example_component_hs_alive_count で公開している。
 module ExampleComponentCounter
   ( Counter

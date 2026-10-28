@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 -- | いろいろな型の引数を受け取り、まとめてオブジェクトで返す Process (value_types_process_hs)。
--- hsjuiz の FromCapsule / ToCapsule のテスト (juiz_core/tests/haskell_plugin_test.rs) に使う。
+-- hsjuiz の FromCapsule / ToCapsule のテスト (juiz_core/tests/integration/haskell_plugin_test.rs) に使う。
 module ValueTypesProcess () where
 
 import qualified Data.Map.Strict as Map

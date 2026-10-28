@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Haskell の例 (examples/haskell) をビルドし、共有ライブラリを ../../target に置く。
-# juiz のテスト (juiz_core/tests/haskell_plugin_test.rs) はそこから読み込む。
+# juiz のテスト (juiz_core/tests/integration/haskell_plugin_test.rs) はそこから読み込む。
 #
 # 前提: 先にワークスペースで cargo build を済ませ、target/debug に libjuiz_sdk があること。
 #       GHC 9.6 以降と cabal が必要 (https://www.haskell.org/ghcup/)。

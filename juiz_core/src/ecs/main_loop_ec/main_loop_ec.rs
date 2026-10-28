@@ -6,7 +6,6 @@ use crate::{
     ExecutionContext, ExecutionContextCore, ExecutionContextFactory, ExecutionContextState,
 };
 
-use crate::env_logger;
 use crate::log;
 
 pub struct MainLoopEC {
@@ -79,7 +78,7 @@ impl ExecutionContextFactory for MainLoopECFactory {
     }
 }
 
+// logger はライブラリでは設定しない(juiz_app の main_with_args などアプリ側で設定する)
 pub fn execution_context_factory() -> JuizResult<Arc<Mutex<dyn ExecutionContextFactory>>> {
-    let _ = env_logger::try_init();
     Ok(Arc::new(Mutex::new(MainLoopECFactory {})))
 }

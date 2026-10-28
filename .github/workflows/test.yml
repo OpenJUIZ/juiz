@@ -132,10 +132,8 @@ jobs:
           # Haskell の例が無いときにテストを飛ばさない
           JUIZ_REQUIRE_HASKELL: "1"
         run: >-
-          cargo test -p juiz_core --no-fail-fast
-          --test haskell_plugin_test --test haskell_container_test --test haskell_component_test
-          --test haskell_typed_test
-          -- --test-threads=1
+          cargo test -p juiz_core --no-fail-fast --test integration
+          -- --test-threads=1 haskell_
 
   # OpenCV を使うコンポーネント(examples/rust/component/juiz_opencv)のビルドとテスト。
   # opencv クレートはビルド時に libclang でシステムの OpenCV のヘッダからバインディングを生成するので、

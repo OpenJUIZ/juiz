@@ -1,6 +1,6 @@
 """HTTP Broker を立てた juiz に pyjuiz のプロキシで繋ぐテスト (issue #79)
 
-juiz_core/tests/pyjuiz_proxy_test.rs が System を起動してから、このスクリプトを
+juiz_core/tests/integration/pyjuiz_proxy_test.rs が System を起動してから、このスクリプトを
     python test/proxy_test.py <port>
 で実行する。プロセス inc0 (arg1 + 1 を返す) と、コンテナ c0 (c0inc で加算、c0get で取得) がある前提。
 ネームスペース robot1 にも同じ名前の inc0 と c0 がある (issue #152)。

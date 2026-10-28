@@ -1,6 +1,6 @@
 """生成した client stub (juiz-idl -g python) で HTTP 越しに Python の Process を呼ぶテスト (issue #194)
 
-juiz_core/tests/python_datatype_test.rs が juiz を起動してから実行する:
+juiz_core/tests/integration/python_datatype_test.rs が juiz を起動してから実行する:
 
     python test/typed_client_test.py <port>
 """

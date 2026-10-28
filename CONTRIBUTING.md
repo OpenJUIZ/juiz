@@ -112,8 +112,11 @@ CI では `.github/workflows/test.yml` の `opencv` ジョブ(Ubuntu)で同じ�
 scripts/test.sh                              # すべてのテスト
 scripts/test.sh -p juiz_core                 # cargo test に渡す引数
 scripts/test.sh -p juiz_core -- p_apply      # -- 以降はテストバイナリに渡す(テスト名の絞り込みなど)
+scripts/test.sh -p juiz_core --test integration -- system_test   # juiz_core の統合テストをモジュール名で絞り込む
 scripts/test.sh --prepare-only               # 準備だけ行う
 ```
+
+juiz_core の統合テストは、リンクの時間を減らすため `juiz_core/tests/integration/` の下にまとめて 1 本のバイナリ(`--test integration`)にしています。新しいテストはこのディレクトリにファイルを置き、`main.rs` に `mod` を足してください。ログは `env_logger::try_init()` ではなく `common::logger::init()` で設定します。
 
 必要なものは Rust、CMake と C++ コンパイラ、Python 3 と pyjuiz の依存パッケージ(`python3 -m pip install pyyaml httpx pillow docstring_parser numpy`)です。足りないものがあれば、スクリプトがその旨と入れ方を表示して止まります。
 GHC と cabal は任意で、無ければ Haskell の例のビルドとテスト(`haskell_plugin_test`)を飛ばします(CI では `JUIZ_REQUIRE_HASKELL=1` にして飛ばしません)。
@@ -136,7 +139,7 @@ HTTP ブローカーの 8000 番ポートはホストに転送されるので、
 - `extensions.json`: 推奨拡張機能(rust-analyzer、CodeLLDB など。devcontainer と同じもの)
 - `settings.json`: 保存時の clippy チェック、rust-analyzer のビルド先の分離(`target/rust-analyzer`)など
 - `tasks.json`: CI と同じ手順のビルド・テスト(「Tasks: Run Build Task」「Tasks: Run Test Task」)
-- `launch.json`: CodeLLDB で `juiz` コマンドや juiz_core の単体テストをデバッグ実行する設定
+- `launch.json`: CodeLLDB で `juiz` コマンドや juiz_core の単体テスト・統合テストをデバッグ実行する設定
 
 ## リリース
 

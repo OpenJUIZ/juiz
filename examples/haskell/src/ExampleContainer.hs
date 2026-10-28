@@ -3,7 +3,7 @@
 -- | 整数を一つ保持する Container (example_container_hs)。
 -- 初期値は設定ファイルの containers に書いた value (無ければ 0)。
 --
--- Container を削除すると destroy が呼ばれる。juiz のテスト (juiz_core/tests/haskell_container_test.rs) が
+-- Container を削除すると destroy が呼ばれる。juiz のテスト (juiz_core/tests/integration/haskell_container_test.rs) が
 -- 生きている Container の数を数えられるよう、example_container_hs_alive_count も公開している。
 module ExampleContainer () where
 
