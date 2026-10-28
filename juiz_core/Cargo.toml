@@ -34,7 +34,7 @@ home = {workspace = true}
 
 
 # opencv = {version="0.92.0", default-features=false, features=["highgui", "videoio", "imgproc", "imgcodecs", "clang-runtime"], optional=true}
-pyo3 = {workspace = true, features=["gil-refs"], optional = true}
+pyo3 = {workspace = true, optional = true}
 
 reqwest = {workspace = true, features = ["blocking", "json"]}
 signal-hook = {workspace = true}

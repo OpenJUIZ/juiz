@@ -132,9 +132,7 @@ fn same_conf_runs_in_two_namespaces() {
     // 1 台目が待ち受けてから 2 台目を起動する (2 台目は 1 台目のサブシステムになる)
     wait_for(&client, &r1, "robot1.log");
     let _robot2 = start(&robot, "/robot2");
-    // 2 台目の登録の手続き中に 1 台目へ list を送ると、互いの応答待ちで 30 秒止まり登録が失敗することがある
-    // (このテストとは別の既存の問題)。手続きが終わるまで問い合わせずに待つ。
-    std::thread::sleep(Duration::from_secs(3));
+    // 2 台目の登録の手続き中にも 1 台目へ list を送り続ける (issue #159 で詰まらなくなったことの確認を兼ねる)
     wait_for(&client, &r2, "robot2.log");
 
     // 絞り込み: robot2 だけ

@@ -16,5 +16,5 @@ tokio = { version = "1", features = ["full"] }
 
 #libloading = "0.8.1"
 env_logger = "0.10.1"
-pyo3 = {version = "*", features=["auto-initialize"]}
+pyo3 = {version = "0.30", features=["auto-initialize"]}
 opencv = {version="0.84.0", default-features=false, features=["highgui", "videoio", "imgproc", "imgcodecs", "clang-runtime"]}

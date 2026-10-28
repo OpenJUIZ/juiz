@@ -42,18 +42,16 @@ jobs:
   haskell-macos:
     name: Haskell plugin test (macOS)
     runs-on: macos-latest
-    env:
-      # macOS の python3 は新しすぎて PyO3 が対応していないので、setup-python の 3.13 を使う(issue #100)
-      PYO3_PYTHON: python3.13
     steps:
       - uses: actions/checkout@v4
 
+      # Homebrew の python3 は pip で入れられない(externally-managed)ので、setup-python の最新版を使う
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.14"
 
       - name: Install pyjuiz dependencies (used by the embedded Python)
-        run: python3.13 -m pip install pyyaml httpx pillow docstring_parser numpy
+        run: python3 -m pip install pyyaml httpx pillow docstring_parser numpy
 
       - uses: dtolnay/rust-toolchain@stable
 

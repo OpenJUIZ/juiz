@@ -235,9 +235,29 @@ fn connection(client: &Client, h: &str) {
     let listener = format!("{h}/process/listener0::listener");
     let out = client.run(&["connection", "create", &talker, "arg1", &listener]);
     assert!(!out.contains("Error"), "{out}");
-    let list = client.run(&["connection", "list"]);
-    assert!(list.contains("talker0::talker"), "{list}");
-    assert!(list.contains("arg=arg1"), "{list}");
+    // 既定は delete にそのまま渡せる ID の JSON 配列。同じ接続は 1 つだけ出る
+    let ids = connection_ids(client);
+    assert_eq!(ids.len(), 1, "{ids:?}");
+    assert!(ids[0].starts_with("connection://"), "{ids:?}");
+    assert!(ids[0].contains("talker0::talker|arg1|"), "{ids:?}");
+    let long = client.run(&["connection", "list", "--long"]);
+    assert!(long.contains("-(arg1)->"), "{long}");
+    assert!(long.contains("listener0::listener"), "{long}");
+
+    // list の ID で消す
+    let out = client.run(&["connection", "delete", &ids[0]]);
+    assert!(!out.contains("Error"), "{out}");
+    assert!(connection_ids(client).is_empty());
+    // 消した接続をもう一度消すとエラーを表示する
+    let out = client.run(&["connection", "delete", &ids[0]]);
+    assert!(out.contains("Error"), "{out}");
+
+    // create と同じ <src> <arg> <dst> でも消せる
+    client.run(&["connection", "create", &talker, "arg1", &listener]);
+    assert_eq!(connection_ids(client).len(), 1);
+    let out = client.run(&["connection", "delete", &talker, "arg1", &listener]);
+    assert!(!out.contains("Error"), "{out}");
+    assert!(connection_ids(client).is_empty());
 
     // 種類の誤りはエラーを表示する
     let out = client.run(&[
@@ -251,8 +271,16 @@ fn connection(client: &Client, h: &str) {
     ]);
     assert!(out.contains("Error"), "{out}");
 
-    // delete はまだ何もしない (受け付けて終わる)
-    client.run(&["connection", "delete", "no_such_connection"]);
+    // ID として読めない引数はエラーを表示する
+    let out = client.run(&["connection", "delete", "no_such_connection"]);
+    assert!(out.contains("Error"), "{out}");
+    let out = client.run(&["connection", "delete", &talker, "arg1"]);
+    assert!(out.contains("Error"), "{out}");
+}
+
+fn connection_ids(client: &Client) -> Vec<String> {
+    let list = client.run(&["connection", "list"]);
+    juiz_sdk::serde_json::from_str(list.trim()).unwrap_or_else(|e| panic!("{e}: {list}"))
 }
 
 fn execution_context(client: &Client, h: &str) {
