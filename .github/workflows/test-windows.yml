@@ -109,7 +109,7 @@ jobs:
           RUST_BACKTRACE: "0"
         run: |
           set -o pipefail
-          for v in probef probeg probeh probee; do TMPV=$v scripts/test.sh -p juiz_core --test integration -- tmp_info_variant --nocapture 2>&1 | grep -E "TEMP|hsjuiz|panicked|0xc0|ERROR" | tail -10 || true; done
+          for v in probeg probeh probee info; do TMPV=$v scripts/test.sh -p juiz_core --test integration -- tmp_info_variant --nocapture 2>&1 | grep -E "TEMP|hsjuiz|panicked|0xc0|ERROR" | tail -10 || true; done
           scripts/test.sh -p juiz_core --test integration -- haskell plugin_images_through_ipc > /tmp/t.log 2>&1 || { tail -n 30 /tmp/t.log; grep -n -E "^test |panicked|rror|hsjuiz:" /tmp/t.log | grep -v "warning" | head -120; exit 1; }
       - name: inspect
         if: always()
@@ -121,5 +121,5 @@ jobs:
           o2=$(find dist-newstyle -path "*image_component_hs*" -name "ImageComponent.o" | head -n 1)
           echo "obj=$o2"; "$BIN/llvm-objdump.exe" -r "$o2" | awk 'NF==3 {print $2}' | sort | uniq -c
           "$BIN/llvm-objdump.exe" -r "$o" | grep -i "ADDR32 " | head -20
-          d=$(find dist-newstyle -name image_component_hs.dll | head -n 1)
+          d=../../target/image_component_hs.dll
           "$BIN/llvm-readobj.exe" --file-headers "$d" | grep -i -E "ImageBase|Characteristics|DLL" | head -20
