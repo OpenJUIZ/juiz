@@ -125,78 +125,6 @@ if not r"{path_str:}" in sys.path:
         Ok(())
     }
 
-    #[allow(unused)]
-    fn get_manifest_with_name(
-        &self,
-        working_dir: Option<PathBuf>,
-        symbol_name: &str,
-    ) -> JuizResult<Value> {
-        let fullpath = self.full_path(&working_dir);
-        let pythonpaths = self.pythonpaths.clone();
-        match Python::with_gil(|py| -> PyResult<Value> {
-            log::trace!(
-                "in get_manifest_with_name(), Python:with_gil called (fullpath={:?}",
-                fullpath.clone()
-            );
-            log::debug!("PythonPlugin uses python version={:?}", py.version_info());
-            // サブモジュールのためにルートディレクトリをpathに入れとく。
-            let parent = fullpath.parent().unwrap().to_str().unwrap();
-            let _ = PyModule::from_code_bound(
-                py,
-                &format!(
-                    r#"
-import sys
-if not r"{parent:}" in sys.path:
-    sys.path.append(r"{parent:}")
-            "#
-                ),
-                "",
-                "",
-            );
-            if let Some(paths) = pythonpaths {
-                paths.iter().for_each(|p| {
-                    let path = if p.is_absolute() {
-                        p.clone()
-                    } else {
-                        fullpath.join(p)
-                    };
-                    let path_str = path.to_str().unwrap();
-                    let _ = PyModule::from_code_bound(
-                        py,
-                        &format!(
-                            r#"
-import sys
-if not r"{path_str:}" in sys.path:
-    sys.path.append(r"{path_str:}")
-            "#
-                        ),
-                        "",
-                        "",
-                    );
-                });
-            }
-
-            let py_app = read_python_source(&fullpath)?;
-            let module = module_from_code(py, &py_app, "")?;
-            match module.getattr(symbol_name) {
-                Ok(manifest_bound) => {
-                    let manifest_func: Py<PyAny> = manifest_bound.into();
-                    Ok(pydict_to_value(
-                        manifest_func.call0(py)?.extract::<&PyDict>(py)?,
-                    )?) // 関数コールしてPyDictを抽出してvalueに変換する
-                }
-                Err(e) => Err(e),
-            }
-            //            let manifest_func: Py<PyAny> = module.getattr(symbol_name)?.into();
-        }) {
-            Ok(manifest) => Ok(manifest),
-            Err(e) => {
-                log::error!("get_manifest_with_name() failed. {e:}");
-                Err(anyhow::Error::from(e))
-            }
-        }
-    }
-
     fn get_component_manifest_with_name(
         &self,
         working_dir: Option<PathBuf>,
@@ -248,7 +176,13 @@ if not r"{path_str:}" in sys.path:
             }
 
             let py_app = read_python_source(&fullpath)?;
-            let module = module_from_code(py, &py_app, "")?;
+            // 他のプラグインは名前の無いモジュール ("") を共有していて、そこで読むと先に読んだプラグインの
+            // Process なども属性に見えてしまう。コンポーネントのファイルは自分だけのモジュールで読む (issue #221)
+            let module_name = format!(
+                "juiz_component_{}",
+                fullpath.file_stem().unwrap_or_default().to_string_lossy()
+            );
+            let module = module_from_code(py, &py_app, "", &module_name)?;
             match module.getattr(symbol_name) {
                 Ok(manifest_bound) => {
                     let manifest_func: Py<PyAny> = manifest_bound.into();
@@ -415,7 +349,7 @@ if not r"{path_str:}" in sys.path:
         let mut manifest = jvalue!({});
         let py_app = read_python_source(&fullpath)?;
         let pyfunc2 = Python::with_gil(|py| -> PyResult<Py<PyAny>> {
-            let module = module_from_code(py, &py_app, fullpath.to_str().unwrap())?;
+            let module = module_from_code(py, &py_app, fullpath.to_str().unwrap(), "")?;
             //let tuple = module.getattr(symbol_name)?.into_py(py).call0(py)?;
             // manifest = pyany_to_value(pytuple.get_item(0)?)?;
             let proc_object = module.getattr(type_name)?.into_py(py); // .call0(py)?;
@@ -471,7 +405,7 @@ if not r"{path_str:}" in sys.path:
         let py_app = read_python_source(&fullpath)?;
         let pyfunc2 = match Python::with_gil(|py| -> PyResult<Py<PyAny>> {
             log::debug!("Python::with_gil({py_app}) for load_Container_process_factory({symbol_name}, {type_name_opt:?}), fullpath={fullpath:?}");
-            let module = module_from_code(py, &py_app, fullpath.to_str().unwrap())?;
+            let module = module_from_code(py, &py_app, fullpath.to_str().unwrap(), "")?;
             let proc_object = module.getattr(type_name)?.into_py(py);
             let manifest_object = proc_object.getattr(py, "manifest")?.into_py(py).call0(py)?;
             manifest = pyany_to_value(manifest_object.extract::<&PyAny>(py)?)?;
@@ -543,7 +477,7 @@ if not r"{path_str:}" in sys.path:
         let mut manifest = jvalue!({});
         let py_app = read_python_source(&fullpath)?;
         let pyfunc2 = Python::with_gil(|py| -> PyResult<Py<PyAny>> {
-            let module = module_from_code(py, &py_app, fullpath.to_str().unwrap())?;
+            let module = module_from_code(py, &py_app, fullpath.to_str().unwrap(), "")?;
             //let tuple = module.getattr(symbol_name)?.into_py(py).call0(py)?;
             //let pytuple = tuple.extract::<&PyTuple>(py)?;
             //manifest = pyany_to_value(pytuple.get_item(0)?)?;
@@ -616,8 +550,9 @@ fn module_from_code<'py>(
     py: Python<'py>,
     code: &str,
     file_name: &str,
+    module_name: &str,
 ) -> PyResult<Bound<'py, PyModule>> {
-    PyModule::from_code_bound(py, code, file_name, "").map_err(|e| {
+    PyModule::from_code_bound(py, code, file_name, module_name).map_err(|e| {
         if !e.is_instance_of::<PyModuleNotFoundError>(py) {
             return e;
         }
@@ -885,7 +820,7 @@ pub fn pyany_to_value(value: &PyAny) -> PyResult<Value> {
     } else if value.is_instance_of::<PyFloat>() {
         Ok(Value::from(value.extract::<f64>()?))
     } else if value.is_instance_of::<PyInt>() {
-        Ok(Value::from(value.extract::<i64>()?))
+        pyint_to_value(value)
     } else if value.is_instance_of::<PyList>() {
         pylist_to_value(value.extract::<&PyList>()?)
     } else if value.is_instance_of::<PyTuple>() {
@@ -924,7 +859,7 @@ pub fn pyany_to_capsule(value: &PyAny) -> PyResult<Capsule> {
     } else if value.is_instance_of::<PyFloat>() {
         Ok(Value::from(value.extract::<f64>()?).into())
     } else if value.is_instance_of::<PyInt>() {
-        Ok(Value::from(value.extract::<i64>()?).into())
+        Ok(pyint_to_value(value)?.into())
     } else if value.is_instance_of::<PyNone>() {
         Ok(Value::Null.into())
     } else {
@@ -1052,6 +987,14 @@ fn pylist_to_value(pylist: &PyList) -> PyResult<Value> {
     }
     Ok(vec.into())
 }
+/// i64 に入らない正の整数は u64 として読む (juiz から渡した u64 をそのまま返せるように)
+fn pyint_to_value(value: &PyAny) -> PyResult<Value> {
+    match value.extract::<i64>() {
+        Ok(v) => Ok(Value::from(v)),
+        Err(_) => Ok(Value::from(value.extract::<u64>()?)),
+    }
+}
+
 fn pytuple_to_value(pytuple: &PyTuple) -> PyResult<Value> {
     let mut vec: Vec<Value> = Vec::new();
     for value in pytuple.into_iter() {
