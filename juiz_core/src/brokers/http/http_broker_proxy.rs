@@ -234,18 +234,23 @@ impl CRUDBrokerProxy for HTTPBrokerProxy {
         param: std::collections::HashMap<String, String>,
     ) -> JuizResult<CapsulePtr> {
         log::trace!("【呼出】HTTPBrokerProxy({}).update({class_name:}, {function_name}, {payload}, {param:?})", self.base_url);
-        let v: Value = payload.into();
-        match self
-            .client
-            .patch(construct_url(
-                &self.base_url,
-                class_name,
-                function_name,
-                &param,
-            ))
-            .json(&v)
-            .send()
-        {
+        let url = construct_url(&self.base_url, class_name, function_name, &param);
+        // 画像の引数があれば、サーバーが受け付ける multipart (画像は image/png) の PUT で送る (issue #233)
+        let request = if payload.is_all_value()? {
+            let v = Value::try_from(payload)?;
+            self.client.patch(url).json(&v)
+        } else {
+            let boundary = format!("juiz-{}", uuid::Uuid::new_v4().simple());
+            let body = capsule_map_to_multipart(&payload, &boundary)?;
+            self.client
+                .put(url)
+                .header(
+                    "Content-Type",
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
+                .body(body)
+        };
+        match request.send() {
             Err(e) => {
                 log::error!("HttpBrokerProxy::update() failed. Error is {:?}", e);
                 Err(anyhow::Error::from(e))
@@ -259,8 +264,11 @@ impl CRUDBrokerProxy for HTTPBrokerProxy {
                         message: response.text().unwrap_or_default(),
                     }));
                 }
-                let hdr = response.headers();
-                if hdr["content-type"] == "image/png" {
+                let is_png = response
+                    .headers()
+                    .get("content-type")
+                    .is_some_and(|v| v == "image/png");
+                if is_png {
                     image_png_response_to_capsule_ptr(response)
                 } else {
                     match response.json::<Value>() {
@@ -271,6 +279,32 @@ impl CRUDBrokerProxy for HTTPBrokerProxy {
             }
         }
     }
+}
+
+/// CapsuleMap の値を multipart/form-data の本文にする。画像は PNG (image/png)、それ以外は JSON (application/json)。
+/// サーバー側の読み方は http_router の multipart_to_capsule_map
+fn capsule_map_to_multipart(payload: &CapsuleMap, boundary: &str) -> JuizResult<Vec<u8>> {
+    let mut body = Vec::new();
+    for (name, capsule) in payload.iter() {
+        let (content_type, data) = if capsule.is_image()? {
+            let mut png = std::io::Cursor::new(Vec::new());
+            capsule.lock_as_image(|img| img.write_to(&mut png, juiz_sdk::image::ImageFormat::Png))??;
+            ("image/png", png.into_inner())
+        } else {
+            let v = capsule.lock_as_value(|v| serde_json::to_vec(v))??;
+            ("application/json", v)
+        };
+        body.extend_from_slice(
+            format!(
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\nContent-Type: {content_type}\r\n\r\n"
+            )
+            .as_bytes(),
+        );
+        body.extend_from_slice(&data);
+        body.extend_from_slice(b"\r\n");
+    }
+    body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+    Ok(body)
 }
 
 // #[cfg(feature="opencv4")]

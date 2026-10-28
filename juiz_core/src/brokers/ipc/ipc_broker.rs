@@ -1,349 +1,298 @@
-use std::{
-    sync::{Arc, Mutex},
-    thread::sleep,
-    time::Duration,
-};
+//! IPC ブローカー (サーバー側、docs/spec/ipc-broker.md)
+//!
+//! 同じマシンの別プロセスから、ポートを開けずに呼び出すためのブローカー。要求と応答は
+//! 生バイトのフレーム (docs/spec/large-data.md §3) で、画像は PNG にせずに送る。
+//!
+//! 接続を受け付けるたびに普通のスレッドを作り、そのスレッドが相手が閉じるまで
+//! フレームを読む → 処理する → 応答を書く、を繰り返す。tokio のタスクにしないのは、
+//! 処理中に BrokerProxy や EC のランタイムを作ったり捨てたりしたときの panic を避けるため (#231 と同じ)。
 
-use juiz_sdk::anyhow;
+use std::collections::HashMap;
+use std::io::BufReader;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
+use std::time::Duration;
 
-use super::super::core_broker::CoreBrokerPtr;
-use crate::brokers::CRUDBroker;
+use juiz_sdk::anyhow::anyhow;
+
+use super::ipc_name::{validate_ipc_name, DEFAULT_IPC_NAME};
+use super::transport::{self, Listener, Stream};
+use crate::brokers::core_broker::CoreBrokerPtr;
+use crate::brokers::frame::{read_frame, FrameLimits, FrameReadError, OutgoingFrame};
 use crate::brokers::{
-    broker_factory_impl::create_broker_factory_impl, BrokerFactory, CRUDBrokerHolder,
+    broker_factory_impl::create_broker_factory_impl, localize_identifier, Broker, BrokerFactory,
+    BrokerPtr, CRUDBroker,
 };
-use crate::{brokers::broker_ptr::BrokerPtr, prelude::*};
-use interprocess::local_socket::{
-    prelude::*, traits::Stream, GenericFilePath, GenericNamespaced, ListenerOptions,
-};
-use std::io::{self, prelude::*, BufReader};
+use crate::prelude::*;
 
-async fn on_start(broker_manifest: Value, crud_broker: Arc<Mutex<CRUDBroker>>) -> () {
-    /*
-    match on_start_inner(broker_manifest, crud_broker).await {
-        Err(e) => {
-            log::error!("IPCBroker::on_start_inner() error: {:?}", e);
-        },
-        Ok(_) => {
+/// IPC ブローカーの種類名
+pub const IPC_TYPE_NAME: &str = "ipc";
 
-        }
+/// manifest からブローカーの名前を求める。省略すると juiz。廃止したキーはエラーにする
+pub fn ipc_broker_name(manifest: &Value) -> JuizResult<String> {
+    if manifest.get("namespace").is_some() {
+        return Err(anyhow!(JuizError::InvalidValueError {
+            message: "the 'namespace' key of an ipc broker is removed. Use 'name' to choose the socket (docs/spec/ipc-broker.md §4.1)".to_owned()
+        }));
     }
-    */
-    match on_start_inner_tokio(broker_manifest, crud_broker).await {
-        Err(e) => {
-            log::error!("IPCBroker::on_start_inner_tokio() error: {:?}", e);
-        }
-        Ok(_) => {}
+    if manifest.get("buffer_size").is_some() {
+        log::warn!("the 'buffer_size' key of an ipc broker is removed and ignored");
     }
-}
-
-fn extract_method_name(args: &CapsuleMap) -> JuizResult<&String> {
-    let err = |name: &str| {
-        anyhow::Error::from(JuizError::CapsuleDoesNotIncludeParamError {
-            name: name.to_owned(),
-        })
-    };
-    Ok(args
-        .get_param("method_name")
-        .ok_or_else(|| err("method_name"))?)
-}
-
-fn extract_class_name<'a>(args: &'a CapsuleMap) -> JuizResult<String> {
-    // method_name, class_name, function_name, params
-    let err = |name: &str| {
-        anyhow::Error::from(JuizError::CapsuleDoesNotIncludeParamError {
-            name: name.to_owned(),
-        })
-    };
-    let class_name = args
-        .get_param("class_name")
-        .ok_or_else(|| err("class_name"))?;
-    Ok(class_name.to_owned())
-}
-
-fn extract_function_name<'a>(args: &'a CapsuleMap) -> JuizResult<&'a String> {
-    let err = |name: &str| {
-        anyhow::Error::from(JuizError::CapsuleDoesNotIncludeParamError {
-            name: name.to_owned(),
-        })
-    };
-    let function_name = args
-        .get_param("function_name")
-        .ok_or_else(|| err("function_name"))?;
-    Ok(function_name)
-}
-
-fn handle_function(
-    crud_broker: Arc<Mutex<CRUDBroker>>,
-    args: CapsuleMap,
-) -> JuizResult<CapsulePtr> {
-    log::info!("MessengerBroker::handle_function() called");
-    log::trace!(" - args: CapsuleMap = {args:?}");
-    let class_name = extract_class_name(&args)?;
-    let function_name = extract_function_name(&args)?.to_owned();
-    //log::trace!("MessengerBroker::handle_function() with method_name = {method_name:}");
-    let response = match extract_method_name(&args)?.as_str() {
-        "CREATE" => {
-            juiz_lock(&crud_broker)?.create_class(class_name.as_str(), function_name.as_str(), args)
-        }
-        "READ" => {
-            juiz_lock(&crud_broker)?.read_class(class_name.as_str(), function_name.as_str(), args)
-        }
-        "UPDATE" => {
-            juiz_lock(&crud_broker)?.update_class(class_name.as_str(), function_name.as_str(), args)
-        }
-        "DELETE" => {
-            juiz_lock(&crud_broker)?.delete_class(class_name.as_str(), function_name.as_str(), args)
-        }
-        _ => Err(anyhow::Error::from(
-            JuizError::CRUDBRokerCanNotFindMethodError {
-                method_name: "".to_owned(),
-            },
-        )),
-    };
-    log::trace!(" - returns: {response:?}");
-    response
-}
-
-fn handle_buffer_function(
-    crud_broker: Arc<Mutex<CRUDBroker>>,
-    conn: &mut BufReader<LocalSocketStream>,
-    buffer: &String,
-) -> JuizResult<()> {
-    let value: Value = handle_buffer(crud_broker, buffer)?;
-    println!("vout{:?}, vstr{:}", value, (value.to_string() + "\n"));
-    match conn
-        .get_mut()
-        .write_all((value.to_string() + "\n").as_bytes())
-    {
-        Err(e) => {
-            log::error!("Error({e:?}) in IPCBroker::routine()");
-            log::trace!("IPCBrokerCore::receive_and_send() exit");
-            Err(anyhow::Error::from(JuizError::BrokerSendError {}))
-        }
-        Ok(()) => {
-            log::trace!("IPCBrokerCore collectly sent data.");
-            log::trace!("IPCBrokerCore::receive_and_send() exit");
-            Ok(())
-        }
-    }
-}
-
-fn handle_buffer(crud_broker: Arc<Mutex<CRUDBroker>>, buffer: &String) -> JuizResult<Value> {
-    let value: CapsuleMap = juiz_sdk::serde_json::from_str::<Value>(buffer.as_str())?.try_into()?;
-    let result = handle_function(crud_broker.clone(), value)?;
-    capsule_to_value(result)
-}
-
-async fn handle_conn(
-    crud_broker: &Arc<Mutex<CRUDBroker>>,
-    mut conn: interprocess::local_socket::tokio::Stream,
-) -> io::Result<()> {
-    use tokio::{
-        io::{AsyncBufReadExt, AsyncWriteExt},
-        try_join,
-    };
-    let mut recver = tokio::io::BufReader::new(&conn);
-    //let mut sender = conn;
-
-    // Allocate a sizeable buffer for receiving. This size should be big enough and easy to
-    // find for the allocator.
-    let mut buffer = String::with_capacity(128);
-    let recv = recver.read_line(&mut buffer);
-    try_join!(recv)?;
-    let value = handle_buffer(crud_broker.clone(), &mut buffer).or_else(|_e| {
-        Err(io::Error::new(
-            io::ErrorKind::Other,
-            "handle_buffer failed.",
-        ))
-    })?;
-    //let value: CapsuleMap = serde_json::from_str::<Value>(buffer.as_str())?.try_into()?;
-    //let result = handle_function(crud_broker.clone(), value)?;
-    //let value: Value =  capsule_to_value(result)?;
-    println!("vout{:?}, vstr{:}", value, (value.to_string() + "\n"));
-    let vstr = (value.to_string() + "\n").to_owned();
-    let send = conn.write_all(vstr.as_bytes());
-    // Run both operations concurrently.
-    try_join!(send)?;
-    Ok(())
-}
-
-async fn on_start_inner_tokio(
-    broker_manifest: Value,
-    crud_broker: Arc<Mutex<CRUDBroker>>,
-) -> JuizResult<()> {
-    use interprocess::local_socket::tokio::prelude::*;
-    log::trace!("ipc_broker::on_start_tokio() called");
-    let mut namespace = obj_get_str(&broker_manifest, "namespace")
-        .or::<&str>(Ok("juiz2.sock"))
-        .unwrap()
+    let name = manifest
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or(DEFAULT_IPC_NAME)
         .to_owned();
-    log::info!("ipc_broker::on_start(namespace={namespace}, {broker_manifest:?})) called");
-    //    let buf_size = obj_get_i64(&broker_manifest, "buffer_size").or::<JuizError>(Ok(4096))? as usize;
-    let name = if GenericNamespaced::is_supported() {
-        //namespace.to_ns_name::<GenericNamespaced>()?
-        namespace = format!("/tmp/{:}", namespace);
-        namespace.as_str().to_fs_name::<GenericFilePath>()?
-    } else {
-        namespace = format!("/tmp/{:}", namespace);
-        namespace.as_str().to_fs_name::<GenericFilePath>()?
-    };
-    log::trace!("IPBrokerCore (namespace={:?})", name);
-    let opts = ListenerOptions::new().name(name);
+    validate_ipc_name(&name)?;
+    Ok(name)
+}
 
-    let listener = match opts.create_tokio() {
-        Err(e) if e.kind() == io::ErrorKind::AddrInUse => {
-            // When a program that uses a file-type socket name terminates its socket server
-            // without deleting the file, a "corpse socket" remains, which can neither be
-            // connected to nor reused by a new listener. Normally, Interprocess takes care of
-            // this on affected platforms by deleting the socket file when the listener is
-            // dropped. (This is vulnerable to all sorts of races and thus can be disabled.)
-            //
-            // There are multiple ways this error can be handled, if it occurs, but when the
-            // listener only comes from Interprocess, it can be assumed that its previous instance
-            // either has crashed or simply hasn't exited yet. In this example, we leave cleanup
-            // up to the user, but in a real application, you usually don't want to do that.
+fn frame_limits(manifest: &Value) -> FrameLimits {
+    let mut limits = FrameLimits::default();
+    if let Some(max) = manifest.get("max_frame_bytes").and_then(|v| v.as_u64()) {
+        limits.max_frame_bytes = max;
+    }
+    limits
+}
 
-            return Err(e.into());
-        }
-        x => x?,
-    };
+/// 受け付けた接続。止めるときに閉じる
+type Connections = Arc<Mutex<HashMap<u64, Stream>>>;
 
+pub struct IpcBroker {
+    name: String,
+    limits: FrameLimits,
+    crud_broker: Arc<Mutex<CRUDBroker>>,
+    stopping: Arc<AtomicBool>,
+    listener: Option<Arc<Listener>>,
+    accept_thread: Option<JoinHandle<()>>,
+    connections: Connections,
+}
+
+impl std::fmt::Debug for IpcBroker {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IpcBroker").field("name", &self.name).finish()
+    }
+}
+
+impl IpcBroker {
+    pub fn new(core_broker: CoreBrokerPtr, manifest: Value) -> JuizResult<Self> {
+        let name = ipc_broker_name(&manifest)?;
+        let limits = frame_limits(&manifest);
+        let mut manifest = manifest;
+        manifest
+            .as_object_mut()
+            .ok_or_else(|| anyhow!("ipc broker manifest must be an object"))?
+            .insert("name".to_owned(), jvalue!(name));
+        Ok(IpcBroker {
+            name,
+            limits,
+            crud_broker: Arc::new(Mutex::new(CRUDBroker::new(core_broker, manifest)?)),
+            stopping: Arc::new(AtomicBool::new(false)),
+            listener: None,
+            accept_thread: None,
+            connections: Arc::new(Mutex::new(HashMap::new())),
+        })
+    }
+}
+
+/// 自分を指す ipc://<name>/... の識別子を core://core/... にし、どの名前でアクセスされたかを param に書く
+/// (qmp の localize_request と同じ。IPC には相手のアドレスが無いので requesting_host_addr は付けない)
+fn localize_request(cm: &mut CapsuleMap, own_name: &str) {
+    if let Some(id) = cm.get_param("identifier").cloned() {
+        let id = localize_identifier(id.as_str(), IPC_TYPE_NAME, Some(own_name));
+        cm.set_param("identifier", id.as_str());
+    }
+    cm.set_param("accessed_broker_id", format!("ipc://{own_name}").as_str());
+    cm.set_param("accessed_broker_type", IPC_TYPE_NAME);
+    cm.set_param("accessed_broker_name", own_name);
+}
+
+fn handle_request(
+    crud_broker: &Arc<Mutex<CRUDBroker>>,
+    own_name: &str,
+    mut cm: CapsuleMap,
+) -> JuizResult<CapsulePtr> {
+    localize_request(&mut cm, own_name);
+    juiz_lock(crud_broker)?.on_capsule_map_request(cm, None)
+}
+
+fn write_error(stream: &mut Stream, id: u64, class_name: &str, function_name: &str, e: &juiz_sdk::anyhow::Error) -> JuizResult<()> {
+    OutgoingFrame::error(id, class_name, function_name, format!("{e:#}")).write_to(stream)
+}
+
+/// 1 つの接続を、相手が閉じるまで処理する
+fn serve_connection(
+    stream: Stream,
+    crud_broker: Arc<Mutex<CRUDBroker>>,
+    own_name: String,
+    limits: FrameLimits,
+    stopping: Arc<AtomicBool>,
+) -> JuizResult<()> {
+    let mut reader = BufReader::with_capacity(64 * 1024, transport::try_clone(&stream)?);
+    let mut writer = stream;
     loop {
-        let conn = match listener.accept().await {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("There was an error with an incoming connection: {e}");
+        let frame = match read_frame(&mut reader, &limits) {
+            Ok(f) => f,
+            Err(FrameReadError::Closed) => return Ok(()),
+            Err(FrameReadError::Broken(e)) => {
+                if stopping.load(Ordering::SeqCst) {
+                    return Ok(());
+                }
+                return Err(e);
+            }
+            Err(FrameReadError::Fatal { id, error }) => {
+                log::error!("ipc://{own_name}: {error:#}. The connection is closed.");
+                let _ = write_error(&mut writer, id, "", "", &error);
+                return Ok(());
+            }
+            Err(FrameReadError::Invalid { id, error }) => {
+                log::error!("ipc://{own_name}: {error:#}");
+                write_error(&mut writer, id, "", "", &error)?;
                 continue;
             }
         };
-        let crud = crud_broker.clone();
-
-        // Spawn new parallel asynchronous tasks onto the Tokio runtime and hand the connection
-        // over to them so that multiple clients could be processed simultaneously in a
-        // lightweight fashion.
-        tokio::spawn(async move {
-            // The outer match processes errors that happen when we're connecting to something.
-            // The inner if-let processes errors that happen during the connection.
-            if let Err(e) = handle_conn(&crud, conn).await {
-                eprintln!("Error while handling connection: {e}");
-            }
-        });
-    }
-    //Ok(())
-}
-
-#[allow(unused)]
-async fn on_start_inner(
-    broker_manifest: Value,
-    crud_broker: Arc<Mutex<CRUDBroker>>,
-) -> JuizResult<()> {
-    log::trace!("ipc_broker::on_start() called");
-    let mut namespace = obj_get_str(&broker_manifest, "namespace")
-        .or::<&str>(Ok("juiz2.sock"))
-        .unwrap()
-        .to_owned();
-    log::info!("ipc_broker::on_start(namespace={namespace}, {broker_manifest:?})) called");
-    let buf_size = obj_get_i64(&broker_manifest, "buffer_size").or::<JuizError>(Ok(4096))? as usize;
-    // Pick a name.
-    let name = if GenericNamespaced::is_supported() {
-        //namespace.to_ns_name::<GenericNamespaced>()?
-        namespace = format!("/tmp/{:}", namespace);
-        namespace.as_str().to_fs_name::<GenericFilePath>()?
-    } else {
-        namespace = format!("/tmp/{:}", namespace);
-        namespace.as_str().to_fs_name::<GenericFilePath>()?
-    };
-    log::trace!("IPBrokerCore (namespace={:?})", name);
-    let opts = ListenerOptions::new().name(name);
-
-    // ...then create it.
-    let listener = match opts.create_sync() {
-        Err(e) if e.kind() == io::ErrorKind::AddrInUse => {
-            log::error!("ipc broker: Error. Address In Use.");
-            // When a program that uses a file-type socket name terminates its socket server
-            // without deleting the file, a "corpse socket" remains, which can neither be
-            // connected to nor reused by a new listener. Normally, Interprocess takes care of
-            // this on affected platforms by deleting the socket file when the listener is
-            // dropped. (This is vulnerable to all sorts of races and thus can be disabled.)
-            //
-            // There are multiple ways this error can be handled, if it occurs, but when the
-            // listener only comes from Interprocess, it can be assumed that its previous instance
-            // either has crashed or simply hasn't exited yet. In this example, we leave cleanup
-            // up to the user, but in a real application, you usually don't want to do that.
-            //eprintln!(
-            //    "Error: could not start server because the socket file is occupied. Please check if
-            //    {namespace} is in use by another process and try again."
-            //);
-            return Err(anyhow::Error::from(e));
-        }
-        x => x,
-    }?;
-
-    // Define a function that checks for errors in incoming connections. We'll use this to filter
-    // through connections that fail on initialization for one reason or another.
-    fn handle_error(conn: io::Result<LocalSocketStream>) -> Option<LocalSocketStream> {
-        log::warn!("IPC Broker handle_error() called");
-        match conn {
-            Ok(c) => Some(c),
+        let id = frame.id();
+        let class_name = frame
+            .header
+            .param
+            .as_ref()
+            .and_then(|p| p.get("class_name").cloned())
+            .unwrap_or_default();
+        let function_name = frame
+            .header
+            .param
+            .as_ref()
+            .and_then(|p| p.get("function_name").cloned())
+            .unwrap_or_default();
+        let result = frame
+            .into_capsule_map()
+            .and_then(|cm| handle_request(&crud_broker, &own_name, cm))
+            .and_then(|capsule| OutgoingFrame::response(id, &capsule));
+        // 失敗したら必ずエラー応答を返し、接続は保つ
+        match result {
+            Ok(response) => response.write_to(&mut writer)?,
             Err(e) => {
-                eprintln!("Incoming connection failed: {e}");
-                None
+                log::error!("ipc://{own_name}: {class_name}/{function_name} failed. {e:#}");
+                write_error(&mut writer, id, &class_name, &function_name, &e)?;
             }
         }
     }
+}
 
-    //let conn = Stream::connect(name).with_context(|| format!("Stream::connect() in IPCBrokerCoreFactory::create()"))?;
+impl Broker for IpcBroker {
+    fn start(&mut self) -> JuizResult<()> {
+        log::trace!("IpcBroker::start(name={}) called", self.name);
+        let listener = Arc::new(transport::bind(&self.name)?);
+        log::info!("ipc://{} listens on {}", self.name, listener.location());
+        self.stopping.store(false, Ordering::SeqCst);
 
-    for conn in listener.incoming().filter_map(handle_error) {
-        // Wrap the connection into a buffered receiver right away
-        // so that we could receive a single line from it.
-        log::info!("incomming connection detected");
-
-        conn.set_nonblocking(true)?;
-        let mut conn = BufReader::new(conn);
-        //let mut endflag =
-        loop {
-            let mut buffer = String::with_capacity(buf_size);
-
-            match conn.read_line(&mut buffer) {
-                Err(e) => {
-                    log::error!("Error. {:?}", e)
-                }
-                Ok(size) => {
-                    if size == 0 {
-                        log::info!(" - result_size: {:?}", size);
-                        break;
+        let l = listener.clone();
+        let crud = self.crud_broker.clone();
+        let name = self.name.clone();
+        let limits = self.limits;
+        let stopping = self.stopping.clone();
+        let connections = self.connections.clone();
+        let next_conn_id = AtomicU64::new(0);
+        self.accept_thread = Some(
+            std::thread::Builder::new()
+                .name(format!("ipc-accept-{name}"))
+                .spawn(move || loop {
+                    let stream = l.accept();
+                    if stopping.load(Ordering::SeqCst) {
+                        return;
                     }
-                    handle_buffer_function(crud_broker.clone(), &mut conn, &buffer)?;
-                }
-            };
-            sleep(Duration::from_millis(10));
+                    let stream = match stream {
+                        Ok(s) => s,
+                        Err(e) => {
+                            log::error!("ipc://{name}: accept failed. {e}");
+                            std::thread::sleep(Duration::from_millis(10));
+                            continue;
+                        }
+                    };
+                    let conn_id = next_conn_id.fetch_add(1, Ordering::SeqCst);
+                    if let Ok(c) = transport::try_clone(&stream) {
+                        if let Ok(mut conns) = connections.lock() {
+                            conns.insert(conn_id, c);
+                        }
+                    }
+                    let (crud, conn_name, stopping, connections) =
+                        (crud.clone(), name.clone(), stopping.clone(), connections.clone());
+                    let r = std::thread::Builder::new()
+                        .name(format!("ipc-conn-{name}-{conn_id}"))
+                        .spawn(move || {
+                            if let Err(e) =
+                                serve_connection(stream, crud, conn_name.clone(), limits, stopping)
+                            {
+                                log::warn!("ipc://{conn_name}: connection {conn_id} closed. {e:#}");
+                            }
+                            if let Ok(mut conns) = connections.lock() {
+                                conns.remove(&conn_id);
+                            }
+                        });
+                    if let Err(e) = r {
+                        log::error!("ipc://{name}: can not start a connection thread. {e}");
+                    }
+                })?,
+        );
+        self.listener = Some(listener);
+        juiz_lock(&self.crud_broker)?.set_started();
+        Ok(())
+    }
+
+    fn wait_until_started(&mut self, _timeout: Duration) -> JuizResult<()> {
+        // start() の中で待ち受けを始めているので、待つことは無い
+        if juiz_lock(&self.crud_broker)?.is_started() {
+            Ok(())
+        } else {
+            Err(anyhow!(JuizError::TimeoutError {}))
         }
     }
 
-    Ok(())
-}
-
-pub fn create_ipc_broker_factory(
-    core_broker: CoreBrokerPtr,
-) -> JuizResult<Arc<Mutex<dyn BrokerFactory>>> {
-    //env_logger::init();
-
-    fn create_broker_function(
-        core_broker: CoreBrokerPtr,
-        manifest: Value,
-    ) -> JuizResult<BrokerPtr> {
-        Ok(BrokerPtr::new(CRUDBrokerHolder::new(
-            "IPCBroker",
-            "ipc",
-            core_broker,
-            &on_start,
-            manifest.clone(),
-        )?))
+    fn stop(&mut self) -> JuizResult<()> {
+        log::trace!("IpcBroker::stop(name={}) called", self.name);
+        self.stopping.store(true, Ordering::SeqCst);
+        if let Some(listener) = self.listener.as_ref() {
+            listener.wake();
+        }
+        if let Some(handle) = self.accept_thread.take() {
+            let _ = handle.join();
+        }
+        // ソケットのファイルは Listener の drop で消す
+        self.listener = None;
+        if let Ok(mut conns) = self.connections.lock() {
+            for (_, c) in conns.drain() {
+                transport::shutdown(&c);
+            }
+        }
+        juiz_lock(&self.crud_broker)?.clear_started();
+        Ok(())
     }
 
-    let manifest = jvalue!({
-        "type_name": "ipc"
-    });
-    create_broker_factory_impl(core_broker, manifest, create_broker_function)
+    fn identifier(&self) -> BrokerIdentifier {
+        self.crud_broker.lock().unwrap().identifier()
+    }
+
+    fn profile(&self) -> BrokerProfile {
+        self.crud_broker.lock().unwrap().profile()
+    }
+}
+
+impl Drop for IpcBroker {
+    fn drop(&mut self) {
+        if self.listener.is_some() {
+            let _ = self.stop();
+        }
+    }
+}
+
+pub fn ipc_broker_factory(core_broker: CoreBrokerPtr) -> JuizResult<Arc<Mutex<dyn BrokerFactory>>> {
+    fn create_broker_function(core_broker: CoreBrokerPtr, manifest: Value) -> JuizResult<BrokerPtr> {
+        Ok(BrokerPtr::new(IpcBroker::new(core_broker, manifest)?))
+    }
+    create_broker_factory_impl(
+        core_broker,
+        jvalue!({ "type_name": IPC_TYPE_NAME }),
+        create_broker_function,
+    )
 }

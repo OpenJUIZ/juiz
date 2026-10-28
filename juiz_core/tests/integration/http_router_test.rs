@@ -99,7 +99,16 @@ fn decode_png(res: reqwest::blocking::Response) -> JuizResult<RgbImage> {
 
 /// 500 の応答の本体は {"message": ...} で、理由が読める
 fn assert_error(res: reqwest::blocking::Response, expected: &str) -> JuizResult<()> {
-    assert_eq!(res.status(), reqwest::StatusCode::INTERNAL_SERVER_ERROR);
+    assert_error_status(res, reqwest::StatusCode::INTERNAL_SERVER_ERROR, expected)
+}
+
+/// エラーの応答の状態コードと、本体 {"message": ...} の理由を確かめる
+fn assert_error_status(
+    res: reqwest::blocking::Response,
+    status: reqwest::StatusCode,
+    expected: &str,
+) -> JuizResult<()> {
+    assert_eq!(res.status(), status);
     let body: Value = res.json()?;
     let message = body["message"].as_str().expect("message");
     assert!(message.contains(expected), "{message}");
@@ -130,16 +139,18 @@ fn check_multipart_put(c: &Client) -> JuizResult<()> {
     assert_eq!(img.dimensions(), (4, 3));
     assert_eq!(*img.get_pixel(3, 2), Rgb([245, 235, 225]));
 
-    // 扱えない Content-Type、Content-Type が無いフィールドはエラーになる
-    assert_error(
+    // 扱えない Content-Type、Content-Type が無いフィールドは 400 になる
+    assert_error_status(
         put_multipart(c, inv0, &[("img", Some("text/plain"), b"abc".to_vec())])?,
+        reqwest::StatusCode::BAD_REQUEST,
         "content-type",
     )?;
-    assert_error(
+    assert_error_status(
         put_multipart(c, inv0, &[("img", None, b"abc".to_vec())])?,
+        reqwest::StatusCode::BAD_REQUEST,
         "content-type",
     )?;
-    // multipart として読めない本体
+    // multipart として読めない本体も 400
     let res = c
         .put(url("/api/process/call"))
         .query(&[("identifier", inv0)])
@@ -149,7 +160,7 @@ fn check_multipart_put(c: &Client) -> JuizResult<()> {
         )
         .body("broken")
         .send()?;
-    assert_error(res, "Multipart")?;
+    assert_error_status(res, reqwest::StatusCode::BAD_REQUEST, "Multipart")?;
     Ok(())
 }
 

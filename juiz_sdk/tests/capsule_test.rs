@@ -291,7 +291,7 @@ fn capsule_map_from_value_plain_and_enveloped() -> JuizResult<()> {
 #[test]
 fn capsule_map_to_value() {
     let m: CapsuleMap = vec![("a", jvalue!(1))].into();
-    let v: Value = m.into();
+    let v: Value = m.try_into().unwrap();
     assert_eq!(v["__map__"], jvalue!({"a": 1}));
 }
 
@@ -310,7 +310,7 @@ fn capsule_map_param_value_round_trip() -> JuizResult<()> {
     let mut m = CapsuleMap::new();
     m.insert("a".into(), jvalue!(1).into());
     m.set_param("p", "q");
-    let v: Value = m.into();
+    let v: Value = m.try_into().unwrap();
     let back: CapsuleMap = v.try_into()?;
     assert_eq!(back.get_param("p"), Some(&"q".to_owned()));
     Ok(())

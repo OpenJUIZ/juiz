@@ -46,6 +46,7 @@
 
 - Unix は `std::os::unix::net::{UnixListener, UnixStream}` を使うのがよい。読み取りのタイムアウトが標準で使え、共有メモリ(large-data.md §6.6)で記述子を `SCM_RIGHTS` で渡せる。
 - Windows は `interprocess` の名前付きパイプを使ってよい。
+- #233 の実装: Unix は std の `UnixListener` / `UnixStream`、Windows は `interprocess` の local socket(セキュリティ記述子は SDDL `D:P(A;;GA;;;OW)(A;;GA;;;SY)`、作ったユーザーと SYSTEM だけ)。通り道の違いは `juiz_core/src/brokers/ipc/transport.rs` に閉じ込めてある。
 
 ### 2.5 残ったソケット
 
@@ -72,7 +73,7 @@ brokers:
 ```
 
 - 今の manifest の `namespace` キー(ソケットのファイル名)は、ID のネームスペースと紛らわしいので廃止し、`name` で決める。`namespace` が書いてあれば、`name` を使うよう案内してエラーにする。
-- `buffer_size` も廃止する(フレームは長さ付きなので要らない)。
+- `buffer_size` も廃止する(フレームは長さ付きなので要らない)。書いてあっても警告をログに出して無視する(エラーにはしない)。
 - `subsystems:` / `mastersystem:` の接続先も、http・qmp と同じく `ipc://<name>` で書ける。
 
 ### 4.2 CLI
@@ -96,15 +97,16 @@ brokers:
 - 接続は最初の要求のときに作り、以後使い回す。要求は 1 つずつ送る(応答を受け取るまで次を送らない)。
 - 要求を書き終わる前に失敗したら(繋がらない、相手が閉じていた)、接続を作り直して 1 回だけ送り直す。
 - 要求を書き終わった後に失敗したら(応答の途中で切れた、タイムアウト)、送り直さずにエラーを返し、接続を捨てる。次の要求で作り直す。サーバーで処理が済んだかどうかわからないため。
-- 応答の待ち時間の上限は既定 10 秒。BrokerProxy の manifest の `timeout_ms` で変えてよい。
+- 応答の待ち時間の上限は既定 10 秒。BrokerProxy の manifest の `timeout_ms` で変えてよい。Windows の名前付きパイプには読み取りのタイムアウトが無いので、今は待ち時間の上限を設けない(#233 の時点の制限)。
+- 使い回す接続は、要求を書く前に相手が閉じていないかを確かめ(Unix はノンブロッキングの読み取りで EOF を見る)、閉じていれば作り直す。サーバーを再起動した後の最初の要求も、送り直しなしで届く。
 - 応答の `id` が要求と合わなければ、エラーにして接続を捨てる。
 
 ## 6. 組み込み
 
 - juiz_core に feature `ipc-broker` を足す。有効なとき、`register_builtin_broker_factory` で IPC の BrokerFactory と BrokerProxyFactory を登録する。`interprocess` はこの feature のときだけ依存する。
-- juiz_app で既定で有効にするかは #233 で決める(qmp と同じく既定で有効にするのがおすすめ。追加の依存が小さいため)。
+- juiz_core の既定の feature に含め、juiz_app も feature `ipc-broker` で既定で有効にする(#233 で決定)。Unix では追加の依存は無い(`libc` だけ)。`interprocess` は Windows で feature が有効なときだけ依存する。
 
-## 7. 今の実装から変えるもの
+## 7. 今の実装から変えるもの(#233 で変えた)
 
 | 今 | 変えた後 |
 |---|---|

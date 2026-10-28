@@ -41,7 +41,7 @@ env_logger = "0.11.5"
 futures = "0.3.29"
 home = "0.5.9"
 image = "0.24"
-interprocess = {version="2.2.0", features=["tokio"]}
+interprocess = "2.2.0"
 libloading = "0.8.5"
 litrs = "0.4.1"
 log = "0.4.20"

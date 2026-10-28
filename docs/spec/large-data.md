@@ -330,9 +330,9 @@ Topic の profile に、送り手と受け手のそれぞれで次の数を出�
 "shared_memory": {"slots": 4, "slot_bytes": 33554432, "sent": 1200, "fallback": 0, "dropped": 3, "overwritten": 0}
 ```
 
-## 7. 既知の不具合と、直した後の振る舞い(#233 で直す)
+## 7. 既知の不具合と、直した後の振る舞い(#233 で直した)
 
-#230 のベンチで見つかった 3 件。どれも #233 で直す。
+#230 のベンチで見つかった 3 件。どれも #233 で直した。
 
 | # | 今 | 直した後 |
 |---|---|---|
@@ -341,6 +341,12 @@ Topic の profile に、送り手と受け手のそれぞれで次の数を出�
 | 3 | Topic は Value 以外を通さず、同じプロセス内でも `CapsulePtr is not available for Topic` のエラーになる | §5 のとおり、Image と Native も通す。HTTP・IPC・qmp の push でも画像を送れる |
 
 1・2 で HTTP は画像を送れるようになるが、PNG のままなので速くはならない(§4)。
+
+#233 の実装で決めたこと:
+
+- 1: `option.http_broker.max_body_bytes` を HTTP ブローカーに渡す。multipart の部分の `Content-Type: application/json` は、JSON として読めればその値に、読めなければ文字列のままにする(以前は常に文字列にしていたので、pyjuiz が画像と一緒に送った数値が文字列で届いていた)。
+- 2: `HttpBrokerProxy` は、引数がすべて Value なら今までどおり PATCH の JSON、画像があれば PUT の multipart で送る。`From<CapsuleMap> for Value` は `TryFrom` に変えた。
+- 3: Topic の Process は、受け取った `CapsulePtr` をそのまま返す(`ProcessImpl` に、カプセルを複製せずに返す関数を持てるようにした)。転送先のブローカーにも同じ `CapsulePtr` を渡す。
 
 ## 8. Step との対応
 
@@ -352,7 +358,7 @@ Topic の profile に、送り手と受け手のそれぞれで次の数を出�
 | 6 | #236 | 他言語(pyjuiz の IPC クライアント、C++ / Haskell の画像型と `bgr8` など §3.4) |
 | 8 | #237 | リリース(qmp の非互換をリリースノートに書く) |
 
-目標の目安: 別プロセスへの call の戻り値で、720p は 2ms 以下、1080p は 4ms 以下(A)。4K の Topic の push は、生バイトの Unix ソケット(16ms)より速いこと(B)。どれも #230 のベンチに IPC と B を足して確かめる。
+目標の目安: 別プロセスへの call の戻り値で、720p は 2ms 以下、1080p は 4ms 以下(A)。#233 の IPC で 720p 1.2ms、1080p 3.0ms、4K 12.7ms(§1.1 と同じクラウドの Xeon 4 コア、release。HTTP の 12〜16 倍速い)。4K の Topic の push は、生バイトの Unix ソケット(16ms)より速いこと(B)。どれも #230 のベンチに IPC と B を足して確かめる。
 
 ## 9. 対象外
 

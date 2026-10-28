@@ -229,57 +229,87 @@ fn capsule_ptr_to_response(v: CapsulePtr) -> axum::http::Response<Body> {
 //     }
 // }
 
-pub async fn multipart_to_capsule_map(mut multipart: Multipart) -> JuizResult<CapsuleMap> {
-    let mut cm = CapsuleMap::new();
+/// multipart を読めなかったときの応答の状態と文 (issue #233、docs/spec/large-data.md §7)。
+/// 本文が上限 (max_body_bytes) を超えたら 413、形が正しくなければ 400
+#[derive(Debug)]
+pub struct MultipartReadError {
+    pub status: StatusCode,
+    pub message: String,
+}
 
-    loop {
-        match multipart.next_field().await {
-            Ok(opt_field) => {
-                if let Some(field) = opt_field {
-                    // log::trace!(" - field: {:?}", field);
-                    if field.name().is_none() {
-                        log::error!("Multipart/FormData does not have 'field_name' field. This can not be handled.");
-                        return Err(anyhow!(JuizError::InvalidArgumentError{message:"Multipart/FormData does not have 'fieldname' field. This can not be handled.".to_owned()}));
-                    }
-                    let field_name = field.name().unwrap().to_owned();
-                    match field.content_type() {
-                        Some(content_type) => match content_type {
-                            "image/png" => {
-                                match image::load_from_memory_with_format(
-                                    field.bytes().await.unwrap().as_bytes(),
-                                    image::ImageFormat::Png,
-                                ) {
-                                    Ok(img) => {
-                                        cm.insert(field_name, img.into());
-                                    }
-                                    Err(_) => todo!(),
-                                }
-                            }
-                            "application/json" => {
-                                let ft = field.text().await;
-                                println!("match ({field_name}, {:?})", ft);
-                                let v = serde_json::Value::from(ft.unwrap().as_str());
-                                cm.insert(field_name, v.into());
-                            }
-                            _ => {
-                                log::error!("Multipart/FormData does not have available 'content-type' field ({content_type}). This can not be handled.");
-                                return Err(anyhow!(JuizError::InvalidArgumentError{message:format!("Multipart/FormData does not have available 'content-type' field ({content_type}). This can not be handled.")}));
-                            }
-                        },
-                        None => {
-                            log::error!("Multipart/FormData does not have 'content-type' field. This can not be handled.");
-                            return Err(anyhow!(JuizError::InvalidArgumentError{message:"Multipart/FormData does not have 'content-type' field. This can not be handled.".to_owned()}));
-                        }
-                    }
-                } else {
-                    break;
-                }
+impl MultipartReadError {
+    fn bad_request(message: String) -> Self {
+        log::error!("{message}");
+        MultipartReadError {
+            status: StatusCode::BAD_REQUEST,
+            message,
+        }
+    }
+
+    fn from_multipart(e: axum::extract::multipart::MultipartError) -> Self {
+        let status = e.status();
+        let message = if status == StatusCode::PAYLOAD_TOO_LARGE {
+            format!("request body is too large ({}). Raise option.http_broker.max_body_bytes of the server", e.body_text())
+        } else {
+            format!("Multipart/FormData parsing error ({})", e.body_text())
+        };
+        log::error!("{message}");
+        MultipartReadError { status, message }
+    }
+
+    pub fn into_response(self) -> Response {
+        (self.status, Json(jvalue!({ "message": self.message }))).into_response()
+    }
+}
+
+/// multipart/form-data の本文を CapsuleMap にする。部分の Content-Type が image/png なら画像、
+/// application/json なら JSON (読めなければ文字列のまま) にする
+pub async fn multipart_to_capsule_map(
+    mut multipart: Multipart,
+) -> Result<CapsuleMap, MultipartReadError> {
+    let mut cm = CapsuleMap::new();
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(MultipartReadError::from_multipart)?
+    {
+        let Some(field_name) = field.name().map(|n| n.to_owned()) else {
+            return Err(MultipartReadError::bad_request(
+                "Multipart/FormData does not have 'name' in a part. This can not be handled.".to_owned(),
+            ));
+        };
+        let Some(content_type) = field.content_type().map(|c| c.to_owned()) else {
+            return Err(MultipartReadError::bad_request(format!(
+                "Multipart/FormData part '{field_name}' does not have 'content-type'. This can not be handled."
+            )));
+        };
+        match content_type.as_str() {
+            "image/png" => {
+                let bytes = field
+                    .bytes()
+                    .await
+                    .map_err(MultipartReadError::from_multipart)?;
+                let img = image::load_from_memory_with_format(bytes.as_bytes(), image::ImageFormat::Png)
+                    .map_err(|e| {
+                        MultipartReadError::bad_request(format!(
+                            "Multipart/FormData part '{field_name}' is not a PNG image ({e})"
+                        ))
+                    })?;
+                cm.insert(field_name, img.into());
             }
-            Err(e) => {
-                log::error!("Multipart parse error. {e:?}");
-                return Err(anyhow!(JuizError::InvalidArgumentError {
-                    message: format!("Multipart/FormData parsing error. Err({e}).")
-                }));
+            "application/json" => {
+                let text = field
+                    .text()
+                    .await
+                    .map_err(MultipartReadError::from_multipart)?;
+                // pyjuiz などは値を JSON の文字列にして送る。JSON として読めないものは文字列のまま渡す
+                let v = serde_json::from_str::<Value>(&text).unwrap_or(Value::String(text));
+                cm.insert(field_name, v.into());
+            }
+            _ => {
+                return Err(MultipartReadError::bad_request(format!(
+                    "Multipart/FormData part '{field_name}' has unsupported 'content-type' ({content_type}). Use image/png or application/json."
+                )));
             }
         }
     }

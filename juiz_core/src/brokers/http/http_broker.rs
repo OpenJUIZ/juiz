@@ -121,6 +121,18 @@ fn cors_layer(broker_manifest: &Value) -> Option<CorsLayer> {
     )
 }
 
+/// HTTP の本文の上限の既定値 (256 MiB)。4K の画像の PNG も通る (docs/spec/large-data.md §7)
+pub const DEFAULT_MAX_BODY_BYTES: usize = 256 << 20;
+
+/// option.http_broker.max_body_bytes。axum の既定 (2 MB) では 1080p 以上の画像の PNG が届かない
+fn max_body_bytes(broker_manifest: &Value) -> usize {
+    broker_manifest
+        .get("max_body_bytes")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize)
+        .unwrap_or(DEFAULT_MAX_BODY_BYTES)
+}
+
 async fn on_start(broker_manifest: Value, crud_broker: Arc<Mutex<CRUDBroker>>) -> () {
     tokio::spawn(on_start_inner(broker_manifest, crud_broker));
 }
@@ -170,7 +182,9 @@ async fn on_start_inner(broker_manifest: Value, crud_broker: Arc<Mutex<CRUDBroke
                 if serve_webui {
                     announce_webui(host, port);
                 }
-                let mut app = app_new(crud_broker, static_filepaths, serve_webui);
+                let max_body_bytes = max_body_bytes(&broker_manifest);
+                let mut app = app_new(crud_broker, static_filepaths, serve_webui)
+                    .layer(axum::extract::DefaultBodyLimit::max(max_body_bytes));
                 if let Some(cors) = cors_layer(&broker_manifest) {
                     app = app.layer(cors);
                 }

@@ -73,7 +73,7 @@ pub type ClassCallbackContainerType = HashMap<&'static str, CallbackContainerTyp
 pub(crate) fn create_callback_container() -> ClassCallbackContainerType {
     fn _extract_connection_create_parameter(args: CapsuleMap) -> JuizResult<ConnectionManifest> {
         log::debug!("extract_connection_create_param({args:?})");
-        let v = Into::<Value>::into(args);
+        let v = Value::try_from(args)?;
         log::debug!(" - value: {v:?}");
         return v.try_into();
         //return args.get("map")?.try_into().or_else(|e|{Err(anyhow::Error::from(e))})
@@ -81,7 +81,7 @@ pub(crate) fn create_callback_container() -> ClassCallbackContainerType {
 
     fn _extract_create_parameter(args: CapsuleMap) -> JuizResult<Value> {
         log::debug!("extract_create_param({args:?})");
-        let v = args.into();
+        let v = Value::try_from(args)?;
         log::debug!(" - value: {v:?}");
         return Ok(v);
         //return args.get("map")?.try_into().or_else(|e|{Err(anyhow::Error::from(e))})

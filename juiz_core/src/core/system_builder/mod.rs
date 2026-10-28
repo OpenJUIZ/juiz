@@ -14,6 +14,7 @@ mod subsystems;
 mod topics;
 
 mod http_broker;
+#[cfg(feature = "ipc-broker")]
 mod ipc_broker;
 mod local_broker;
 

@@ -38,9 +38,13 @@ mod haskell_container_test;
 mod haskell_plugin_test;
 mod haskell_typed_test;
 mod http_broker_api_test;
+mod http_image_test;
 mod http_router_test;
 mod identifier_test;
+#[cfg(feature = "ipc-broker")]
 mod image_transfer_bench;
+#[cfg(feature = "ipc-broker")]
+mod ipc_broker_api_test;
 mod lazy_eval_test;
 mod local_broker_api_test;
 mod messenger_broker_proxy_test;

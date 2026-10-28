@@ -375,7 +375,7 @@ impl ContainerBrokerProxy for CRUDBrokerProxyHolder {
         let value = capsule_value(self.broker.create(
             "container",
             "create",
-            args.into(),
+            args.try_into()?,
             HashMap::new(),
         )?)?;
         Ok(serde_json::from_value(value)?)

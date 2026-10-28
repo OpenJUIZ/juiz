@@ -19,8 +19,14 @@ pub fn setup_http_broker_factory(system: &mut System) -> JuizResult<()> {
 
 /// option.http_broker のうち、HTTP ブローカーにそのまま渡す項目
 /// (static_filepaths: 静的ファイルの配信、cors_allow_origins: CORS の許可オリジン (issue #112)、
-/// webui: false で埋め込みの管理画面を /ui で配信しない (issue #117))
-const HTTP_BROKER_PASS_THROUGH_OPTIONS: [&str; 3] = ["static_filepaths", "cors_allow_origins", "webui"];
+/// webui: false で埋め込みの管理画面を /ui で配信しない (issue #117)、
+/// max_body_bytes: 本文の上限、既定 256 MiB (issue #233))
+const HTTP_BROKER_PASS_THROUGH_OPTIONS: [&str; 4] = [
+    "static_filepaths",
+    "cors_allow_origins",
+    "webui",
+    "max_body_bytes",
+];
 
 pub(super) fn setup_http_broker(
     system: &mut System,

@@ -23,6 +23,11 @@ pub use brokers::builtin_broker_factories::{
     register_builtin_broker_factory, BrokerFactoryFunction, BrokerProxyFactoryFunction,
 };
 pub use brokers::{localize_identifier, CRUDBrokerProxy, CRUDBrokerProxyHolder};
+/// 生バイトのフレーム形式 (docs/spec/large-data.md §3)。qmp ブローカーも使う
+pub use brokers::frame;
+/// IPC ブローカー (docs/spec/ipc-broker.md、feature "ipc-broker")
+#[cfg(feature = "ipc-broker")]
+pub use brokers::ipc;
 pub use core::{SystemStore, SystemStorePtr};
 pub use ecs::{
     execution_context_core::ExecutionContextState, ExecutionContext, ExecutionContextCore,

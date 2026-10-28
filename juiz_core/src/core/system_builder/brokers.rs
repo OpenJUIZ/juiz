@@ -71,7 +71,8 @@ pub fn setup_brokers(system: &mut System, manifest: &Value) -> JuizResult<()> {
     log::trace!("system_builder::setup_brokers() called");
     for p in get_array(manifest)?.iter() {
         let type_name = obj_get_str(p, "type_name")?;
-        let name = obj_get_str(p, "name")?;
+        // ipc ブローカーは名前を省略できる (juiz になる)
+        let name = obj_get_str(p, "name").unwrap_or("(default)");
         let _ = system.create_broker(&p)?;
         log::info!("Broker({:}:{:}) Created", name, type_name);
     }
