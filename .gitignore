@@ -3,6 +3,7 @@
 .*
 !.gitignore
 !.github/
+!/.cargo/
 *.pyc
 increment_process/target
 examples/cpp/build/
