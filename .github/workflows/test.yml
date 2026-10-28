@@ -34,6 +34,10 @@ env:
   RUST_BACKTRACE: 1
   # pyo3 が埋め込む Python をシステムの python3 に固定する
   PYO3_PYTHON: python3
+  # Haskell の例のビルドに使う GHC と cabal の版。対応するのは GHC 9.6 以降(issue #131)で、その最小の系列で確かめる。
+  # 入れた GHC はキャッシュするので、キャッシュのキーが変わらないよう版は細かく固定する
+  GHC_VERSION: "9.6.7"
+  CABAL_VERSION: "3.18.1.0"
 
 jobs:
   # Rust のビルドとテスト(juiz_core / juiz_app / brokers など)
@@ -58,11 +62,33 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # Haskell の例(examples/haskell)のビルドに使う。対応するのは GHC 9.6 以降(issue #131)
+      # Haskell の例(examples/haskell)のビルドに使う GHC と cabal を入れる。
+      # ghcup での GHC のインストールに Linux で約 2 分、macOS で約 4 分かかるので、入れた GHC をキャッシュする。
+      # GHC の置き場所は ghcup と同じく ${GHCUP_INSTALL_BASE_PREFIX:-$HOME}/.ghcup/ghc/<版>
+      - name: Locate ghcup directory
+        id: ghcup
+        shell: bash
+        run: echo "dir=${GHCUP_INSTALL_BASE_PREFIX:-$HOME}/.ghcup" >> "$GITHUB_OUTPUT"
+      - name: Restore GHC
+        id: ghc-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ steps.ghcup.outputs.dir }}/ghc/${{ env.GHC_VERSION }}
+          key: ghc-${{ env.GHC_VERSION }}-${{ runner.os }}-${{ runner.arch }}
+      # キャッシュに GHC があれば、haskell-actions/setup はインストールを飛ばして ghcup set だけする
       - uses: haskell-actions/setup@v2
         with:
-          ghc-version: "9.6"
-          cabal-version: latest
+          ghc-version: ${{ env.GHC_VERSION }}
+          cabal-version: ${{ env.CABAL_VERSION }}
+          # examples/haskell の依存は GHC に付いてくるパッケージだけなので、Hackage の索引は使わない
+          cabal-update: false
+      # テストが失敗しても次から使えるよう、インストールした直後に保存する
+      - name: Save GHC
+        if: steps.ghc-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.ghcup.outputs.dir }}/ghc/${{ env.GHC_VERSION }}
+          key: ${{ steps.ghc-cache.outputs.cache-primary-key }}
 
       # Python 連携の feature の組み合わせがビルドできることを確かめる(issue #88)
       - name: Check feature combinations
@@ -107,10 +133,33 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # Haskell の例(examples/haskell)のビルドに使う GHC と cabal を入れる。
+      # ghcup での GHC のインストールに Linux で約 2 分、macOS で約 4 分かかるので、入れた GHC をキャッシュする。
+      # GHC の置き場所は ghcup と同じく ${GHCUP_INSTALL_BASE_PREFIX:-$HOME}/.ghcup/ghc/<版>
+      - name: Locate ghcup directory
+        id: ghcup
+        shell: bash
+        run: echo "dir=${GHCUP_INSTALL_BASE_PREFIX:-$HOME}/.ghcup" >> "$GITHUB_OUTPUT"
+      - name: Restore GHC
+        id: ghc-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ steps.ghcup.outputs.dir }}/ghc/${{ env.GHC_VERSION }}
+          key: ghc-${{ env.GHC_VERSION }}-${{ runner.os }}-${{ runner.arch }}
+      # キャッシュに GHC があれば、haskell-actions/setup はインストールを飛ばして ghcup set だけする
       - uses: haskell-actions/setup@v2
         with:
-          ghc-version: "9.6"
-          cabal-version: latest
+          ghc-version: ${{ env.GHC_VERSION }}
+          cabal-version: ${{ env.CABAL_VERSION }}
+          # examples/haskell の依存は GHC に付いてくるパッケージだけなので、Hackage の索引は使わない
+          cabal-update: false
+      # テストが失敗しても次から使えるよう、インストールした直後に保存する
+      - name: Save GHC
+        if: steps.ghc-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.ghcup.outputs.dir }}/ghc/${{ env.GHC_VERSION }}
+          key: ${{ steps.ghc-cache.outputs.cache-primary-key }}
 
       # C++ の例のビルドと Haskell の型付きの例 (gen/ の型) に juiz-idl も使う。
       # haskell_typed_test は Rust の native_pose_component・native_pose_reader も読み込む
