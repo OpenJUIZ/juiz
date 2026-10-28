@@ -116,7 +116,11 @@ pub fn read_value(t: &DataType, v: &Value, path: &str) -> Result<Value> {
                 for f in r.fields.iter() {
                     let fpath = format!("{path}.{}", f.name);
                     let fv = match m.get(&f.name) {
-                        Some(e) => read_value(&f.data_type, e, &fpath)?,
+                        Some(e) => {
+                            let fv = read_value(&f.data_type, e, &fpath)?;
+                            check_constraints(&f.attributes, &f.data_type, &fv, &fpath)?;
+                            fv
+                        }
                         None => match f.default_as_dict() {
                             Some(d) => d,
                             None => {
@@ -153,6 +157,110 @@ pub fn read_value(t: &DataType, v: &Value, path: &str) -> Result<Value> {
             "an image is not a dictionary value (pass it as Capsule::Image)",
         )),
     }
+}
+
+/// フィールドの値の範囲 (`juiz.minimum` / `juiz.maximum`)
+pub const ATTR_MINIMUM: &str = "juiz.minimum";
+pub const ATTR_MAXIMUM: &str = "juiz.maximum";
+/// 文字列の長さ (文字数) の上限 (`juiz.maxLength`)
+pub const ATTR_MAX_LENGTH: &str = "juiz.maxLength";
+/// 配列の要素の数・バイト列のバイト数 (`juiz.minItems` / `juiz.maxItems`)
+pub const ATTR_MIN_ITEMS: &str = "juiz.minItems";
+pub const ATTR_MAX_ITEMS: &str = "juiz.maxItems";
+
+/// フィールドの属性にある制約 (ROS 2 の型の取り込みで付く、仕様 §10) で値を検査する。
+///
+/// `juiz.minItems` / `juiz.maxItems` は配列の要素の数 (`bytes` ならバイト数) に、
+/// `juiz.minimum` / `juiz.maximum` / `juiz.maxLength` は値そのもの (配列なら各要素) に使う。
+/// 制約は互換性の判定と指紋には使わない (仕様 §7.2)
+fn check_constraints(
+    attributes: &Map<String, Value>,
+    t: &DataType,
+    v: &Value,
+    path: &str,
+) -> Result<()> {
+    if attributes.is_empty() || v.is_null() {
+        return Ok(());
+    }
+    let count = match (t, v) {
+        (DataType::Array(_), Value::Array(a)) => Some(a.len()),
+        (DataType::Bytes, Value::String(s)) => base64::engine::general_purpose::STANDARD
+            .decode(s)
+            .ok()
+            .map(|b| b.len()),
+        _ => None,
+    };
+    if let Some(n) = count {
+        if let Some(min) = attributes.get(ATTR_MIN_ITEMS).and_then(|m| m.as_u64()) {
+            if (n as u64) < min {
+                return Err(mismatch(
+                    t,
+                    path,
+                    format!("{n} items is fewer than {ATTR_MIN_ITEMS} {min}"),
+                ));
+            }
+        }
+        if let Some(max) = attributes.get(ATTR_MAX_ITEMS).and_then(|m| m.as_u64()) {
+            if (n as u64) > max {
+                return Err(mismatch(
+                    t,
+                    path,
+                    format!("{n} items is more than {ATTR_MAX_ITEMS} {max}"),
+                ));
+            }
+        }
+    }
+    let (items, values): (&DataType, Vec<(String, &Value)>) = match (t, v) {
+        (DataType::Array(items), Value::Array(a)) => (
+            items,
+            a.iter()
+                .enumerate()
+                .map(|(i, e)| (format!("{path}[{i}]"), e))
+                .collect(),
+        ),
+        (DataType::Optional { inner, .. }, _) => (inner, vec![(path.to_owned(), v)]),
+        _ => (t, vec![(path.to_owned(), v)]),
+    };
+    for (p, e) in values {
+        if let (Some(x), Some(min)) = (
+            e.as_f64(),
+            attributes.get(ATTR_MINIMUM).and_then(|m| m.as_f64()),
+        ) {
+            if x < min {
+                return Err(mismatch(
+                    items,
+                    &p,
+                    format!("{e} is less than {ATTR_MINIMUM} {min}"),
+                ));
+            }
+        }
+        if let (Some(x), Some(max)) = (
+            e.as_f64(),
+            attributes.get(ATTR_MAXIMUM).and_then(|m| m.as_f64()),
+        ) {
+            if x > max {
+                return Err(mismatch(
+                    items,
+                    &p,
+                    format!("{e} is more than {ATTR_MAXIMUM} {max}"),
+                ));
+            }
+        }
+        if let (Some(s), Some(max)) = (
+            e.as_str(),
+            attributes.get(ATTR_MAX_LENGTH).and_then(|m| m.as_u64()),
+        ) {
+            let n = s.chars().count() as u64;
+            if n > max {
+                return Err(mismatch(
+                    items,
+                    &p,
+                    format!("{n} characters is more than {ATTR_MAX_LENGTH} {max}"),
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// 辞書の値 `v` が型 `t` に合うかを検査する (仕様 §4)

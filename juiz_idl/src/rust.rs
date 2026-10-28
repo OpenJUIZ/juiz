@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 
 use juiz_types::DataType;
 
+use crate::constants::record_constants;
 use crate::{GenerateOptions, GeneratedFile, IdlError};
 
 /// 名前空間の木のファイル名
@@ -256,6 +257,34 @@ fn data_type_fn(t: &DataType) -> Result<String, IdlError> {
     ))
 }
 
+/// record の定数 (`juiz.constants`、仕様 §25) を関連定数にする
+fn constants_code(r: &juiz_types::RecordType, name: &str) -> Result<String, IdlError> {
+    let constants = record_constants(r).map_err(|m| IdlError::Generate {
+        message: format!("{}: {m}", r.full_name()),
+    })?;
+    if constants.is_empty() {
+        return Ok(String::new());
+    }
+    let mut out = format!("\n#[allow(non_upper_case_globals)]\nimpl {name} {{\n");
+    for c in constants.iter() {
+        let (ty, lit) = match (&c.data_type, &c.value) {
+            (DataType::Boolean, v) => ("bool", v.to_string()),
+            (DataType::Int, v) => ("i32", v.to_string()),
+            (DataType::Long, v) => ("i64", v.to_string()),
+            (DataType::Float, v) => ("f32", format!("{:?}", v.as_f64().unwrap_or(0.0))),
+            (DataType::Double, v) => ("f64", format!("{:?}", v.as_f64().unwrap_or(0.0))),
+            (_, v) => ("&'static str", format!("{:?}", v.as_str().unwrap_or(""))),
+        };
+        out.push_str(&doc_lines(&c.doc, "    "));
+        out.push_str(&format!(
+            "    pub const {}: {ty} = {lit};\n",
+            ident(&c.name)
+        ));
+    }
+    out.push_str("}\n");
+    Ok(out)
+}
+
 fn type_code(t: &DataType, namespace: &str, options: &GenerateOptions) -> Result<String, IdlError> {
     let mut out = String::new();
     match t {
@@ -319,6 +348,7 @@ fn type_code(t: &DataType, namespace: &str, options: &GenerateOptions) -> Result
 ",
                 r.name
             ));
+            out.push_str(&constants_code(r, &name)?);
         }
         DataType::Enum(e) => {
             let name = module_ident(&e.name)?;

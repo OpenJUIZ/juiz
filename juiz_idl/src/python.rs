@@ -16,6 +16,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use juiz_types::{DataType, TypeSchema};
 use serde_json::Value;
 
+use crate::constants::record_constants;
 use crate::{key_rank, ContainerSignature, GeneratedFile, IdlError, ProcessSignature, Signatures};
 
 pub(crate) const HEADER: &str =
@@ -338,6 +339,24 @@ _jt.define_record(
 ",
         schema_literal(t, 1)?
     ));
+    // 定数 (juiz.constants、仕様 §25) はクラス変数にする (dataclass のフィールドにしない)
+    let constants =
+        record_constants(r).map_err(|m| generate_error(format!("{}: {m}", r.full_name())))?;
+    if !constants.is_empty() {
+        out.push('\n');
+        for c in constants.iter() {
+            if let Some(d) = &c.doc {
+                for l in d.lines() {
+                    out.push_str(&format!("#{}{l}\n", if l.is_empty() { "" } else { " " }));
+                }
+            }
+            out.push_str(&format!(
+                "{name}.{} = {}\n",
+                ident(&c.name, &METHODS),
+                literal(&c.value)
+            ));
+        }
+    }
     Ok(out)
 }
 

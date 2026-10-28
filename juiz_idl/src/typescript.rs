@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use juiz_types::DataType;
 use serde_json::Value;
 
+use crate::constants::record_constants;
 use crate::{GeneratedFile, IdlError};
 
 const HEADER: &str =
@@ -279,6 +280,26 @@ fn file_code(ns: &str, ts: &[&DataType]) -> Result<String, IdlError> {
                         body.push_str(&format!("    {}: {},\n", f.name, json_literal(&d)));
                     }
                     body.push_str("  };\n}\n");
+                }
+                // 定数 (juiz.constants、仕様 §25)
+                let constants = record_constants(r).map_err(|m| IdlError::Generate {
+                    message: format!("{full}: {m}"),
+                })?;
+                if !constants.is_empty() {
+                    let cname = format!("{tn}Constants");
+                    add(
+                        &mut value_names,
+                        &cname,
+                        &format!("the constants of {full}"),
+                    )?;
+                    body.push_str(&format!(
+                        "\n/** {tn} の定数 */\nexport const {cname} = {{\n"
+                    ));
+                    for c in constants.iter() {
+                        body.push_str(&doc_lines(&c.doc, "  "));
+                        body.push_str(&format!("  {}: {},\n", c.name, json_literal(&c.value)));
+                    }
+                    body.push_str("} as const;\n");
                 }
             }
             DataType::Enum(e) => {

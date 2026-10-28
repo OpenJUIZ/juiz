@@ -1564,6 +1564,7 @@ dependencies = [
 name = "juiz_idl"
 version = "0.0.25"
 dependencies = [
+ "base64 0.22.1",
  "clap",
  "juiz_types",
  "serde",

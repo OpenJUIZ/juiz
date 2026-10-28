@@ -1,0 +1,12 @@
+// ROS 2 の demo_msgs/srv/Trigger2 から juiz idl import-ros2 で作った (docs/spec/datatype.md §25)
+namespace ros2.demo_msgs.srv;
+
+record Trigger2_Request {
+}
+
+record Trigger2_Response {
+  boolean success = false;
+  string message = "";
+}
+
+process Trigger2_Response trigger2();

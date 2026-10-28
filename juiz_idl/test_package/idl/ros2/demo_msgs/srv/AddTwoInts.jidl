@@ -1,0 +1,13 @@
+// ROS 2 の demo_msgs/srv/AddTwoInts から juiz idl import-ros2 で作った (docs/spec/datatype.md §25)
+namespace ros2.demo_msgs.srv;
+
+record AddTwoInts_Request {
+  @juiz.ros_type("int64") long a = 0;
+  @juiz.ros_type("int64") long b = 2;
+}
+
+record AddTwoInts_Response {
+  @juiz.ros_type("int64") long sum = 0;
+}
+
+process AddTwoInts_Response add_two_ints(long a = 0, long b = 2);

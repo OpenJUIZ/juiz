@@ -28,6 +28,12 @@ record Imu {
   juiz_std.geometry.Vector3 angular_velocity = {"x": 0.0, "y": 0.0, "z": 0.0};
   /** 加速度 [m/s^2] */
   juiz_std.geometry.Vector3 linear_acceleration = {"x": 0.0, "y": 0.0, "z": 0.0};
+  /** 姿勢の共分散 (3x3 の行優先。ROS 2 の sensor_msgs/Imu と同じく、先頭が -1 なら姿勢の値がない) */
+  @juiz.minItems(9) @juiz.maxItems(9) array<double> orientation_covariance = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+  /** 角速度の共分散 (3x3 の行優先) */
+  @juiz.minItems(9) @juiz.maxItems(9) array<double> angular_velocity_covariance = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+  /** 加速度の共分散 (3x3 の行優先) */
+  @juiz.minItems(9) @juiz.maxItems(9) array<double> linear_acceleration_covariance = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
 }
 
 /** 平面を走査する測距センサ (LiDAR など) の値 */
@@ -45,9 +51,16 @@ record LaserScan {
   float range_max = 0.0;
   /** 距離 [m]。範囲外は range_min〜range_max の外の値 */
   array<float> ranges = [];
+  /** 測定の間の時間 [s] */
+  float time_increment = 0.0;
+  /** 走査の間の時間 [s] */
+  float scan_time = 0.0;
+  /** 反射の強さ (単位は機器による。ないときは空) */
+  array<float> intensities = [];
 }
 
 /** 距離センサ (超音波・赤外線など) の値 */
+@juiz.constants([{"name": "ULTRASOUND", "type": "int", "ros_type": "uint8", "value": 0}, {"name": "INFRARED", "type": "int", "ros_type": "uint8", "value": 1}])
 record Range {
   juiz_std.common.Header header = {"stamp": {"sec": 0, "nanosec": 0}, "frame_id": ""};
   /** 距離 [m] */
@@ -56,4 +69,8 @@ record Range {
   float min_range = 0.0;
   /** 測れる最長の距離 [m] */
   float max_range = 0.0;
+  /** 測り方 (ULTRASOUND = 0、INFRARED = 1) */
+  @juiz.minimum(0) @juiz.maximum(255) int radiation_type = 0;
+  /** 測る範囲の広がりの角度 [rad] */
+  float field_of_view = 0.0;
 }

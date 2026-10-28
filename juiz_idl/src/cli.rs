@@ -2,8 +2,9 @@
 
 use std::path::PathBuf;
 
-use clap::{Args, ValueEnum};
+use clap::{Args, Subcommand, ValueEnum};
 
+use crate::ros2::{import_ros2, Ros2ImportOptions};
 use crate::{
     generate_with, load_files_with, write_files, ExternNamespace, GenerateOptions, IdlError,
     LoadOptions, OutputKind,
@@ -49,7 +50,11 @@ impl From<Generator> for OutputKind {
 
 /// .jidl / .avsc から型のスキーマとコードを生成する
 #[derive(Args, Clone, Debug)]
+#[command(args_conflicts_with_subcommands = true, subcommand_negates_reqs = true)]
 pub struct IdlArgs {
+    #[command(subcommand)]
+    pub command: Option<IdlCommand>,
+
     /// 入力ファイル (.jidl または .avsc)。import した先も読む
     #[arg(required = true)]
     pub files: Vec<PathBuf>,
@@ -77,8 +82,61 @@ pub struct IdlArgs {
     pub externs: Vec<String>,
 }
 
+#[derive(Subcommand, Clone, Debug)]
+pub enum IdlCommand {
+    /// ROS 2 の .msg / .srv / .idl を .jidl に変換する (ros2/<package>/msg/<Name>.jidl などに書き出す)
+    ImportRos2(ImportRos2Args),
+}
+
+#[derive(Args, Clone, Debug)]
+pub struct ImportRos2Args {
+    /// 入力ファイル (<package>/msg/<Name>.msg、<package>/srv/<Name>.srv、または .idl)
+    #[arg(required = true)]
+    pub files: Vec<PathBuf>,
+
+    /// 出力先のディレクトリ (この下の ros2/<package>/… に書く)
+    #[arg(short = 'o', long = "out-dir", default_value = ".")]
+    pub out_dir: PathBuf,
+
+    /// 参照しているメッセージの探し先 (繰り返し可)。<dir>/<package>/msg/<Name>.msg (か .idl) を探す。
+    /// 環境変数 AMENT_PREFIX_PATH の <prefix>/share もこの後に探す
+    #[arg(short = 'I', long = "include-dir")]
+    pub include_dirs: Vec<PathBuf>,
+
+    /// 標準メッセージ (std_msgs/Header、geometry_msgs/Pose など) を juiz_std の型に置き換えない
+    #[arg(long)]
+    pub no_std_map: bool,
+}
+
+/// `juiz idl import-ros2` を実行する。書いた .jidl は読み直して検査する
+pub fn run_import_ros2(args: &ImportRos2Args) -> Result<(), IdlError> {
+    let options = Ros2ImportOptions {
+        search_dirs: args.include_dirs.clone(),
+        std_map: !args.no_std_map,
+    }
+    .with_ament_prefix_path();
+    let imported = import_ros2(&args.files, &options)?;
+    for w in imported.warnings.iter() {
+        eprintln!("warning: {w}");
+    }
+    write_files(&imported.files, &args.out_dir)?;
+    let written: Vec<PathBuf> = imported
+        .files
+        .iter()
+        .map(|f| args.out_dir.join(&f.path))
+        .collect();
+    load_files_with(&written, &LoadOptions::default())?;
+    for p in written.iter() {
+        println!("{}", p.display());
+    }
+    Ok(())
+}
+
 /// `IdlArgs` のとおりに実行する
 pub fn run(args: &IdlArgs) -> Result<(), IdlError> {
+    if let Some(IdlCommand::ImportRos2(a)) = &args.command {
+        return run_import_ros2(a);
+    }
     let load = LoadOptions {
         import_dirs: args.import_dirs.clone(),
     }

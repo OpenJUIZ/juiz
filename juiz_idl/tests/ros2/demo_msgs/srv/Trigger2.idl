@@ -1,0 +1,11 @@
+module demo_msgs {
+  module srv {
+    struct Trigger2_Request {
+      uint8 structure_needs_at_least_one_member;
+    };
+    struct Trigger2_Response {
+      boolean success;
+      string message;
+    };
+  };
+};

@@ -1,0 +1,28 @@
+// ROS 2 の demo_msgs/msg/Sample から juiz idl import-ros2 で作った (docs/spec/datatype.md §25)
+namespace ros2.demo_msgs.msg;
+
+import idl "juiz_std/common.jidl";
+import idl "juiz_std/geometry.jidl";
+import idl "Inner.jidl";
+
+/** ROS 2 の型の取り込みのテスト用 (issue #201)
+2 行目の説明 */
+@juiz.constants([{"name":"MODE_A","ros_type":"uint8","type":"int","value":1},{"name":"NAME_PREFIX","ros_type":"string","type":"string","value":"demo_"},{"name":"SCALE","ros_type":"float64","type":"double","value":0.5}])
+record Sample {
+  /** 時刻と座標系 */
+  juiz_std.common.Header header = {"frame_id":"","stamp":{"nanosec":0,"sec":0}};
+  /** 行末のコメント */
+  @juiz.maximum(32767) @juiz.minimum(-32768) @juiz.ros_type("int16") int small = -5;
+  @juiz.maximum(4294967295) @juiz.minimum(0) @juiz.ros_type("uint32") long count = 0;
+  @juiz.minimum(0) @juiz.ros_type("uint64") long big = 0;
+  @juiz.maxLength(10) string label = "abc";
+  @juiz.maxItems(3) @juiz.minItems(3) array<int> fixed = [1,2,3];
+  @juiz.maxItems(4) array<double> bounded = [];
+  @juiz.ros_type("uint8") bytes blob = "";
+  @juiz.maxItems(2) @juiz.minItems(2) @juiz.ros_type("uint8") bytes pair = "AAA=";
+  juiz_std.geometry.Pose pose = {"orientation":{"w":1.0,"x":0.0,"y":0.0,"z":0.0},"position":{"x":0.0,"y":0.0,"z":0.0}};
+  array<Inner> inners = [];
+  @juiz.ros_type("wstring") string wide = "";
+  boolean flag = true;
+  @juiz.maximum(255) @juiz.minimum(0) @juiz.ros_type("char") int letter = 0;
+}

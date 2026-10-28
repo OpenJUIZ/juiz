@@ -1,0 +1,17 @@
+// ROS 2 の demo_msgs/msg/Mapped から juiz idl import-ros2 で作った (docs/spec/datatype.md §25)
+namespace ros2.demo_msgs.msg;
+
+import idl "juiz_std/sensor.jidl";
+import idl "juiz_std/geometry.jidl";
+import idl "juiz_std/common.jidl";
+
+record Mapped {
+  /** juiz_std に置き換わる標準メッセージ */
+  juiz_std.sensor.Imu imu = {"angular_velocity":{"x":0.0,"y":0.0,"z":0.0},"angular_velocity_covariance":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"header":{"frame_id":"","stamp":{"nanosec":0,"sec":0}},"linear_acceleration":{"x":0.0,"y":0.0,"z":0.0},"linear_acceleration_covariance":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"orientation":{"w":1.0,"x":0.0,"y":0.0,"z":0.0},"orientation_covariance":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]};
+  juiz_std.sensor.LaserScan scan = {"angle_increment":0.0,"angle_max":0.0,"angle_min":0.0,"header":{"frame_id":"","stamp":{"nanosec":0,"sec":0}},"intensities":[],"range_max":0.0,"range_min":0.0,"ranges":[],"scan_time":0.0,"time_increment":0.0};
+  juiz_std.sensor.Range range = {"field_of_view":0.0,"header":{"frame_id":"","stamp":{"nanosec":0,"sec":0}},"max_range":0.0,"min_range":0.0,"radiation_type":0,"range":0.0};
+  juiz_std.geometry.Twist twist = {"angular":{"x":0.0,"y":0.0,"z":0.0},"linear":{"x":0.0,"y":0.0,"z":0.0}};
+  juiz_std.geometry.Point3D point = {"x":0.0,"y":0.0,"z":0.0};
+  juiz_std.common.Time stamp = {"nanosec":0,"sec":0};
+  juiz_std.common.Duration period = {"nanosec":0,"sec":0};
+}

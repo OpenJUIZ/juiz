@@ -12,6 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use juiz_types::DataType;
 use serde_json::Value;
 
+use crate::constants::record_constants;
 use crate::{GeneratedFile, IdlError};
 
 const HEADER: &str =
@@ -426,6 +427,44 @@ fn module_code(
                     body.push_str(&format!(
                         "\n-- | すべてのフィールドが既定値の値\n{default_name} :: {tn}\n{default_name} = either (error . HT.unpack) id (JC.fromValue (JV.JObject HM.empty))\n"
                     ));
+                }
+                // 定数 (juiz.constants、仕様 §25) は `<型><定数名>` の値にする
+                let constants =
+                    record_constants(r).map_err(|m| generate_error(format!("{full}: {m}")))?;
+                for c in constants.iter() {
+                    let acc = accessor(&tn, &c.name);
+                    names.add_value(&acc, &format!("constant {full}.{}", c.name))?;
+                    exports.push(acc.clone());
+                    let paren = |s: String| {
+                        if s.starts_with('-') {
+                            format!("({s})")
+                        } else {
+                            s
+                        }
+                    };
+                    let (ty, lit) = match (&c.data_type, &c.value) {
+                        (DataType::Boolean, v) => (
+                            "Bool",
+                            if v.as_bool() == Some(true) {
+                                "True"
+                            } else {
+                                "False"
+                            }
+                            .to_owned(),
+                        ),
+                        (DataType::Int, v) => ("HI.Int32", paren(v.to_string())),
+                        (DataType::Long, v) => ("HI.Int64", paren(v.to_string())),
+                        (DataType::Float, v) => {
+                            ("Float", paren(format!("{:?}", v.as_f64().unwrap_or(0.0))))
+                        }
+                        (DataType::Double, v) => {
+                            ("Double", paren(format!("{:?}", v.as_f64().unwrap_or(0.0))))
+                        }
+                        (_, v) => ("HT.Text", string_literal(v.as_str().unwrap_or(""))),
+                    };
+                    body.push('\n');
+                    body.push_str(&doc_lines(&c.doc, "", '|'));
+                    body.push_str(&format!("{acc} :: {ty}\n{acc} = {lit}\n"));
                 }
             }
             DataType::Enum(e) => {
