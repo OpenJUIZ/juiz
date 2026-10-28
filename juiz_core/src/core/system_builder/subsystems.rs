@@ -1,4 +1,4 @@
-use crate::{brokers::broker_proxy::SystemBrokerProxy, prelude::*};
+use crate::prelude::*;
 use juiz_sdk::anyhow::anyhow;
 
 pub(super) fn setup_subsystems(system: &System, manifest: &Value) -> JuizResult<()> {
@@ -28,7 +28,6 @@ fn setup_subsystem(system: &System, manifest: &Value) -> JuizResult<()> {
     log::info!("setup_subsystem(manifest:{manifest:?}) called");
     system
         .core_broker()
-        .lock_mut()?
         .system_add_subsystem(manifest.clone())
         .or_else(|e| {
             log::error!("system.add_subsystem(manifest={manifest}) failed. Error: {e:?}");
@@ -46,7 +45,7 @@ pub(super) fn setup_mastersystem(system: &System, manifest: &Value) -> JuizResul
     let info = jvalue!({
         "subsystem": manifest
     });
-    system.core_broker().lock_mut()?.system_add_mastersystem(info).or_else(|e| {
+    system.core_broker().system_add_mastersystem(info).or_else(|e| {
         log::error!("In setup_mastersystem(subsystem.rs), system.add_mastersystem(manifest={manifest}) failed. Error: {e:?}");
         Err(e)
     })?;

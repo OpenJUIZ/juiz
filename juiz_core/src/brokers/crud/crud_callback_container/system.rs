@@ -59,7 +59,8 @@ pub(crate) fn create_update_callbacks() -> CallbackContainerType {
             None => {}
         }
         Ok(value_to_capsule(
-            match cb.lock_mut()?.system_add_subsystem(manif) {
+            // ロックは CoreBrokerPtr 側で必要なときだけ取る (issue #159)
+            match cb.system_add_subsystem(manif) {
                 Ok(v) => Ok(v),
                 Err(e) => {
                     log::error!("system_add_subsystem() failed. Error: {e:}");
@@ -83,9 +84,7 @@ pub(crate) fn create_update_callbacks() -> CallbackContainerType {
             }
             None => {}
         }
-        Ok(value_to_capsule(
-            cb.lock_mut()?.system_add_mastersystem(manif)?,
-        ))
+        Ok(value_to_capsule(cb.system_add_mastersystem(manif)?))
     });
     system_callbacks.insert("load_process", |_crud, cb, args| {
         log::debug!("[UPDATE] system/load_process called");
