@@ -1,6 +1,6 @@
 [package]
 name = "juiz_core"
-version = "0.0.25"
+version = "0.0.26"
 edition = "2021"
 description = "Core library for JUIZ application. This package is not required if you want to build juiz functional module."
 license.workspace = true

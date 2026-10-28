@@ -1,7 +1,7 @@
 [package]
 name = "juiz_types"
 rust-version = "1.81"
-version = "0.0.25"
+version = "0.0.26"
 edition = "2021"
 description = "Data type model (Avro schemas, fingerprints, compatibility) for juiz."
 license.workspace = true
