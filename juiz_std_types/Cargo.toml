@@ -1,0 +1,17 @@
+[package]
+name = "juiz_std_types"
+rust-version = "1.81"
+version = "0.0.25"
+edition = "2021"
+description = "Standard data types (geometry, time, sensor) for juiz, generated from the JIDL built into juiz_idl."
+license.workspace = true
+repository = "https://github.com/OpenJUIZ/juiz"
+readme = "README.md"
+keywords = ["juiz", "robotics", "geometry", "types"]
+categories = ["science::robotics", "encoding"]
+
+[dependencies]
+juiz_sdk = {workspace = true}
+
+[build-dependencies]
+juiz_idl = {workspace = true}

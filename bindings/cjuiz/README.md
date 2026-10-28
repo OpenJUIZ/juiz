@@ -6,7 +6,7 @@ C の関数を呼べて、C の関数を公開できる言語(C、C++、Haskell 
 
 ## libjuiz_sdk の入手
 
-v0.0.22 以降は、libjuiz_sdk とこのヘッダ(C++ のヘッダも)を OS・CPU ごとのアーカイブ `juiz_sdk-<版>-<ターゲット名>.tar.gz` にして
+v0.0.26 以降は、libjuiz_sdk とこのヘッダ(C++ のヘッダも)を OS・CPU ごとのアーカイブ `juiz_sdk-<版>-<ターゲット名>.tar.gz` にして
 [GitHub Releases](https://github.com/OpenJUIZ/juiz/releases) に置いています(Linux x86_64・aarch64、macOS arm64・x86_64)。
 `scripts/install-juiz-sdk.sh <版>` で取得して `~/.juiz/sdk/<版>` に展開できます。中身は次のとおりで、pkg-config の `juiz_sdk.pc` も入っています。
 
@@ -37,6 +37,13 @@ Component の中の要素ならマニフェストの `factory` に書いた名�
 
 関数の戻り値は成功なら `JUIZ_OK`(0)、失敗なら負の値です。C++ では `bindings/cppjuiz/include/juiz/manifest.h` のマクロ
 (`PROCESS_FACTORY`、`CONTAINER_FACTORY` など)がこれらの関数を生成します。
+
+## データ型とネイティブ値(`juiz_type_*`、`capsule_set_native` など)
+
+Process の引数・戻り値の型(docs/spec/datatype.md §21)のための関数です。`juiz_type_new` は Avro のスキーマから型を作り、
+`capsule_ptr_read_typed_value` は引数を型で読みます(指紋と読み方は Rust の実装と同じ)。
+`capsule_set_native` は C++ の値を辞書にせずに戻り値に入れ、`capsule_ptr_borrow_native` は型タグの同じ値をそのまま貸します
+(遅延評価 L3、docs/spec/lazy-evaluation.md)。C++ では `bindings/cppjuiz/include/juiz/types.h` と `juiz-idl -g cpp` の生成コードがこれらを使います。
 
 ## Haskell のプラグイン(`language: "haskell"`)
 

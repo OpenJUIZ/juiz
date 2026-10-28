@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- | Process / Container のマニフェストの組み立て。
 --
 -- > manifest :: ProcessManifest
@@ -36,6 +37,10 @@ module Juiz.Manifest
   , addStringArg
   , addArrayArg
   , addObjectArg
+  , addTypedArg
+  , addTypedArgValue
+  , addTypedArgNoDefault
+  , returns
   , manifestToValue
   , containerManifestToValue
   , componentManifestToValue
@@ -43,9 +48,12 @@ module Juiz.Manifest
 
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
+import Data.Proxy (Proxy (..))
 import Data.Text (Text)
 
-import Juiz.Capsule (object, (.=))
+import Juiz.Capsule (ToCapsule (..), object, (.=))
+import Juiz.Internal.TypeInfo
+import Juiz.Type (JuizType (..))
 import Juiz.Value
 
 data ArgumentManifest = ArgumentManifest
@@ -54,6 +62,8 @@ data ArgumentManifest = ArgumentManifest
   , argTypeName :: !Text
   , argDescription :: !Text
   , argDefault :: !Value
+  -- | 型付きの引数の型 ('addTypedArg' など)。manifest の schema になり、呼ばれたときは値をこの型で読む
+  , argType :: !(Maybe TypeInfo)
   }
   deriving (Eq, Show)
 
@@ -67,6 +77,8 @@ data ProcessManifest = ProcessManifest
   , pmUseMemo :: !Bool
   -- | ContainerProcess のとき、結びつける Container の型名
   , pmContainerType :: !(Maybe Text)
+  -- | 戻り値の型 ('returns'、または関数の結果の型)。manifest の output_schema になる
+  , pmOutputType :: !(Maybe TypeInfo)
   }
   deriving (Eq, Show)
 
@@ -133,6 +145,7 @@ processManifest typeName = ProcessManifest
   , pmArguments = []
   , pmUseMemo = False
   , pmContainerType = Nothing
+  , pmOutputType = Nothing
   }
 
 -- | 型名 (設定ファイルの type_name) を指定して Container のマニフェストを作る
@@ -186,7 +199,7 @@ useMemo b m = m { pmUseMemo = b }
 
 -- | 引数を足す。型名 → 名前 → 説明 → 既定値
 addArg :: HasArguments m => Text -> Text -> Text -> Value -> m -> m
-addArg typeName name desc def = appendArgument (ArgumentManifest name typeName desc def)
+addArg typeName name desc def = appendArgument (ArgumentManifest name typeName desc def Nothing)
 
 addBoolArg :: HasArguments m => Text -> Text -> Bool -> m -> m
 addBoolArg name desc def = addArg "Bool" name desc (JBool def)
@@ -206,6 +219,29 @@ addArrayArg name desc def = addArg "Array" name desc (JArray def)
 addObjectArg :: HasArguments m => Text -> Text -> [(Text, Value)] -> m -> m
 addObjectArg name desc def = addArg "Object" name desc (JObject (Map.fromList def))
 
+-- | 型付きの引数を足す (型は juiz-idl -g haskell の生成した型など、docs/spec/datatype.md §22)。
+-- 名前 → 説明 → 既定値 (その型の値)。
+--
+-- > addTypedArg "target" "goal pose" defaultPose2D
+addTypedArg :: forall a m. (JuizType a, HasArguments m) => Text -> Text -> a -> m -> m
+addTypedArg name desc def = addTypedArgValue (Proxy :: Proxy a) name desc (toValue def)
+
+-- | 型付きの引数を足す。既定値は辞書の表し方 (仕様 §4) で書く。'JNull' は既定値なし
+addTypedArgValue :: (JuizType a, HasArguments m) => Proxy a -> Text -> Text -> Value -> m -> m
+addTypedArgValue p name desc def =
+  let t = juizType p
+  in appendArgument (ArgumentManifest name (typeInfoTypeName t) desc def (Just t))
+
+-- | 既定値のない型付きの引数を足す (呼ぶときに必ず渡す)
+--
+-- > addTypedArgNoDefault (Proxy :: Proxy Pose2D) "target" "goal pose"
+addTypedArgNoDefault :: (JuizType a, HasArguments m) => Proxy a -> Text -> Text -> m -> m
+addTypedArgNoDefault p name desc = addTypedArgValue p name desc JNull
+
+-- | 戻り値の型 (output_schema)。関数の結果が型付きの型なら書かなくても載る。書いたときは関数の結果の型と同じにする
+returns :: JuizType a => Proxy a -> ProcessManifest -> ProcessManifest
+returns p m = m { pmOutputType = Just (juizType p) }
+
 -- | juiz に渡す形 (C++ の ProcessManifest::into_value と同じ項目)
 manifestToValue :: ProcessManifest -> Value
 manifestToValue m = object $
@@ -217,6 +253,17 @@ manifestToValue m = object $
   , "arguments" .= map argumentToValue (pmArguments m)
   ]
   ++ maybe [] (\c -> ["container_type" .= c]) (pmContainerType m)
+  ++ maybe [] outputSchema (pmOutputType m)
+  where
+    -- 古いクライアント向けに、type_name だけの outputs も載せる (仕様 §6)
+    outputSchema t =
+      [ "output_schema" .= typeInfoSchema t
+      , "outputs" .= object
+          [ "enum_type" .= ("Primitive" :: Text)
+          , "type_name" .= typeInfoTypeName t
+          , "default_value" .= JNull
+          ]
+      ]
 
 -- | juiz に渡す形 (C++ の ContainerManifest::into_value と同じ項目)
 containerManifestToValue :: ContainerManifest -> Value
@@ -256,9 +303,10 @@ componentManifestToValue c
     duplicates xs = [x | (i, x) <- zip [0 :: Int ..] xs, x `elem` take i xs]
 
 argumentToValue :: ArgumentManifest -> Value
-argumentToValue a = object
+argumentToValue a = object $
   [ "name" .= argName a
   , "type_name" .= argTypeName a
   , "description" .= argDescription a
   , "default" .= argDefault a
   ]
+  ++ maybe [] (\t -> ["schema" .= typeInfoSchema t]) (argType a)

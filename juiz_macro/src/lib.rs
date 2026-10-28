@@ -146,6 +146,7 @@ extern crate proc_macro;
 mod component;
 mod container;
 mod container_process;
+mod juiz_type;
 mod process;
 mod util;
 
@@ -173,6 +174,18 @@ use crate::proc_macro::TokenStream;
 ///     log::trace!("listener({:}) called", arg1);
 ///     println!("listener: {:}", arg1);
 ///     return Ok(jvalue!("Hello World").into());
+/// }
+/// ```
+///
+/// 引数と戻り値には `JuizType` を実装した型 (`#[derive(JuizType)]` や juiz-idl の生成型) も使える (issue #192)。
+/// manifest に型参照 (`schema` / `output_schema`) が載る。型付きの引数の既定値は辞書の表し方で書き、
+/// 書かなければ既定値なしになる。record の戻り値は encode せずにネイティブ値で返り、同じプラグインの
+/// Process へはそのまま渡る (docs/spec/datatype.md §17)。
+///
+/// ```ignore
+/// #[juiz_process(arguments = { default = { target = { position = { x = 0.0, y = 0.0 } } } })]
+/// fn move_to(target: Pose2D, speed: f64) -> JuizResult<Pose2D> {
+///     Ok(target)
 /// }
 /// ```
 #[proc_macro_attribute]
@@ -327,4 +340,31 @@ pub fn juiz_component_container(attr: TokenStream, item: TokenStream) -> TokenSt
 #[proc_macro_attribute]
 pub fn juiz_component_container_process(attr: TokenStream, item: TokenStream) -> TokenStream {
     container_process::juiz_component_container_process_inner(attr, item)
+}
+
+/// juiz の型 (`juiz_sdk::types::JuizType`) を struct / enum に実装するマクロ (issue #190)
+///
+/// 名前空間 `#[juiz(namespace = "...")]` は必須。フィールドの順番は宣言順で、指紋に入る。
+/// フィールドの既定値は `#[juiz(default = 値)]` (辞書の表し方)、列挙の既定値は変種に `#[juiz(default)]` で付ける。
+/// `///` のコメントはスキーマの `doc` になる。
+/// struct (record) は Process の戻り値になったときネイティブ値で渡すので、`Clone` も実装しておく必要がある。
+///
+/// # Examples
+///
+/// ```ignore
+/// #[derive(Clone, JuizType)]
+/// #[juiz(namespace = "robot.geometry")]
+/// struct Pose2D {
+///     position: Point2D,
+///     #[juiz(default = 0.0)]
+///     theta: f64,
+/// }
+///
+/// #[derive(JuizType)]
+/// #[juiz(namespace = "robot.geometry")]
+/// enum MotorMode { #[juiz(default)] Idle, Velocity, Position }
+/// ```
+#[proc_macro_derive(JuizType, attributes(juiz))]
+pub fn derive_juiz_type(item: TokenStream) -> TokenStream {
+    juiz_type::derive_juiz_type_inner(item)
 }

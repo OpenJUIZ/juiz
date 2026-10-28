@@ -62,6 +62,19 @@ impl<T, TF> ObjectCollection<T, TF> {
         }
     }
 
+    /// Factory の登録を外す。実行中に定義した Composite を消すときに使う (issue #171)
+    pub fn deregister_factory(&mut self, type_name: &str) -> JuizResult<TF> {
+        log::trace!(
+            "ObjectCollection({})::deregister_factory(type_name={type_name}) called",
+            self.name
+        );
+        self.factories.remove(type_name).ok_or_else(|| {
+            anyhow::Error::from(JuizError::FactoryCanNotFoundError {
+                type_name: type_name.to_owned(),
+            })
+        })
+    }
+
     /// 同じ ID のオブジェクトが登録されているか
     pub fn contains(&self, id: &Identifier) -> bool {
         self.objects.contains_key(id)

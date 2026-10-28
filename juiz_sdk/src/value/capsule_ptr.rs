@@ -5,7 +5,7 @@ use image::DynamicImage;
 use std::{
     collections::HashMap,
     fmt::Display,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, MutexGuard},
 };
 // #[cfg(feature="opencv4")]
 // pub use opencv::core::Mat;
@@ -13,6 +13,7 @@ use std::{
 use serde_json::Map;
 
 use crate::prelude::*;
+use super::native::*;
 
 #[repr(C)]
 #[derive(Debug)]
@@ -25,6 +26,46 @@ impl Display for CapsulePtr {
         f.write_fmt(format_args!("CapsulePtr({})", self.value.lock().unwrap()))
     }
 }
+/// Capsule をロックして返す。中身がまだ encode していない Native なら、ロックを放してから encode し、
+/// もう一度ロックする。ロックを持ったまま encode すると、GIL を持ってこのロックを待つスレッドと
+/// 相互待ちになるため (docs/spec/lazy-evaluation.md §6)。
+/// 返したガードの中の Capsule は、as_value() などを呼んでも encode が起きない。
+pub fn lock_encoded<'a>(
+    capsule: &'a Arc<Mutex<Capsule>>,
+    name: &str,
+) -> JuizResult<MutexGuard<'a, Capsule>> {
+    loop {
+        let cell = {
+            let guard = capsule.lock().or_else(|_| Err(mutex_lock_error(name)))?;
+            match guard.native_cell() {
+                Some(cell) if !cell.is_encoded() => cell.clone(),
+                _ => return Ok(guard),
+            }
+        };
+        // ロックの外で encode する。結果は NativeCell の中に覚える。
+        // その間に中身が差し替わっていたら、差し替わった後の中身でやり直す。
+        let _ = cell.encoded();
+    }
+}
+
+fn mutex_lock_error(name: &str) -> anyhow::Error {
+    anyhow::Error::from(JuizError::MutexLockFailedError {
+        error: format!("CapsulePtr.{name}() lock error."),
+    })
+}
+
+fn not_value_error(name: &str) -> anyhow::Error {
+    anyhow::Error::from(JuizError::ValueTypeError {
+        message: format!("{name}() failed. Value is not value-type"),
+    })
+}
+
+fn not_image_error(name: &str) -> anyhow::Error {
+    anyhow::Error::from(JuizError::ValueTypeError {
+        message: format!("{name}() failed. Value is not image-type"),
+    })
+}
+
 impl CapsulePtr {
     pub fn new() -> Self {
         Self {
@@ -121,39 +162,37 @@ impl CapsulePtr {
     where
         F: FnOnce(&Value, &HashMap<String, String>) -> T,
     {
-        match self.value.lock() {
-            Ok(c) => match c.as_value() {
-                Some(v) => Ok(func(v, c.get_options())),
-                None => todo!(),
-            },
-            Err(_e) => Err(anyhow::Error::from(JuizError::MutexLockFailedError {
-                error: "CapsulePtr.lock_as_value() lock error.".to_owned(),
-            })),
+        let c = lock_encoded(&self.value, "lock_as_value_and_opt")?;
+        match c.try_as_value()? {
+            Some(v) => Ok(func(v, c.get_options())),
+            None => Err(not_value_error("lock_as_value_and_opt")),
         }
     }
 
+    /// 画像型の中身を取り出す。ほかに参照が無ければ複製せずに移し、あれば複製する。
     pub fn extract_image(self) -> JuizResult<DynamicImage> {
+        let not_image = |v: &Capsule| {
+            anyhow!(JuizError::ValueTypeError {
+                message: format!("value must be image, but {:?}", v)
+            })
+        };
         match Arc::try_unwrap(self.value) {
-            Ok(v) => match v.into_inner() {
-                Ok(vv) => return Ok(vv.to_image().unwrap()),
-                Err(v) => return Ok(v.get_ref().as_image().unwrap().clone()),
-            },
-            Err(e) => e
-                .lock()
-                .or_else(|_| {
-                    Err(anyhow::Error::from(JuizError::MutexLockFailedError {
-                        error: "".to_owned(),
-                    }))
+            Ok(v) => {
+                let c = v.into_inner().unwrap_or_else(|e| e.into_inner());
+                let desc = format!("{:?}", c);
+                c.try_to_image()?.ok_or_else(|| {
+                    anyhow!(JuizError::ValueTypeError {
+                        message: format!("value must be image, but {desc}")
+                    })
                 })
-                .and_then(|v| {
-                    if let Some(img) = v.as_image() {
-                        Ok(img.clone())
-                    } else {
-                        Err(anyhow!(JuizError::ValueTypeError {
-                            message: format!("value must be image, but {:?}", v)
-                        }))
-                    }
-                }),
+            }
+            Err(e) => {
+                let v = lock_encoded(&e, "extract_image")?;
+                match v.try_as_image()? {
+                    Some(img) => Ok(img.clone()),
+                    None => Err(not_image(&v)),
+                }
+            }
         }
     }
 
@@ -165,19 +204,16 @@ impl CapsulePtr {
             })
         };
         match Arc::try_unwrap(self.value) {
-            Ok(v) => match v.into_inner() {
-                Ok(vv) => vv.to_value().ok_or_else(not_value),
-                Err(v) => v.get_ref().as_value().cloned().ok_or_else(not_value),
-            },
-            Err(e) => e
-                .lock()
-                // or(Err(..)) だと成功時にもエラー値（バックトレース付き）を作るので、失敗時だけ作る
-                .or_else(|_| {
-                    Err(anyhow::Error::from(JuizError::MutexLockFailedError {
-                        error: "CapsulePtr.extract_value() lock error.".to_owned(),
-                    }))
-                })
-                .and_then(|v| v.as_value().cloned().ok_or_else(not_value)),
+            // ロックを持っていないので、Native ならここで encode してよい
+            Ok(v) => v
+                .into_inner()
+                .unwrap_or_else(|e| e.into_inner())
+                .try_to_value()?
+                .ok_or_else(not_value),
+            Err(e) => lock_encoded(&e, "extract_value")?
+                .try_as_value()?
+                .cloned()
+                .ok_or_else(not_value),
         }
     }
 
@@ -185,26 +221,10 @@ impl CapsulePtr {
     where
         F: FnOnce(&Value) -> T,
     {
-        // println!("lock_as_value() called");
-        match self.value.lock() {
-            Ok(c) => {
-                // println!("locked");
-                match c.as_value() {
-                    Some(v) => {
-                        // println!("do");
-                        Ok(func(v))
-                    }
-                    None => {
-                        Err(anyhow::Error::from(JuizError::ValueTypeError {
-                            message: format!("lock_as_value() failed. Value is not value-type"),
-                        }))
-                        //todo!()
-                    }
-                }
-            }
-            Err(_e) => Err(anyhow::Error::from(JuizError::MutexLockFailedError {
-                error: "CapsulePtr.lock_as_value() lock error.".to_owned(),
-            })),
+        let c = lock_encoded(&self.value, "lock_as_value")?;
+        match c.try_as_value()? {
+            Some(v) => Ok(func(v)),
+            None => Err(not_value_error("lock_as_value")),
         }
     }
 
@@ -212,20 +232,16 @@ impl CapsulePtr {
     where
         F: FnOnce(&str) -> T,
     {
-        match self.value.lock() {
-            Ok(c) => match c.as_value() {
-                Some(v) => match v.as_str() {
-                    Some(s) => Ok(func(s)),
-                    None => Err(anyhow::Error::from(JuizError::ValueTypeError {
-                        message: "CapsulePtr.lock_as_str() value is not str type.".to_owned(),
-                    })),
-                },
+        let c = lock_encoded(&self.value, "lock_as_str")?;
+        match c.try_as_value()? {
+            Some(v) => match v.as_str() {
+                Some(s) => Ok(func(s)),
                 None => Err(anyhow::Error::from(JuizError::ValueTypeError {
-                    message: "CapsulePtr.lock_as_value() data is not Value type.".to_owned(),
+                    message: "CapsulePtr.lock_as_str() value is not str type.".to_owned(),
                 })),
             },
-            Err(_e) => Err(anyhow::Error::from(JuizError::MutexLockFailedError {
-                error: "CapsulePtr.lock_as_str() lock error.".to_owned(),
+            None => Err(anyhow::Error::from(JuizError::ValueTypeError {
+                message: "CapsulePtr.lock_as_value() data is not Value type.".to_owned(),
             })),
         }
     }
@@ -234,20 +250,16 @@ impl CapsulePtr {
     where
         F: FnOnce(&Map<String, Value>) -> T,
     {
-        match self.value.lock() {
-            Ok(c) => match c.as_value() {
-                Some(v) => match v.as_object() {
-                    Some(s) => Ok(func(s)),
-                    None => Err(anyhow::Error::from(JuizError::ValueTypeError {
-                        message: "CapsulePtr.lock_as_map() value is not Map type.".to_owned(),
-                    })),
-                },
+        let c = lock_encoded(&self.value, "lock_as_map")?;
+        match c.try_as_value()? {
+            Some(v) => match v.as_object() {
+                Some(s) => Ok(func(s)),
                 None => Err(anyhow::Error::from(JuizError::ValueTypeError {
-                    message: "CapsulePtr.lock_as_map() data is not Value type.".to_owned(),
+                    message: "CapsulePtr.lock_as_map() value is not Map type.".to_owned(),
                 })),
             },
-            Err(_e) => Err(anyhow::Error::from(JuizError::MutexLockFailedError {
-                error: "CapsulePtr.lock_as_map() lock error.".to_owned(),
+            None => Err(anyhow::Error::from(JuizError::ValueTypeError {
+                message: "CapsulePtr.lock_as_map() data is not Value type.".to_owned(),
             })),
         }
     }
@@ -256,14 +268,14 @@ impl CapsulePtr {
     where
         F: FnOnce(&mut Value) -> T,
     {
-        match self.value.lock() {
-            Ok(mut c) => match c.as_value_mut() {
-                Some(v) => Ok(func(v)),
-                None => todo!(),
-            },
-            Err(_e) => Err(anyhow::Error::from(JuizError::MutexLockFailedError {
-                error: "CapsulePtr.lock_as_value() lock error.".to_owned(),
-            })),
+        let mut c = lock_encoded(&self.value, "lock_modify_as_value")?;
+        if c.is_native() {
+            // encode の失敗をエラーで返すため、先に確かめる (キャッシュ済みなので encode は起きない)
+            c.try_as_value()?;
+        }
+        match c.as_value_mut() {
+            Some(v) => Ok(func(v)),
+            None => Err(not_value_error("lock_modify_as_value")),
         }
     }
 
@@ -285,14 +297,50 @@ impl CapsulePtr {
     where
         F: FnOnce(&DynamicImage) -> T,
     {
+        let c = lock_encoded(&self.value, "lock_as_image")?;
+        match c.try_as_image()? {
+            Some(v) => Ok(func(v)),
+            None => Err(not_image_error("lock_as_image")),
+        }
+    }
+
+    /// 中身が Native か (encode しない)
+    pub fn is_native(&self) -> JuizResult<bool> {
         match self.value.lock() {
-            Ok(c) => match c.as_image() {
+            Ok(c) => Ok(c.is_native()),
+            Err(_e) => Err(mutex_lock_error("is_native")),
+        }
+    }
+
+    /// ロックして中身のネイティブ値を渡す。Native でなければ ValueTypeError
+    pub fn lock_as_native<T, F>(&self, func: F) -> JuizResult<T>
+    where
+        F: FnOnce(&dyn NativeValue) -> T,
+    {
+        match self.value.lock() {
+            Ok(c) => match c.as_native() {
                 Some(v) => Ok(func(v)),
-                None => todo!(),
+                None => Err(anyhow::Error::from(JuizError::ValueTypeError {
+                    message: "lock_as_native() failed. Value is not native-type".to_owned(),
+                })),
             },
-            Err(_e) => Err(anyhow::Error::from(JuizError::MutexLockFailedError {
-                error: "CapsulePtr.lock_as_value() lock error.".to_owned(),
-            })),
+            Err(_e) => Err(mutex_lock_error("lock_as_native")),
+        }
+    }
+
+    /// ほかに参照が無ければ、中の Capsule を取り出す。あれば自分を返す
+    pub fn try_into_capsule(self) -> Result<Capsule, CapsulePtr> {
+        match Arc::try_unwrap(self.value) {
+            Ok(m) => Ok(m.into_inner().unwrap_or_else(|e| e.into_inner())),
+            Err(value) => Err(CapsulePtr { value }),
+        }
+    }
+
+    /// ロックの外で使うために、中身の NativeCell を複製して返す
+    pub fn native_cell(&self) -> JuizResult<Option<NativeCell>> {
+        match self.value.lock() {
+            Ok(c) => Ok(c.native_cell().cloned()),
+            Err(_e) => Err(mutex_lock_error("native_cell")),
         }
     }
 

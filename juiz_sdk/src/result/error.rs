@@ -234,6 +234,8 @@ pub enum JuizError {
     InvalidSettingError { message: String },
     #[error("ValueType Error {message}")]
     ValueTypeError { message: String },
+    #[error("Encoding native value ({native:}) failed. Error({message:})")]
+    NativeEncodeError { native: String, message: String },
     #[error("Value is invalid value ({message})")]
     InvalidValueError { message: String },
     #[error("Idnetifier is invalid value ({message})")]
@@ -271,9 +273,67 @@ pub enum JuizError {
     ConnectionManifestInvalidError { message: String },
     #[error("TopicManifest is invalid. (message={message})")]
     TopicManifestInvalidError { message: String },
+    /// Composite の定義の規則違反 (issue #166)。`path` はノードの位置 (`body.img` など、定義全体のときは空)
+    #[error("Composite({type_name}) is invalid at {path}: {message}")]
+    CompositeManifestInvalidError {
+        type_name: String,
+        path: String,
+        message: String,
+    },
+    /// Composite の評価中にノードで起きたエラー (issue #167)。元のエラーは anyhow の context の下に残る
+    #[error("Composite({type_name}) failed at {path} ({child_type_name}): {error}")]
+    CompositeNodeError {
+        type_name: String,
+        path: String,
+        child_type_name: String,
+        error: String,
+    },
+
+    /// CompositeContainer のスロットが参照している Container は消せない (issue #168)。
+    /// `referenced_by` は参照している CompositeContainer の ID
+    #[error("Container({id}) is in use by CompositeContainer({}). Destroy them first.", referenced_by.join(", "))]
+    ContainerInUseError {
+        id: String,
+        referenced_by: Vec<String>,
+    },
+
+    /// インスタンスか他の Composite が使っている Composite の Factory は消せない (issue #171)。
+    /// `used_by` はインスタンスの ID と、子として使っている Composite の型名
+    #[error("Composite({type_name}) is in use by {}. Destroy them first.", used_by.join(", "))]
+    CompositeInUseError {
+        type_name: String,
+        used_by: Vec<String>,
+    },
+    /// 実行中に消せるのは Composite の Factory だけ (issue #171)
+    #[error(
+        "Factory({type_name}) is not a Composite. Only Composites can be destroyed at runtime."
+    )]
+    NotCompositeError { type_name: String },
 
     #[error("Poison Error (error={error})")]
     PoisonError { error: String },
+
+    /// 型のスキーマ (や JIDL) が仕様 docs/spec/datatype.md §3 の規則に合わない (issue #190)。`path` は型の中の位置
+    #[error("Type schema is invalid at '{path}': {message}")]
+    TypeSchemaInvalidError { path: String, message: String },
+    /// writer の型の値を reader の型として読めない (仕様 §7)。`writer` / `reader` は型の識別子
+    #[error("Type {writer} cannot be read as {reader} at '{path}': {reason}")]
+    TypeIncompatibleError {
+        writer: String,
+        reader: String,
+        path: String,
+        reason: String,
+    },
+    /// 辞書の値が型に合わない (仕様 §4)
+    #[error("Value does not match type {type_name} at '{path}': {reason}")]
+    ValueDoesNotMatchTypeError {
+        type_name: String,
+        path: String,
+        reason: String,
+    },
+    /// 型の登録所にない、または完全名だけでは決まらない (issue #193)
+    #[error("Type({identifier}) is not found: {message}")]
+    TypeNotFoundError { identifier: String, message: String },
 }
 
 impl<T> From<PoisonError<T>> for JuizError {

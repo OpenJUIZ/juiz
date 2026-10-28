@@ -86,6 +86,10 @@ module Juiz
   , addStringArg
   , addArrayArg
   , addObjectArg
+  , addTypedArg
+  , addTypedArgValue
+  , addTypedArgNoDefault
+  , returns
   , (&)
     -- * 値
   , Value (..)
@@ -93,10 +97,19 @@ module Juiz
   , ToCapsule (..)
   , object
   , (.=)
+    -- * データ型 (juiz-idl -g haskell の生成した型、docs/spec/datatype.md §22)
+  , JuizType (..)
+  , TypeInfo
+  , typeInfoName
+  , typeInfoFingerprint
+  , typeInfoSchema
+  , unsafeTypeInfo
+  , Proxy (..)
     -- * エラー
   , JuizError (..)
   , throwJuiz
   , juizHaskellContainerTypeError
+  , juizValueDoesNotMatchTypeError
     -- * よく使う型
   , Int64
   , Word64
@@ -138,6 +151,7 @@ import Data.Function ((&))
 import Data.Int (Int64)
 import Data.IORef (IORef, atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Map.Strict (Map)
+import Data.Proxy (Proxy (..))
 import Data.Text (Text)
 import Data.Word (Word64)
 import Foreign.Ptr (FunPtr)
@@ -159,4 +173,5 @@ import Juiz.Internal.FFI
 import Juiz.Manifest
 import Juiz.Process
 import Juiz.TH
+import Juiz.Type
 import Juiz.Value

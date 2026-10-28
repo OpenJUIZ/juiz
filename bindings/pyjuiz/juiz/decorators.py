@@ -3,6 +3,7 @@ import inspect
 import functools
 
 from .juiz import *
+from . import datatype
 from PIL.Image import Image
 import docstring_parser
 
@@ -54,6 +55,14 @@ class PyJuizProcessReturnsCannotCreateDeafultError(Exception):
     
 class PyJuizContainerArgumentUnknownTypeError(Exception): pass
 class PyJuizContainerReturnsUnknownTypeError(Exception): pass
+
+def _signature(function):
+    """関数のシグネチャ。from __future__ import annotations で文字列になった型注釈も型にする"""
+    try:
+        return inspect.signature(function, eval_str=True)
+    except (NameError, TypeError, SyntaxError):
+        return inspect.signature(function)
+
 
 def allow_no_arg_decorator(decorator_function):
     def wrapper(*args, **kwargs):
@@ -132,9 +141,29 @@ def __type_inspect_from_annotation(annotation_obj):
         raise PyJuizUnknownTypeError(annotation_obj)
 
 
+def _typed_type_name(cls):
+    """生成した型の manifest の type_name (仕様 §6 の表。record は Object、enum は String)"""
+    import enum
+    return 'String' if issubclass(cls, enum.Enum) else 'Object'
+
+
+def _add_typed_arg_manifest(manifest, param):
+    """juiz-idl が生成した型の引数。manifest に型参照を載せ、既定値は辞書の表し方にする"""
+    cls = param.annotation
+    if param.default is inspect.Parameter.empty:
+        default = None  # 既定値なし (仕様 §6)
+    else:
+        default = datatype.converter_of(cls).to_value(param.default, param.name)
+    manifest.add_typed_arg(param.name, "", default, datatype.type_schema(cls), _typed_type_name(cls))
+
+
 def _add_arg_manifest(manifest, function_name, param):
-    """ 型注釈を必須として、引数の情報を manifest に追加する。dataclassかどうかのフラグを返す。"""
+    """ 型注釈を必須として、引数の情報を manifest に追加する。
+    juiz-idl が生成した型ならその型 (呼び出し時に辞書から変換する)、それ以外は None を返す。"""
     _require_arg_annotation(function_name, param)
+    if datatype.is_juiz_type(param.annotation):
+        _add_typed_arg_manifest(manifest, param)
+        return param.annotation
     try:
         param_type, is_dataclass, param_default = _type_inspect(param.annotation, param.default)
     except PyJuizCannotCreateDeafultError as e:
@@ -156,7 +185,7 @@ def _add_arg_manifest(manifest, function_name, param):
         manifest.add_array_arg(param.name, param_desc, param_default)
     elif param_type == Image:
         manifest.add_image_arg(param.name, param_desc, param_default)
-    return is_dataclass
+    return None
 
 
 def _returns_profile(returns):
@@ -185,13 +214,51 @@ def _returns_profile(returns):
         raise PyJuizProcessReturnsUnknownTypeError(returns_type=returns)
     else:
         raise PyJuizProcessReturnsUnknownTypeError(returns_type=returns)
+
+
+def _set_returns(manifest, function_name, signature):
+    """戻り値の型注釈を manifest に載せる。
+
+    returns: (dataclassかどうかのフラグ, juiz-idl が生成した型か None)
+    """
+    _require_return_annotation(function_name, signature)
+    returns = signature.return_annotation
+    if datatype.is_juiz_type(returns):
+        manifest.set_output_schema(datatype.type_schema(returns), _typed_type_name(returns))
+        return False, returns
+    manifest.outputs, is_dataclass = _returns_profile(returns)
+    return is_dataclass, None
+
+
+def _convert_args(names, arg_types, args, kwargs):
+    """juiz-idl が生成した型の引数を、その型の値にする。
+
+    同じ型の値 (Python の Process が返したネイティブ値) はそのまま、辞書 (ほかの言語・ブローカーから) は
+    仕様 §4 の規則で読む (juiz.datatype.coerce)。
+    """
+    args = [a if t is None else datatype.coerce(t, a, n) for a, n, t in zip(args, names, arg_types)] + list(args[len(arg_types):])
+    for k, v in list(kwargs.items()):
+        if k in names:
+            t = arg_types[names.index(k)]
+            if t is not None:
+                kwargs[k] = datatype.coerce(t, v, k)
+    return args, kwargs
+
+
+def _convert_result(returns_is_dataclass, returns_type, result):
+    if returns_type is not None:
+        # 生成した型の値はそのまま返す (Python 同士ではネイティブ値のまま渡り、ほかが読むときに to_value で辞書になる)
+        return datatype.coerce(returns_type, result)
+    if returns_is_dataclass:
+        return convert_process_result(dataclasses.asdict(result))
+    return convert_process_result(result)
     
 
 class JuizProcess(object):
     def __init__(self, proc):
         self.__proc = proc
         self.name = proc.__name__
-        self.signature = inspect.signature(proc)
+        self.signature = _signature(proc)
         try:
             self._doc_obj = docstring_parser.parse(proc.__doc__)
             print('doc_obj:', self._doc_obj)
@@ -199,22 +266,19 @@ class JuizProcess(object):
             raise PyJuizDocStringParseError()
         
         self._manifest = ProcessManifest.new(self.name).set_description(proc.__doc__)
-        self._arg_is_dataclass = []
-        self._returns_is_dataclass = False
+        self._arg_names = list(self.signature.parameters)
+        self._arg_types = []
         
         for p in self.signature.parameters:
-            self._arg_is_dataclass.append(_add_arg_manifest(self._manifest, self.name, self.signature.parameters[p]))
-        _require_return_annotation(self.name, self.signature)
-        self._manifest.outputs, self._returns_is_dataclass = _returns_profile(self.signature.return_annotation)
+            self._arg_types.append(_add_arg_manifest(self._manifest, self.name, self.signature.parameters[p]))
+        self._returns_is_dataclass, self._returns_type = _set_returns(self._manifest, self.name, self.signature)
         
     def manifest(self):
         return self._manifest.into_value()
         
     def __call__(self, *args, **kwargs):
-        if self._returns_is_dataclass:
-            return convert_process_result(dataclasses.asdict(self.__proc(*args, **kwargs)))
-        else:
-            return convert_process_result(self.__proc(*args, **kwargs))
+        args, kwargs = _convert_args(self._arg_names, self._arg_types, args, kwargs)
+        return _convert_result(self._returns_is_dataclass, self._returns_type, self.__proc(*args, **kwargs))
     
 @allow_no_arg_decorator
 def juiz_process(process_function, description="Default Description"):
@@ -224,14 +288,17 @@ class JuizContainer(object):
     def __init__(self, proc):
         self.__proc = proc
         self.name = proc.__name__
-        self.signature = inspect.signature(proc)
+        self.signature = _signature(proc)
         self._manifest = ContainerManifest.new(self.name).set_description(proc.__doc__)
+        self._arg_names = list(self.signature.parameters)
+        self._arg_types = []
         for p in self.signature.parameters:
-            _add_arg_manifest(self._manifest, self.name, self.signature.parameters[p])
+            self._arg_types.append(_add_arg_manifest(self._manifest, self.name, self.signature.parameters[p]))
     def manifest(self):
         return self._manifest.into_value()
         
     def __call__(self, *args, **kwargs):
+        args, kwargs = _convert_args(self._arg_names, self._arg_types, args, kwargs)
         return self.__proc(*args, **kwargs)
     
 @allow_no_arg_decorator
@@ -246,23 +313,22 @@ class JuizContainerProcess(object):
     def __init__(self, proc, container_type):
         self.__proc = proc
         self.name = proc.__name__
-        self.signature = inspect.signature(proc)
+        self.signature = _signature(proc)
         self._manifest = ProcessManifest.new(self.name).set_description(proc.__doc__).set_container_type(container_type)
-        self._returns_is_dataclass = False
+        self._arg_names = list(self.signature.parameters)
+        self._arg_types = []
         for i, p in enumerate(self.signature.parameters):
             if i == 0:
+                self._arg_types.append(None)
                 continue # 第1引数はコンテナ
-            _add_arg_manifest(self._manifest, self.name, self.signature.parameters[p])
-        _require_return_annotation(self.name, self.signature)
-        self._manifest.outputs, self._returns_is_dataclass = _returns_profile(self.signature.return_annotation)
+            self._arg_types.append(_add_arg_manifest(self._manifest, self.name, self.signature.parameters[p]))
+        self._returns_is_dataclass, self._returns_type = _set_returns(self._manifest, self.name, self.signature)
     def manifest(self):
         return self._manifest.into_value()
         
     def __call__(self, *args, **kwargs):
-        if self._returns_is_dataclass:
-            return convert_process_result(dataclasses.asdict(self.__proc(*args, **kwargs)))
-        else:
-            return convert_process_result(self.__proc(*args, **kwargs))
+        args, kwargs = _convert_args(self._arg_names, self._arg_types, args, kwargs)
+        return _convert_result(self._returns_is_dataclass, self._returns_type, self.__proc(*args, **kwargs))
 
 def convert_process_result(retval):
     # if isinstance(retval, Image):

@@ -82,14 +82,22 @@ impl TryFrom<&str> for ListEntry {
     }
 }
 
+/// 一覧の行の下に何も出さない (`format_list` の `details`)
+pub(crate) fn no_details(_: &ListEntry) -> Vec<String> {
+    Vec::new()
+}
+
 /// `namespace` で絞り込んだ一覧を文字列にする。
 ///
 /// 既定は今までどおり ID の配列 (`["core://core/process/robot1/inc0::increment", ...]`)。
 /// `long` なら `NAMESPACE NAME TYPE ID` の表にする(ルートのネームスペースは `/`)。
+/// `long` のときは、絞り込んだ後の各行について `details` を呼び、返した行を字下げして行の下に出す
+/// (Composite の式の木など、issue #170)。
 pub(crate) fn format_list(
     entries: Vec<ListEntry>,
     namespace: Option<&str>,
     long: bool,
+    details: &dyn Fn(&ListEntry) -> Vec<String>,
 ) -> JuizResult<String> {
     let filter = match namespace {
         Some(ns) => checked_namespace(ns)?,
@@ -126,22 +134,24 @@ pub(crate) fn format_list(
             *w = (*w).max(c.chars().count());
         }
     }
-    let lines: Vec<String> = std::iter::once(&header)
-        .chain(rows.iter())
-        .map(|row| {
-            let line = format!(
-                "{:w0$}  {:w1$}  {:w2$}  {}",
-                row[0],
-                row[1],
-                row[2],
-                row[3],
-                w0 = widths[0],
-                w1 = widths[1],
-                w2 = widths[2]
-            );
-            line.trim_end().to_owned()
-        })
-        .collect();
+    let format_row = |row: &[String; 4]| {
+        let line = format!(
+            "{:w0$}  {:w1$}  {:w2$}  {}",
+            row[0],
+            row[1],
+            row[2],
+            row[3],
+            w0 = widths[0],
+            w1 = widths[1],
+            w2 = widths[2]
+        );
+        line.trim_end().to_owned()
+    };
+    let mut lines = vec![format_row(&header)];
+    for (entry, row) in entries.iter().zip(rows.iter()) {
+        lines.push(format_row(row));
+        lines.extend(details(entry).into_iter().map(|d| format!("    {d}")));
+    }
     Ok(lines.join("\n"))
 }
 
@@ -194,24 +204,24 @@ mod tests {
     #[test]
     fn format_list_filters_by_namespace() {
         assert_eq!(
-            format_list(entries(), Some("robot1"), false).unwrap(),
+            format_list(entries(), Some("robot1"), false, &no_details).unwrap(),
             r#"["core://core/process/robot1/inc0::increment", "core://core/process/robot1/arm/inc1::increment"]"#
         );
         assert_eq!(
-            format_list(entries(), Some("/robot1/arm"), false).unwrap(),
+            format_list(entries(), Some("/robot1/arm"), false, &no_details).unwrap(),
             r#"["core://core/process/robot1/arm/inc1::increment"]"#
         );
         // 指定なし・`/` は絞らない
         assert_eq!(
-            format_list(entries(), None, false).unwrap(),
-            format_list(entries(), Some("/"), false).unwrap()
+            format_list(entries(), None, false, &no_details).unwrap(),
+            format_list(entries(), Some("/"), false, &no_details).unwrap()
         );
-        assert!(format_list(entries(), Some("a:b"), false).is_err());
+        assert!(format_list(entries(), Some("a:b"), false, &no_details).is_err());
     }
 
     #[test]
     fn format_list_long_shows_namespace_column() {
-        let s = format_list(entries(), Some("robot1"), true).unwrap();
+        let s = format_list(entries(), Some("robot1"), true, &no_details).unwrap();
         let lines: Vec<&str> = s.lines().collect();
         assert_eq!(lines.len(), 3, "{s}");
         assert!(lines[0].starts_with("NAMESPACE"), "{s}");
@@ -222,7 +232,27 @@ mod tests {
             lines[2].ends_with("core://core/process/robot1/arm/inc1::increment"),
             "{s}"
         );
-        let root = format_list(entries(), None, true).unwrap();
+        let root = format_list(entries(), None, true, &no_details).unwrap();
         assert!(root.lines().nth(1).unwrap().starts_with("/ "), "{root}");
+    }
+
+    #[test]
+    fn format_list_long_shows_details_under_row() {
+        let details = |e: &ListEntry| {
+            if e.name == "inc1" {
+                vec!["increment".to_owned(), "└─ arg1 = $x".to_owned()]
+            } else {
+                Vec::new()
+            }
+        };
+        let s = format_list(entries(), Some("robot1"), true, &details).unwrap();
+        let lines: Vec<&str> = s.lines().collect();
+        assert_eq!(lines.len(), 5, "{s}");
+        assert!(lines[2].starts_with("/robot1/arm "), "{s}");
+        assert_eq!(lines[3], "    increment");
+        assert_eq!(lines[4], "    └─ arg1 = $x");
+        // long でなければ呼ばない
+        let s = format_list(entries(), Some("robot1"), false, &|_| panic!("called")).unwrap();
+        assert!(s.starts_with('['), "{s}");
     }
 }

@@ -53,9 +53,11 @@ magicSize = sizeOf containerMagic
 -- | Container の manifest_entry_point の中身。マニフェストの引数の数と、Container を作る関数の引数の数が
 -- 違えばエラーにする (juiz はプラグインを読み込むときに失敗する)
 containerManifestEntryPoint :: forall f. ProcessFn f => ContainerManifest -> f -> ManifestFunction
-containerManifestEntryPoint m _ =
-  checkedManifestEntryPoint (cmTypeName m) (length (cmArguments m)) (processArity (Proxy :: Proxy f))
-    (containerManifestToValue m)
+containerManifestEntryPoint m _ cp = guardEntryPoint (cmTypeName m) $
+  case checkArgumentTypes (cmArguments m) (argumentTypes (Proxy :: Proxy f)) of
+    Left msg -> throwJuiz juizValueConverterError msg
+    Right () -> checkedManifestEntryPoint (cmTypeName m) (length (cmArguments m)) (processArity (Proxy :: Proxy f))
+      (containerManifestToValue m) cp
 
 -- | Container を作る関数の中身。マニフェストの引数 (設定ファイルの containers に書いた値、
 -- 無ければ既定値) を順に読み出して関数を呼び、結果を Container の状態にする
@@ -88,10 +90,13 @@ containerDestroyEntryPoint m p = void $ guardEntryPoint (cmTypeName m) $ do
 
 -- | ContainerProcess の manifest_entry_point の中身。
 -- マニフェストの引数の数と、関数の (Container の状態を除いた) 引数の数が違えばエラーにする
-containerProcessManifestEntryPoint :: forall s f. ProcessFn f => ProcessManifest -> (s -> f) -> ManifestFunction
-containerProcessManifestEntryPoint m _ =
-  checkedManifestEntryPoint (pmTypeName m) (length (pmArguments m)) (processArity (Proxy :: Proxy f))
-    (manifestToValue m)
+containerProcessManifestEntryPoint
+  :: forall s f. (ProcessFn f, ToCapsule (FnResult f)) => ProcessManifest -> (s -> f) -> ManifestFunction
+containerProcessManifestEntryPoint m _ cp = guardEntryPoint (pmTypeName m) $
+  case checkProcessManifest m (Proxy :: Proxy f) of
+    Left msg -> throwJuiz juizValueConverterError msg
+    Right m' -> checkedManifestEntryPoint (pmTypeName m') (length (pmArguments m')) (processArity (Proxy :: Proxy f))
+      (manifestToValue m') cp
 
 -- | ContainerProcess の関数の中身。第 1 引数に Container の状態を渡し、
 -- 続けてマニフェストの引数を順に渡して呼ぶ。状態の型が違えば 'juizHaskellContainerTypeError'

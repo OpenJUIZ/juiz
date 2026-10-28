@@ -1,5 +1,11 @@
 name: Test
 
+# PR では Linux のジョブ(rust・opencv・Linux x86_64 の wheel)だけを動かし、
+# macOS・Windows のジョブ、残りの wheel、coverage は main への push と手動実行で動かす。
+# macOS は Linux の 10 倍、Windows は 2 倍で数えられ、PR のたびに動かすと Actions の
+# 実行時間の大半を占めていたため。PR で macOS・Windows も確かめたいときは、
+# Actions の画面から PR のブランチを指定して Test を手動実行する。
+# draft の PR では何も動かさない(ready for review にしたときに動く)。
 on:
   push:
     branches: [main]
@@ -15,6 +21,7 @@ on:
       - "webui/**"
       - ".github/workflows/webui.yml"
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths-ignore: *rust-ignore
   workflow_dispatch:
 
@@ -34,6 +41,7 @@ jobs:
   # scripts/test.sh でテストの前に cargo build と C++ 例のビルドを済ませる。
   rust:
     name: Rust build & test
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -44,7 +52,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends cmake clang python3-dev python3-pip
 
       - name: Install pyjuiz dependencies (used by the embedded Python)
-        run: python3 -m pip install --break-system-packages pyyaml httpx pillow docstring_parser
+        run: python3 -m pip install --break-system-packages pyyaml httpx pillow docstring_parser numpy
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -80,6 +88,7 @@ jobs:
   # examples/haskell/build.sh が DEVELOPER_DIR を切り替える。Haskell 以外のテストは Linux のジョブで確かめる。
   haskell-macos:
     name: Haskell plugin test (macOS)
+    if: github.event_name != 'pull_request'
     runs-on: macos-latest
     env:
       # macOS の python3 は新しすぎて PyO3 が対応していないので、setup-python の 3.13 を使う(issue #100)
@@ -92,7 +101,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install pyjuiz dependencies (used by the embedded Python)
-        run: python3.13 -m pip install pyyaml httpx pillow docstring_parser
+        run: python3.13 -m pip install pyyaml httpx pillow docstring_parser numpy
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -103,8 +112,10 @@ jobs:
           ghc-version: "9.6"
           cabal-version: latest
 
-      - name: Build libjuiz_sdk
-        run: cargo build -p juiz_sdk
+      # C++ の例のビルドと Haskell の型付きの例 (gen/ の型) に juiz-idl も使う。
+      # haskell_typed_test は Rust の native_pose_component・native_pose_reader も読み込む
+      - name: Build libjuiz_sdk and juiz-idl
+        run: cargo build -p juiz_sdk -p juiz_idl -p native_pose_component -p native_pose_reader
 
       # haskell_container_test は C++ の Container (example_container_cpp) も読み込む
       - name: Build C++ examples
@@ -123,6 +134,7 @@ jobs:
         run: >-
           cargo test -p juiz_core --no-fail-fast
           --test haskell_plugin_test --test haskell_container_test --test haskell_component_test
+          --test haskell_typed_test
           -- --test-threads=1
 
   # OpenCV を使うコンポーネント(examples/rust/component/juiz_opencv)のビルドとテスト。
@@ -131,6 +143,7 @@ jobs:
   # カメラや画面は使わず、画像の変換・色変換・ファイルの読み書きだけをテストする。
   opencv:
     name: OpenCV component build & test
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -156,6 +169,7 @@ jobs:
   # pyo3(auto-initialize)がその libpython にリンクする。C++ の例は MSVC と cmake でビルドする。
   windows:
     name: Windows build & test
+    if: github.event_name != 'pull_request'
     runs-on: windows-latest
     env:
       # windows-latest の python3 は Microsoft Store のスタブになることがあるので python を使う
@@ -171,7 +185,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install pyjuiz dependencies (used by the embedded Python)
-        run: python -m pip install pyyaml httpx pillow docstring_parser
+        run: python -m pip install pyyaml httpx pillow docstring_parser numpy
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -186,13 +200,19 @@ jobs:
 
   # pip で入れる juiz(bindings/juiz_py、issue #88)の wheel を Linux・macOS・Windows でビルドし、
   # インストールした juiz コマンドで Python の Process とサンプルを動かす(juiz-wheels.yml)。
+  # PR では Linux x86_64 だけ
   juiz-wheels:
+    if: ${{ !github.event.pull_request.draft }}
     uses: ./.github/workflows/juiz-wheels.yml
+    with:
+      linux-only: ${{ github.event_name == 'pull_request' }}
 
   # テストカバレッジ(cargo-llvm-cov)。結果はジョブサマリーに表示し、
   # main への push 時は shields.io 用の JSON を badges ブランチに置いて README のバッジに使う。
+  # rust ジョブとほぼ同じビルドとテストをやり直すので、PR では動かさない。
   coverage:
     name: Coverage
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -205,7 +225,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends cmake clang python3-dev python3-pip
 
       - name: Install pyjuiz dependencies (used by the embedded Python)
-        run: python3 -m pip install --break-system-packages pyyaml httpx pillow docstring_parser
+        run: python3 -m pip install --break-system-packages pyyaml httpx pillow docstring_parser numpy
 
       - uses: dtolnay/rust-toolchain@stable
         with:

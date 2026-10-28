@@ -1522,12 +1522,13 @@ dependencies = [
 
 [[package]]
 name = "juiz_app"
-version = "0.0.21"
+version = "0.0.25"
 dependencies = [
  "assert_cmd",
  "clap",
  "home",
  "juiz_core",
+ "juiz_idl",
  "juiz_qmp_broker",
  "juiz_sdk",
  "predicates",
@@ -1536,7 +1537,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_core"
-version = "0.0.21"
+version = "0.0.25"
 dependencies = [
  "axum",
  "futures",
@@ -1558,8 +1559,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "juiz_idl"
+version = "0.0.25"
+dependencies = [
+ "clap",
+ "juiz_types",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "juiz_idl_test_package"
+version = "0.0.0"
+dependencies = [
+ "juiz_idl",
+ "juiz_sdk",
+]
+
+[[package]]
 name = "juiz_macro"
-version = "0.0.21"
+version = "0.0.25"
 dependencies = [
  "anyhow",
  "litrs",
@@ -1583,7 +1603,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_qmp_broker"
-version = "0.0.21"
+version = "0.0.25"
 dependencies = [
  "bytes",
  "juiz_core",
@@ -1602,13 +1622,15 @@ dependencies = [
 
 [[package]]
 name = "juiz_sdk"
-version = "0.0.21"
+version = "0.0.25"
 dependencies = [
  "anyhow",
  "approx",
+ "base64 0.22.1",
  "env_logger",
  "image",
  "juiz_macro",
+ "juiz_types",
  "log",
  "mopa",
  "nalgebra",
@@ -1622,8 +1644,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "juiz_std_types"
+version = "0.0.25"
+dependencies = [
+ "juiz_idl",
+ "juiz_sdk",
+]
+
+[[package]]
+name = "juiz_std_types_test_package"
+version = "0.0.0"
+dependencies = [
+ "juiz_idl",
+ "juiz_sdk",
+ "juiz_std_types",
+]
+
+[[package]]
+name = "juiz_types"
+version = "0.0.25"
+dependencies = [
+ "base64 0.22.1",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "juiz_webui"
-version = "0.0.21"
+version = "0.0.25"
 dependencies = [
  "rust-embed",
 ]
@@ -1848,6 +1899,20 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "native_pose_component"
+version = "0.1.0"
+dependencies = [
+ "juiz_sdk",
+]
+
+[[package]]
+name = "native_pose_reader"
+version = "0.1.0"
+dependencies = [
+ "juiz_sdk",
 ]
 
 [[package]]

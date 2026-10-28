@@ -1,0 +1,10 @@
+// ほかのファイル・名前空間から import される型
+namespace robot.common;
+
+import schema "stamp.avsc";
+
+/** 座標系の名前と時刻 */
+record Header {
+  string frame_id = "map";
+  robot.common.Stamp stamp;
+}

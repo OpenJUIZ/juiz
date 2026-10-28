@@ -8,10 +8,12 @@ class ArgumentManifest:
     name: str
     default: Any
     description: str = ""
+    # 型参照 {name, fingerprint, avro} (juiz-idl が生成した型の引数だけ、仕様 docs/spec/datatype.md §6)
+    schema: Optional[dict] = None
     
     @classmethod
-    def new(cls, type_name, name, description, default_value):
-        return ArgumentManifest(type_name=type_name, name=name, default=default_value, description=description )
+    def new(cls, type_name, name, description, default_value, schema=None):
+        return ArgumentManifest(type_name=type_name, name=name, default=default_value, description=description, schema=schema)
 
 @dataclass
 class PrimitiveProfile: 
@@ -45,6 +47,8 @@ class ProcessManifest:
     container_name: Optional[str] = None
     outputs: Optional[PrimitiveProfile] = None
     container_type: Optional[str] = None
+    # 戻り値の型参照 (juiz-idl が生成した型を返すときだけ、仕様 §6)
+    output_schema: Optional[dict] = None
     
     @classmethod
     def new(cls, type_name):
@@ -104,6 +108,18 @@ class ProcessManifest:
         
     def add_image_arg(self, name, description, default_value: object):
         self.add_argument(ArgumentManifest.new("Image", name, description, default_value))
+        return self
+
+    def add_typed_arg(self, name, description, default_value, schema: dict, type_name: str):
+        """型付きの引数 (juiz-idl が生成した型)。default_value は辞書の表し方、なければ None"""
+        self.add_argument(ArgumentManifest.new(type_name, name, description, default_value, schema))
+        return self
+
+    def set_output_schema(self, schema: dict, type_name: str):
+        """戻り値の型参照と、古いクライアント向けの outputs"""
+        self.output_schema = schema
+        self.outputs = PrimitiveProfile(type_name=type_name, default_value='')
+        return self
         
     def into_value(self):
         return asdict(self, dict_factory=lambda x: {k: v for (k, v) in x if v is not None})
@@ -169,6 +185,12 @@ class ContainerManifest:
     
     def add_image_arg(self, name, description, default_value: object):
         self.add_argument(ArgumentManifest.new("Image", name, description, default_value))
+        return self
+
+    def add_typed_arg(self, name, description, default_value, schema: dict, type_name: str):
+        """型付きの引数 (juiz-idl が生成した型)。default_value は辞書の表し方、なければ None"""
+        self.add_argument(ArgumentManifest.new(type_name, name, description, default_value, schema))
+        return self
         
 @dataclass
 class ComponentManifest:

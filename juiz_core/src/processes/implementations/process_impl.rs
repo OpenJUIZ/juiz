@@ -375,8 +375,7 @@ impl Process for ProcessImpl {
         let con = self
             .connection_factory
             .create_destination_connection(destination, connection_manifest.clone());
-        self.outlet
-            .insert(connection_manifest.arg_name.clone(), con);
+        self.outlet.insert(con);
         log::trace!(
             "【完了】ProcessImpl(id={:}).try_connect_to(destination=Process())",
             self.identifier()
@@ -429,7 +428,8 @@ impl Process for ProcessImpl {
 
     fn openapi_spec(&self) -> JuizResult<Value> {
         log::trace!("【呼出】ProcessImpl({})::openapi_spec()", self.identifier());
-        todo!("【呼出】openapi_spec()")
+        // 引数の辞書と戻り値のスキーマ (issue #197、仕様 datatype.md §23.3)
+        Ok(crate::types::openapi::process_openapi_spec(&self.profile))
     }
 }
 

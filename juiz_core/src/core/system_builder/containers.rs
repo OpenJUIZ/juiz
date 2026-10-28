@@ -2,10 +2,8 @@ use std::path::PathBuf;
 
 use crate::{
     containers::{ContainerFactoryWrapper, ContainerProcessFactoryWrapper},
-    core::system_builder::{
-        processes::p_apply_from_manifest,
-        topics::{setup_publish_topic, setup_subscribe_topic},
-    },
+    core::system_builder::processes::p_apply_from_manifest,
+    core::CoreWorker,
     plugin::JuizObjectPlugin,
     prelude::*,
 };
@@ -141,23 +139,53 @@ fn setup_container(
         .lock_mut()?
         .worker_mut()
         .create_container_ref(type_name.as_str(), name.as_str(), container_argument)?;
-    for (i, container_process_manifest_original) in container_manifest.processes.iter().enumerate()
-    {
+    setup_container_processes(
+        system,
+        container,
+        &container_manifest.processes,
+        container_process_values,
+    )?;
+    log::trace!("setup_container() exit");
+    Ok(())
+}
+
+/// Container の `processes` に書いた ContainerProcess を作る。
+/// `values` は conf に書いた元の値 (`p_apply` を読むため)。
+pub(super) fn setup_container_processes(
+    system: &System,
+    container: ContainerPtr,
+    process_manifests: &[ProcessManifest],
+    values: Option<&Vec<Value>>,
+) -> JuizResult<()> {
+    create_container_processes(
+        system.core_broker().lock_mut()?.worker_mut(),
+        container,
+        process_manifests,
+        values,
+    )
+}
+
+/// [`setup_container_processes`] の本体。API で CompositeContainer を作るときも使う (issue #171)
+pub(crate) fn create_container_processes(
+    worker: &mut CoreWorker,
+    container: ContainerPtr,
+    process_manifests: &[ProcessManifest],
+    values: Option<&Vec<Value>>,
+) -> JuizResult<()> {
+    let cid = container.identifier();
+    for (i, container_process_manifest_original) in process_manifests.iter().enumerate() {
         let container_process_manifest = container_process_manifest_original
             .clone()
-            .container_name(Some(name.clone()))
-            .container_type(Some(type_name.clone()))
+            .container_name(Some(cid.name.clone()))
+            .container_type(Some(cid.type_name.clone()))
             // ContainerProcess は Container のネームスペースに置き、Topic 名もそこで解決する (issue #149)
-            .namespace(container_manifest.namespace.as_str())
+            .namespace(cid.namespace.as_str())
             .resolve_topic_names()?;
         log::debug!(
             "【作成】ContainerProcess ({:?})",
             container_process_manifest
         );
-        let cp_ref = system
-            .core_broker()
-            .lock_mut()?
-            .worker_mut()
+        let cp_ref = worker
             .create_container_process_ref(container.clone(), &container_process_manifest)
             .with_context(|| {
                 format!(
@@ -168,19 +196,18 @@ fn setup_container(
             "【作成完了】ContainerProcess ({:?})",
             container_process_manifest
         );
-        if let Some(v) = container_process_values.and_then(|a| a.get(i)) {
+        if let Some(v) = values.and_then(|a| a.get(i)) {
             p_apply_from_manifest(&cp_ref, v)?;
         }
         // Topicをpublishするなら
         for pub_topic in container_process_manifest.publishes.iter() {
-            setup_publish_topic(system, cp_ref.clone(), pub_topic.clone())?
+            worker.process_publish_topic(cp_ref.clone(), pub_topic.clone())?
         }
 
         for (arg_name, sub_topic) in container_process_manifest.subscribes.iter() {
-            setup_subscribe_topic(system, cp_ref.clone(), &arg_name, sub_topic.clone())?
+            worker.process_subscribe_topic(cp_ref.clone(), &arg_name, sub_topic.clone())?
         }
     }
-    log::trace!("setup_container() exit");
     Ok(())
 }
 

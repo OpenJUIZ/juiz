@@ -4,3 +4,5 @@ project(juiz_cpp_component CXX)
 
 
 add_subdirectory(example_component)
+add_subdirectory(cpp_typed_component)
+add_subdirectory(cpp_typed_component_other_abi)

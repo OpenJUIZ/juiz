@@ -3,7 +3,7 @@ use juiz_sdk::anyhow::{anyhow, Context};
 use juiz_sdk::connection_identifier::ConnectionIdentifier;
 use juiz_sdk::connections::{ConnectionManifest, ConnectionProfile};
 use juiz_sdk::manifests::ContainerIdentifier;
-use juiz_sdk::manifests::{ContainerProfile, ProcessProfile};
+use juiz_sdk::manifests::{CompositeManifest, ContainerProfile, ProcessProfile};
 use juiz_sdk::process_identifier::ProcessIdentifier;
 use juiz_sdk::topic_identifier::TopicIdentifier;
 use juiz_sdk::utils::check_corebroker_manifest;
@@ -12,8 +12,9 @@ use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use uuid::Uuid;
 
 use crate::brokers::broker_proxy::{
-    BrokerBrokerProxy, ConnectionBrokerProxy, ContainerBrokerProxy, ContainerProcessBrokerProxy,
-    ExecutionContextBrokerProxy, ProcessBrokerProxy, SystemBrokerProxy, TopicBrokerProxy,
+    BrokerBrokerProxy, CompositeBrokerProxy, ConnectionBrokerProxy, ContainerBrokerProxy,
+    ContainerProcessBrokerProxy, ExecutionContextBrokerProxy, ProcessBrokerProxy,
+    SystemBrokerProxy, TopicBrokerProxy, TypeBrokerProxy,
 };
 use crate::brokers::BrokerProxy;
 
@@ -63,6 +64,29 @@ impl CoreBrokerPtr {
 }
 
 impl CoreBroker {
+    /// 呼び出し時の型検査 (conf の `option.type_check.on_call` が true のときだけ、issue #193)
+    fn check_call_types(&self, process: &ProcessPtr, args: &CapsuleMap) -> JuizResult<()> {
+        if !crate::types::type_check_on_call_enabled(self.worker().store().manifest_ref()) {
+            return Ok(());
+        }
+        let profile = process.lock()?.profile()?;
+        crate::types::check_call_arguments(&profile, args)
+    }
+
+    /// p_apply で拘束する値の型検査 (呼び出し時の検査と同じく conf で入れる)
+    fn check_p_apply_type(
+        &self,
+        process: &ProcessPtr,
+        arg_name: &str,
+        value: &CapsulePtr,
+    ) -> JuizResult<()> {
+        if !crate::types::type_check_on_call_enabled(self.worker().store().manifest_ref()) {
+            return Ok(());
+        }
+        let profile = process.lock()?.profile()?;
+        crate::types::check_argument_value(&profile, arg_name, value)
+    }
+
     pub fn new(manifest: Value, system_store: SystemStorePtr) -> JuizResult<CoreBroker> {
         let uuid = system_store.uuid()?;
         Ok(CoreBroker {
@@ -556,12 +580,10 @@ impl ProcessBrokerProxy for CoreBroker {
     fn process_call(&self, id: &ProcessIdentifier, args: CapsuleMap) -> JuizResult<CapsulePtr> {
         log::trace!("【呼出】process_call({id:}, {args})");
         if id.broker_type_name == "core" {
-            self.worker()
-                .store()
-                .processes
-                .get(&id.to_string())?
-                .lock()?
-                .call(args)
+            let p = self.worker().store().processes.get(&id.to_string())?.clone();
+            self.check_call_types(&p, &args)?;
+            let result = p.lock()?.call(args);
+            result
         } else {
             self.worker()
                 .process_proxy_from_identifier(id, true)?
@@ -718,14 +740,10 @@ impl ProcessBrokerProxy for CoreBroker {
         arg_name: &str,
         value: CapsulePtr,
     ) -> JuizResult<CapsulePtr> {
-        Ok(self
-            .worker()
-            .store()
-            .processes
-            .get(&id.to_string())?
-            .lock_mut()?
-            .p_apply(arg_name, value)?
-            .into())
+        let p = self.worker().store().processes.get(&id.to_string())?.clone();
+        self.check_p_apply_type(&p, arg_name, &value)?;
+        let result = p.lock_mut()?.p_apply(arg_name, value)?;
+        Ok(result)
     }
 
     fn process_create(&mut self, manifest: &ProcessManifest) -> JuizResult<ProcessProfile> {
@@ -906,12 +924,15 @@ impl ContainerProcessBrokerProxy for CoreBroker {
     ) -> JuizResult<CapsulePtr> {
         log::trace!("【呼出】container_process_call(id={id:}, {args})");
         if id.broker_type_name == "core" {
-            self.worker()
+            let p = self
+                .worker()
                 .store()
                 .container_processes
                 .get(&id.to_string())?
-                .lock()?
-                .call(args)
+                .clone();
+            self.check_call_types(&p, &args)?;
+            let result = p.lock()?.call(args);
+            result
                 .and_then(|v| {
                     log::trace!("【完了】container_process_call(id={id:})");
                     Ok(v)
@@ -1008,14 +1029,15 @@ impl ContainerProcessBrokerProxy for CoreBroker {
         arg_name: &str,
         value: CapsulePtr,
     ) -> JuizResult<CapsulePtr> {
-        Ok(self
+        let p = self
             .worker()
             .store()
             .container_processes
             .get(&id.to_string())?
-            .lock_mut()?
-            .p_apply(arg_name, value)?
-            .into())
+            .clone();
+        self.check_p_apply_type(&p, arg_name, &value)?;
+        let result = p.lock_mut()?.p_apply(arg_name, value)?;
+        Ok(result)
     }
 
     fn container_process_openapi_spec(&self, identifier: &ProcessIdentifier) -> JuizResult<Value> {
@@ -1366,6 +1388,60 @@ impl ConnectionBrokerProxy for CoreBroker {
 //     // IDがない場合はProcessかContainerProcessかが曖昧だが一旦Processで
 //     return Ok((id_from_manifest(source)?, id_from_manifest(destination)?))
 // }
+
+impl CompositeBrokerProxy for CoreBroker {
+    fn composite_create(&mut self, manifest: &CompositeManifest) -> JuizResult<ProcessManifest> {
+        log::trace!("【呼出】composite_create(type_name={})", manifest.type_name);
+        self.worker_mut()
+            .register_composite_any(manifest)
+            .or_else(|e| {
+                log::error!(
+                    "【エラー】composite_create(type_name={})。エラーは ({e})",
+                    manifest.type_name
+                );
+                Err(e)
+            })
+    }
+
+    fn composite_list(&self) -> JuizResult<Vec<String>> {
+        self.worker().composite_type_names()
+    }
+
+    fn composite_profile_full(&self, type_name: &str) -> JuizResult<ProcessManifest> {
+        self.worker().composite_manifest(type_name)
+    }
+
+    fn composite_destroy(&mut self, type_name: &str) -> JuizResult<ProcessManifest> {
+        log::trace!("【呼出】composite_destroy(type_name={type_name})");
+        self.worker_mut()
+            .deregister_composite(type_name)
+            .or_else(|e| {
+                log::error!("【エラー】composite_destroy(type_name={type_name})。エラーは ({e})");
+                Err(e)
+            })
+    }
+
+    fn composite_container_create(&mut self, manifest: &Value) -> JuizResult<ContainerProfile> {
+        log::trace!("【呼出】composite_container_create({manifest})");
+        let container =
+            crate::core::create_composite_container_from_value(self.worker_mut(), manifest)
+                .or_else(|e| {
+                    log::error!("【エラー】composite_container_create({manifest})。エラーは ({e})");
+                    Err(e)
+                })?;
+        self.worker().store().container_profile(&container)
+    }
+}
+
+impl TypeBrokerProxy for CoreBroker {
+    fn type_list(&self) -> JuizResult<Vec<crate::types::TypeEntry>> {
+        Ok(self.worker().type_registry()?.list())
+    }
+
+    fn type_schema(&self, identifier: &str) -> JuizResult<juiz_sdk::types::TypeSchema> {
+        self.worker().type_registry()?.schema(identifier)
+    }
+}
 
 impl BrokerProxy for CoreBroker {
     fn is_in_charge_for_process(&self, id: &Identifier) -> JuizResult<bool> {

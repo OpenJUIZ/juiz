@@ -1,0 +1,47 @@
+// geometry.jidl (仕様 docs/spec/datatype.md §9.1 の例に足したもの)
+namespace robot.geometry;
+
+import idl "common.jidl";
+
+/** 平面上の点 */
+record Point2D {
+  double x;
+  double y;
+}
+
+record Pose2D {
+  Point2D position;
+  double theta = 0.0;
+  string frame = "map";
+  @aliases(["note"]) string? comment = null;
+}
+
+enum MotorMode { Idle, Velocity, Position } = Idle;
+
+/** いろいろな型を持つレコード */
+record Everything {
+  boolean flag = true;
+  int i = -1;
+  long l = 9007199254740993;
+  float f = 1.5;
+  bytes data = "AAEC";
+  array<long> list = [1, 2];
+  map<double> table = {"a": 1.0};
+  long? maybe = 3;
+  union { null, MotorMode } mode = null;
+  any extra = {"free": [1, "x"]};
+  robot.common.Header header;
+  /** キーワードと同じ名前 */
+  string `type` = "t";
+  int `self` = 0;
+}
+
+/** 指定の姿勢まで動く */
+process Pose2D move_to(Pose2D target, double speed = 1.0);
+
+process image capture_gray(image img);
+
+container motor {
+  container_process boolean set_mode(MotorMode mode);
+  container_process void stop();
+}

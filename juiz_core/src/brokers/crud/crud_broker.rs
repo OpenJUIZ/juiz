@@ -141,6 +141,12 @@ impl CRUDBroker {
         Ok(())
     }
 
+    /// OpenAPI の `components.schemas` に足す型と Factory の引数・戻り値のスキーマ (issue #197)
+    pub fn openapi_components(&self) -> JuizResult<serde_json::Map<String, Value>> {
+        let factories = self.core_broker.lock()?.worker().factory_manifests()?;
+        Ok(crate::types::openapi::openapi_components(&factories))
+    }
+
     pub fn reserve_master_broker(&mut self, master_info: Value) -> JuizResult<()> {
         log::trace!("reserve_master_broker({master_info:}) called");
         self.core_broker

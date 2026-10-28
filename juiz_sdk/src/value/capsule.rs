@@ -4,6 +4,7 @@ use std::{collections::HashMap, fmt::Display, mem::swap};
 // use opencv::core::Mat;
 
 use crate::prelude::*;
+use super::native::*;
 use image::DynamicImage;
 use serde_json::Map;
 
@@ -15,6 +16,9 @@ pub enum CapsuleValue {
     // #[cfg(feature="opencv4")]
     // Mat(Mat),
     Image(DynamicImage),
+
+    /// 言語のネイティブ値。共通形式が要るときだけ encode する (docs/spec/lazy-evaluation.md)
+    Native(NativeCell),
 }
 
 impl Display for CapsuleValue {
@@ -23,6 +27,7 @@ impl Display for CapsuleValue {
             CapsuleValue::Empty(_) => f.write_fmt(format_args!("Empty")),
             CapsuleValue::Value(value) => f.write_fmt(format_args!("Value({})", value)),
             CapsuleValue::Image(_dynamic_image) => f.write_fmt(format_args!("DynamicImage")),
+            CapsuleValue::Native(cell) => f.write_fmt(format_args!("Native({})", cell.describe())),
         }
     }
 }
@@ -43,6 +48,21 @@ impl From<DynamicImage> for CapsuleValue {
     }
 }
 
+impl From<NativeCell> for CapsuleValue {
+    fn from(value: NativeCell) -> Self {
+        Self::Native(value)
+    }
+}
+
+impl From<EncodedValue> for CapsuleValue {
+    fn from(value: EncodedValue) -> Self {
+        match value {
+            EncodedValue::Value(v) => Self::Value(v),
+            EncodedValue::Image(i) => Self::Image(i),
+        }
+    }
+}
+
 impl CapsuleValue {
     pub fn is_empty(&self) -> bool {
         match self {
@@ -51,32 +71,75 @@ impl CapsuleValue {
         }
     }
 
+    /// Native は kind() で答え、encode しない
     pub fn is_value(&self) -> bool {
         match self {
             Self::Value(_) => return true,
+            Self::Native(cell) => cell.kind() == NativeKind::Value,
             _ => return false,
         }
     }
 
+    pub fn is_native(&self) -> bool {
+        match self {
+            Self::Native(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn as_native(&self) -> Option<&NativeCell> {
+        match self {
+            Self::Native(cell) => Some(cell),
+            _ => None,
+        }
+    }
+
+    /// Native なら encode (初回だけ) してキャッシュへの参照を返す。encode の失敗はエラーで返す
+    pub fn try_as_value(&self) -> JuizResult<Option<&Value>> {
+        match self {
+            Self::Value(v) => Ok(Some(v)),
+            Self::Native(cell) if cell.kind() == NativeKind::Value => cell.try_as_value(),
+            _ => Ok(None),
+        }
+    }
+
+    /// try_as_value と同じだが、encode の失敗は None にする (ログには出る)
     pub fn as_value(&self) -> Option<&Value> {
+        self.try_as_value().ok().flatten()
+    }
+
+    /// Native なら encode して中身を Value に置き換えてから返す
+    /// (書き換えるとネイティブ値とずれるので、ネイティブ値は捨てる)
+    pub fn as_value_mut(&mut self) -> Option<&mut Value> {
+        if let Self::Native(cell) = self {
+            if cell.kind() != NativeKind::Value {
+                return None;
+            }
+            match cell.clone().into_encoded() {
+                Ok(encoded) => *self = encoded.into(),
+                Err(_) => return None,
+            }
+        }
         match self {
             Self::Value(v) => Some(v),
             _ => None,
         }
     }
 
-    pub fn as_value_mut(&mut self) -> Option<&mut Value> {
+    /// Native なら encode して取り出す。ほかに参照が無ければキャッシュを複製せずに移す
+    pub fn try_to_value(self) -> JuizResult<Option<Value>> {
         match self {
-            Self::Value(v) => Some(v),
-            _ => None,
+            Self::Value(v) => Ok(Some(v)),
+            Self::Native(cell) if cell.kind() == NativeKind::Value => match cell.into_encoded()? {
+                EncodedValue::Value(v) => Ok(Some(v)),
+                EncodedValue::Image(_) => Ok(None),
+            },
+            _ => Ok(None),
         }
     }
 
     pub fn to_value(self) -> Option<Value> {
-        match self {
-            Self::Value(v) => Some(v),
-            _ => None,
-        }
+        self.try_to_value().ok().flatten()
     }
 
     // #[cfg(feature="opencv4")]
@@ -95,25 +158,40 @@ impl CapsuleValue {
     //     }
     // }
 
+    /// Native は kind() で答え、encode しない
     pub fn is_image(&self) -> bool {
         match self {
             Self::Image(_) => return true,
+            Self::Native(cell) => cell.kind() == NativeKind::Image,
             _ => return false,
         }
     }
 
-    pub fn as_image(&self) -> Option<&DynamicImage> {
+    pub fn try_as_image(&self) -> JuizResult<Option<&DynamicImage>> {
         match self {
-            Self::Image(v) => return Some(v),
-            _ => return None,
+            Self::Image(v) => Ok(Some(v)),
+            Self::Native(cell) if cell.kind() == NativeKind::Image => cell.try_as_image(),
+            _ => Ok(None),
+        }
+    }
+
+    pub fn as_image(&self) -> Option<&DynamicImage> {
+        self.try_as_image().ok().flatten()
+    }
+
+    pub fn try_to_image(self) -> JuizResult<Option<DynamicImage>> {
+        match self {
+            Self::Image(v) => Ok(Some(v)),
+            Self::Native(cell) if cell.kind() == NativeKind::Image => match cell.into_encoded()? {
+                EncodedValue::Image(v) => Ok(Some(v)),
+                EncodedValue::Value(_) => Ok(None),
+            },
+            _ => Ok(None),
         }
     }
 
     pub fn to_image(self) -> Option<DynamicImage> {
-        match self {
-            Self::Image(v) => return Some(v),
-            _ => return None,
-        }
+        self.try_to_image().ok().flatten()
     }
     /*
     pub fn to_mat(&self) -> Option<Mat> {
@@ -191,12 +269,13 @@ impl TryFrom<Capsule> for Value {
         //    Some(v) => {}, //Ok(v),
         //    None => return Err(anyhow::Error::from(JuizError::CapsuleIsNotValueTypeError{}))
         //};
-        match value.value {
-            CapsuleValue::Value(mut _v) => Ok(jvalue!({
+        let option = value.option;
+        match value.value.try_to_value()? {
+            Some(_v) => Ok(jvalue!({
                 "__value__": _v,
-                "__option__": jvalue!(value.option)
+                "__option__": jvalue!(option)
             })),
-            _ => Err(anyhow::Error::from(
+            None => Err(anyhow::Error::from(
                 JuizError::CapsuleIsNotValueTypeError {},
             )),
         }
@@ -212,6 +291,15 @@ impl TryFrom<Capsule> for Value {
 //         }
 //     }
 // }
+
+impl From<NativeCell> for Capsule {
+    fn from(value: NativeCell) -> Self {
+        Capsule {
+            value: value.into(),
+            option: HashMap::new(),
+        }
+    }
+}
 
 impl From<DynamicImage> for Capsule {
     fn from(img_value: DynamicImage) -> Self {
@@ -248,12 +336,53 @@ impl Capsule {
         self.value.as_value()
     }
 
+    pub fn try_as_value(&self) -> JuizResult<Option<&Value>> {
+        self.value.try_as_value()
+    }
+
     pub fn as_value_mut(&mut self) -> Option<&mut Value> {
         self.value.as_value_mut()
     }
 
     pub fn to_value(self) -> Option<Value> {
         self.value.to_value()
+    }
+
+    pub fn try_to_value(self) -> JuizResult<Option<Value>> {
+        self.value.try_to_value()
+    }
+
+    /// ネイティブ値を包む (docs/spec/lazy-evaluation.md §3.2)
+    pub fn from_native(value: impl NativeValue + 'static) -> Capsule {
+        Self {
+            value: CapsuleValue::Native(NativeCell::new(value)),
+            option: HashMap::new(),
+        }
+    }
+
+    /// 中身が Native なら NativeCell を取り出す。そうでなければ自分を返す
+    pub fn into_native_cell(self) -> Result<NativeCell, Capsule> {
+        match self.value {
+            CapsuleValue::Native(cell) => Ok(cell),
+            value => Err(Capsule {
+                value,
+                option: self.option,
+            }),
+        }
+    }
+
+    /// 中身が Native か (encode しない)
+    pub fn is_native(&self) -> bool {
+        self.value.is_native()
+    }
+
+    /// 中身のネイティブ値。同じ言語の受け取り側が as_any().downcast_ref() で具体的な型にする
+    pub fn as_native(&self) -> Option<&dyn NativeValue> {
+        self.value.as_native().map(|c| c.value())
+    }
+
+    pub fn native_cell(&self) -> Option<&NativeCell> {
+        self.value.as_native()
     }
 
     // #[cfg(feature="opencv4")]
@@ -268,6 +397,14 @@ impl Capsule {
 
     pub fn as_image(&self) -> Option<&DynamicImage> {
         self.value.as_image()
+    }
+
+    pub fn try_as_image(&self) -> JuizResult<Option<&DynamicImage>> {
+        self.value.try_as_image()
+    }
+
+    pub fn try_to_image(self) -> JuizResult<Option<DynamicImage>> {
+        self.value.try_to_image()
     }
     //pub fn to_mat(&self) -> Option<opencv::core::Mat> { self.value.to_mat() }
 

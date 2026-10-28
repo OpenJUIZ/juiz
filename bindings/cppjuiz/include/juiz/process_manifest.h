@@ -7,6 +7,7 @@
 #include <optional>
 
 #include "juiz/value.h"
+#include "juiz/types.h"
 
 class TopicManifest {
 public:
@@ -23,18 +24,24 @@ public:
 
 public:
   juiz::Value into_value() const {
-    return {
+    juiz::Value v{
         {"name", name_},
         {"type_name", type_name_},
         {"description", description_},
         {"default", default_}
     };
+    if (schema_) {
+        v["schema"] = schema_.value();
+    }
+    return v;
   }
 public:
   std::string type_name_;
   std::string name_;
   std::string description_;
   juiz::Value default_;
+  // 型付きの引数の型参照 (docs/spec/datatype.md §6)。型なしなら空
+  std::optional<juiz::Value> schema_;
 };
 
 class ProcessManifest {
@@ -93,6 +100,37 @@ public:
     return *this;
   }
 
+  // 型付きの引数 (juiz-idl -g cpp の生成した型か JUIZ_TYPE で登録した型、docs/spec/datatype.md §21)。既定値なし
+  template<typename T, std::enable_if_t<juiz::is_typed_v<T>, bool> = true>
+  ProcessManifest add_typed_arg(const std::string& name, const std::string& description) {
+    return add_typed_arg_value<T>(name, description, juiz::Value());
+  }
+
+  // 型付きの引数。既定値は T の値で書く
+  template<typename T, std::enable_if_t<juiz::is_typed_v<T>, bool> = true>
+  ProcessManifest add_typed_arg(const std::string& name, const std::string& description, const T& default_value) {
+    return add_typed_arg_value<T>(name, description, juiz::type_traits<T>::to_value(default_value));
+  }
+
+  // 型付きの引数。既定値は辞書の表し方 (§4) で書く。null は既定値なし
+  template<typename T, std::enable_if_t<juiz::is_typed_v<T>, bool> = true>
+  ProcessManifest add_typed_arg_value(const std::string& name, const std::string& description, const juiz::Value& default_value) {
+    const auto& info = juiz::type_traits<T>::type_info();
+    ArgumentManifest arg(info.argument_type_name(), name, description, default_value);
+    arg.schema_ = info.schema();
+    arguments_.push_back(arg);
+    return *this;
+  }
+
+  // 戻り値の型 (output_schema と、古いクライアント向けの outputs)
+  template<typename T, std::enable_if_t<juiz::is_typed_v<T>, bool> = true>
+  ProcessManifest returns() {
+    const auto& info = juiz::type_traits<T>::type_info();
+    output_schema_ = info.schema();
+    output_type_name_ = info.argument_type_name();
+    return *this;
+  }
+
   ProcessManifest use_memo(const bool use_memo) {
     use_memo_ = use_memo;
     return *this;
@@ -125,10 +163,21 @@ public:
     if (name_) {
         v["name"] = juiz::Value{name_.value()};
     }
+    if (output_schema_) {
+        v["output_schema"] = output_schema_.value();
+        v["outputs"] = juiz::Value{
+            {"enum_type", "Primitive"},
+            {"type_name", output_type_name_},
+            {"default_value", juiz::Value()},
+        };
+    }
     return v;
   }
 public:
   std::optional<std::string> name_;
+  // 戻り値の型参照 (returns<T>()、docs/spec/datatype.md §6)
+  std::optional<juiz::Value> output_schema_;
+  std::string output_type_name_;
   std::string type_name_;
   std::string description_;
   std::vector<ArgumentManifest> arguments_;
@@ -204,7 +253,8 @@ public:
         {"language", language_},
         {"description", description_},
         {"factory", factory_},
-        {"arguments", args_},
+        // 引数が無ければ空の配列 (null は Rust の ContainerManifest で読めない)
+        {"arguments", args_.isNull() ? juiz::Value::list() : args_},
         {"processes", processes}
     };
     if (name_) {

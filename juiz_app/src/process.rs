@@ -8,8 +8,10 @@ use juiz_core::prelude::*;
 // use juiz_core::opencv::{imgcodecs::imwrite, core::{Mat, Vector}};
 use clap::Subcommand;
 
+use crate::composition::{composition_lines, process_details};
 use crate::namespace::{format_list, ListEntry};
 use crate::Args;
+use juiz_sdk::process_identifier::ProcessIdentifier;
 
 #[derive(Debug, Subcommand, Clone)]
 pub(crate) enum ProcSubCommands {
@@ -101,7 +103,11 @@ pub(crate) fn on_process_inner(
                         system.process_list(recursive)?
                     };
                     let entries = ids.iter().map(ListEntry::from).collect();
-                    println!("{}", format_list(entries, namespace.as_deref(), long)?);
+                    let details = |e: &ListEntry| composite_details(system, e);
+                    println!(
+                        "{}",
+                        format_list(entries, namespace.as_deref(), long, &details)?
+                    );
                     Ok(())
                 })
         }
@@ -127,6 +133,14 @@ pub(crate) fn on_process_inner(
     }
 }
 
+/// 一覧の行の下に出す Composite の式の木 (issue #170)
+pub(crate) fn composite_details(system: &System, e: &ListEntry) -> Vec<String> {
+    match ProcessIdentifier::try_from(e.identifier.clone()) {
+        Ok(id) => process_details(system, &id),
+        Err(_) => Vec::new(),
+    }
+}
+
 fn on_process_info(system: &mut System, id: String) -> JuizResult<()> {
     //println!("processes:");
     let pid = id.try_into()?;
@@ -136,7 +150,14 @@ fn on_process_info(system: &mut System, id: String) -> JuizResult<()> {
         .worker_mut()
         .any_process_from_identifier(&pid, true);
     match p {
-        Ok(ps) => println!("{:}", ps.lock()?.profile()?),
+        Ok(ps) => {
+            let profile = ps.lock()?.profile()?;
+            println!("{profile}");
+            // Composite の中身 (issue #170)
+            for line in composition_lines(&profile) {
+                println!("  {line}");
+            }
+        }
         Err(e) => println!("Error: {e:?}"),
     }
     Ok(())

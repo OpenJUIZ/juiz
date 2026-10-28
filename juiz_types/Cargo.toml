@@ -1,0 +1,16 @@
+[package]
+name = "juiz_types"
+rust-version = "1.81"
+version = "0.0.25"
+edition = "2021"
+description = "Data type model (Avro schemas, fingerprints, compatibility) for juiz."
+license.workspace = true
+repository = "https://github.com/OpenJUIZ/juiz"
+
+[dependencies]
+base64 = {workspace = true}
+regex = {workspace = true}
+serde = {workspace = true, features = ["derive"]}
+serde_json = {workspace = true}
+sha2 = {workspace = true}
+thiserror = {workspace = true}

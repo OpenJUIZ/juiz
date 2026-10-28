@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import type { ArgumentProfile } from "../api/types.ts";
+import type { ArgumentProfile, CompositeArgument, CompositeNode, Composition, TypeSchemaRef } from "../api/types.ts";
+import { shortTypeName } from "../avro.ts";
 import { MARK_CLASS } from "../marks.ts";
 import { connectionTypeLabel, ecStateLabel, formatValue } from "../labels.ts";
 import {
@@ -17,12 +18,15 @@ import {
   type TopicElement,
 } from "../model.ts";
 import type { TermKey } from "../terms.ts";
+import { CallForm } from "./CallForm.tsx";
 import { Term } from "./Term.tsx";
 
 interface Props {
   model: Model | null;
   selectedKey: string | null;
   onSelect: (key: string) => void;
+  /** 処理を呼ぶときの接続先(設定の値。空なら画面と同じ場所) */
+  serverUrl: string;
 }
 
 const KIND_TERM: Record<ElementKind, TermKey> = {
@@ -37,7 +41,7 @@ const KIND_TERM: Record<ElementKind, TermKey> = {
 };
 
 /** 右の性質欄。ツリーで選んだ要素の profile を種類ごとに整えて出す */
-export function PropertyPane({ model, selectedKey, onSelect }: Props) {
+export function PropertyPane({ model, selectedKey, onSelect, serverUrl }: Props) {
   const element = selectedKey ? model?.elements.get(selectedKey) : undefined;
   return (
     <aside className="pane props-pane">
@@ -57,7 +61,7 @@ export function PropertyPane({ model, selectedKey, onSelect }: Props) {
             </span>
             <div className="name">{element.fullName}</div>
           </div>
-          <Body element={element} model={model} onSelect={onSelect} />
+          <Body element={element} model={model} onSelect={onSelect} serverUrl={serverUrl} />
         </div>
       )}
     </aside>
@@ -68,6 +72,7 @@ interface BodyProps<E extends Element = Element> {
   element: E;
   model: Model;
   onSelect: (key: string) => void;
+  serverUrl: string;
 }
 
 function Body(p: BodyProps) {
@@ -171,6 +176,16 @@ function Namespace({ element: e }: { element: Element }) {
   return e.namespace ? <Mono>{e.namespace}</Mono> : <span className="dim">ルート</span>;
 }
 
+/** 型の名前。型参照があれば名前空間を省いた名前(全体の識別子は title)、無ければ type_name */
+function TypeName({ schema, fallback }: { schema?: TypeSchemaRef | null; fallback?: string }) {
+  if (!schema) return fallback ? <>{fallback}</> : null;
+  return (
+    <code className="mono typed" title={`${schema.name}@${schema.fingerprint}`}>
+      {shortTypeName(schema.name)}
+    </code>
+  );
+}
+
 function YesNo({ v }: { v: boolean | undefined }) {
   return v === undefined ? null : <>{v ? "する" : "しない"}</>;
 }
@@ -208,7 +223,9 @@ function ArgumentTable({
             <td>
               <Mono>{a.name}</Mono>
             </td>
-            <td>{a.type_name}</td>
+            <td>
+              <TypeName schema={a.schema} fallback={a.type_name} />
+            </td>
             <td>
               <Mono>{formatValue(a.default)}</Mono>
             </td>
@@ -220,12 +237,100 @@ function ArgumentTable({
   );
 }
 
+/** スロット名から、画面に出す参照先(リンク)を作る。参照先が分からなければ null */
+type SlotLink = (slot: string) => ReactNode | null;
+
+/**
+ * Composite の式の木(#170)。根から子の式を入れ子のリストで出す。
+ * 定数は「= 値」、公開した引数は「= $公開名」。スロットを使うノードには [スロット名: 容器の型 → 参照先] を付ける
+ */
+function CompositionTree({ composition, slotLink }: { composition: Composition; slotLink: SlotLink }) {
+  return (
+    <ul className="composition-tree">
+      <CompositeNodeItem node={composition.body} containers={composition.containers ?? {}} slotLink={slotLink} />
+    </ul>
+  );
+}
+
+function CompositeNodeItem({
+  node,
+  label,
+  containers,
+  slotLink,
+}: {
+  node: CompositeNode;
+  label?: string;
+  containers: Record<string, string>;
+  slotLink: SlotLink;
+}) {
+  const args = Object.entries(node.args ?? {});
+  const slot = node.container;
+  return (
+    <li>
+      {label !== undefined && (
+        <>
+          <Mono>{label}</Mono> ←{" "}
+        </>
+      )}
+      <Mono>{node.process}</Mono>
+      {slot !== undefined && (
+        <span className="dim">
+          {" "}
+          [<Mono>{slot}</Mono>
+          {containers[slot] ? <>: {containers[slot]}</> : null}
+          {slotLink(slot) ? <> → {slotLink(slot)}</> : null}]
+        </span>
+      )}
+      {args.length > 0 && (
+        <ul>
+          {args.map(([name, arg]) => (
+            <CompositeArgumentItem key={name} name={name} arg={arg} containers={containers} slotLink={slotLink} />
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+function CompositeArgumentItem({
+  name,
+  arg,
+  containers,
+  slotLink,
+}: {
+  name: string;
+  arg: CompositeArgument;
+  containers: Record<string, string>;
+  slotLink: SlotLink;
+}) {
+  if ("process" in arg) return <CompositeNodeItem node={arg} label={name} containers={containers} slotLink={slotLink} />;
+  if ("const" in arg) {
+    return (
+      <li>
+        <Mono>{name}</Mono> = <Mono>{formatValue(arg.const)}</Mono> <span className="dim">定数</span>
+      </li>
+    );
+  }
+  const exposed = typeof arg.expose === "string" ? arg.expose : arg.expose.name;
+  return (
+    <li>
+      <Mono>{name}</Mono> = <Mono>${exposed}</Mono> <span className="dim">公開した引数</span>
+    </li>
+  );
+}
+
 /* ---------- 種類ごと ---------- */
 
-function ProcessBody({ element: e, model, onSelect }: BodyProps<ProcessElement>) {
+function ProcessBody({ element: e, model, onSelect, serverUrl }: BodyProps<ProcessElement>) {
   const p = e.profile;
   const args = p.arguments ?? [];
   const subscribes = Object.entries(p.subscribes ?? {});
+  // 所属容器が CompositeContainer なら、木のスロットから参照先の容器へ移れるようにする
+  const container = e.containerKey ? model.elements.get(e.containerKey) : undefined;
+  const slotLink: SlotLink = (slot) => {
+    const s = container?.kind === "container" ? container.slots.find((x) => x.name === slot) : undefined;
+    return s ? <ElementLink model={model} elementKey={s.key} fallback={s.identifier} onSelect={onSelect} /> : null;
+  };
   return (
     <>
       <Section title="基本">
@@ -254,6 +359,11 @@ function ProcessBody({ element: e, model, onSelect }: BodyProps<ProcessElement>)
           ]}
         />
       </Section>
+      {p.composition && (
+        <Section title={<Term k="composition" />}>
+          <CompositionTree composition={p.composition} slotLink={slotLink} />
+        </Section>
+      )}
       <Section title="引数">
         {/* 拘束値(p_apply で与えた値)は profile にまだ出ていない(#112) */}
         <ArgumentTable args={args} valueHeader="拘束値" valueOf={() => <span className="none" title="juiz 側の対応待ち(#112)">—</span>} />
@@ -271,7 +381,23 @@ function ProcessBody({ element: e, model, onSelect }: BodyProps<ProcessElement>)
         )}
       </Section>
       <Section title="出力">
-        <Fields rows={[["戻値型", p.outputs ? <Mono>{formatValue(p.outputs)}</Mono> : <span className="none">不明</span>]]} />
+        <Fields
+          rows={[
+            [
+              "戻値型",
+              p.output_schema ? (
+                <TypeName schema={p.output_schema} />
+              ) : p.outputs ? (
+                <Mono>{formatValue(p.outputs)}</Mono>
+              ) : (
+                <span className="none">不明</span>
+              ),
+            ],
+          ]}
+        />
+      </Section>
+      <Section title="呼び出す">
+        <CallForm key={e.key} element={e} serverUrl={serverUrl} />
       </Section>
       <Section title={<>入力の<Term k="connection" /></>}>
         {e.inputs.length === 0 ? (
@@ -392,6 +518,33 @@ function ContainerBody({ element: e, model, onSelect }: BodyProps<ContainerEleme
           }
         />
       </Section>
+      {e.slots.length > 0 && (
+        <Section title={<Term k="slot" />}>
+          <LinkList>
+            {e.slots.map((s) => (
+              <span key={s.name}>
+                <Mono>{s.name}</Mono> →{" "}
+                <ElementLink model={model} elementKey={s.key} fallback={s.identifier} onSelect={onSelect} />
+              </span>
+            ))}
+          </LinkList>
+        </Section>
+      )}
+      {e.referencedBy.length > 0 && (
+        <Section title={<>この<Term k="container" />を参照する<Term k="slot" /></>}>
+          <LinkList>
+            {e.referencedBy.flatMap((cc) =>
+              cc.slots
+                .filter((s) => s.key === e.key)
+                .map((s) => (
+                  <span key={`${cc.key}/${s.name}`}>
+                    <ElementLink model={model} elementKey={cc.key} onSelect={onSelect} />.<Mono>{s.name}</Mono>
+                  </span>
+                )),
+            )}
+          </LinkList>
+        </Section>
+      )}
       <Section title={<Term k="containerProcess" />}>
         {e.processes.length === 0 ? (
           <Empty>なし</Empty>

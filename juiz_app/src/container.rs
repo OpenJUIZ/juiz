@@ -6,6 +6,7 @@ use juiz_core::utils::yaml_conf_load;
 
 use clap::Subcommand;
 
+use crate::composition::{container_details, slots_lines};
 use crate::namespace::{format_list, ListEntry};
 use crate::Args;
 
@@ -34,6 +35,13 @@ pub(crate) enum ContSubCommands {
     /// get logs
     #[clap(arg_required_else_help = false)]
     Info {
+        #[arg(help = "ID of container")]
+        identifier: String,
+    },
+
+    /// Destroy a container (CompositeContainer included, issue #171)
+    #[clap(arg_required_else_help = true)]
+    Destroy {
         #[arg(help = "ID of container")]
         identifier: String,
     },
@@ -84,6 +92,15 @@ pub(crate) fn on_container_inner(
                 .add_systemproxy_by_id(Some(server.clone()))?
                 .run_and_do_once(|system| on_container_info(system, identifier))
         }
+        ContSubCommands::Destroy { identifier } => {
+            let server = args.server;
+            System::new(manifest)?
+                .set_working_dir(working_dir)
+                .start_http_broker(args.start_http_broker)
+                .setup()?
+                .add_systemproxy_by_id(Some(server.clone()))?
+                .run_and_do_once(|system| on_container_destroy(system, identifier))
+        }
     }
 }
 
@@ -97,7 +114,15 @@ fn on_container_list(
     let ids = system.container_list(recursive)?;
     log::debug!("system.container_list() returns '{ids:?}'");
     let entries = ids.iter().map(ListEntry::from).collect();
-    println!("{}", format_list(entries, namespace.as_deref(), long)?);
+    // CompositeContainer はスロットと参照先の Container を行の下に出す (issue #170)
+    let details = |e: &ListEntry| match ContainerIdentifier::try_from(e.identifier.clone()) {
+        Ok(id) => container_details(system, &id),
+        Err(_) => Vec::new(),
+    };
+    println!(
+        "{}",
+        format_list(entries, namespace.as_deref(), long, &details)?
+    );
     Ok(())
 }
 
@@ -108,8 +133,37 @@ fn on_container_info(system: &mut System, id: String) -> JuizResult<()> {
         .worker_mut()
         .container_from_identifier(&id.try_into()?);
     match p {
-        Ok(ps) => println!("{:}", ps.lock()?.profile()?),
+        Ok(ps) => {
+            let profile = ps.lock()?.profile()?;
+            println!("{profile}");
+            // Composite の中身 (issue #170)
+            for line in slots_lines(&profile) {
+                println!("  {line}");
+            }
+        }
         Err(e) => println!("Error: {e:?}"),
     }
+    Ok(())
+}
+
+/// Container を消す。ID の broker が指すサーバーで消す (issue #171)
+fn on_container_destroy(system: &mut System, id: String) -> JuizResult<()> {
+    let cid: ContainerIdentifier = id.try_into()?;
+    let profile = if cid.broker_type_name == "core" {
+        system.core_broker().lock_mut()?.container_destroy(&cid)?
+    } else {
+        let proxy = system.core_broker().lock_mut()?.worker_mut().broker_proxy(
+            &cid.broker_type_name,
+            &cid.broker_name,
+            false,
+        )?;
+        let mut local = cid.clone();
+        local.broker_type_name = "core".to_owned();
+        local.broker_name = "core".to_owned();
+        let p = juiz_lock(&proxy)?.container_destroy(&local)?;
+        p
+    };
+    let id: String = profile.identifier().into();
+    println!("destroyed: {id}");
     Ok(())
 }

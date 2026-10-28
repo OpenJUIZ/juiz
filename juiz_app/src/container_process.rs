@@ -6,7 +6,9 @@ use juiz_core::utils::yaml_conf_load;
 
 use clap::Subcommand;
 
+use crate::composition::composition_lines;
 use crate::namespace::{format_list, ListEntry};
+use crate::process::composite_details;
 use crate::Args;
 
 #[derive(Debug, Subcommand, Clone)]
@@ -114,7 +116,11 @@ fn on_container_process_list(
     log::trace!("on_container_process_list() called");
     let ids = system.container_process_list(recursive)?;
     let entries = ids.iter().map(ListEntry::from).collect();
-    println!("{}", format_list(entries, namespace.as_deref(), long)?);
+    let details = |e: &ListEntry| composite_details(system, e);
+    println!(
+        "{}",
+        format_list(entries, namespace.as_deref(), long, &details)?
+    );
     Ok(())
 }
 
@@ -127,7 +133,14 @@ fn on_container_process_info(system: &mut System, id: String) -> JuizResult<()> 
         .worker_mut()
         .any_process_from_identifier(&pid, true);
     match p {
-        Ok(ps) => println!("{:}", ps.lock()?.profile()?),
+        Ok(ps) => {
+            let profile = ps.lock()?.profile()?;
+            println!("{profile}");
+            // Composite の中身 (issue #170)
+            for line in composition_lines(&profile) {
+                println!("  {line}");
+            }
+        }
         Err(e) => println!("Error: {e:?}"),
     }
     Ok(())

@@ -221,6 +221,11 @@ impl Process for ProcessProxy {
             "【呼出】ProcessProxy({})::openapi_spec()",
             self.identifier()
         );
-        todo!()
+        let broker = juiz_lock(&self.broker_proxy)?;
+        if self.class_name_str == "container_process" {
+            broker.container_process_openapi_spec(&self.identifier())
+        } else {
+            broker.process_openapi_spec(&self.identifier())
+        }
     }
 }

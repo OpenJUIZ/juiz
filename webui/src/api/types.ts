@@ -1,3 +1,7 @@
+import type { TypeSchemaRef } from "../avro.ts";
+
+export type { TypeSchemaRef };
+
 // profile_full の中身は OpenAPI で schema 化されていないので、画面側で型を定義する。
 // juiz v0.0.18 の応答を見て必要な項目だけ書いている。足りない項目は使うときに足す。
 
@@ -24,6 +28,8 @@ export interface ArgumentProfile {
   type_name: string;
   default?: unknown;
   description?: Description;
+  /** 型付きの引数の型参照。型なしなら無い */
+  schema?: TypeSchemaRef;
 }
 
 /** 話題の参照(処理の publishes / subscribes) */
@@ -53,8 +59,34 @@ export interface ProcessProfile extends ObjectProfile {
   subscribes?: Record<string, TopicRef>;
   container_name?: string | null;
   container_type?: string | null;
-  /** 戻値の型。今は pyjuiz だけが埋める */
+  /** 戻値の型の古い書き方。pyjuiz などが埋める */
   outputs?: unknown;
+  /** 戻値の型参照(型付きのときだけ、#197) */
+  output_schema?: TypeSchemaRef | null;
+  /** Composite の式の木とスロット。Composite でなければ無い(#170) */
+  composition?: Composition | null;
+}
+
+/** Composite の式の木のノード(子の呼び出し)。profile では正規化され、すべてのノードに args がある */
+export interface CompositeNode {
+  /** 子の型(type_name) */
+  process: string;
+  /** 子が容器処理のときに使うスロット名 */
+  container?: string;
+  /** 子の引数名 → 値 */
+  args?: Record<string, CompositeArgument>;
+}
+
+/** 公開した引数。文字列(公開名だけ)か { name, default, description } */
+export type ExposeSpec = string | { name: string; default?: unknown; description?: string };
+
+/** ノードの引数の値。子の式・定数・公開した引数のどれか */
+export type CompositeArgument = CompositeNode | { const: unknown } | { expose: ExposeSpec };
+
+export interface Composition {
+  /** スロット名 → 容器の型 */
+  containers?: Record<string, string>;
+  body: CompositeNode;
 }
 
 export type ContainerProcessProfile = ProcessProfile;
@@ -67,6 +99,8 @@ export interface ContainerProfile extends ObjectProfile {
   language?: string;
   parent_name?: string | null;
   parent_type_name?: string | null;
+  /** CompositeContainer のスロット名 → 参照先の容器の識別子。それ以外の容器では無い(#170) */
+  slots?: Record<string, string> | null;
 }
 
 export interface ExecutionContextProfile extends ObjectProfile {

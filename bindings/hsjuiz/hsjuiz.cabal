@@ -1,6 +1,6 @@
 cabal-version:      3.0
 name:               hsjuiz
-version:            0.0.21
+version:            0.0.25
 synopsis:           Write juiz processes and containers in Haskell
 description:
     Write Process / Container / Component plugins of
@@ -49,7 +49,10 @@ library
                       Juiz.Container
                       Juiz.Component
                       Juiz.TH
+                      Juiz.Type
                       Juiz.Internal.FFI
+                      Juiz.Internal.TypeInfo
+                      Juiz.Internal.Base64
     build-depends:    base >=4.17 && <5
                     , bytestring >=0.11 && <0.13
                     , containers >=0.6 && <0.9

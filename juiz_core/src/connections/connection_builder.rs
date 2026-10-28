@@ -36,6 +36,8 @@ pub mod connection_builder {
         connection_manifest: &ConnectionManifest,
     ) -> JuizResult<ConnectionProfile> {
         log::trace!("connection_builder::connect({connection_manifest})が呼ばれました。");
+        // 出力型と引数型を比べ、互換でなければつながない (仕様 docs/spec/datatype.md §8、issue #193)
+        check_connection_types(&src, &dst, &connection_manifest.arg_name)?;
         let mut manif_for_source = connection_manifest.clone();
         manif_for_source.source_process_id.broker_type_name = "core".to_owned();
         manif_for_source.source_process_id.broker_name = "core".to_owned();
@@ -69,5 +71,41 @@ pub mod connection_builder {
                 Err(anyhow!(e))
             }
         }
+    }
+
+    /// source の戻り値の型 (writer) と destination の引数の型 (reader) を比べる (issue #193)。
+    ///
+    /// profile を取れないとき (リモートの Process が応答しないなど) は検査せず、今までどおり接続処理に任せる。
+    pub fn check_connection_types(
+        src: &ProcessPtr,
+        dst: &ProcessPtr,
+        arg_name: &str,
+    ) -> JuizResult<()> {
+        let profiles = src
+            .lock()
+            .and_then(|s| s.profile())
+            .and_then(|s| Ok((s, dst.lock()?.profile()?)));
+        let (src_profile, dst_profile) = match profiles {
+            Ok(p) => p,
+            Err(e) => {
+                log::warn!(
+                    "【connect】型検査のための profile を取れませんでした。検査を飛ばします ({e})"
+                );
+                return Ok(());
+            }
+        };
+        crate::types::check_connectable(
+            src_profile.output_schema.as_ref(),
+            crate::types::argument_schema(&dst_profile, arg_name),
+        )
+        .map(|_| ())
+        .or_else(|e| {
+            log::error!(
+                "【connect】{} から {}::{arg_name} へは型が合わないので接続しません ({e})",
+                src.identifier(),
+                dst.identifier()
+            );
+            Err(e)
+        })
     }
 }

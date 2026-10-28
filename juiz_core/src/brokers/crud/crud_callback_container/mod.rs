@@ -1,8 +1,10 @@
 mod any_process;
 mod broker;
+mod composite;
 mod connection;
 mod container;
 mod container_process;
+mod types;
 mod ec;
 mod process;
 mod system;
@@ -101,6 +103,13 @@ pub(crate) fn create_callback_container() -> ClassCallbackContainerType {
 
     create_cb_container.insert("connection", connection::create_create_callbacks());
 
+    // 実行中の Composite の定義 (issue #171)
+    create_cb_container.insert("composite", composite::create_create_callbacks());
+    create_cb_container.insert(
+        "composite_container",
+        composite::create_container_create_callbacks(),
+    );
+
     create_cb_container
 }
 
@@ -133,6 +142,11 @@ pub(crate) fn read_callback_container() -> ClassCallbackContainerType {
     read_cb_container.insert("connection", connection::create_read_callbacks());
 
     read_cb_container.insert("execution_context", ec::create_read_callbacks());
+
+    read_cb_container.insert("composite", composite::create_read_callbacks());
+
+    // 型の登録所 (issue #193)
+    read_cb_container.insert("type", types::create_read_callbacks());
 
     read_cb_container
 }
@@ -178,6 +192,8 @@ pub(crate) fn delete_callback_container() -> ClassCallbackContainerType {
 
     // コネクション関連
     delete_cb_container.insert("connection", connection::create_delete_callbacks());
+
+    delete_cb_container.insert("composite", composite::create_delete_callbacks());
 
     delete_cb_container
 }

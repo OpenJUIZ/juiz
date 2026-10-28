@@ -115,7 +115,7 @@ scripts/test.sh -p juiz_core -- p_apply      # -- 以降はテストバイナリ
 scripts/test.sh --prepare-only               # 準備だけ行う
 ```
 
-必要なものは Rust、CMake と C++ コンパイラ、Python 3 と pyjuiz の依存パッケージ(`python3 -m pip install pyyaml httpx pillow docstring_parser`)です。足りないものがあれば、スクリプトがその旨と入れ方を表示して止まります。
+必要なものは Rust、CMake と C++ コンパイラ、Python 3 と pyjuiz の依存パッケージ(`python3 -m pip install pyyaml httpx pillow docstring_parser numpy`)です。足りないものがあれば、スクリプトがその旨と入れ方を表示して止まります。
 GHC と cabal は任意で、無ければ Haskell の例のビルドとテスト(`haskell_plugin_test`)を飛ばします(CI では `JUIZ_REQUIRE_HASKELL=1` にして飛ばしません)。
 `cargo test` だけを実行すると、例のプラグインを読み込むテスト(`system_test` や `*_broker_api_test` など)は失敗します。そのときのエラーには、見つからなかったプラグインのパスや足りない Python モジュールと、必要な準備が表示されます。
 
@@ -140,18 +140,18 @@ HTTP ブローカーの 8000 番ポートはホストに転送されるので、
 
 ## リリース
 
-`v*` タグ(例: `v0.0.22`)を打つと、次のワークフローがそれぞれ公開します。どれもタグの版と各パッケージの版が一致しないと公開せず、公開済みの版は飛ばすので、途中で失敗したらマージ後のコミットにタグを打ち直せば続きから公開されます。
+`v*` タグ(例: `v0.0.26`)を打つと、次のワークフローがそれぞれ公開します。どれもタグの版と各パッケージの版が一致しないと公開せず、公開済みの版は飛ばすので、途中で失敗したらマージ後のコミットにタグを打ち直せば続きから公開されます。
 
 | ワークフロー | 公開先 | 公開するもの | 認証 |
 |---|---|---|---|
-| `publish.yml` | crates.io | juiz_macro / juiz_sdk / juiz_webui / juiz_core / juiz_qmp_broker / juiz_app | シークレット `CARGO_REGISTRY_TOKEN` |
+| `publish.yml` | crates.io | juiz_types / juiz_idl / juiz_macro / juiz_sdk / juiz_std_types / juiz_webui / juiz_core / juiz_qmp_broker / juiz_app | シークレット `CARGO_REGISTRY_TOKEN` |
 | `pypi-publish.yml` | PyPI | pyjuiz、juiz-cli | Trusted Publishing(環境 `pypi`) |
 | `sdk-release.yml` | GitHub Releases | libjuiz_sdk とヘッダのアーカイブ `juiz_sdk-<版>-<ターゲット名>.tar.gz`(Linux x86_64・aarch64、macOS arm64・x86_64) | `GITHUB_TOKEN` |
 | `hackage-publish.yml` | Hackage | hsjuiz(パッケージとドキュメント) | シークレット `HACKAGE_TOKEN` |
 
 版上げでは次のファイルの版をそろえます。
 
-- `Cargo.toml`(`[workspace.dependencies]`)、`Cargo.lock`、`juiz_macro` / `juiz_sdk` / `juiz_webui` / `juiz_core` / `juiz_app` / `brokers/qmp_broker` の `Cargo.toml`
+- `Cargo.toml`(`[workspace.dependencies]`)、`Cargo.lock`、`juiz_types` / `juiz_idl` / `juiz_macro` / `juiz_sdk` / `juiz_std_types` / `juiz_webui` / `juiz_core` / `juiz_app` / `brokers/qmp_broker` の `Cargo.toml`
 - `bindings/pyjuiz/setup.py`、`bindings/juiz_py/pyproject.toml`(`version` と `pyjuiz==`)、`bindings/juiz_py/Cargo.toml`、`bindings/juiz_py/Cargo.lock`
 - `bindings/hsjuiz/hsjuiz.cabal` の `version`(と `bindings/hsjuiz/CHANGELOG.md`)
 
@@ -160,6 +160,7 @@ libjuiz_sdk のアーカイブは `scripts/package-juiz-sdk.sh` で作り、利�
 juiz は C++ / Haskell のプラグインを開いたとき、プラグインが読み込んだ libjuiz_sdk の `juiz_sdk_build_info` を自分の juiz_sdk と比べ、版が違えばエラー、Rust コンパイラの版だけが違えば警告にします。
 
 Hackage への公開には、Hackage のアカウント(アップロード権限つき)で作った API トークンを、リポジトリのシークレット `HACKAGE_TOKEN` に登録しておきます。
+登録していないあいだは、`hackage-publish.yml` は確認(sdist・ドキュメントの作成とビルド)だけ行い、警告を出して公開を飛ばします(ほかのワークフローの公開には影響しません)。
 
 ## リポジトリ構成
 
@@ -167,6 +168,9 @@ Hackage への公開には、Hackage のアカウント(アップロード権限
 |---|---|
 | `juiz_sdk` | 機能要素を開発するための crate |
 | `juiz_macro` | `#[juiz_process]` などのマクロ |
+| `juiz_types` | Process の引数・戻り値のデータ型 (Avro のスキーマ、指紋、互換性。juiz_sdk に依存しない) |
+| `juiz_idl` | IDL (.jidl) の生成器 `juiz-idl` (.avsc・JSON Schema・Rust のコード、build.rs ヘルパ。`juiz idl` からも呼べる)。`juiz_idl/test_package` は生成したコードのテスト。組み込みの標準の型 `juiz_std` の JIDL は `juiz_idl/std` |
+| `juiz_std_types` | 標準の型 `juiz_std` の Rust のクレート (組み込みの JIDL から作る)。`juiz_std_types/test_package` は `extern_path` のテスト |
 | `juiz_core` | 機能要素を実体化・管理するコア (CoreBroker, Broker など) |
 | `juiz_app` | `juiz` コマンド |
 | `brokers` | 追加のブローカー実装 (QUIC の `juiz_qmp_broker` など) |
@@ -175,6 +179,15 @@ Hackage への公開には、Hackage のアカウント(アップロード権限
 | `examples` | Rust / C++ / Python / Haskell のサンプル |
 | `juiz_tutorial` | チュートリアル |
 | `webui` | ブラウザで系を確認する管理画面 (TypeScript + React)。[webui/README.md](webui/README.md) |
+| `docs/spec` | 実装の基準にする仕様書 (下の「仕様書」) |
+
+## 仕様書
+
+複数の Step に分けて実装する機能は、最初に仕様を `docs/spec/` に書き、各 Step の実装はそれに従います。実装で仕様を変えるときは、同じ PR で仕様書も直します。
+
+- [Composition(Composite Process / CompositeContainerProcess)](docs/spec/composition.md)(issue #164)
+- [データ型(IDL・データモデル・指紋・互換性)](docs/spec/datatype.md)(issue #163)
+- [遅延評価(Capsule::Native)](docs/spec/lazy-evaluation.md)(issue #3)
 
 ## ライセンス
 

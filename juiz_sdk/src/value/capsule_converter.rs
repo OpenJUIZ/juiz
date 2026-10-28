@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use super::converter_error::*;
 use crate::prelude::*;
+use super::capsule_ptr::lock_encoded;
 
 #[no_mangle]
 pub unsafe extern "C" fn arc_capsule_is_value(capsule: *mut Arc<Mutex<Capsule>>) -> bool {
@@ -10,112 +11,61 @@ pub unsafe extern "C" fn arc_capsule_is_value(capsule: *mut Arc<Mutex<Capsule>>)
     is_value.unwrap()
 }
 
+/// 中身の Value を check に渡す。Native ならロックの外で encode してから読む (lazy-evaluation.md §6)
+unsafe fn arc_capsule_check_value<F>(capsule: *mut Arc<Mutex<Capsule>>, check: F) -> bool
+where
+    F: FnOnce(&Value) -> bool,
+{
+    let c = capsule.as_ref().unwrap();
+    match lock_encoded(c, "arc_capsule_check_value") {
+        Ok(cap) => cap.as_value().map_or(false, check),
+        Err(_) => false,
+    }
+}
+
+/// 中身の Value。Native なら encode する (Capsule を直接持つのでロックは無い)
+unsafe fn capsule_value<'a>(capsule: *mut Capsule) -> Option<&'a Value> {
+    capsule.as_ref().unwrap().as_value()
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn arc_capsule_is_int(capsule: *mut Arc<Mutex<Capsule>>) -> bool {
-    if arc_capsule_is_value(capsule) {
-        let c = capsule.as_ref().unwrap();
-        return c
-            .lock()
-            .and_then(|cap| {
-                let v = cap.as_value().unwrap();
-                Ok(v.is_i64())
-            })
-            .unwrap();
-    }
-    false
+    arc_capsule_check_value(capsule, |v| v.is_i64())
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn arc_capsule_is_float(capsule: *mut Arc<Mutex<Capsule>>) -> bool {
-    if arc_capsule_is_value(capsule) {
-        let c = capsule.as_ref().unwrap();
-        return c
-            .lock()
-            .and_then(|cap| {
-                let v = cap.as_value().unwrap();
-                Ok(v.is_f64())
-            })
-            .unwrap();
-    }
-    false
+    arc_capsule_check_value(capsule, |v| v.is_f64())
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn arc_capsule_is_bool(capsule: *mut Arc<Mutex<Capsule>>) -> bool {
-    if arc_capsule_is_value(capsule) {
-        let c = capsule.as_ref().unwrap();
-        return c
-            .lock()
-            .and_then(|cap| {
-                let v = cap.as_value().unwrap();
-                Ok(v.is_boolean())
-            })
-            .unwrap();
-    }
-    false
+    arc_capsule_check_value(capsule, |v| v.is_boolean())
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn arc_capsule_is_array(capsule: *mut Arc<Mutex<Capsule>>) -> bool {
-    if arc_capsule_is_value(capsule) {
-        let c = capsule.as_ref().unwrap();
-        return c
-            .lock()
-            .and_then(|cap| {
-                let v = cap.as_value().unwrap();
-                Ok(v.is_array())
-            })
-            .unwrap();
-    }
-    false
+    arc_capsule_check_value(capsule, |v| v.is_array())
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn arc_capsule_is_object(capsule: *mut Arc<Mutex<Capsule>>) -> bool {
-    if arc_capsule_is_value(capsule) {
-        let c = capsule.as_ref().unwrap();
-        return c
-            .lock()
-            .and_then(|cap| Ok(cap.as_value().unwrap().is_object()))
-            .unwrap();
-    }
-    false
+    arc_capsule_check_value(capsule, |v| v.is_object())
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn arc_capsule_is_string(capsule: *mut Arc<Mutex<Capsule>>) -> bool {
-    if arc_capsule_is_value(capsule) {
-        let c = capsule.as_ref().unwrap();
-        return c
-            .lock()
-            .and_then(|cap| Ok(cap.as_value().unwrap().is_string()))
-            .unwrap();
-    }
-    false
+    arc_capsule_check_value(capsule, |v| v.is_string())
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn arc_capsule_is_null(capsule: *mut Arc<Mutex<Capsule>>) -> bool {
-    if arc_capsule_is_value(capsule) {
-        let c = capsule.as_ref().unwrap();
-        return c
-            .lock()
-            .and_then(|cap| Ok(cap.as_value().unwrap().is_null()))
-            .unwrap();
-    }
-    false
+    arc_capsule_check_value(capsule, |v| v.is_null())
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn arc_capsule_is_uint(capsule: *mut Arc<Mutex<Capsule>>) -> bool {
-    if arc_capsule_is_value(capsule) {
-        let c = capsule.as_ref().unwrap();
-        return c
-            .lock()
-            .and_then(|cap| Ok(cap.as_value().unwrap().is_u64()))
-            .unwrap();
-    }
-    false
+    arc_capsule_check_value(capsule, |v| v.is_u64())
 }
 
 #[no_mangle]
@@ -126,18 +76,12 @@ pub unsafe extern "C" fn capsule_is_value(capsule: *mut Capsule) -> bool {
 
 #[no_mangle]
 pub unsafe extern "C" fn capsule_is_int(capsule: *mut Capsule) -> bool {
-    if capsule_is_value(capsule) {
-        let c = capsule.as_ref().unwrap();
-        c.as_value().unwrap().is_i64()
-    } else {
-        false
-    }
+    capsule_value(capsule).map_or(false, |v| v.is_i64())
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn capsule_get_int(capsule: *mut Capsule, v: *mut i64) -> i64 {
-    if capsule_is_value(capsule) {
-        let val = capsule.as_ref().unwrap().as_value().unwrap();
+    if let Some(val) = capsule_value(capsule) {
         if !val.is_i64() {
             JUIZ_CAPSULE_TYPE_ERROR
         } else {
@@ -158,18 +102,12 @@ pub unsafe extern "C" fn capsule_set_int(capsule: *mut Capsule, v: i64) -> i64 {
 
 #[no_mangle]
 pub unsafe extern "C" fn capsule_is_uint(capsule: *mut Capsule) -> bool {
-    if capsule_is_value(capsule) {
-        let c = capsule.as_ref().unwrap();
-        c.as_value().unwrap().is_u64()
-    } else {
-        false
-    }
+    capsule_value(capsule).map_or(false, |v| v.is_u64())
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn capsule_get_uint(capsule: *mut Capsule, v: *mut u64) -> i64 {
-    if capsule_is_value(capsule) {
-        let val = capsule.as_ref().unwrap().as_value().unwrap();
+    if let Some(val) = capsule_value(capsule) {
         if !val.is_u64() {
             JUIZ_CAPSULE_TYPE_ERROR
         } else {
@@ -190,18 +128,12 @@ pub unsafe extern "C" fn capsule_set_uint(capsule: *mut Capsule, v: u64) -> i64 
 
 #[no_mangle]
 pub unsafe extern "C" fn capsule_is_float(capsule: *mut Capsule) -> bool {
-    if capsule_is_value(capsule) {
-        let c = capsule.as_ref().unwrap();
-        c.as_value().unwrap().is_f64()
-    } else {
-        false
-    }
+    capsule_value(capsule).map_or(false, |v| v.is_f64())
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn capsule_get_float(capsule: *mut Capsule, v: *mut f64) -> i64 {
-    if capsule_is_value(capsule) {
-        let val = capsule.as_ref().unwrap().as_value().unwrap();
+    if let Some(val) = capsule_value(capsule) {
         if !val.is_f64() {
             JUIZ_CAPSULE_TYPE_ERROR
         } else {
@@ -222,18 +154,12 @@ pub unsafe extern "C" fn capsule_set_float(capsule: *mut Capsule, v: f64) -> i64
 
 #[no_mangle]
 pub unsafe extern "C" fn capsule_is_bool(capsule: *mut Capsule) -> bool {
-    if capsule_is_value(capsule) {
-        let c = capsule.as_ref().unwrap();
-        c.as_value().unwrap().is_boolean()
-    } else {
-        false
-    }
+    capsule_value(capsule).map_or(false, |v| v.is_boolean())
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn capsule_get_bool(capsule: *mut Capsule, v: *mut i64) -> i64 {
-    if capsule_is_value(capsule) {
-        let val = capsule.as_ref().unwrap().as_value().unwrap();
+    if let Some(val) = capsule_value(capsule) {
         if !val.is_boolean() {
             JUIZ_CAPSULE_TYPE_ERROR
         } else {
@@ -254,12 +180,7 @@ pub unsafe extern "C" fn capsule_set_bool(capsule: *mut Capsule, v: i64) -> i64 
 
 #[no_mangle]
 pub unsafe extern "C" fn capsule_is_string(capsule: *mut Capsule) -> bool {
-    if capsule_is_value(capsule) {
-        let c = capsule.as_ref().unwrap();
-        c.as_value().unwrap().is_string()
-    } else {
-        false
-    }
+    capsule_value(capsule).map_or(false, |v| v.is_string())
 }
 
 /// 文字列の先頭ポインタを返す。返す文字列は NUL 終端されていないので、
@@ -278,8 +199,7 @@ pub unsafe extern "C" fn capsule_get_string_with_len(
     v: *mut *const u8,
     len: *mut usize,
 ) -> i64 {
-    if capsule_is_value(capsule) {
-        let val = capsule.as_ref().unwrap().as_value().unwrap();
+    if let Some(val) = capsule_value(capsule) {
         match val.as_str() {
             Some(s) => {
                 *v = s.as_ptr();

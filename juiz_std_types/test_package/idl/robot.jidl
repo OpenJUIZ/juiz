@@ -1,0 +1,10 @@
+// juiz_std の型を使う型 (組み込みの JIDL を import する)
+namespace my.robot;
+
+import idl "juiz_std/geometry.jidl";
+
+record Goal {
+  juiz_std.geometry.Pose2D pose;
+  juiz_std.common.Header header = {"stamp": {"sec": 0, "nanosec": 0}, "frame_id": "map"};
+  double tolerance = 0.1;
+}

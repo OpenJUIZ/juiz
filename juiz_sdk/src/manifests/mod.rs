@@ -17,6 +17,7 @@ mod broker_identifier;
 mod broker_manifest;
 mod broker_profile;
 mod component_manifest;
+mod composite_manifest;
 mod container_identifier;
 mod output_profile;
 mod topic_manifest;
@@ -29,6 +30,11 @@ pub use broker_identifier::{parse_broker_identifier, BrokerIdentifier};
 pub use broker_manifest::BrokerManifest;
 pub use broker_profile::BrokerProfile;
 pub use component_manifest::ComponentManifest;
+pub use composite_manifest::{
+    CompositeArgument, CompositeManifest, CompositeNode, Composition, ExposeSpec,
+    COMPOSITE_CONTAINER_PROCESS_FACTORY_NAME, COMPOSITE_CONTAINER_TYPE_NAME,
+    COMPOSITE_PROCESS_FACTORY_NAME, COMPOSITE_ROOT_PATH, MIXED_LANGUAGE,
+};
 pub use container_identifier::ContainerIdentifier;
 pub use container_manifest::ContainerManifest;
 pub use container_profile::ContainerProfile;

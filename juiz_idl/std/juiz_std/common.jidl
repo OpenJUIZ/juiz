@@ -1,0 +1,28 @@
+// juiz の標準の型 (juiz_std): 時刻とヘッダ
+// juiz-idl に組み込まれていて、どこからでも `import idl "juiz_std/common.jidl";` で読める (docs/spec/datatype.md §24)。
+// 型を変えると指紋が変わるので、既存の型のフィールドは変えない (足すときは既定値を付ける、§7.3)。
+namespace juiz_std.common;
+
+/** 時刻 (1970-01-01T00:00:00Z からの経過時間) */
+record Time {
+  /** 秒 */
+  long sec = 0;
+  /** 秒未満 [ns] (0〜999999999) */
+  int nanosec = 0;
+}
+
+/** 時間の長さ */
+record Duration {
+  /** 秒 */
+  long sec = 0;
+  /** 秒未満 [ns] (0〜999999999) */
+  int nanosec = 0;
+}
+
+/** データの時刻と座標系 */
+record Header {
+  /** データを取った時刻 */
+  Time stamp = {"sec": 0, "nanosec": 0};
+  /** 座標系の名前 */
+  string frame_id = "";
+}

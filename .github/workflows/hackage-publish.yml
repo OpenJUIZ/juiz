@@ -1,6 +1,6 @@
 name: Publish to Hackage
 
-# v* タグ(例: v0.0.22)の push で、Haskell のライブラリ hsjuiz(bindings/hsjuiz)を Hackage に公開する(issue #136)。
+# v* タグ(例: v0.0.26)の push で、Haskell のライブラリ hsjuiz(bindings/hsjuiz)を Hackage に公開する(issue #136)。
 # crates.io(publish.yml)・PyPI(pypi-publish.yml)と同じタグで動き、hsjuiz.cabal の version もタグに揃える。
 # 揃っていない場合は公開しない。Hackage に公開済みの版は飛ばす(タグを打ち直したとき用)。
 #
@@ -93,9 +93,10 @@ jobs:
         env:
           HACKAGE_TOKEN: ${{ secrets.HACKAGE_TOKEN }}
         run: |
+          # アップロード権限をもらうまではトークンが無いので、公開を飛ばす(ほかの公開は止めない)
           if [ -z "$HACKAGE_TOKEN" ]; then
-            echo "::error::シークレット HACKAGE_TOKEN が登録されていません(CONTRIBUTING.md の「リリース」を参照)"
-            exit 1
+            echo "::warning::シークレット HACKAGE_TOKEN が登録されていないので、Hackage への公開を飛ばします(CONTRIBUTING.md の「リリース」を参照)"
+            exit 0
           fi
           # Hackage の API(cabal upload と同じもの)を API トークンで呼ぶ
           curl --fail-with-body -sS -X POST \

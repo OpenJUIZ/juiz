@@ -1,9 +1,16 @@
 use crate::prelude::*;
+use crate::processes::ProcessBodyFunctionTrait;
 use juiz_sdk::anyhow::anyhow;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 pub trait ProcessFactory: JuizObject + 'static {
     fn create_process(&self, manifest: &ProcessManifest) -> JuizResult<ProcessPtr>;
+
+    /// Factory の manifest (型の情報)。Composite の子の検査に使う (issue #167)
+    fn manifest(&self) -> JuizResult<ProcessManifest>;
+
+    /// 本体関数。Composite が子の本体を合成するときに取り出す (issue #167)
+    fn body(&self) -> JuizResult<Arc<ProcessBodyFunctionTrait>>;
 }
 
 #[derive(Clone)]

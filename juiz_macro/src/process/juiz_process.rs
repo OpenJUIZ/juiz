@@ -4,8 +4,9 @@ use syn::{parse_macro_input, ItemFn, Stmt};
 
 use super::gen_process_factory::factory_tokenstream;
 use super::process_manifest::{construct_manif_tokenstream, manifest_tokenstream};
-use crate::util::argument_statement;
 use crate::util::parse_attr;
+use crate::util::typed::{all_typed, change_return_to_capsule};
+use crate::util::{argument_statement, exit_tokenstream};
 use crate::util::{change_argument_to_capsule_map, get_body_tokenstream};
 
 pub(crate) fn juiz_process_inner(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -18,13 +19,16 @@ pub(crate) fn juiz_process_inner(attr: TokenStream, item: TokenStream) -> TokenS
 
     // println!("arg_map!: {arg_map:?}");
     // このあとclearしちゃうのでまずbodyを保存。
-    let body: TokenStream = get_body_tokenstream(&ast);
+    // 戻り値が JuizType の型なら JuizResult<Capsule> に書き換える (issue #192)
+    let return_kind = change_return_to_capsule(&mut ast, all_typed(&manifest_attr));
+    let body: TokenStream = get_body_tokenstream(&ast, &return_kind);
 
     ast.block.stmts.clear();
 
     // 最初に取得した引数のリストから、CapsuleMapから引数それぞれにtry_intoするコードを生成する。
     for (type_name, arg_name) in arg_map.iter() {
-        let set_original_argument_statement: TokenStream = argument_statement(type_name, arg_name);
+        let set_original_argument_statement: TokenStream =
+            argument_statement(type_name, arg_name, all_typed(&manifest_attr));
         ast.block
             .stmts
             .push(parse_macro_input!(set_original_argument_statement as Stmt));
@@ -33,7 +37,7 @@ pub(crate) fn juiz_process_inner(attr: TokenStream, item: TokenStream) -> TokenS
     // bodyを返す
     ast.block.stmts.push(parse_macro_input!(body as Stmt));
     // 値を返す部分を生成
-    let exit: TokenStream = quote! { { body() } }.into();
+    let exit: TokenStream = exit_tokenstream(&return_kind);
     ast.block.stmts.push(parse_macro_input!(exit as Stmt));
 
     // ここからmanifest関数を自動生成する。
@@ -41,7 +45,8 @@ pub(crate) fn juiz_process_inner(attr: TokenStream, item: TokenStream) -> TokenS
     let manifest2_tokenstream = manifest_tokenstream();
     let mut manifest2_item_fn: ItemFn = syn::parse_macro_input!(manifest2_tokenstream as ItemFn);
 
-    let return_manifest = construct_manif_tokenstream(function_name, &manifest_attr, &arg_map);
+    let return_manifest =
+        construct_manif_tokenstream(function_name, &manifest_attr, &arg_map, &return_kind);
     manifest2_item_fn
         .block
         .stmts

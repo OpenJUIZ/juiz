@@ -120,6 +120,18 @@ inline int64_t serialize(capsule* cp, const std::string&& retval) {
     return capsule_set_string(cp, retval.c_str());
 }
 
+// オブジェクトや配列などの辞書の値 (仕様 docs/spec/datatype.md §4 の表し方)
+inline int64_t serialize(capsule* cp, const juiz::Value& retval) {
+    return juiz::capsule_set_value(cp, retval);
+}
+
+// 型付きの型 (juiz-idl -g cpp の生成した型、JUIZ_TYPE で登録した型) の戻り値。
+// record は辞書にせずネイティブ値のまま渡し、enum は辞書 (記号の文字列) にする (docs/spec/datatype.md §21)
+template<typename T, std::enable_if_t<juiz::is_typed_v<T>, int> = 0>
+int64_t serialize(capsule* cp, T&& retval) {
+    return juiz::set_typed_capsule(cp, std::forward<T>(retval));
+}
+
 
 #define PROCESS_FACTORY(manifest_function, process_function) \
 JUIZ_API int64_t manifest_entry_point(capsule_ptr* ptr) { \
@@ -135,11 +147,13 @@ JUIZ_API int64_t process_entry_point(capsule_map* cm, capsule* cp) {\
             return JUIZ_PROCESS_FUNCTION_NULL_OPT_RETURNED;\
         }\
         auto v = return_value.value();\
-        return serialize(cp, v);\
+        return serialize(cp, std::move(v));\
     } catch (juiz::ValueNotFoundError &e) {\
         return JUIZ_VALUE_NOT_FOUND_ERROR;\
     } catch (juiz::ValueConvertError &e) {\
         return JUIZ_VALUE_CONVERTER_ERROR;\
+    } catch (juiz::ValueDoesNotMatchTypeError &e) {\
+        return JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR;\
     }\
 }\
 \
@@ -162,6 +176,8 @@ JUIZ_API int64_t container_create_entry_point(capsule_map* cm, void** container_
         return JUIZ_VALUE_NOT_FOUND_ERROR;\
     } catch (juiz::ValueConvertError &e) {\
         return JUIZ_VALUE_CONVERTER_ERROR;\
+    } catch (juiz::ValueDoesNotMatchTypeError &e) {\
+        return JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR;\
     }\
 }\
 \
@@ -190,11 +206,13 @@ JUIZ_API int64_t container_process_entry_point(void* container, capsule_map* cm,
             return JUIZ_CONTAINER_PROCESS_FUNCTION_NULL_OPT_RETURNED;\
         }\
         auto v = return_value.value();\
-        return serialize(cp, v);\
+        return serialize(cp, std::move(v));\
     } catch (juiz::ValueNotFoundError &e) {\
         return JUIZ_VALUE_NOT_FOUND_ERROR;\
     } catch (juiz::ValueConvertError &e) {\
         return JUIZ_VALUE_CONVERTER_ERROR;\
+    } catch (juiz::ValueDoesNotMatchTypeError &e) {\
+        return JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR;\
     }\
 }\
 \
@@ -221,6 +239,8 @@ int64_t container_process_entry_point(container_type* container, capsule_map* cm
         return JUIZ_VALUE_NOT_FOUND_ERROR;\
     } catch (juiz::ValueConvertError &e) {\
         return JUIZ_VALUE_CONVERTER_ERROR;\
+    } catch (juiz::ValueDoesNotMatchTypeError &e) {\
+        return JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR;\
     }\
 }\
 int64_t (*container_process_factory())(container_type*,capsule_map*,capsule*) {\
@@ -248,11 +268,13 @@ JUIZ_API int64_t process_function##_entry_point(capsule_map* cm, capsule* cp) {\
             return JUIZ_PROCESS_FUNCTION_NULL_OPT_RETURNED;\
         }\
         auto v = return_value.value();\
-        return serialize(cp, v);\
+        return serialize(cp, std::move(v));\
     } catch (juiz::ValueNotFoundError &e) {\
         return JUIZ_VALUE_NOT_FOUND_ERROR;\
     } catch (juiz::ValueConvertError &e) {\
         return JUIZ_VALUE_CONVERTER_ERROR;\
+    } catch (juiz::ValueDoesNotMatchTypeError &e) {\
+        return JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR;\
     }\
 }\
 JUIZ_API int64_t (*process_function##_factory_entry_point())(capsule_map*,capsule*) {\
@@ -277,6 +299,8 @@ JUIZ_API int64_t construct_function##_entry_point(capsule_map* cm, void** contai
         return JUIZ_VALUE_NOT_FOUND_ERROR;\
     } catch (juiz::ValueConvertError &e) {\
         return JUIZ_VALUE_CONVERTER_ERROR;\
+    } catch (juiz::ValueDoesNotMatchTypeError &e) {\
+        return JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR;\
     }\
 }\
 \
@@ -309,11 +333,13 @@ JUIZ_API int64_t process_function##_entry_point(void* container, capsule_map* cm
             return JUIZ_CONTAINER_PROCESS_FUNCTION_NULL_OPT_RETURNED;\
         }\
         auto v = return_value.value();\
-        return serialize(cp, v);\
+        return serialize(cp, std::move(v));\
     } catch (juiz::ValueNotFoundError &e) {\
         return JUIZ_VALUE_NOT_FOUND_ERROR;\
     } catch (juiz::ValueConvertError &e) {\
         return JUIZ_VALUE_CONVERTER_ERROR;\
+    } catch (juiz::ValueDoesNotMatchTypeError &e) {\
+        return JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR;\
     }\
 }\
 \

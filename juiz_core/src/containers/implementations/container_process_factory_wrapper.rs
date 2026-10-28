@@ -2,6 +2,7 @@ use std::cell::RefCell;
 
 use juiz_sdk::manifests::ProcessProfile;
 
+use crate::containers::BindedContainerFunctionType;
 use crate::plugin::{JuizObjectPlugin, Plugin};
 use crate::prelude::*;
 
@@ -114,6 +115,14 @@ impl ContainerProcessFactory for ContainerProcessFactoryWrapper {
             id
         );
         r
+    }
+
+    fn manifest(&self) -> JuizResult<ProcessManifest> {
+        self.container_process_factory.lock()?.manifest()
+    }
+
+    fn body(&self) -> JuizResult<BindedContainerFunctionType> {
+        self.container_process_factory.lock()?.body()
     }
 }
 

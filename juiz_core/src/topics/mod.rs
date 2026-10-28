@@ -1,9 +1,12 @@
-use std::sync::{Arc, RwLock};
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 
 use crate::{
     connections::ConnectionFactoryImpl, core::SubSystemProxy, prelude::*, processes::ProcessImpl,
 };
-use juiz_sdk::{anyhow::anyhow, identifier::split_namespace};
+use juiz_sdk::{anyhow::anyhow, identifier::split_namespace, types::TypeSchema};
 use uuid::Uuid;
 pub type TopicName = String;
 
@@ -12,6 +15,10 @@ pub type TopicName = String;
 pub struct Topic {
     name: TopicName,
     subsystem_proxies: Vec<SubSystemProxy>,
+    /// 型付きの publish 側 (Process の ID → 戻り値の型)。接続時の型検査に使う (issue #193)
+    typed_publishers: HashMap<String, TypeSchema>,
+    /// 型付きの subscribe 側 ((Process の ID, 引数名) → 引数の型)
+    typed_subscribers: HashMap<(String, String), TypeSchema>,
 }
 
 #[allow(unused)]
@@ -20,6 +27,8 @@ impl Topic {
         Self {
             name: name.to_owned(),
             subsystem_proxies: Vec::new(),
+            typed_publishers: HashMap::new(),
+            typed_subscribers: HashMap::new(),
         }
     }
 
@@ -149,6 +158,112 @@ impl TopicPtr {
             .and_then(|_| Ok(()));
         log::trace!("push(uuid={pushed_system_uuid:?}) exit");
         r
+    }
+
+    /// publish を始める Process の戻り値の型 (writer) を、今つながっている subscribe 側の引数の型 (reader)
+    /// それぞれと比べる。互換でない組があれば `TypeIncompatibleError` (仕様 docs/spec/datatype.md §8、issue #193)
+    pub fn check_publisher(&self, schema: Option<&TypeSchema>) -> JuizResult<()> {
+        let Some(writer) = schema else {
+            return Ok(());
+        };
+        let subscribers: Vec<(String, String)> = self
+            .ptr
+            .lock()?
+            .destination_connections()?
+            .iter()
+            .map(|c| {
+                let p = c.profile();
+                (p.destination_process_id.to_string(), p.arg_name)
+            })
+            .collect();
+        let t = self.read_topic()?;
+        for key in subscribers.iter() {
+            if let Some(reader) = t.typed_subscribers.get(key) {
+                crate::types::check_connectable(Some(writer), Some(reader))
+                    .map_err(|e| self.topic_type_error("publish", &key.0, e))?;
+            }
+        }
+        Ok(())
+    }
+
+    /// subscribe を始める引数の型 (reader) を、今つながっている publish 側の戻り値の型 (writer) それぞれと比べる
+    pub fn check_subscriber(&self, schema: Option<&TypeSchema>) -> JuizResult<()> {
+        let Some(reader) = schema else {
+            return Ok(());
+        };
+        let publishers: Vec<String> = self
+            .ptr
+            .lock()?
+            .source_connections()?
+            .iter()
+            .map(|c| c.profile().source_process_id.to_string())
+            .collect();
+        let t = self.read_topic()?;
+        for id in publishers.iter() {
+            if let Some(writer) = t.typed_publishers.get(id) {
+                crate::types::check_connectable(Some(writer), Some(reader))
+                    .map_err(|e| self.topic_type_error("subscribe", id, e))?;
+            }
+        }
+        Ok(())
+    }
+
+    /// publish 側の型を覚える。型なしなら覚えない (つながっていない Process の分は検査で使わない)
+    pub fn set_publisher_type(
+        &self,
+        process_id: &str,
+        schema: Option<TypeSchema>,
+    ) -> JuizResult<()> {
+        let mut t = self.write_topic()?;
+        match schema {
+            Some(s) => t.typed_publishers.insert(process_id.to_owned(), s),
+            None => t.typed_publishers.remove(process_id),
+        };
+        Ok(())
+    }
+
+    pub fn set_subscriber_type(
+        &self,
+        process_id: &str,
+        arg_name: &str,
+        schema: Option<TypeSchema>,
+    ) -> JuizResult<()> {
+        let mut t = self.write_topic()?;
+        let key = (process_id.to_owned(), arg_name.to_owned());
+        match schema {
+            Some(s) => t.typed_subscribers.insert(key, s),
+            None => t.typed_subscribers.remove(&key),
+        };
+        Ok(())
+    }
+
+    fn topic_type_error(
+        &self,
+        action: &str,
+        other: &str,
+        e: juiz_sdk::anyhow::Error,
+    ) -> juiz_sdk::anyhow::Error {
+        log::error!(
+            "Topic({}): can not {action} because the type does not match {other} ({e})",
+            self.name
+        );
+        e
+    }
+
+    fn read_topic(&self) -> JuizResult<std::sync::RwLockReadGuard<'_, Topic>> {
+        self.topic.read().map_err(|_| {
+            anyhow!(JuizError::ObjectLockError {
+                target: "Topic".to_owned()
+            })
+        })
+    }
+
+    fn write_topic(&self) -> JuizResult<std::sync::RwLockWriteGuard<'_, Topic>> {
+        self.topic.write().map_err(|_| {
+            anyhow!(JuizError::ObjectLockError {
+                target: "Topic".to_owned()
+            })
+        })
     }
 
     pub fn num_local_publishers(&self) -> JuizResult<usize> {

@@ -1,0 +1,380 @@
+//! juiz の IDL (JIDL) の生成器 (issue #191、仕様 docs/spec/datatype.md §9・§11・§16)
+//!
+//! .jidl (と手で書いた .avsc) を読み、次のものを書き出す。
+//!
+//! | 出力 | ファイル | 内容 |
+//! |---|---|---|
+//! | [`OutputKind::Avsc`] | `<完全名>.avsc` | 名前付き型ごとの、それだけで完結した Avro のスキーマ (型の正本) |
+//! | [`OutputKind::JsonSchema`] | `<完全名>.schema.json` | 辞書の表し方 (仕様 §4) の JSON Schema 2020-12 |
+//! | [`OutputKind::Processes`] | `<namespace>.processes.json` | `process` / `container` 宣言のシグネチャ (仕様 §9.3) |
+//! | [`OutputKind::Rust`] | `<namespace>.rs`、`juiz_idl.rs` | struct / enum と `juiz_sdk::types::JuizType` の実装 |
+//! | [`OutputKind::RustSkeleton`] | `<namespace>.skeleton.rs` | `process` / `container` 宣言の Rust の雛形 (コピーして本体を書く、仕様 §18) |
+//! | [`OutputKind::Cpp`] | `<namespace>.h`、`juiz_idl.h` | struct / enum class と cppjuiz の `juiz::type_traits` の特殊化 (仕様 §21) |
+//! | [`OutputKind::Haskell`] | `<A>/<B>.hs` (名前空間 `a.b`) | record・直和型と hsjuiz の `JuizType` / `FromCapsule` / `ToCapsule` のインスタンス (仕様 §22) |
+//! | [`OutputKind::TypeScript`] | `<namespace>.ts`、`juiz_idl.ts` | interface・文字列リテラルの union と型参照 (管理画面・`bindings/js` 用、仕様 §23) |
+//! | [`OutputKind::Python`] | `<a>/<b>/__init__.py` (名前空間 `a.b`) | dataclass / enum.Enum と、`process` / `container` 宣言の型付き client stub (仕様 §20) |
+//!
+//! 型のモデル・指紋は `juiz_types` を使う (juiz_sdk には依存しない)。生成した Rust のコードは juiz_sdk を、
+//! Python のコードは pyjuiz (`juiz.datatype`) を使う。
+//! Java の avro-tools は使わない。
+//!
+//! ```
+//! let model = juiz_idl::load_str(r#"
+//!     namespace robot.geometry;
+//!     record Point2D { double x; double y = 0.0; }
+//!     process Point2D origin();
+//! "#, "geometry.jidl").unwrap();
+//! let files = juiz_idl::generate(&model, &[juiz_idl::OutputKind::Avsc]).unwrap();
+//! assert_eq!(files[0].path.to_str(), Some("robot.geometry.Point2D.avsc"));
+//! ```
+//!
+//! build.rs からは [`build`] を使う。
+//!
+//! 標準の型 `juiz_std` の JIDL は組み込んであり、`import idl "juiz_std/geometry.jidl";` で読める ([`BUILTIN_FILES`])。
+//! import の探し先は [`LoadOptions`]、ほかのパッケージにある型の参照は [`GenerateOptions`] (仕様 §24)。
+
+pub mod build;
+mod builtin;
+pub mod cli;
+mod cpp;
+mod haskell;
+mod jidl;
+mod json_schema;
+mod model;
+mod parser;
+mod python;
+mod rust;
+mod rust_skeleton;
+mod typescript;
+
+use std::path::{Path, PathBuf};
+
+use juiz_types::TypeError;
+
+pub use builtin::{builtin_file, BUILTIN_FILES, BUILTIN_PREFIX};
+pub use cpp::{generate_cpp, CPP_ALL_HEADER};
+pub use haskell::generate_haskell;
+pub use jidl::to_jidl;
+pub use json_schema::{json_schema_of, JSON_SCHEMA_DIALECT};
+pub use model::{
+    load_files, load_files_with, load_str, ArgumentSignature, ContainerSignature, IdlModel,
+    LoadOptions, ProcessSignature, Signatures, IMPORT_PATH_ENV,
+};
+pub use parser::{parse_idl, IdlFile};
+pub use python::generate_python;
+pub use rust::{generate_rust, MODULE_TREE_FILE};
+pub use rust_skeleton::generate_rust_skeleton;
+pub use typescript::{generate_typescript, TYPESCRIPT_COMMON_FILE};
+
+/// juiz-idl のエラー。位置は 1 から数える
+#[derive(thiserror::Error, Debug, Clone, PartialEq)]
+pub enum IdlError {
+    /// JIDL の文法の誤り
+    #[error("{file}:{line}:{column}: syntax error: {message}")]
+    Syntax {
+        file: String,
+        line: usize,
+        column: usize,
+        message: String,
+    },
+    /// 名前の解決や宣言の誤り
+    #[error("{file}:{line}:{column}: {message}")]
+    Semantic {
+        file: String,
+        line: usize,
+        column: usize,
+        message: String,
+    },
+    /// 型が仕様 §3 の規則に合わない (juiz_types の検査)
+    #[error("{file}:{line}:{column}: {error}")]
+    Type {
+        file: String,
+        line: usize,
+        column: usize,
+        error: Box<TypeError>,
+    },
+    #[error("{path}: {message}")]
+    Io { path: String, message: String },
+    /// コードを書き出せない
+    #[error("{message}")]
+    Generate { message: String },
+}
+
+/// 書き出すものの種類
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum OutputKind {
+    Avsc,
+    JsonSchema,
+    Processes,
+    Rust,
+    RustSkeleton,
+    Python,
+    Cpp,
+    Haskell,
+    TypeScript,
+}
+
+impl OutputKind {
+    pub const ALL: [OutputKind; 9] = [
+        OutputKind::Avsc,
+        OutputKind::JsonSchema,
+        OutputKind::Processes,
+        OutputKind::Rust,
+        OutputKind::RustSkeleton,
+        OutputKind::Python,
+        OutputKind::Cpp,
+        OutputKind::Haskell,
+        OutputKind::TypeScript,
+    ];
+}
+
+/// 書き出すファイル 1 つ。`path` は出力先のディレクトリからの相対パス
+#[derive(Clone, Debug, PartialEq)]
+pub struct GeneratedFile {
+    pub path: PathBuf,
+    pub contents: String,
+}
+
+/// 先に書くキー。serde_json の Map はキーを辞書順に並べるので、人が読みやすい順に並べ直して書く
+const KEY_ORDER: [&str; 23] = [
+    "$schema",
+    "name",
+    "type_name",
+    "type",
+    "namespace",
+    "title",
+    "description",
+    "doc",
+    "fingerprint",
+    "aliases",
+    "symbols",
+    "items",
+    "values",
+    "properties",
+    "required",
+    "fields",
+    "arguments",
+    "schema",
+    "default",
+    "output_schema",
+    "avro",
+    "processes",
+    "containers",
+];
+/// record・enum の定義は Avro の慣例どおり type、name の順に書く
+const NAMED_TYPE_KEY_ORDER: [&str; 3] = ["type", "name", "namespace"];
+
+pub(crate) fn key_rank(m: &serde_json::Map<String, serde_json::Value>, key: &str) -> usize {
+    let named = matches!(
+        m.get("type").and_then(|t| t.as_str()),
+        Some("record" | "enum")
+    );
+    if named {
+        if let Some(i) = NAMED_TYPE_KEY_ORDER.iter().position(|o| *o == key) {
+            return i;
+        }
+    }
+    NAMED_TYPE_KEY_ORDER.len()
+        + KEY_ORDER
+            .iter()
+            .position(|o| *o == key)
+            .unwrap_or(KEY_ORDER.len())
+}
+
+fn pretty(v: &impl serde::Serialize) -> String {
+    let v = serde_json::to_value(v).unwrap();
+    let mut out = String::new();
+    write_pretty(&v, 0, &mut out);
+    out.push('\n');
+    out
+}
+
+fn write_pretty(v: &serde_json::Value, indent: usize, out: &mut String) {
+    use serde_json::Value;
+    let pad = |n: usize| "  ".repeat(n);
+    match v {
+        Value::Array(a) if !a.is_empty() => {
+            out.push_str("[\n");
+            for (i, e) in a.iter().enumerate() {
+                out.push_str(&pad(indent + 1));
+                write_pretty(e, indent + 1, out);
+                out.push_str(if i + 1 < a.len() { ",\n" } else { "\n" });
+            }
+            out.push_str(&pad(indent));
+            out.push(']');
+        }
+        Value::Object(m) if !m.is_empty() => {
+            let mut keys: Vec<&String> = m.keys().collect();
+            keys.sort_by_key(|k| key_rank(m, k));
+            out.push_str("{\n");
+            for (i, k) in keys.iter().enumerate() {
+                out.push_str(&pad(indent + 1));
+                out.push_str(&serde_json::to_string(k).unwrap());
+                out.push_str(": ");
+                write_pretty(&m[k.as_str()], indent + 1, out);
+                out.push_str(if i + 1 < keys.len() { ",\n" } else { "\n" });
+            }
+            out.push_str(&pad(indent));
+            out.push('}');
+        }
+        other => out.push_str(&serde_json::to_string(other).unwrap()),
+    }
+}
+
+/// ほかのパッケージが持っている名前空間 (仕様 §24.2)。
+/// その名前空間 (と下の名前空間) の型は書き出さず、Rust のコードは `rust_path` の下の型を参照する
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExternNamespace {
+    /// 型の名前空間 (`juiz_std` なら `juiz_std.geometry` なども含む)
+    pub namespace: String,
+    /// Rust で、この名前空間に当たるモジュールのパス (`::juiz_std_types::juiz_std` など)。Rust を書き出すときは必須
+    pub rust_path: Option<String>,
+}
+
+impl ExternNamespace {
+    /// `namespace` か `namespace=rust_path` の形の文字列から作る (コマンドの `--extern`)
+    pub fn parse(s: &str) -> Result<Self, IdlError> {
+        let (namespace, rust_path) = match s.split_once('=') {
+            Some((n, p)) => (n.trim(), Some(p.trim().to_owned())),
+            None => (s.trim(), None),
+        };
+        if namespace.is_empty()
+            || !namespace
+                .split('.')
+                .all(|e| !e.is_empty() && e.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
+        {
+            return Err(IdlError::Generate {
+                message: format!("invalid extern namespace '{s}' (expected <namespace> or <namespace>=<rust path>)"),
+            });
+        }
+        Ok(Self {
+            namespace: namespace.to_owned(),
+            rust_path: rust_path.filter(|p| !p.is_empty()),
+        })
+    }
+
+    /// `namespace` がこの名前空間か、その下の名前空間か
+    pub fn contains(&self, namespace: &str) -> bool {
+        namespace == self.namespace
+            || namespace
+                .strip_prefix(self.namespace.as_str())
+                .is_some_and(|rest| rest.starts_with('.'))
+    }
+}
+
+/// 生成の設定
+#[derive(Clone, Debug, Default)]
+pub struct GenerateOptions {
+    pub externs: Vec<ExternNamespace>,
+}
+
+impl GenerateOptions {
+    /// 名前空間 `namespace` を持っている extern (いちばん長く一致するもの)
+    pub fn extern_of(&self, namespace: &str) -> Option<&ExternNamespace> {
+        self.externs
+            .iter()
+            .filter(|e| e.contains(namespace))
+            .max_by_key(|e| e.namespace.len())
+    }
+}
+
+fn type_namespace(t: &juiz_types::DataType) -> Option<&str> {
+    match t {
+        juiz_types::DataType::Record(r) => Some(&r.namespace),
+        juiz_types::DataType::Enum(e) => Some(&e.namespace),
+        _ => None,
+    }
+}
+
+/// モデルから `kinds` のファイルを作る (書き込まない)
+pub fn generate(model: &IdlModel, kinds: &[OutputKind]) -> Result<Vec<GeneratedFile>, IdlError> {
+    generate_with(model, kinds, &GenerateOptions::default())
+}
+
+/// [`GenerateOptions`] のとおりにモデルから `kinds` のファイルを作る (書き込まない)
+pub fn generate_with(
+    model: &IdlModel,
+    kinds: &[OutputKind],
+    options: &GenerateOptions,
+) -> Result<Vec<GeneratedFile>, IdlError> {
+    // extern の名前空間の型は書き出さない (参照はそのまま残る)
+    let types: Vec<juiz_types::DataType> = model
+        .types
+        .iter()
+        .filter(|t| type_namespace(t).map_or(true, |ns| options.extern_of(ns).is_none()))
+        .cloned()
+        .collect();
+    let signatures: Vec<Signatures> = model
+        .signatures
+        .iter()
+        .filter(|s| options.extern_of(&s.namespace).is_none())
+        .cloned()
+        .collect();
+    let mut files = Vec::new();
+    for kind in kinds.iter() {
+        match kind {
+            OutputKind::Avsc => {
+                for t in types.iter() {
+                    let avro = t.to_avro().map_err(|e| IdlError::Generate {
+                        message: format!("{}: {e}", t.display_name()),
+                    })?;
+                    files.push(GeneratedFile {
+                        path: format!("{}.avsc", t.display_name()).into(),
+                        contents: pretty(&avro),
+                    });
+                }
+            }
+            OutputKind::JsonSchema => {
+                for t in types.iter() {
+                    files.push(GeneratedFile {
+                        path: format!("{}.schema.json", t.display_name()).into(),
+                        contents: pretty(&json_schema_of(t)),
+                    });
+                }
+            }
+            OutputKind::Processes => {
+                for s in signatures.iter() {
+                    files.push(GeneratedFile {
+                        path: format!("{}.processes.json", s.namespace).into(),
+                        contents: pretty(s),
+                    });
+                }
+            }
+            OutputKind::Rust => files.extend(rust::generate_rust_with(&types, options)?),
+            OutputKind::RustSkeleton => files.extend(rust_skeleton::generate_rust_skeleton_with(
+                &signatures,
+                options,
+            )?),
+            OutputKind::Python => files.extend(generate_python(&types, &signatures)?),
+            OutputKind::Cpp => files.extend(generate_cpp(&types)?),
+            OutputKind::Haskell => files.extend(generate_haskell(&types)?),
+            OutputKind::TypeScript => files.extend(generate_typescript(&types)?),
+        }
+    }
+    Ok(files)
+}
+
+/// ファイルを `out_dir` に書く。中身が同じファイルは書き直さない (build.rs で無駄な再ビルドを起こさないため)
+pub fn write_files(files: &[GeneratedFile], out_dir: &Path) -> Result<(), IdlError> {
+    std::fs::create_dir_all(out_dir).map_err(|e| IdlError::Io {
+        path: out_dir.display().to_string(),
+        message: e.to_string(),
+    })?;
+    for f in files.iter() {
+        let path = out_dir.join(&f.path);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| IdlError::Io {
+                path: parent.display().to_string(),
+                message: e.to_string(),
+            })?;
+        }
+        if std::fs::read_to_string(&path).ok().as_deref() == Some(f.contents.as_str()) {
+            continue;
+        }
+        std::fs::write(&path, &f.contents).map_err(|e| IdlError::Io {
+            path: path.display().to_string(),
+            message: e.to_string(),
+        })?;
+    }
+    Ok(())
+}

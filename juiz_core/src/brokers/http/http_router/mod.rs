@@ -35,6 +35,7 @@ use crate::prelude::*;
 pub mod any;
 pub mod any_process;
 pub mod broker;
+pub mod composite;
 pub mod connection;
 pub mod container;
 pub mod container_process;
@@ -42,6 +43,7 @@ pub mod execution_context;
 pub mod process;
 pub mod system;
 pub mod topic;
+pub mod types;
 // use cv_convert::TryFromCv;
 
 #[derive(Deserialize, IntoParams, Debug)]
@@ -253,6 +255,16 @@ pub fn json_output_wrap(result: JuizResult<CapsulePtr>) -> impl IntoResponse {
 fn capsule_ptr_to_response(v: CapsulePtr) -> axum::http::Response<Body> {
     use juiz_sdk::image::ImageFormat;
 
+    // Native の値はここで encode する。失敗したらエラーの応答にする (lazy-evaluation.md §5)
+    let encode_error = |e: juiz_sdk::anyhow::Error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(jvalue!({
+                "message": format!("Internal Server Error:  {:#}, {:}", e, e.to_string())
+            })),
+        )
+            .into_response()
+    };
     if v.is_value().unwrap() {
         v.lock_as_value(|value| {
             let mut r = Json(value).into_response();
@@ -260,7 +272,7 @@ fn capsule_ptr_to_response(v: CapsulePtr) -> axum::http::Response<Body> {
             hdrs.append("Cache-Control", HeaderValue::from_str("no-cache").unwrap());
             r
         })
-        .unwrap()
+        .unwrap_or_else(encode_error)
     } else if v.is_image().unwrap() {
         use std::io::{BufWriter, Cursor};
         // log::trace!("Detect Image Response v={v:?}");
@@ -277,7 +289,7 @@ fn capsule_ptr_to_response(v: CapsulePtr) -> axum::http::Response<Body> {
                 .unwrap()
                 .into_response()
         })
-        .unwrap()
+        .unwrap_or_else(encode_error)
     } else {
         Json(jvalue!({})).into_response()
     }
@@ -397,15 +409,25 @@ pub fn app_new(
     api.merge(connection::ApiDoc::openapi());
     api.merge(topic::ApiDoc::openapi());
     api.merge(any_process::ApiDoc::openapi());
+    api.merge(composite::ApiDoc::openapi());
+    api.merge(types::ApiDoc::openapi());
     log::trace!("app_new(static_filepaths: {static_filepaths:?}) called");
     let r = Router::new();
     // Swagger UI は feature "swagger-ui" のときだけ。無いときも OpenAPI 定義は返す。
     #[cfg(feature = "swagger-ui")]
-    let r = r.merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", api));
-    #[cfg(not(feature = "swagger-ui"))]
+    let r = r.merge(
+        SwaggerUi::new("/docs").config(utoipa_swagger_ui::Config::from("/api-docs/openapi.json")),
+    );
+    // OpenAPI 定義には、問い合わせのたびに今の型と Factory の引数のスキーマを足す (issue #197)
+    let api = serde_json::to_value(&api).unwrap_or_default();
+    let crud = crud_broker.clone();
     let r = r.route(
         "/api-docs/openapi.json",
-        axum::routing::get(move || async move { axum::Json(api) }),
+        axum::routing::get(move || {
+            let api = api.clone();
+            let crud = crud.clone();
+            async move { axum::Json(openapi_with_types(api, &crud)) }
+        }),
     );
     let mut r = r.nest("/api/", any::object_router(crud_broker.clone()));
     #[cfg(feature = "webui")]
@@ -425,6 +447,46 @@ pub fn app_new(
         }
         None => r,
     }
+}
+
+/// 静的な OpenAPI 定義に、型の登録所の型と Factory ごとの引数・戻り値のスキーマを足す (issue #197、仕様 datatype.md §23.3)
+///
+/// `components.schemas` に足し、`process/call`・`container_process/call` の本体のスキーマを
+/// Factory ごとの引数のスキーマの `oneOf` にする (Swagger UI で Factory を選んで例を出せる)。
+/// 足せないときは静的な定義のまま返す。
+pub fn openapi_with_types(mut api: Value, crud_broker: &Arc<Mutex<CRUDBroker>>) -> Value {
+    let components = match juiz_lock(crud_broker).and_then(|c| c.openapi_components()) {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!("openapi.json: types are not added ({e})");
+            return api;
+        }
+    };
+    for kind in ["process", "container_process"] {
+        let refs: Vec<Value> = components
+            .keys()
+            .filter(|k| k.starts_with(&format!("{kind}.")) && k.ends_with(".arguments"))
+            .map(|k| jvalue!({ "$ref": format!("#/components/schemas/{k}") }))
+            .collect();
+        if refs.is_empty() {
+            continue;
+        }
+        if let Some(content) = api.pointer_mut(&format!(
+            "/paths/~1api~1{kind}~1call/patch/requestBody/content/application~1json"
+        )) {
+            content["schema"] = jvalue!({ "oneOf": refs });
+        }
+    }
+    if !api["components"].is_object() {
+        api["components"] = jvalue!({});
+    }
+    if !api["components"]["schemas"].is_object() {
+        api["components"]["schemas"] = jvalue!({});
+    }
+    if let Some(schemas) = api["components"]["schemas"].as_object_mut() {
+        schemas.extend(components);
+    }
+    api
 }
 
 #[allow(unused)]
