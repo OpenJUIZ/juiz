@@ -36,7 +36,6 @@ pub struct MessengerBrokerProxy {
 
 pub trait MessengerBrokerProxyCore: Send {
     fn send_and_receive(&self, v: CapsuleMap, timeout: Duration) -> JuizResult<CapsulePtr>;
-    fn send_and_receive_output(&self, v: CapsuleMap, timeout: Duration) -> JuizResult<CapsulePtr>;
 }
 
 pub trait MessengerBrokerProxyCoreFactory {
@@ -142,56 +141,6 @@ impl MessengerBrokerProxy {
         result
     }
 
-    fn _construct_argument(
-        _method_name: &str,
-        _class_name: &str,
-        _function_name: &str,
-        _arguments: CapsuleMap,
-        _params: &[(String, String)],
-    ) -> JuizResult<CapsuleMap> {
-        todo!("ここにmethod_nameなどをArgumentMapに埋め込む作業を書く")
-    }
-
-    pub fn send_recv_output_and<F: Fn(CapsulePtr) -> JuizResult<T>, T>(
-        &self,
-        method_name: &str,
-        class_name: &str,
-        function_name: &str,
-        arguments: CapsuleMap,
-        params: &[(String, String)],
-        func: F,
-    ) -> JuizResult<T> {
-        //log::trace!("MessengerBrokerProxy::send_recv_output_and({class_name}, {function_name}, {arguments}) called");
-        log::trace!("MessengerBrokerProxy::send_recv_output_and({class_name}, {function_name}, arguments) called");
-        //let SendReceivePair(sndr, recvr) = self.messenger.send_receive()?;
-        let value = self.messenger.send_and_receive_output(
-            Self::_construct_argument(method_name, class_name, function_name, arguments, params)?, Duration::new(3, 0)).context("MessengerBrokerProxyCore.send_and_receive() failed in MessengerBrokerProxy.send_recv_and()")?;
-        //let value = (recvr)(timeout)?;
-        //let response_function_name = obj_get_str(juiz_lock(&value)?.as_value().unwrap(), "function_name")?.to_owned();
-        let response_function_name = value.get_function_name()?;
-
-        match response_function_name.as_str() {
-            "RequestFunctionNameNotSupported" => {
-                return Err(anyhow::Error::from(
-                    JuizError::BrokerProxyRequestFunctionNameNotSupportedError {
-                        request_function_name: function_name.to_string(),
-                    },
-                ));
-            }
-            _ => {
-                if response_function_name != function_name {
-                    return Err(anyhow::Error::from(
-                        JuizError::BrokerProxyFunctionNameInResponseDoesNotMatchError {
-                            function_name: function_name.to_string(),
-                            response_function_name: response_function_name.to_string(),
-                        },
-                    ));
-                }
-                func(value)
-            }
-        }
-    }
-
     pub fn read(&self, class_name: &str, function_name: &str) -> JuizResult<CapsulePtr> {
         self.send_recv_and(
             "READ",
@@ -236,35 +185,6 @@ impl MessengerBrokerProxy {
             //|value| Ok(obj_get(&value, "return")?.clone()))
             |value| Ok(value),
         )
-    }
-
-    pub fn update_output_by_id(
-        &self,
-        class_name: &str,
-        function_name: &str,
-        args: CapsuleMap,
-        id: &Identifier,
-    ) -> JuizResult<CapsulePtr> {
-        self.send_recv_output_and(
-            "UPDATE",
-            class_name,
-            function_name,
-            args,
-            &[("identifier".to_owned(), id.clone())],
-            |value| Ok(value),
-        )
-    }
-
-    pub fn update_output(
-        &self,
-        class_name: &str,
-        function_name: &str,
-        args: CapsuleMap,
-        params: &[(String, String)],
-    ) -> JuizResult<CapsulePtr> {
-        self.send_recv_output_and("UPDATE", class_name, function_name, args, params, |value| {
-            Ok(value)
-        })
     }
 
     pub fn update_by_id(
@@ -456,11 +376,11 @@ impl SystemBrokerProxy for MessengerBrokerProxy {
 
 impl ProcessBrokerProxy for MessengerBrokerProxy {
     fn process_call(&self, id: &ProcessIdentifier, args: CapsuleMap) -> JuizResult<CapsulePtr> {
-        self.update_output_by_id("process", "call", args, &id.to_string())
+        self.update_by_id("process", "call", args, &id.to_string())
     }
 
     fn process_execute(&self, id: &ProcessIdentifier) -> JuizResult<CapsulePtr> {
-        self.update_output_by_id("process", "execute", CapsuleMap::new(), &id.to_string())
+        self.update_by_id("process", "execute", CapsuleMap::new(), &id.to_string())
     }
 
     fn process_profile_full(&self, id: &ProcessIdentifier) -> JuizResult<ProcessProfile> {
@@ -677,11 +597,11 @@ impl ContainerProcessBrokerProxy for MessengerBrokerProxy {
         id: &ProcessIdentifier,
         args: CapsuleMap,
     ) -> JuizResult<CapsulePtr> {
-        self.update_output_by_id("container_process", "call", args, &id.to_string())
+        self.update_by_id("container_process", "call", args, &id.to_string())
     }
 
     fn container_process_execute(&self, id: &ProcessIdentifier) -> JuizResult<CapsulePtr> {
-        self.update_output_by_id(
+        self.update_by_id(
             "container_process",
             "execute",
             CapsuleMap::new(),
@@ -844,7 +764,7 @@ impl TopicBrokerProxy for MessengerBrokerProxy {
         } else {
             "".to_owned()
         };
-        self.update_output(
+        self.update(
             "topic",
             "push",
             argument,

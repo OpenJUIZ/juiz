@@ -59,14 +59,6 @@ impl MessengerBrokerProxyCore for LocalBrokerProxyCore {
         log::trace!("LocaBrokerProxyCore::send_and_receive() exit");
         result
     }
-
-    fn send_and_receive_output(
-        &self,
-        _v: CapsuleMap,
-        _timeout: Duration,
-    ) -> JuizResult<CapsulePtr> {
-        todo!("Outputクラスをどう扱うか。")
-    }
 }
 
 impl LocalBrokerProxyCore {

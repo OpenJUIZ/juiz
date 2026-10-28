@@ -41,6 +41,7 @@ mod http_broker_api_test;
 mod identifier_test;
 mod lazy_eval_test;
 mod local_broker_api_test;
+mod messenger_broker_proxy_test;
 mod namespace_broker_test;
 mod namespace_test;
 mod process_factory_test;
