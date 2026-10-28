@@ -310,7 +310,7 @@ fn tmp_info_variant() -> JuizResult<()> {
         return Ok(());
     }
     let mut c = conf("tmp_info", None, &["cpp", "hs"]);
-    for p in ["a", "b", "c", "d", "e"] {
+    for p in ["a", "b", "c", "d", "e", "f", "g", "h"] {
         if let Some(a) = c["processes"].as_array_mut() {
             a.push(jvalue!({ "type_name": format!("image_probe{p}_hs"), "name": format!("image_probe{p}_hs0"), "use_memo": false }));
         }

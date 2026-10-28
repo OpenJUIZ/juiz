@@ -21,7 +21,7 @@ module Juiz.Image
   , writeImage
   ) where
 
-import Control.Exception (SomeException, throwIO, try)
+import Control.Exception (SomeException, bracket, throwIO, try)
 import Control.Monad (unless, when)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Unsafe as BSU
@@ -32,7 +32,8 @@ import qualified Data.Text as T
 import Data.Word (Word32)
 import Foreign.C.Types (CSize)
 import Foreign.Marshal.Alloc (allocaBytes)
-import Foreign.Ptr (Ptr, castPtr, freeHaskellFunPtr, nullPtr, plusPtr)
+import Foreign.Ptr (Ptr, castPtr, plusPtr)
+import Foreign.StablePtr (castStablePtrToPtr, freeStablePtr, newStablePtr)
 import Foreign.Storable (peekByteOff, pokeByteOff, sizeOf)
 
 import Juiz.Error
@@ -98,7 +99,7 @@ readImage :: Ptr CCapsulePtr -> IO Image
 readImage cp = do
   result <- newIORef Nothing
   failure <- newIORef Nothing
-  let callback _ p = do
+  let callback p = do
         r <- try $ do
           w <- peekByteOff p 0 :: IO Word32
           h <- peekByteOff p 4 :: IO Word32
@@ -115,9 +116,8 @@ readImage cp = do
         case r of
           Left (e :: SomeException) -> writeIORef failure (Just e) >> pure juizValueConverterError
           Right () -> pure juizOk
-  fp <- mkImageCallback callback
-  code <- c_capsule_ptr_lock_as_image cp fp nullPtr
-  freeHaskellFunPtr fp
+  code <- bracket (newStablePtr (callback :: ImageFunction)) freeStablePtr
+    (c_capsule_ptr_lock_as_image cp imageTrampoline . castStablePtrToPtr)
   readIORef failure >>= maybe (pure ()) throwIO
   unless (code == juizOk) $ throwJuiz code (codeMessage code)
   maybe (throwJuiz juizCapsuleTypeError "not an image") pure =<< readIORef result

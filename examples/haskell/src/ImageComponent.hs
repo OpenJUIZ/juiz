@@ -69,12 +69,25 @@ storeGet ref = readIORef ref >>= maybe (throwJuiz juizImageFormatError "no image
 -- TEMP: issue #137 の調査
 pm :: Text -> ProcessManifest
 pm n = processManifest n & addImageArg "img" "" & addStringArg "label" "" ""
-probeAManifest, probeBManifest, probeCManifest, probeDManifest, probeEManifest :: ProcessManifest
+probeAManifest, probeBManifest, probeCManifest, probeDManifest, probeEManifest, probeFManifest, probeGManifest, probeHManifest :: ProcessManifest
 probeAManifest = pm "image_probea_hs"
 probeBManifest = pm "image_probeb_hs"
 probeCManifest = pm "image_probec_hs"
 probeDManifest = pm "image_probed_hs"
 probeEManifest = pm "image_probee_hs"
+probeFManifest = pm "image_probef_hs"
+probeGManifest = pm "image_probeg_hs"
+probeHManifest = pm "image_probeh_hs"
+data Small = SA | SB | SC deriving (Show, Enum)
+data Big = B0 | B1 | B2 | B3 | B4 | B5 | B6 | B7 | B8 | B9 | B10 | B11 deriving (Show, Enum)
+probeF :: Image -> Text -> Text
+probeF img _ = T.pack (show (toEnum (imageWidth img `mod` 3) :: Small))
+probeG :: Image -> Text -> Text
+probeG img _ = T.pack (show (toEnum (imageWidth img) :: Big))
+probeH :: Image -> Text -> Text
+probeH img _ = case imageFormat img of
+  L8 -> "l8"; LA8 -> "la8"; RGB8 -> "rgb8"; RGBA8 -> "rgba8"; L16 -> "l16"; LA16 -> "la16"
+  RGB16 -> "rgb16"; RGBA16 -> "rgba16"; RGB32F -> "rgb32f"; RGBA32F -> "rgba32f"; BGR8 -> "bgr8"; BGRA8 -> "bgra8"
 probeA :: Image -> Text -> Text
 probeA _ label = label
 probeB :: Image -> Text -> Int64
@@ -95,6 +108,9 @@ juizComponent 'component
   , componentProcess 'probeC 'probeCManifest
   , componentProcess 'probeD 'probeDManifest
   , componentProcess 'probeE 'probeEManifest
+  , componentProcess 'probeF 'probeFManifest
+  , componentProcess 'probeG 'probeGManifest
+  , componentProcess 'probeH 'probeHManifest
   , componentContainer 'createStore 'storeManifest
   , componentContainerProcess 'storePut 'storePutManifest
   , componentContainerProcess 'storeGet 'storeGetManifest

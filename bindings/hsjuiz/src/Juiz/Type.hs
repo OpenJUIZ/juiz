@@ -36,6 +36,7 @@ module Juiz.Type
   , enumFromValue
   ) where
 
+import Control.Exception (bracket)
 import Data.IORef (newIORef, readIORef, writeIORef)
 import qualified Data.ByteString as BS
 import Data.Map.Strict (Map)
@@ -45,7 +46,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Foreign.Marshal.Alloc (alloca)
-import Foreign.Ptr (FunPtr, freeHaskellFunPtr, nullPtr)
+import Foreign.StablePtr (castStablePtrToPtr, freeStablePtr, newStablePtr)
 import Foreign.Storable (peek)
 import System.IO.Unsafe (unsafePerformIO)
 
@@ -70,9 +71,8 @@ newTypeInfo avro = BS.useAsCString (TE.encodeUtf8 avro) $ \cs -> alloca $ \pt ->
     else do
       t <- peek pt
       result <- newIORef JNull
-      cb <- mkLockCallback (\_ v -> juizOk <$ (peekValue v >>= writeIORef result))
-      r' <- c_juiz_type_describe t cb nullPtr
-      freeHaskellFunPtr (cb :: FunPtr LockCallback)
+      r' <- bracket (newStablePtr ((\v -> juizOk <$ (peekValue v >>= writeIORef result)) :: LockFunction)) freeStablePtr
+        (c_juiz_type_describe t lockTrampoline . castStablePtrToPtr)
       if r' /= juizOk
         then throwJuiz r' "juiz_type_describe failed"
         else do

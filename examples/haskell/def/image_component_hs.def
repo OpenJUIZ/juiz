@@ -27,3 +27,9 @@ EXPORTS
     probeD_factory_entry_point
     probeE_manifest_entry_point
     probeE_factory_entry_point
+    probeF_manifest_entry_point
+    probeF_factory_entry_point
+    probeG_manifest_entry_point
+    probeG_factory_entry_point
+    probeH_manifest_entry_point
+    probeH_factory_entry_point

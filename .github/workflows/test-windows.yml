@@ -109,22 +109,17 @@ jobs:
           RUST_BACKTRACE: "0"
         run: |
           set -o pipefail
-          for v in probea probeb probec probed probee info; do TMPV=$v scripts/test.sh -p juiz_core --test integration -- tmp_info_variant --nocapture 2>&1 | grep -E "TEMP|hsjuiz|panicked|0xc0|ERROR" | tail -10 || true; done
+          for v in probef probeg probeh probee; do TMPV=$v scripts/test.sh -p juiz_core --test integration -- tmp_info_variant --nocapture 2>&1 | grep -E "TEMP|hsjuiz|panicked|0xc0|ERROR" | tail -10 || true; done
           scripts/test.sh -p juiz_core --test integration -- haskell plugin_images_through_ipc > /tmp/t.log 2>&1 || { tail -n 30 /tmp/t.log; grep -n -E "^test |panicked|rror|hsjuiz:" /tmp/t.log | grep -v "warning" | head -120; exit 1; }
       - name: inspect
         if: always()
         run: |
           BIN="$(dirname "$(find /c/ghcup -name llvm-objdump.exe | head -n 1)")"
-          echo "bin=$BIN"
-          find examples/haskell/dist-newstyle -name "*.dll" -printf "%s %p\n" | head -20
           cd examples/haskell
-          d=$(dirname "$(find dist-newstyle -name increment_process_hs.dll | head -n 1)")
-          echo "dir=$d"; ls -la "$d" "$d"/* | head -40
-          o=$(find dist-newstyle -path "*increment_process_hs*" -name "IncrementProcess.o" | head -n 1)
-          echo "obj=$o"; "$BIN/llvm-nm.exe" "$o" | grep -v " [tdrb] " | head -30
-          "$BIN/llvm-objdump.exe" -s -j .drectve "$o" | head -20 || true
-          find dist-newstyle -path "*increment_process_hs*" -name "*.o" | head -20
-          rm -f "$d/increment_process_hs.dll"
-          cabal build flib:increment_process_hs --extra-lib-dirs="$PWD/dist-newstyle/juiz_sdk-import" --extra-lib-dirs="$PWD/../../target/debug" -v2 > /tmp/link.log 2>&1 || true
-          grep -n -i -E "clang|lld|shared|export|\.def" /tmp/link.log | cut -c1-3000 | head -20
-          "$BIN/llvm-objdump.exe" -p "$d/increment_process_hs.dll" | grep -v -E "  (base|ghczmprim|ghczmbignum|integerzmgmp|rts|textzm|containerszm|bytestringzm|templatezmhaskell|__gmp|stg_|ghc)" | sed -n '/Export Table/,$p' | head -60
+          o=$(find dist-newstyle -path "*hsjuiz*" -name "Image.o" | head -n 1)
+          echo "obj=$o"; "$BIN/llvm-objdump.exe" -r "$o" | awk 'NF==3 {print $2}' | sort | uniq -c
+          o2=$(find dist-newstyle -path "*image_component_hs*" -name "ImageComponent.o" | head -n 1)
+          echo "obj=$o2"; "$BIN/llvm-objdump.exe" -r "$o2" | awk 'NF==3 {print $2}' | sort | uniq -c
+          "$BIN/llvm-objdump.exe" -r "$o" | grep -i "ADDR32 " | head -20
+          d=$(find dist-newstyle -name image_component_hs.dll | head -n 1)
+          "$BIN/llvm-readobj.exe" --file-headers "$d" | grep -i -E "ImageBase|Characteristics|DLL" | head -20
