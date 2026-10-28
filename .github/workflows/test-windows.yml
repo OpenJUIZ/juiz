@@ -109,6 +109,7 @@ jobs:
           RUST_BACKTRACE: "0"
         run: |
           set -o pipefail
+          scripts/test.sh -p juiz_core --test integration -- plugin_images_in_process --nocapture 2>&1 | grep -E "TEMP|hsjuiz|panicked|error|ERROR" | tail -40 || true
           scripts/test.sh -p juiz_core --test integration -- haskell plugin_image > /tmp/t.log 2>&1 || { tail -n 30 /tmp/t.log; grep -n -E "^test |panicked|rror|hsjuiz:" /tmp/t.log | grep -v "warning" | head -120; exit 1; }
       - name: inspect
         if: always()
