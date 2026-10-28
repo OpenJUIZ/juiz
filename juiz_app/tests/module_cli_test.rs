@@ -1,0 +1,328 @@
+//! プラグインを直接読み込む起動方法 (`juiz --process / --container / --component`) のテスト (issue #222)
+//!
+//! - `-1` で 1 つずつ作る、`-c <型名>` で指定した型だけ作る、`-e` で 1 回実行、`--print` で結果を出す、`-m` でマニフェストを出す
+//! - `-d` (常駐) と `-r <Hz>` (周期実行) の経路
+//!
+//! プラグイン (increment_process, example_container とその ContainerProcess, native_pose_component, cpp_component) は
+//! scripts/test.sh で ../target/debug にビルドされている前提。
+mod common;
+
+use common::{path_str, plugin_file, run, run_ok, temp_dir, Daemon};
+use std::path::{Path, PathBuf};
+
+/// -d の HTTP ブローカーが使うポート (既定の 8000 は使わない)
+const PORT: u16 = 8071;
+
+fn write_conf(dir: &Path) -> PathBuf {
+    let conf = dir.join("juiz.conf");
+    std::fs::write(
+        &conf,
+        format!("name: module_cli_test\noption:\n  http_broker:\n    port: {PORT}\n"),
+    )
+    .unwrap();
+    conf
+}
+
+fn juiz_with(conf: &Path, args: &[&str]) -> String {
+    let mut all = vec!["-f", path_str(conf)];
+    all.extend_from_slice(args);
+    run_ok(&all)
+}
+
+#[test]
+fn process_module_create_every_and_execute() {
+    let dir = temp_dir("module_cli_process");
+    let conf = write_conf(&dir);
+    let inc = plugin_file("increment_process");
+    let out = juiz_with(&conf, &["--process", &inc, "-1", "-e", "--print", "-m"]);
+    assert!(out.contains("type_name: \"increment_process\""), "{out}");
+    assert!(out.contains("Value(Number(1))"), "{out}");
+
+    // -e なしは作るだけ
+    let out = juiz_with(&conf, &["--process", &inc, "-1", "--print"]);
+    assert!(!out.contains("Value("), "{out}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn process_module_create_by_type_name() {
+    let dir = temp_dir("module_cli_process_c");
+    let conf = write_conf(&dir);
+    let inc = plugin_file("increment_process");
+    let out = juiz_with(
+        &conf,
+        &[
+            "--process",
+            &inc,
+            "-c",
+            "increment_process",
+            "-e",
+            "--print",
+        ],
+    );
+    assert!(out.contains("Value(Number(1))"), "{out}");
+
+    // 型名が違えば作らない
+    let out = juiz_with(&conf, &["--process", &inc, "-c", "other", "-e", "--print"]);
+    assert!(!out.contains("Value("), "{out}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn container_module_create_every_and_execute() {
+    let dir = temp_dir("module_cli_container");
+    let conf = write_conf(&dir);
+    let out = juiz_with(
+        &conf,
+        &[
+            "--container",
+            &plugin_file("example_container"),
+            "--container_process",
+            &plugin_file("example_container_increment"),
+            "-1",
+            "-e",
+            "--print",
+            "-m",
+        ],
+    );
+    assert!(out.contains("type_name: \"example_container\""), "{out}");
+    assert!(
+        out.contains("type_name: \"example_container_increment\""),
+        "{out}"
+    );
+    assert!(out.contains("Value(Number(1))"), "{out}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn container_module_create_by_type_name() {
+    let dir = temp_dir("module_cli_container_c");
+    let conf = write_conf(&dir);
+    let container = plugin_file("example_container");
+    let get = plugin_file("example_container_get");
+    let out = juiz_with(
+        &conf,
+        &[
+            "--container",
+            &container,
+            "--container_process",
+            &get,
+            "-c",
+            "example_container,example_container_get",
+            "-e",
+            "--print",
+        ],
+    );
+    assert!(out.contains("Value(Number(0))"), "{out}");
+
+    // Container を作らなければ ContainerProcess も作らない
+    let out = juiz_with(
+        &conf,
+        &[
+            "--container",
+            &container,
+            "--container_process",
+            &get,
+            "-c",
+            "example_container_get",
+            "-e",
+            "--print",
+        ],
+    );
+    assert!(!out.contains("Value("), "{out}");
+
+    // ContainerProcess を指定しなければ Container だけ作る
+    let out = juiz_with(
+        &conf,
+        &["--container", &container, "-c", "example_container", "-m"],
+    );
+    assert!(out.contains("type_name: \"example_container\""), "{out}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn component_module_execute() {
+    let dir = temp_dir("module_cli_component");
+    let conf = write_conf(&dir);
+    // Process だけのコンポーネント
+    let out = juiz_with(
+        &conf,
+        &[
+            "--component",
+            &plugin_file("native_pose_component"),
+            "-e",
+            "--print",
+            "-m",
+        ],
+    );
+    assert!(
+        out.contains("ComponentManifest(\"native_pose_component\""),
+        "{out}"
+    );
+    assert!(out.contains("Native(rust:robot.geometry.Pose2D)"), "{out}");
+
+    // Container を含むコンポーネント (C++)
+    let out = juiz_with(
+        &conf,
+        &[
+            "--component",
+            &plugin_file("cpp_component"),
+            "-l",
+            "cpp",
+            "-e",
+            "--print",
+        ],
+    );
+    // example_increment(3) = 4、example_cpp_container_get = 0、example_cpp_container_increment(1) = 1
+    for v in ["Value(Number(4))", "Value(Number(0))", "Value(Number(1))"] {
+        assert!(out.contains(v), "{v}: {out}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn missing_module_is_error() {
+    let dir = temp_dir("module_cli_missing");
+    let conf = write_conf(&dir);
+    let missing = dir.join("no_such_plugin.so");
+    let out = run(&["-f", path_str(&conf), "--process", path_str(&missing), "-1"]);
+    assert_eq!(out.status.code(), Some(1), "{out:?}");
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("Error"),
+        "{out:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn daemon(dir: &Path, name: &str, args: &[&str]) -> Daemon {
+    let conf = write_conf(dir);
+    let mut all = vec!["-f", path_str(&conf)];
+    all.extend_from_slice(args);
+    Daemon::spawn(&all, dir.join(format!("{name}.log")))
+}
+
+/// -d では作って実行したあと、止められるまで待つ
+#[test]
+fn daemon_creates_and_executes_modules() {
+    let dir = temp_dir("module_cli_daemon");
+    let inc = plugin_file("increment_process");
+    let mut d = daemon(
+        &dir,
+        "process",
+        &["-d", "--process", &inc, "-1", "-e", "--print", "-m"],
+    );
+    d.wait_log("Value(Number(1))");
+    d.stop();
+    assert!(d.log_text().contains("type_name: \"increment_process\""));
+
+    let container = plugin_file("example_container");
+    let cinc = plugin_file("example_container_increment");
+    let mut d = daemon(
+        &dir,
+        "container",
+        &[
+            "-d",
+            "--container",
+            &container,
+            "--container_process",
+            &cinc,
+            "-1",
+            "-e",
+            "--print",
+            "-m",
+        ],
+    );
+    d.wait_log("Value(Number(1))");
+    d.stop();
+    assert!(d
+        .log_text()
+        .contains("type_name: \"example_container_increment\""));
+
+    let mut d = daemon(
+        &dir,
+        "component",
+        &[
+            "-d",
+            "--component",
+            &plugin_file("cpp_component"),
+            "-l",
+            "cpp",
+            "-1",
+            "-e",
+            "--print",
+            "-m",
+        ],
+    );
+    d.wait_log("Value(Number(4))");
+    d.stop();
+    assert!(d.log_text().contains("ComponentManifest(\"cpp_component\""));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 出力の中の text の数
+fn count(log: &str, text: &str) -> usize {
+    log.matches(text).count()
+}
+
+/// -r では作ったものを周期で実行し続ける
+#[test]
+fn ratio_executes_periodically() {
+    let dir = temp_dir("module_cli_ratio");
+    let inc = plugin_file("increment_process");
+    let d = daemon(
+        &dir,
+        "process",
+        &["-r", "20", "--process", &inc, "-1", "--print"],
+    );
+    wait_count(&d, "Value(Number(1))", 3);
+    drop(d);
+
+    let container = plugin_file("example_container");
+    let cinc = plugin_file("example_container_increment");
+    let d = daemon(
+        &dir,
+        "container",
+        &[
+            "-r",
+            "20",
+            "--container",
+            &container,
+            "--container_process",
+            &cinc,
+            "-1",
+            "--print",
+        ],
+    );
+    // Container の値が 1 ずつ増えていく
+    d.wait_log("Value(Number(3))");
+    drop(d);
+
+    // コンポーネントは最初の 1 回だけ作り、2 周目以降も同じものを実行する
+    let d = daemon(
+        &dir,
+        "component",
+        &[
+            "-r",
+            "20",
+            "--component",
+            &plugin_file("native_pose_component"),
+            "-1",
+            "--print",
+        ],
+    );
+    wait_count(&d, "Value(Number(0))", 3);
+    drop(d);
+    let log = std::fs::read_to_string(dir.join("component.log")).unwrap();
+    assert!(!log.contains("already registered"), "{log}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn wait_count(d: &Daemon, text: &str, n: usize) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while count(&d.log_text(), text) < n {
+        if std::time::Instant::now() > deadline {
+            panic!("'{text}' did not appear {n} times. log:\n{}", d.log_text());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+}

@@ -120,8 +120,17 @@ fn on_connection_create(
     connection_type: String,
 ) -> JuizResult<()> {
     log::info!("Connecting {source_id} -({arg_name}:{connection_type:})-> {destination_id}");
+    // push / pull 以外は Unknown になって、そのまま繋がってしまっていた
+    let typ: ConnectionType = connection_type.as_str().into();
+    if typ == ConnectionType::Unknown {
+        return Err(juiz_core::anyhow::Error::from(
+            JuizError::ConnectionTypeError {
+                type_string: connection_type,
+            },
+        ));
+    }
     let manifest = ConnectionManifest::new(
-        connection_type.as_str().try_into()?,
+        typ,
         source_id.try_into()?,
         arg_name,
         destination_id.try_into()?,
