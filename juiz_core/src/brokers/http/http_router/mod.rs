@@ -13,10 +13,6 @@ use axum::http::HeaderValue;
 // use opencv::{core::{Vector, VectorToVec}, imgcodecs::imencode};
 
 use tower_http::services::ServeDir;
-use utoipa::openapi::{
-    path::OperationBuilder, request_body::RequestBodyBuilder, ContentBuilder, PathItem,
-    PathItemType,
-};
 use utoipa::{IntoParams, OpenApi};
 #[cfg(feature = "swagger-ui")]
 use utoipa_swagger_ui::SwaggerUi;
@@ -46,11 +42,13 @@ pub mod topic;
 pub mod types;
 // use cv_convert::TryFromCv;
 
+#[allow(unused)]
 #[derive(Deserialize, IntoParams, Debug)]
 pub struct IdentifierQuery {
     identifier: Option<String>,
 }
 
+#[allow(unused)]
 #[derive(Deserialize, IntoParams, Debug)]
 pub struct PathQuery {
     path: Option<String>,
@@ -70,18 +68,6 @@ pub struct ListQuery {
     namespace: Option<String>,
 }
 
-#[derive(Deserialize, IntoParams, Debug)]
-pub struct IdAndRecurQuery {
-    identifier: Option<String>,
-    recursive: Option<String>,
-}
-
-#[derive(Deserialize, IntoParams, Debug)]
-pub struct IdAndUuidQuery {
-    identifier: Option<String>,
-    system_uuid: Option<String>,
-}
-
 #[allow(unused)]
 #[derive(Deserialize, IntoParams, Debug)]
 pub struct TopicNameAndUuidQuery {
@@ -97,66 +83,6 @@ pub struct FullQuery {
     system_uuid: Option<String>,
     topic_name: Option<String>,
     namespace: Option<String>,
-}
-
-#[allow(unused)]
-pub fn id_query_to_map(query: &Query<IdentifierQuery>) -> HashMap<String, String> {
-    let mut map: HashMap<String, String> = HashMap::new();
-    match query.identifier.clone() {
-        None => {}
-        Some(v) => {
-            map.insert("identifier".to_owned(), v);
-        }
-    }
-    map
-}
-
-#[allow(unused)]
-pub fn path_query_to_map(query: &Query<PathQuery>) -> HashMap<String, String> {
-    let mut map: HashMap<String, String> = HashMap::new();
-    match query.path.clone() {
-        None => {}
-        Some(v) => {
-            map.insert("path".to_owned(), v);
-        }
-    }
-    map
-}
-
-#[allow(unused)]
-pub fn id_and_recur_query_to_map(query: &Query<IdAndRecurQuery>) -> HashMap<String, String> {
-    let mut map: HashMap<String, String> = HashMap::new();
-    match query.identifier.clone() {
-        None => {}
-        Some(v) => {
-            map.insert("identifier".to_owned(), v);
-        }
-    }
-    match query.recursive.clone() {
-        None => {}
-        Some(v) => {
-            map.insert("recursive".to_owned(), v);
-        }
-    }
-    map
-}
-
-#[allow(unused)]
-pub fn id_and_uuid_query_to_map(query: &Query<IdAndUuidQuery>) -> HashMap<String, String> {
-    let mut map: HashMap<String, String> = HashMap::new();
-    match query.identifier.clone() {
-        None => {}
-        Some(v) => {
-            map.insert("identifier".to_owned(), v);
-        }
-    }
-    match query.system_uuid.clone() {
-        None => {}
-        Some(v) => {
-            map.insert("system_uuid".to_owned(), v);
-        }
-    }
-    map
 }
 
 pub fn full_query_to_map(query: &Query<FullQuery>) -> HashMap<String, String> {
@@ -198,33 +124,6 @@ pub fn full_query_to_map(query: &Query<FullQuery>) -> HashMap<String, String> {
         }
     }
     map
-}
-
-#[allow(unused)]
-pub fn json_wrap(result: JuizResult<CapsulePtr>) -> impl IntoResponse {
-    match result {
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(jvalue!({
-                "message": format!("Internal Server Error:  {:#}, {:}", e, e.to_string())
-            })),
-        )
-            .into_response(),
-        Ok(arc) => {
-            let result = capsule_to_value(arc);
-            if result.is_err() {
-                let e = result.err().unwrap();
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(jvalue!({
-                        "message": format!("Internal Server Error:  {:#}, {:}", e, e.to_string())
-                    })),
-                )
-                    .into_response();
-            }
-            Json::<Value>(result.unwrap()).into_response()
-        }
-    }
 }
 
 pub fn json_output_wrap(result: JuizResult<CapsulePtr>) -> impl IntoResponse {
@@ -489,21 +388,3 @@ pub fn openapi_with_types(mut api: Value, crud_broker: &Arc<Mutex<CRUDBroker>>) 
     api
 }
 
-#[allow(unused)]
-pub fn append_route(
-    api: &mut utoipa::openapi::OpenApi,
-    body_context: Value,
-    description: &str,
-    operation_key: &str,
-) -> () {
-    let ctt = ContentBuilder::new().example(Some(body_context)).build();
-    let rb = RequestBodyBuilder::new()
-        .description(Some(description.to_owned()))
-        .content("application/json", ctt)
-        .build();
-    let operation = OperationBuilder::new().request_body(Some(rb)).build();
-    api.paths.paths.insert(
-        operation_key.to_owned(),
-        PathItem::new(PathItemType::Patch, operation),
-    );
-}

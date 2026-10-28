@@ -38,6 +38,7 @@ mod haskell_container_test;
 mod haskell_plugin_test;
 mod haskell_typed_test;
 mod http_broker_api_test;
+mod http_router_test;
 mod identifier_test;
 mod lazy_eval_test;
 mod local_broker_api_test;
