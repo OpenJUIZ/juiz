@@ -300,3 +300,34 @@ fn opencv_mat_conversion() -> JuizResult<()> {
         Ok(())
     })
 }
+
+// TEMP: issue #137 の調査
+#[test]
+fn tmp_info_variant() -> JuizResult<()> {
+    crate::common::logger::init();
+    let v = std::env::var("TMPV").unwrap_or_default();
+    if v.is_empty() || !has_haskell_example() {
+        return Ok(());
+    }
+    System::new(conf("tmp_info", None, &["cpp", "hs"]))?
+        .setup()?
+        .run_and_do_once(|system| {
+            let cb = system.core_broker().lock()?;
+            let ids = cb.process_list(false, None)?;
+            let info = find_process(&ids, "image_info_hs0").clone();
+            let mut args = match v.as_str() {
+                "1" | "2" => image_args("img", &image_of_format("la16", 6, 4)),
+                "3" => image_args("img", &image_of_format("rgb8", 6, 4)),
+                _ => CapsuleMap::new(),
+            };
+            if v != "2" {
+                args.insert("label".to_owned(), jvalue!("cam").into());
+            }
+            eprintln!("TEMP calling {v}");
+            let r = cb.process_call(&info, args);
+            eprintln!("TEMP returned {v} ok={}", r.is_ok());
+            let r = r?.extract_value();
+            eprintln!("TEMP value {v} {r:?}");
+            Ok(())
+        })
+}
