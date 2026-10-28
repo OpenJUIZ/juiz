@@ -15,9 +15,7 @@ use std::time::{self, Duration};
 use crate::brokers::broker_ptr::BrokerPtr;
 use crate::prelude::*;
 
-use crate::brokers::{
-    broker_factories_wrapper::BrokerFactoriesWrapper, broker_proxy::SystemBrokerProxy,
-};
+use crate::brokers::broker_factories_wrapper::BrokerFactoriesWrapper;
 
 use super::system_builder;
 use super::system_store::{SystemStore, SystemStorePtr};
@@ -192,12 +190,7 @@ impl System {
         let id = id_opt.unwrap();
         let id_struct = IdentifierStruct::new_broker_id(id.clone())?;
         let profile = id_struct.to_broker_manifest();
-        match self
-            .core_broker()
-            .lock_mut()
-            .unwrap()
-            .system_add_subsystem(profile)
-        {
+        match self.core_broker().system_add_subsystem(profile) {
             Ok(_) => {}
             Err(e) => {
                 log::error!("Error in add_subsystem_by_id(id={id:?}). Error({e:})");
