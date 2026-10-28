@@ -300,9 +300,22 @@
   opacity: 1;
 }
 
+/* 拘束中(p_apply で値を与えた未接続の引数)は白で塗り、接続ありの種類色と分ける */
+.reticle-port.bound path {
+  stroke: var(--text);
+  opacity: 0.9;
+}
+
 .reticle-port text {
   fill: var(--text);
   font-size: 12px;
+}
+
+.reticle-port-value {
+  fill: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  pointer-events: auto;
 }
 
 .reticle-port-type {

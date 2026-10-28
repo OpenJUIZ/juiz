@@ -13,6 +13,10 @@ export interface ArgInfo {
   typeName: string;
   /** 接続または話題の購読で値が入ってくる */
   connected: boolean;
+  /** 未接続で、p_apply などで値が与えられている */
+  bound: boolean;
+  /** 今の値(拘束値。接続ありなら届いた値)。値が無ければ無い */
+  value?: unknown;
 }
 
 export interface DiagramNodeData extends Record<string, unknown> {
@@ -149,11 +153,16 @@ function addSystem(sys: SystemModel, nodes: DiagramNode[], edges: DiagramEdge[])
         kind: p.kind,
         name: p.fullName,
         typeName: p.typeName,
-        args: (p.profile.arguments ?? []).map((a) => ({
-          name: a.name,
-          typeName: a.type_name,
-          connected: inputs.has(a.name) || subscribed.has(a.name),
-        })),
+        args: (p.profile.arguments ?? []).map((a) => {
+          const connected = inputs.has(a.name) || subscribed.has(a.name);
+          return {
+            name: a.name,
+            typeName: a.type_name,
+            connected,
+            bound: !connected && a.value !== undefined,
+            value: a.value,
+          };
+        }),
         outputConnected: p.outputs.length > 0 || (p.profile.publishes ?? []).length > 0,
       },
       width: fitWidth(p.fullName, p.typeName, 64, 132, 280),
