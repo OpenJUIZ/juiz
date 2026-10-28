@@ -17,6 +17,8 @@
 --
 -- Component ('juizComponent') では、上の factory の関数の名前が @\<関数名\>_factory_entry_point@ などになり、
 -- マニフェストは @component_manifest_entry_point@ が返す。
+--
+-- Windows では、生成した関数を DLL から公開する指定 (リンカへの @-export:@) も生成する ('juizDllExport')。
 module Juiz.TH
   ( juizProcess
   , juizContainer
@@ -28,6 +30,7 @@ module Juiz.TH
   , componentContainer
   , componentContainerWithDestroy
   , componentContainerProcess
+  , juizDllExport
   ) where
 
 import Control.Monad (replicateM)
@@ -35,6 +38,7 @@ import qualified Data.Text as T
 import Data.Char (isAscii, isAlphaNum)
 import Foreign.Ptr (FunPtr)
 import Language.Haskell.TH
+import Language.Haskell.TH.Syntax (ForeignSrcLang (LangC), addForeignSource)
 
 import Juiz.Component (componentManifestEntryPoint, containerPart, containerProcessPart, processPart)
 import Juiz.Container
@@ -250,7 +254,39 @@ componentEntryDecs entry = do
       pure (ds, [| containerProcessPart $manE $fnE |])
 
 exportD :: String -> Name -> Q Type -> Q Dec
-exportD sym name qty = ForeignD . ExportF CCall sym name <$> qty
+exportD sym name qty = do
+  addDllExports [sym]
+  ForeignD . ExportF CCall sym name <$> qty
+
+-- | 自分で書いた @foreign export@ の C のシンボルを、Windows の DLL から公開する。
+-- Linux / macOS では何もしない (共有ライブラリのシンボルはそのまま公開される)。
+--
+-- > foreign export ccall "my_counter" getCount :: IO Int64
+-- > juizDllExport ["my_counter"]
+--
+-- Windows の GHC は RTS と依存するパッケージを DLL に静的に取り込むので、すべてのシンボルを公開すると
+-- DLL が公開できる数 (65535) を超えてリンクが失敗する。そのため hsjuiz は公開するシンボルを
+-- リンカに指定し (このときリンカはほかのシンボルを公開しない)、'juizProcess' などが生成する関数には
+-- 自動でこの指定を付ける。それ以外の @foreign export@ は、この関数で指定しないと juiz から見えない
+juizDllExport :: [String] -> Q [Dec]
+juizDllExport syms = addDllExports syms >> pure []
+
+-- | Windows のときだけ、シンボルを DLL から公開するようリンカに指示する C のコードを足す
+-- (gcc の @__declspec(dllexport)@ と同じく、オブジェクトファイルの .drectve に @-export:@ を書く)
+addDllExports :: [String] -> Q ()
+addDllExports [] = pure ()
+addDllExports syms = addForeignSource LangC $ unlines $
+  ["#ifdef _WIN32"] ++ map directive syms ++ ["#endif"]
+  where
+    -- C では次の 1 行になる (gcc が dllexport の関数に出力するものと同じ):
+    --   __asm__(".section .drectve,\"yn\"\n\t.ascii \" -export:<sym>\"\n\t.text");
+    directive sym = "__asm__(" ++ cString (".section .drectve,\"yn\"\n\t.ascii \" -export:" ++ sym ++ "\"\n\t.text") ++ ");"
+    cString str = "\"" ++ concatMap escape str ++ "\""
+    escape '"' = "\\\""
+    escape '\\' = "\\\\"
+    escape '\n' = "\\n"
+    escape '\t' = "\\t"
+    escape c = [c]
 
 -- | 関数そのものを公開する C のシンボル名 (hsjuiz_\<モジュール\>_\<関数\>_\<種類\>_entry_point)
 entrySymbol :: Name -> String -> String
