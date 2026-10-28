@@ -5,6 +5,10 @@
 //! juiz_macro は各ファクトリ関数 `<シンボル名>` の隣に `<シンボル名>_build_info` という
 //! `extern "C"` の関数を生成し、プラグインをビルドしたときのビルド情報を返す。
 //! juiz_core はファクトリを呼ぶ前にこの関数を呼び、ホストのビルド情報と比べる。
+//!
+//! C ABI のプラグイン (C++ / Haskell) は libjuiz_sdk (このクレートの cdylib) の C 関数で値を受け渡すので、
+//! libjuiz_sdk の Capsule などの構造体はホストと同じでなければならない。そのため libjuiz_sdk は
+//! `juiz_sdk_build_info` を公開し、juiz_core はプラグインを開いたときにホストと比べる (issue #136)。
 
 use std::os::raw::c_char;
 
@@ -23,6 +27,16 @@ const BUILD_INFO: &str = concat!(
 /// ビルド情報を C 文字列で返す。juiz_macro が生成する `*_build_info` 関数から呼ばれる。
 pub fn build_info_ptr() -> *const c_char {
     BUILD_INFO.as_ptr() as *const c_char
+}
+
+/// libjuiz_sdk が C ABI のプラグイン向けに公開する、ビルド情報を返す関数の名前
+pub const SDK_BUILD_INFO_SYMBOL: &str = "juiz_sdk_build_info";
+
+/// この libjuiz_sdk のビルド情報を返す (`const char* juiz_sdk_build_info(void)`)。
+/// 文字列は静的で、解放しない。
+#[no_mangle]
+pub extern "C" fn juiz_sdk_build_info() -> *const c_char {
+    build_info_ptr()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -85,6 +99,14 @@ mod tests {
     #[test]
     fn build_info_ptr_is_c_string() {
         let s = unsafe { CStr::from_ptr(build_info_ptr()) }
+            .to_str()
+            .unwrap();
+        assert_eq!(BuildInfo::parse(s), BuildInfo::current());
+    }
+
+    #[test]
+    fn sdk_build_info_is_current() {
+        let s = unsafe { CStr::from_ptr(juiz_sdk_build_info()) }
             .to_str()
             .unwrap();
         assert_eq!(BuildInfo::parse(s), BuildInfo::current());

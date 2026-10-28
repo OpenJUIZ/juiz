@@ -138,6 +138,30 @@ HTTP ブローカーの 8000 番ポートはホストに転送されるので、
 - `tasks.json`: CI と同じ手順のビルド・テスト(「Tasks: Run Build Task」「Tasks: Run Test Task」)
 - `launch.json`: CodeLLDB で `juiz` コマンドや juiz_core の単体テストをデバッグ実行する設定
 
+## リリース
+
+`v*` タグ(例: `v0.0.26`)を打つと、次のワークフローがそれぞれ公開します。どれもタグの版と各パッケージの版が一致しないと公開せず、公開済みの版は飛ばすので、途中で失敗したらマージ後のコミットにタグを打ち直せば続きから公開されます。
+
+| ワークフロー | 公開先 | 公開するもの | 認証 |
+|---|---|---|---|
+| `publish.yml` | crates.io | juiz_types / juiz_idl / juiz_macro / juiz_sdk / juiz_std_types / juiz_webui / juiz_core / juiz_qmp_broker / juiz_app | シークレット `CARGO_REGISTRY_TOKEN` |
+| `pypi-publish.yml` | PyPI | pyjuiz、juiz-cli | Trusted Publishing(環境 `pypi`) |
+| `sdk-release.yml` | GitHub Releases | libjuiz_sdk とヘッダのアーカイブ `juiz_sdk-<版>-<ターゲット名>.tar.gz`(Linux x86_64・aarch64、macOS arm64・x86_64) | `GITHUB_TOKEN` |
+| `hackage-publish.yml` | Hackage | hsjuiz(パッケージとドキュメント) | シークレット `HACKAGE_TOKEN` |
+
+版上げでは次のファイルの版をそろえます。
+
+- `Cargo.toml`(`[workspace.dependencies]`)、`Cargo.lock`、`juiz_types` / `juiz_idl` / `juiz_macro` / `juiz_sdk` / `juiz_std_types` / `juiz_webui` / `juiz_core` / `juiz_app` / `brokers/qmp_broker` の `Cargo.toml`
+- `bindings/pyjuiz/setup.py`、`bindings/juiz_py/pyproject.toml`(`version` と `pyjuiz==`)、`bindings/juiz_py/Cargo.toml`、`bindings/juiz_py/Cargo.lock`
+- `bindings/hsjuiz/hsjuiz.cabal` の `version`(と `bindings/hsjuiz/CHANGELOG.md`)
+
+libjuiz_sdk のアーカイブは `scripts/package-juiz-sdk.sh` で作り、利用者は `scripts/install-juiz-sdk.sh <版>` で取得します。
+`scripts/check-hsjuiz-package.sh <展開したアーカイブ>` は、hsjuiz を sdist から(Hackage から入れたときと同じ形で)そのアーカイブだけを使ってビルドできるか確かめます。
+juiz は C++ / Haskell のプラグインを開いたとき、プラグインが読み込んだ libjuiz_sdk の `juiz_sdk_build_info` を自分の juiz_sdk と比べ、版が違えばエラー、Rust コンパイラの版だけが違えば警告にします。
+
+Hackage への公開には、Hackage のアカウント(アップロード権限つき)で作った API トークンを、リポジトリのシークレット `HACKAGE_TOKEN` に登録しておきます。
+登録していないあいだは、`hackage-publish.yml` は確認(sdist・ドキュメントの作成とビルド)だけ行い、警告を出して公開を飛ばします(ほかのワークフローの公開には影響しません)。
+
 ## リポジトリ構成
 
 | ディレクトリ | 内容 |
@@ -151,8 +175,8 @@ HTTP ブローカーの 8000 番ポートはホストに転送されるので、
 | `juiz_app` | `juiz` コマンド |
 | `brokers` | 追加のブローカー実装 (QUIC の `juiz_qmp_broker` など) |
 | `ecs` | 実行コンテキスト (TimerEC, OneShotEC, MainLoopEC) |
-| `bindings` | C (`cjuiz`: libjuiz_sdk の C の関数の宣言 `juiz_sdk.h`)、C++ (`cppjuiz`)、Python (`pyjuiz`、pip で入れる `juiz` コマンドの `juiz_py`)、JavaScript 向けバインディング |
-| `examples` | Rust / C++ / Python のサンプル |
+| `bindings` | C (`cjuiz`: libjuiz_sdk の C の関数の宣言 `juiz_sdk.h`)、C++ (`cppjuiz`)、Haskell (`hsjuiz`)、Python (`pyjuiz`、pip で入れる `juiz` コマンドの `juiz_py`)、JavaScript 向けバインディング |
+| `examples` | Rust / C++ / Python / Haskell のサンプル |
 | `juiz_tutorial` | チュートリアル |
 | `webui` | ブラウザで系を確認する管理画面 (TypeScript + React)。[webui/README.md](webui/README.md) |
 | `docs/spec` | 実装の基準にする仕様書 (下の「仕様書」) |

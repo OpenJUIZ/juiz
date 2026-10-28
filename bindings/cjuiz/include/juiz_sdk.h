@@ -154,6 +154,12 @@ value* value_array_push_string(value* v, const char* d);
 value* value_array_push_empty_array(value* v);
 value* value_array_push_empty_object(value* v);
 
+/* ---- ビルド情報 ----
+ * この libjuiz_sdk の版とビルドした Rust コンパイラの版 ("juiz_sdk=0.0.25;rustc=rustc 1.xx.x ..." の形)。
+ * 文字列は静的で、解放しない。juiz はプラグインを開いたとき、プラグインが読み込んだ libjuiz_sdk の
+ * この値を自分の版と比べ、juiz_sdk の版が違えば読み込みをエラーにする。 */
+const char* juiz_sdk_build_info(void);
+
 /* ---- juiz_type: Process の引数・戻り値のデータ型 (docs/spec/datatype.md §21) ----
  * 型のモデル・指紋・辞書の読み方は Rust の実装 (juiz_types) をそのまま使う。 */
 

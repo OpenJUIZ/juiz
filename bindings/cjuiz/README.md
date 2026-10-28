@@ -4,6 +4,23 @@
 C++ のヘッダ(`bindings/cppjuiz/include/juiz/`)もこのファイルを include しています。
 C の関数を呼べて、C の関数を公開できる言語(C、C++、Haskell の FFI など)なら、このヘッダを元に juiz のプラグインを書けます。
 
+## libjuiz_sdk の入手
+
+v0.0.26 以降は、libjuiz_sdk とこのヘッダ(C++ のヘッダも)を OS・CPU ごとのアーカイブ `juiz_sdk-<版>-<ターゲット名>.tar.gz` にして
+[GitHub Releases](https://github.com/OpenJUIZ/juiz/releases) に置いています(Linux x86_64・aarch64、macOS arm64・x86_64)。
+`scripts/install-juiz-sdk.sh <版>` で取得して `~/.juiz/sdk/<版>` に展開できます。中身は次のとおりで、pkg-config の `juiz_sdk.pc` も入っています。
+
+```
+lib/libjuiz_sdk.so (macOS は .dylib、install name は @rpath/libjuiz_sdk.dylib)
+lib/pkgconfig/juiz_sdk.pc
+cjuiz/include/juiz_sdk.h
+cppjuiz/include/juiz/*.h
+```
+
+使う `juiz` と **同じ版** の libjuiz_sdk でビルドしてください。juiz はプラグインを開いたとき、プラグインが読み込んだ libjuiz_sdk の
+`juiz_sdk_build_info()` を自分の juiz_sdk と比べ、版が違えば読み込みをエラーにします(Rust コンパイラの版だけが違うときは警告)。
+libjuiz_sdk の Capsule などの構造体は juiz と同じでなければならないためです。
+
 ## プラグインが公開する関数
 
 juiz は設定ファイルの `language: "c++"` または `language: "haskell"` のプラグイン(共有ライブラリ)を開き、次の名前の関数を探します。

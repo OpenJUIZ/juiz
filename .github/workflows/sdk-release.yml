@@ -1,0 +1,145 @@
+name: libjuiz_sdk release
+
+# C++ / Haskell のプラグインが使う libjuiz_sdk とヘッダを、OS・CPU ごとのアーカイブ
+# (juiz_sdk-<版>-<ターゲット名>.tar.gz と .sha256)にして GitHub Releases に置く(issue #136)。
+# 利用者は scripts/install-juiz-sdk.sh で取得できる。
+#
+# - v* タグ: タグの版と juiz_sdk/Cargo.toml の version が一致するときだけ、タグのリリースに置く
+#   (リリースが無ければ作る。リリース作成画面で先に作ったときは、そのリリースに足す)
+# - プルリクエスト・手動実行: アーカイブを作って確かめるだけ(アーティファクトに置く)
+#
+# どのアーカイブも、展開した libjuiz_sdk を Python の ctypes で開いて juiz_sdk_build_info を呼ぶ。
+# Linux x86_64 と macOS arm64 では、hsjuiz を sdist から(Hackage から入れたときと同じ形で)
+# このアーカイブだけを使ってビルドし、Haskell のプラグインを開けることも確かめる。
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - ".github/workflows/sdk-release.yml"
+      - "scripts/package-juiz-sdk.sh"
+      - "scripts/check-hsjuiz-package.sh"
+      - "juiz_sdk/**"
+      - "bindings/cjuiz/**"
+      - "bindings/cppjuiz/**"
+      - "bindings/hsjuiz/**"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check-version:
+    name: Check tag and juiz_sdk version
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare tag with juiz_sdk version
+        if: github.ref_type == 'tag'
+        run: |
+          expected="${GITHUB_REF_NAME#v}"
+          ver=$(sed -n 's/^version *= *"\(.*\)"/\1/p' juiz_sdk/Cargo.toml | head -n 1)
+          echo "juiz_sdk: $ver, tag: $expected"
+          if [ "$ver" != "$expected" ]; then
+            echo "::error::juiz_sdk のバージョン $ver がタグのバージョン $expected と一致しません"
+            exit 1
+          fi
+
+  build:
+    name: libjuiz_sdk (${{ matrix.target }})
+    needs: check-version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 古い glibc の Linux でも動くよう、Linux は 22.04 でビルドする
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-22.04
+            haskell: true
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-22.04-arm
+            haskell: false
+          - target: aarch64-apple-darwin
+            runner: macos-15
+            haskell: true
+          - target: x86_64-apple-darwin
+            runner: macos-15-intel
+            haskell: false
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: sdk-${{ matrix.target }}
+
+      - name: Build libjuiz_sdk
+        run: cargo build --release -p juiz_sdk
+
+      - name: Package
+        run: |
+          archive=$(scripts/package-juiz-sdk.sh "${{ matrix.target }}" dist)
+          mkdir -p "$RUNNER_TEMP/sdk"
+          tar -C "$RUNNER_TEMP/sdk" -xzf "$archive"
+          echo "SDK_DIR=$(ls -d "$RUNNER_TEMP"/sdk/juiz_sdk-*)" >> "$GITHUB_ENV"
+          ls -l dist
+
+      - name: Check the packaged library
+        run: |
+          ls -lR "$SDK_DIR"
+          if [ "$(uname -s)" = Darwin ]; then
+            otool -D "$SDK_DIR/lib/libjuiz_sdk.dylib"
+            otool -D "$SDK_DIR/lib/libjuiz_sdk.dylib" | grep -q '@rpath/libjuiz_sdk.dylib'
+            lib="$SDK_DIR/lib/libjuiz_sdk.dylib"
+          else
+            lib="$SDK_DIR/lib/libjuiz_sdk.so"
+          fi
+          python3 - "$lib" <<'EOF'
+          import ctypes, sys
+          lib = ctypes.CDLL(sys.argv[1])
+          lib.juiz_sdk_build_info.restype = ctypes.c_char_p
+          print(lib.juiz_sdk_build_info().decode())
+          EOF
+
+      - uses: haskell-actions/setup@v2
+        if: matrix.haskell
+        with:
+          ghc-version: "9.6"
+          cabal-version: latest
+
+      - name: Build hsjuiz from its sdist with the packaged libjuiz_sdk
+        if: matrix.haskell
+        run: scripts/check-hsjuiz-package.sh "$SDK_DIR"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: juiz-sdk-${{ matrix.target }}
+          path: dist/
+
+  release:
+    name: Upload to the GitHub release
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: juiz-sdk-*
+          merge-multiple: true
+          path: dist/
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          # リリース作成画面で書いた説明やタイトルは変えない
+          append_body: false
+          fail_on_unmatched_files: true

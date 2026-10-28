@@ -44,7 +44,7 @@ use clap::{Parser, Subcommand};
 #[clap(
     name = "juiz",
     author = "Yuki Suga",
-    version = "v1.0.0",
+    version = env!("CARGO_PKG_VERSION"),
     about = "JUIZ command-line tool"
 )]
 struct Args {

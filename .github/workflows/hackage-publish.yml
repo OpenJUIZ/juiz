@@ -1,0 +1,110 @@
+name: Publish to Hackage
+
+# v* タグ(例: v0.0.26)の push で、Haskell のライブラリ hsjuiz(bindings/hsjuiz)を Hackage に公開する(issue #136)。
+# crates.io(publish.yml)・PyPI(pypi-publish.yml)と同じタグで動き、hsjuiz.cabal の version もタグに揃える。
+# 揃っていない場合は公開しない。Hackage に公開済みの版は飛ばす(タグを打ち直したとき用)。
+#
+# Hackage のビルドサーバーには libjuiz_sdk が無く、ドキュメントを作れないので、ドキュメントもここで作って上げる。
+# 認証には Hackage の API トークンを使う。リポジトリのシークレット HACKAGE_TOKEN に登録しておく。
+# 手動実行(workflow_dispatch)では、パッケージとドキュメントを作って確かめるだけで、公開しない。
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    name: Publish hsjuiz
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare tag with hsjuiz version
+        run: |
+          ver=$(sed -n 's/^version: *//p' bindings/hsjuiz/hsjuiz.cabal)
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            expected="${GITHUB_REF_NAME#v}"
+          else
+            # 手動実行ではタグが無いので、juiz_sdk のバージョンに揃っているかだけを見る
+            expected=$(sed -n 's/^version *= *"\(.*\)"/\1/p' juiz_sdk/Cargo.toml | head -n 1)
+          fi
+          echo "hsjuiz: $ver, expected: $expected"
+          if [ "$ver" != "$expected" ]; then
+            echo "::error::hsjuiz のバージョン $ver がタグのバージョン $expected と一致しません(bindings/hsjuiz/hsjuiz.cabal を更新してください)"
+            exit 1
+          fi
+          echo "HSJUIZ_VERSION=$ver" >> "$GITHUB_ENV"
+
+      - name: Check whether this version is already on Hackage
+        run: |
+          status=$(curl -s -o /dev/null -w '%{http_code}' "https://hackage.haskell.org/package/hsjuiz-$HSJUIZ_VERSION")
+          if [ "$status" = "200" ]; then
+            echo "hsjuiz $HSJUIZ_VERSION は Hackage に公開済みです"
+            echo "PUBLISHED=true" >> "$GITHUB_ENV"
+          else
+            echo "PUBLISHED=false" >> "$GITHUB_ENV"
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # hsjuiz の configure と haddock は libjuiz_sdk を探すので、配布するものと同じ形で用意する
+      - name: Build and package libjuiz_sdk
+        run: |
+          cargo build --release -p juiz_sdk
+          archive=$(scripts/package-juiz-sdk.sh x86_64-unknown-linux-gnu "$RUNNER_TEMP/sdk-dist")
+          mkdir -p "$RUNNER_TEMP/sdk"
+          tar -C "$RUNNER_TEMP/sdk" -xzf "$archive"
+          echo "SDK_DIR=$(ls -d "$RUNNER_TEMP"/sdk/juiz_sdk-*)" >> "$GITHUB_ENV"
+
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: "9.6"
+          cabal-version: latest
+
+      # sdist から、Hackage から入れたときと同じ形でビルドできることを確かめる(cabal check も行う)
+      - name: Check the package
+        run: scripts/check-hsjuiz-package.sh "$SDK_DIR"
+
+      - name: Build sdist and documentation
+        working-directory: bindings/hsjuiz
+        run: |
+          cabal sdist -o "$RUNNER_TEMP/hackage"
+          cabal haddock --haddock-for-hackage --enable-documentation \
+            --extra-lib-dirs="$SDK_DIR/lib" --ghc-options="-optl-Wl,-rpath,$SDK_DIR/lib"
+          cp dist-newstyle/hsjuiz-*-docs.tar.gz "$RUNNER_TEMP/hackage/"
+          ls -l "$RUNNER_TEMP/hackage"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hsjuiz-hackage
+          path: ${{ runner.temp }}/hackage/
+
+      - name: Upload to Hackage
+        if: github.ref_type == 'tag' && env.PUBLISHED != 'true'
+        env:
+          HACKAGE_TOKEN: ${{ secrets.HACKAGE_TOKEN }}
+        run: |
+          # アップロード権限をもらうまではトークンが無いので、公開を飛ばす(ほかの公開は止めない)
+          if [ -z "$HACKAGE_TOKEN" ]; then
+            echo "::warning::シークレット HACKAGE_TOKEN が登録されていないので、Hackage への公開を飛ばします(CONTRIBUTING.md の「リリース」を参照)"
+            exit 0
+          fi
+          # Hackage の API(cabal upload と同じもの)を API トークンで呼ぶ
+          curl --fail-with-body -sS -X POST \
+            -H "Authorization: X-ApiKey $HACKAGE_TOKEN" \
+            -F "package=@$RUNNER_TEMP/hackage/hsjuiz-$HSJUIZ_VERSION.tar.gz" \
+            https://hackage.haskell.org/packages/
+          curl --fail-with-body -sS -X PUT \
+            -H "Authorization: X-ApiKey $HACKAGE_TOKEN" \
+            -H "Content-Type: application/x-tar" -H "Content-Encoding: gzip" \
+            --data-binary "@$RUNNER_TEMP/hackage/hsjuiz-$HSJUIZ_VERSION-docs.tar.gz" \
+            "https://hackage.haskell.org/package/hsjuiz-$HSJUIZ_VERSION/docs"
