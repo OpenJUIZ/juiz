@@ -19,7 +19,7 @@
 }
 
 .top-bar .title {
-  font-weight: bold;
+  font-weight: var(--font-weight-heading);
   letter-spacing: 0.1em;
   color: var(--accent);
   text-shadow: var(--glow);
@@ -253,7 +253,7 @@ button.conn-type:hover {
 }
 
 .tree-error .title {
-  font-weight: bold;
+  font-weight: var(--font-weight-heading);
 }
 
 .tree-error .detail {
@@ -265,6 +265,8 @@ button.conn-type:hover {
   grid-area: diagram;
   position: relative;
   background: var(--bg);
+  /* 図の字は Black(等幅の名前・型・値は diagram.css で戻す) */
+  font-weight: var(--font-weight-heading);
 }
 
 .props-pane {
@@ -284,6 +286,7 @@ button.conn-type:hover {
   gap: 2px 4px;
   padding-bottom: 6px;
   border-bottom: 1px solid var(--line);
+  font-weight: var(--font-weight-heading);
 }
 
 .props-title .kind {
@@ -299,7 +302,7 @@ button.conn-type:hover {
 .props-section h3 {
   margin: 12px 0 4px;
   font-size: 0.9em;
-  font-weight: normal;
+  font-weight: var(--font-weight-heading);
   color: var(--accent);
   letter-spacing: 0.05em;
 }
@@ -454,6 +457,7 @@ button.elem-link:hover {
 .dialog h2 {
   margin: 0 0 12px;
   font-size: 1.1em;
+  font-weight: var(--font-weight-heading);
   color: var(--accent);
 }
 

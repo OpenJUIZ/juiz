@@ -38,6 +38,9 @@ jobs:
           npm run gen:api
           git diff --exit-code -- src/api/openapi.gen.ts
 
+      - name: 画面の字が同梱フォントに入っているか
+        run: npm run check:fonts
+
       - run: npm run lint
 
       - run: npm run typecheck

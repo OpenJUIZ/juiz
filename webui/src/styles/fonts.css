@@ -1,18 +1,32 @@
 /*
  * 画面の書体はここだけで決める。
  *
- * 日本製の漢字フォントは後で選定する(#111)。選んだら src/assets/fonts/ に置き、
- * ここに @font-face を書いて --font-ui の先頭に足す。juiz に同梱して /ui で配信するので
- * 外部 CDN は使わない。同梱・Web 配信が許されるライセンスか確認すること。
+ * 漢字・かなは Zen Old Mincho(SIL Open Font License 1.1、public/fonts/ZenOldMincho-OFL.txt)を同梱する(#111)。
+ * juiz に埋め込んで /ui で配信するので外部 CDN は使わず、画面で使う字だけに絞った woff2 を置く。
+ * 画面に新しい字を足したら npm run fonts:chars と scripts/subset-fonts.sh で作り直す
+ * (npm run check:fonts が CI で足りない字を知らせる)。一覧に無い字(系から届く名前など)は
+ * --font-ui の後ろの書体で出る。
  *
- * @font-face {
- *   font-family: "JuizUI";
- *   src: url("../assets/fonts/xxxx.woff2") format("woff2");
- *   font-display: swap;
- * }
+ * 太さは 2 つだけ持つ。図と見出しは Black(900)、性質欄などの小さい文字は Regular(400)。
+ * 見出しは var(--font-weight-heading) を使う。bold(700)を指定したところも Black になる。
  */
-:root {
-  --font-ui: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "BIZ UDPGothic", "Yu Gothic UI",
-    "Meiryo", "Noto Sans JP", sans-serif;
-  --font-mono: ui-monospace, "SFMono-Regular", "Menlo", "Consolas", monospace;
+@font-face {
+  font-family: "Zen Old Mincho";
+  src: url("../assets/fonts/ZenOldMincho-Regular.subset.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
 }
+
+@font-face {
+  font-family: "Zen Old Mincho";
+  src: url("../assets/fonts/ZenOldMincho-Black.subset.woff2") format("woff2");
+  font-weight: 900;
+  font-display: swap;
+}
+
+:root {
+  --font-ui: "Zen Old Mincho", "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "Menlo", "Consolas", monospace;
+  --font-weight-heading: 900;
+}
+

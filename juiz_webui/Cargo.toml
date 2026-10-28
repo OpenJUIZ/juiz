@@ -5,7 +5,8 @@ edition = "2021"
 description = "Built web UI (system viewer) of JUIZ, embedded into juiz_core and served at /ui."
 # このクレートは公開時にリポジトリの外(git 管理外)へコピーしてから cargo publish するので、
 # ワークスペースの値を引き継がずにここで書く(.github/workflows/publish.yml、issue #117)。
-license = "MIT OR Apache-2.0"
+# 画面に同梱するフォント Zen Old Mincho は OFL-1.1(dist/fonts/ZenOldMincho-OFL.txt、issue #111)
+license = "(MIT OR Apache-2.0) AND OFL-1.1"
 build = "build.rs"
 # 画面のビルド成果物 dist/ は .gitignore にあるので、含めるファイルを並べる
 include = ["/src/**", "/build.rs", "/dist/**", "/Cargo.toml", "/LICENSE-*"]

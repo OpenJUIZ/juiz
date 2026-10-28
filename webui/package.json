@@ -12,7 +12,9 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "typecheck": "tsc -b",
-    "gen:api": "node scripts/gen-api.mjs"
+    "gen:api": "node scripts/gen-api.mjs",
+    "fonts:chars": "node scripts/font-chars.mjs",
+    "check:fonts": "node scripts/font-chars.mjs --check"
   },
   "dependencies": {
     "@xyflow/react": "12.12.0",

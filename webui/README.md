@@ -146,9 +146,25 @@ juiz に接続できないときは、上部の状態が「未接続」になり
 | `npm run typecheck` | 型検査 |
 | `npm run build` | 型検査とビルド |
 | `npm run gen:api` | `src/api/openapi.json` から API の型 `src/api/openapi.gen.ts` を作る |
+| `npm run check:fonts` | 画面の字がすべて同梱フォントに入っているか確かめる |
+| `npm run fonts:chars` | 同梱フォントに入れる字の一覧 `src/assets/fonts/subset-chars.txt` を作り直す |
 | `npm run gen:api -- http://localhost:8000` | 動いている juiz から OpenAPI 定義を取り直して型を作る(プラグインを読み込んでいない juiz から取る。OpenAPI 定義には読み込んだ Process の引数と型のスキーマが入るため) |
 
-CI(`.github/workflows/webui.yml`)は lint・型検査・ビルドと、`openapi.gen.ts` が `openapi.json` と合っているかを確かめます。
+CI(`.github/workflows/webui.yml`)は lint・型検査・ビルドと、`openapi.gen.ts` が `openapi.json` と合っているか、画面の字が同梱フォントに入っているかを確かめます。
+
+### 同梱フォント
+
+漢字・かなは [Zen Old Mincho](https://github.com/googlefonts/zen-oldmincho)(SIL Open Font License 1.1)を、画面で使う字だけに絞った woff2 にして同梱しています([#111](https://github.com/OpenJUIZ/juiz/issues/111))。図と見出しは Black、性質欄などの小さい文字は Regular です。外部 CDN は使いません。
+
+画面に新しい字(漢字など)を足して `npm run check:fonts` が落ちたら、字の一覧と woff2 を作り直します。元の ttf は [google/fonts の ofl/zenoldmincho](https://github.com/google/fonts/tree/main/ofl/zenoldmincho) から取ります(1 本 5MB あるのでリポジトリには入れません)。
+
+```sh
+pip install fonttools brotli
+npm run fonts:chars
+scripts/subset-fonts.sh <ZenOldMincho-Regular.ttf と ZenOldMincho-Black.ttf を置いたディレクトリ>
+```
+
+一覧に無い字(系から届く名前など)は、ブラウザの明朝体(ヒラギノ明朝、游明朝など)で出ます。
 
 ## 構成
 
@@ -164,10 +180,12 @@ CI(`.github/workflows/webui.yml`)は lint・型検査・ビルドと、`openapi.
 | `src/terms.ts` | 画面の用語。漢字を正とし、英語名を小さく並記する |
 | `src/settings.ts` | 設定と localStorage への保存 |
 | `src/styles/theme.css` | 配色。種類ごとの色(処理は緑、容器は水色、実行文脈は黄、話題はマゼンタ) |
-| `src/styles/fonts.css` | 書体。日本語フォントを選んだらここで差し替える |
+| `src/styles/fonts.css` | 書体。同梱フォントの `@font-face` と、見出しの太さ `--font-weight-heading` |
+| `src/assets/fonts/` | 同梱フォント(画面の字だけに絞った woff2)と字の一覧 `subset-chars.txt` |
+| `public/fonts/ZenOldMincho-OFL.txt` | 同梱フォントのライセンス。ビルドした画面の `fonts/` に入る |
 | `src/components/` | 上部の帯、ツリー、図、性質欄(呼び出すフォーム `CallForm.tsx` を含む)、設定の画面部品 |
 | `src/diagram/` | 中央の図の中身。モデルから図の要素と線を作る `graph.ts`、自動配置 `layout.ts`、位置の保存 `positions.ts`、要素・線・湾曲グリッドの部品と `diagram.css` |
 
 ## ライセンス
 
-juiz 本体と同じく MIT OR Apache-2.0 です。
+juiz 本体と同じく MIT OR Apache-2.0 です。ただし同梱フォント `src/assets/fonts/ZenOldMincho-*.woff2` は Zen Old Mincho Project Authors の著作物で、SIL Open Font License 1.1([`public/fonts/ZenOldMincho-OFL.txt`](public/fonts/ZenOldMincho-OFL.txt))で配布します。Reserved Font Name は定められていないので、絞ったものも名前は変えていません。
