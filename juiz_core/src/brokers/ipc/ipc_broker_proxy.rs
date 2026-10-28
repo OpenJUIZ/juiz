@@ -77,14 +77,6 @@ impl MessengerBrokerProxyCore for IPCBrokerProxyCore {
         Ok(juiz_sdk::serde_json::from_str::<Value>(buffer.as_str())?.into())
         //Ok(Value::from(buffer).try_into()?)
     }
-
-    fn send_and_receive_output(
-        &self,
-        _v: CapsuleMap,
-        _timeout: Duration,
-    ) -> JuizResult<CapsulePtr> {
-        todo!("Outputクラスをどう扱うか。")
-    }
 }
 
 pub fn create_ipc_broker_proxy_factory() -> JuizResult<Arc<Mutex<dyn BrokerProxyFactory>>> {
