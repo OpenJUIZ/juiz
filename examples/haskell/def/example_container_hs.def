@@ -1,0 +1,9 @@
+; Windows で example_container_hs.dll から公開するシンボル (juiz-haskell-examples.cabal の mod-def-file)
+; juiz_hs_init は hsjuiz、performMajorGC は RTS のもの (performMajorGC は juiz のテストが GC を起こすのに使う)
+EXPORTS
+    juiz_hs_init
+    performMajorGC
+    manifest_entry_point
+    container_factory_entry_point
+    container_factory_destroy_entry_point
+    example_container_hs_alive_count

@@ -56,19 +56,7 @@ static BOOL CALLBACK juiz_hs_init_once_callback(PINIT_ONCE once, PVOID param, PV
 }
 #endif
 
-/*
- * Windows では、hsjuiz と RTS のシンボルは DLL から公開しない (hsjuiz.cabal の ld-options の --exclude-libs)。
- * juiz が探す juiz_hs_init と、テストで RTS の GC を起こすのに使う performMajorGC は、
- * dllexport (リンカへの -export:) で明示的に公開する。
- */
-#ifdef _WIN32
-#define HSJUIZ_EXPORT __declspec(dllexport)
-__asm__(".section .drectve,\"yn\"\n\t.ascii \" -export:performMajorGC\"\n\t.text");
-#else
-#define HSJUIZ_EXPORT
-#endif
-
-HSJUIZ_EXPORT int64_t juiz_hs_init(void)
+int64_t juiz_hs_init(void)
 {
     if (!rtsSupportsBoundThreads()) {
         return HSJUIZ_NOT_THREADED_RTS_ERROR;
