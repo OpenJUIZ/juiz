@@ -122,6 +122,19 @@ juiz_core の統合テストは、リンクの時間を減らすため `juiz_cor
 GHC と cabal は任意で、無ければ Haskell の例のビルドとテスト(`haskell_plugin_test`)を飛ばします(CI では `JUIZ_REQUIRE_HASKELL=1` にして飛ばしません)。
 `cargo test` だけを実行すると、例のプラグインを読み込むテスト(`system_test` や `*_broker_api_test` など)は失敗します。そのときのエラーには、見つからなかったプラグインのパスや足りない Python モジュールと、必要な準備が表示されます。
 
+### ベンチマークを実行する
+
+ベンチマークは統合テストの中に `#[ignore]` で置いてあり、ふだんのテストでは走りません。数字が意味を持つよう release で実行し、結果は表(Markdown)で出力されます。
+
+```terminal
+# 別プロセスへの画像の受け渡し(720p / 1080p / 4K、HTTP と同じプロセス内の比較、issue #230)
+cargo test --release -p juiz_core --test integration -- image_transfer_bench --ignored --nocapture --test-threads=1
+# Composite と接続の比較(Python の段は scripts/test.sh と同じ準備が要る、issue #169)
+PYTHONPATH=bindings/pyjuiz cargo test --release -p juiz_core --test integration -- composite_bench --ignored --nocapture --test-threads=1
+```
+
+`image_transfer_bench` は、テストバイナリ自身を別プロセスの juiz として起動し(ポート 8050)、そこへ HTTP で画像を渡します。プラグインは使わないので、事前の準備は要りません。
+
 ### VS Code + Dev Containers で開発する
 
 `.devcontainer/` に、CI と同じ環境(Ubuntu 24.04、Rust stable、CMake、Clang、Python 3 と pyjuiz の依存パッケージ)のコンテナ設定があります。

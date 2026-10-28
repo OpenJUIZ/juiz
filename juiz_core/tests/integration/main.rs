@@ -40,6 +40,7 @@ mod haskell_typed_test;
 mod http_broker_api_test;
 mod http_router_test;
 mod identifier_test;
+mod image_transfer_bench;
 mod lazy_eval_test;
 mod local_broker_api_test;
 mod messenger_broker_proxy_test;
