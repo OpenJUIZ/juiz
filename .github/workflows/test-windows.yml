@@ -102,6 +102,14 @@ jobs:
       - run: ls target/debug | grep -i -E "juiz_sdk|idl"
       - name: build haskell
         run: examples/haskell/build.sh -v1 || (echo BUILD FAILED; exit 1)
+      - name: test
+        if: always()
+        env:
+          JUIZ_REQUIRE_HASKELL: "1"
+          RUST_BACKTRACE: "0"
+        run: |
+          set -o pipefail
+          scripts/test.sh -p juiz_core --test integration -- haskell plugin_image > /tmp/t.log 2>&1 || { tail -n 30 /tmp/t.log; grep -n -E "^test |panicked|rror|hsjuiz:" /tmp/t.log | grep -v "warning" | head -120; exit 1; }
       - name: inspect
         if: always()
         run: |
@@ -115,8 +123,3 @@ jobs:
             grep -n -E "juiz_hs_init|manifest|factory|hs_init" /tmp/dump.txt | head -40 || true
             grep -n -i -A3 "Export" /tmp/dump.txt | head -20 || true
           done
-      - name: test
-        if: always()
-        env:
-          JUIZ_REQUIRE_HASKELL: "1"
-        run: scripts/test.sh -p juiz_core --test integration -- haskell plugin_image
