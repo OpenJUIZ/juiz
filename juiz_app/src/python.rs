@@ -12,7 +12,7 @@ use juiz_core::log;
 /// GIL を解放してから juiz を実行し、終了コードを返す。
 ///
 /// - GIL を握ったまま実行すると、Python の Process を呼ぶスレッド(HTTP ブローカーなど)の
-///   `Python::with_gil` が待ち続けて止まるので、[`Python::allow_threads`] の中で実行する。
+///   `Python::attach` が待ち続けて止まるので、[`Python::detach`] の中で実行する。
 /// - Ctrl+C(SIGINT)は Rust 側で受ける。Python は起動時に SIGINT のハンドラを入れていて、
 ///   これは Python のコードが動くまで KeyboardInterrupt を起こさないため、そのままだと
 ///   juiz が止まらない。そこで実行中だけ SIGINT を既定の動作(プロセス終了)に戻し、
@@ -24,7 +24,7 @@ where
     T: Into<OsString> + Clone,
 {
     let saved = default_sigint(py);
-    let code = py.allow_threads(|| crate::main_with_args(args));
+    let code = py.detach(|| crate::main_with_args(args));
     if let Some(handler) = saved {
         restore_sigint(py, handler);
     }
@@ -35,9 +35,9 @@ where
 ///
 /// Python の `signal.signal` はメインスレッドからしか呼べない。メインスレッド以外
 /// (テストなど)から呼ばれたときは何もしない。
-fn default_sigint(py: Python<'_>) -> Option<PyObject> {
-    let result = (|| -> PyResult<PyObject> {
-        let signal = py.import_bound("signal")?;
+fn default_sigint(py: Python<'_>) -> Option<Py<PyAny>> {
+    let result = (|| -> PyResult<Py<PyAny>> {
+        let signal = py.import("signal")?;
         let sigint = signal.getattr("SIGINT")?;
         let saved = signal.call_method1("getsignal", (&sigint,))?;
         signal.call_method1("signal", (&sigint, signal.getattr("SIG_DFL")?))?;
@@ -52,9 +52,9 @@ fn default_sigint(py: Python<'_>) -> Option<PyObject> {
     }
 }
 
-fn restore_sigint(py: Python<'_>, handler: PyObject) {
+fn restore_sigint(py: Python<'_>, handler: Py<PyAny>) {
     let result = (|| -> PyResult<()> {
-        let signal = py.import_bound("signal")?;
+        let signal = py.import("signal")?;
         signal.call_method1("signal", (signal.getattr("SIGINT")?, handler))?;
         Ok(())
     })();

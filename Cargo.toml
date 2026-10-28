@@ -54,7 +54,7 @@ nalgebra = "0.33.0"
 proc-macro2 = {version = "1.0.89"}
 # opencv = {version="0.92.0", default-features=false, features=["highgui", "videoio", "imgproc", "imgcodecs", "clang-runtime"], optional=true}
 # auto-initialize と extension-module は juiz_core の feature で選ぶ(embed-python / extension-module)
-pyo3 = {version = "0.22.2", features=["gil-refs"]}
+pyo3 = {version = "0.30"}
 
 quote = "1.0.37"
 quaternion-core = "0.5.2"

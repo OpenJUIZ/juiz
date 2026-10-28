@@ -3,7 +3,8 @@ name: juiz wheels
 # pip で入れる juiz(bindings/juiz_py、issue #88)の wheel を OS・CPU ごとにビルドし、
 # インストールした juiz コマンドで Python の Process と juiz_examples_python のサンプルを動かす。
 # Test(test-linux.yml・test-macos.yml・test-windows.yml)と Publish to PyPI(pypi-publish.yml)から呼ばれる。
-# wheel は abi3(Python 3.10 以降で共通)なので、OS・CPU の組み合わせごとに1つだけ作る。
+# wheel は abi3(Python 3.10 以降で共通)なので、OS・CPU の組み合わせごとに1つだけ作り、
+# 対応範囲の下限 3.10 と最新の 3.14 の両方に入れてスモークテストする(issue #100)。
 # 管理画面(webui)も先にビルドして wheel の juiz に埋め込み、/ui で配信されることを確かめる(issue #117)。
 # ビルドした wheel は juiz-wheel-<名前> というアーティファクトに置く。
 #
@@ -58,9 +59,15 @@ jobs:
           repository: OpenJUIZ/juiz_examples_python
           path: juiz_examples_python
 
+      # スモークテストに使う下限の版と最新の版。後に入れた版が python になる
       - uses: actions/setup-python@v5
+        id: python-oldest
         with:
-          python-version: "3.12"
+          python-version: "3.10"
+      - uses: actions/setup-python@v5
+        id: python-latest
+        with:
+          python-version: "3.14"
 
       # 管理画面(webui)をビルドしておくと、juiz_core の build.rs が webui/dist を埋め込む(issue #117)
       - uses: actions/setup-node@v4
@@ -85,23 +92,28 @@ jobs:
           args: --release --out dist
           sccache: "true"
 
-      - name: Install wheel
+      # Python の版ごとに venv を作って wheel を入れ、その venv の python と juiz でスモークテストする
+      - name: Smoke test (Python 3.10 and 3.14)
+        env:
+          PYTHON_OLDEST: ${{ steps.python-oldest.outputs.python-path }}
+          PYTHON_LATEST: ${{ steps.python-latest.outputs.python-path }}
         run: |
-          python -m venv .venv
-          # 以降のステップで venv の python と juiz を使う(Windows の PATH には Windows 形式で書く)
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            bin=.venv/Scripts
-            cygpath -w "$PWD/$bin" >> "$GITHUB_PATH"
-          else
-            bin=.venv/bin
-            echo "$PWD/$bin" >> "$GITHUB_PATH"
-          fi
-          # pyjuiz は PyPI の版ではなくリポジトリのものを先に入れる
-          "$bin/python" -m pip install ./bindings/pyjuiz
-          "$bin/python" -m pip install bindings/juiz_py/dist/*.whl
-
-      - name: Smoke test
-        run: python bindings/juiz_py/tests/smoke_test.py juiz_examples_python
+          for py in "$PYTHON_OLDEST" "$PYTHON_LATEST"; do
+            ver=$("$py" -c "import sys; print(f'{sys.version_info[0]}.{sys.version_info[1]}')")
+            echo "::group::Python $ver"
+            "$py" -m venv .venv-$ver
+            if [ "$RUNNER_OS" = "Windows" ]; then
+              bin=.venv-$ver/Scripts
+            else
+              bin=.venv-$ver/bin
+            fi
+            # pyjuiz は PyPI の版ではなくリポジトリのものを先に入れる
+            "$bin/python" -m pip install ./bindings/pyjuiz
+            "$bin/python" -m pip install bindings/juiz_py/dist/*.whl
+            # smoke_test.py は PATH の juiz を使うので、venv の bin を先頭に置く
+            PATH="$PWD/$bin:$PATH" "$bin/python" bindings/juiz_py/tests/smoke_test.py juiz_examples_python
+            echo "::endgroup::"
+          done
 
       - uses: actions/upload-artifact@v4
         with:

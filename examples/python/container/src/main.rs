@@ -1,21 +1,21 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, ffi::CString};
 
 use pyo3::{prelude::*, types::IntoPyDict};
 
-fn main() -> PyResult<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let m = HashMap::from([("key0", "value0"), ("key1", "value1")]);
     let py_foo = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/python_app/utils/foo.py"
     ));
     let py_app = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/python_app/app.py"));
-    let from_python = Python::with_gil(|py| -> PyResult<Py<PyAny>> {
-        PyModule::from_code_bound(py, py_foo, "utils.foo", "utils.foo")?;
-        let app: Py<PyAny> = PyModule::from_code_bound(py, py_app, "", "")?
-            .getattr("run")?
-            .into();
-        //app.call0(py)
-        app.call_bound(py, (), Some(&m.into_py_dict_bound(py)))
+    let py_foo = CString::new(py_foo)?;
+    let py_app = CString::new(py_app)?;
+    let from_python = Python::attach(|py| -> PyResult<Py<PyAny>> {
+        PyModule::from_code(py, &py_foo, c"utils.foo", c"utils.foo")?;
+        let app = PyModule::from_code(py, &py_app, c"", c"")?.getattr("run")?;
+        //app.call0()
+        Ok(app.call((), Some(&m.into_py_dict(py)?))?.unbind())
     });
 
     println!("py: {}", from_python?);

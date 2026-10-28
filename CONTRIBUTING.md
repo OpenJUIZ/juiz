@@ -5,8 +5,8 @@ juiz を使ってロボットやIoT機器のソフトウェアを開発する方
 
 ## 必要環境
 
-- Rust 1.81 以降
-- Python 3 と開発用ヘッダー（Python 連携に PyO3 を使うため。Ubuntu なら `python3-dev`）
+- Rust 1.85 以降(Python 連携に使う PyO3 0.30 の要件)
+- Python 3.10 以降と開発用ヘッダー（Python 連携に PyO3 を使うため。Ubuntu なら `python3-dev`）。CI では 3.10 と 3.14 で確かめています
 - C++ の機能要素をビルドする場合は CMake と C++17 対応のコンパイラ
 
 ## ビルドとインストール
