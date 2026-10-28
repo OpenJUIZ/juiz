@@ -24,6 +24,15 @@ pub(crate) fn setup_objects(system: &mut System, manifest: &Value) -> JuizResult
     let manifest = &resolved_manifest;
     let manifest_copied = manifest.clone();
 
+    // Topic の共有メモリの設定は、Process が Topic を作る前に覚えておく (docs/spec/large-data.md §6.1)
+    let topic_settings = crate::topics::shared_memory::topic_settings_from_manifest(manifest)
+        .context("reading 'topics' in conf")?;
+    system
+        .core_broker()
+        .lock_mut()?
+        .worker_mut()
+        .set_topic_settings(topic_settings)?;
+
     // Composite の Factory は、子の Factory (plugins) の後、インスタンスを作る前に登録する (issue #169)
     let _ = when_contains_do(manifest, "composites", |v| {
         setup_composites(system, v)

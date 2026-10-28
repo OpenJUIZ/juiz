@@ -5,6 +5,8 @@
 pub mod ipc_broker;
 pub mod ipc_broker_proxy;
 pub mod ipc_name;
+pub mod shm;
+mod shm_delivery;
 mod transport;
 
 pub use ipc_broker::{ipc_broker_factory, IpcBroker, IPC_TYPE_NAME};

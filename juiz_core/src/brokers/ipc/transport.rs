@@ -87,6 +87,129 @@ mod imp {
         let _ = stream.shutdown(std::net::Shutdown::Both);
     }
 
+    /// 受け手の読み取り。届いたファイル記述子 (SCM_RIGHTS、共有メモリ §6.6) を取っておく
+    pub struct RecvStream {
+        inner: UnixStream,
+        fds: std::collections::VecDeque<std::os::fd::OwnedFd>,
+    }
+
+    impl RecvStream {
+        pub fn new(inner: UnixStream) -> Self {
+            RecvStream {
+                inner,
+                fds: Default::default(),
+            }
+        }
+
+        /// 届いた順に記述子を 1 つ取り出す
+        pub fn take_fd(&mut self) -> Option<std::os::fd::OwnedFd> {
+            self.fds.pop_front()
+        }
+    }
+
+    /// 1 回に受け取る記述子の数の上限
+    const MAX_FDS: usize = 4;
+
+    impl io::Read for RecvStream {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+            let space =
+                unsafe { libc::CMSG_SPACE((MAX_FDS * std::mem::size_of::<libc::c_int>()) as u32) }
+                    as usize;
+            // cmsghdr の位置合わせのため u64 で確保する
+            let mut cbuf = vec![0u64; space.div_ceil(8)];
+            let mut iov = libc::iovec {
+                iov_base: buf.as_mut_ptr() as *mut libc::c_void,
+                iov_len: buf.len(),
+            };
+            let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
+            msg.msg_iov = &mut iov;
+            msg.msg_iovlen = 1;
+            msg.msg_control = cbuf.as_mut_ptr() as *mut libc::c_void;
+            msg.msg_controllen = space as _;
+            #[cfg(any(target_os = "linux", target_os = "android"))]
+            let flags = libc::MSG_CMSG_CLOEXEC;
+            #[cfg(not(any(target_os = "linux", target_os = "android")))]
+            let flags = 0;
+            let n = loop {
+                let n = unsafe { libc::recvmsg(self.inner.as_raw_fd(), &mut msg, flags) };
+                if n < 0 {
+                    let e = io::Error::last_os_error();
+                    if e.kind() == io::ErrorKind::Interrupted {
+                        continue;
+                    }
+                    return Err(e);
+                }
+                break n as usize;
+            };
+            unsafe {
+                let mut cmsg = libc::CMSG_FIRSTHDR(&msg);
+                while !cmsg.is_null() {
+                    if (*cmsg).cmsg_level == libc::SOL_SOCKET && (*cmsg).cmsg_type == libc::SCM_RIGHTS {
+                        let data = libc::CMSG_DATA(cmsg) as *const libc::c_int;
+                        let header = libc::CMSG_LEN(0) as usize;
+                        let count = ((*cmsg).cmsg_len as usize - header) / std::mem::size_of::<libc::c_int>();
+                        for i in 0..count {
+                            let fd = std::ptr::read_unaligned(data.add(i));
+                            #[cfg(not(any(target_os = "linux", target_os = "android")))]
+                            {
+                                let f = libc::fcntl(fd, libc::F_GETFD);
+                                libc::fcntl(fd, libc::F_SETFD, f | libc::FD_CLOEXEC);
+                            }
+                            self.fds.push_back(OwnedFd::from_raw_fd(fd));
+                        }
+                    }
+                    cmsg = libc::CMSG_NXTHDR(&msg, cmsg);
+                }
+            }
+            if msg.msg_flags & libc::MSG_CTRUNC != 0 {
+                log::warn!("ipc: some file descriptors were dropped (too many in one message)");
+            }
+            Ok(n)
+        }
+    }
+
+    /// data を記述子 fd と一緒に送る。記述子はデータの先頭に付く
+    pub fn send_with_fd(stream: &Stream, data: &[u8], fd: std::os::fd::RawFd) -> io::Result<()> {
+        use std::io::Write;
+        use std::os::fd::AsRawFd;
+        if data.is_empty() {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "no data to send with a file descriptor"));
+        }
+        let space = unsafe { libc::CMSG_SPACE(std::mem::size_of::<libc::c_int>() as u32) } as usize;
+        let mut cbuf = vec![0u64; space.div_ceil(8)];
+        let mut iov = libc::iovec {
+            iov_base: data.as_ptr() as *mut libc::c_void,
+            iov_len: data.len(),
+        };
+        let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
+        msg.msg_iov = &mut iov;
+        msg.msg_iovlen = 1;
+        msg.msg_control = cbuf.as_mut_ptr() as *mut libc::c_void;
+        msg.msg_controllen = space as _;
+        unsafe {
+            let cmsg = libc::CMSG_FIRSTHDR(&msg);
+            (*cmsg).cmsg_level = libc::SOL_SOCKET;
+            (*cmsg).cmsg_type = libc::SCM_RIGHTS;
+            (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<libc::c_int>() as u32) as _;
+            std::ptr::write_unaligned(libc::CMSG_DATA(cmsg) as *mut libc::c_int, fd);
+        }
+        let sent = loop {
+            let n = unsafe { libc::sendmsg(stream.as_raw_fd(), &msg, 0) };
+            if n < 0 {
+                let e = io::Error::last_os_error();
+                if e.kind() == io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return Err(e);
+            }
+            break n as usize;
+        };
+        // 残りは普通に書く (記述子は最初の 1 バイトと一緒に届いている)
+        (&*stream).write_all(&data[sent..])?;
+        (&*stream).flush()
+    }
+
     /// 使い回す前に、相手が閉じていないかを確かめる (サーバーが再起動したときなど)。
     /// 要求と要求の間に届くデータは無いはずなので、読めたら壊れているとみなす
     pub fn is_closed(stream: &Stream) -> bool {
@@ -180,6 +303,23 @@ mod imp {
         use std::os::windows::io::{AsHandle, AsRawHandle};
         match stream {
             Stream::NamedPipe(s) => s.as_handle().as_raw_handle() as _,
+        }
+    }
+
+    /// 受け手の読み取り。Windows では記述子を渡さない (共有メモリは名前で開く)
+    pub struct RecvStream {
+        inner: Stream,
+    }
+
+    impl RecvStream {
+        pub fn new(inner: Stream) -> Self {
+            RecvStream { inner }
+        }
+    }
+
+    impl io::Read for RecvStream {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            io::Read::read(&mut self.inner, buf)
         }
     }
 

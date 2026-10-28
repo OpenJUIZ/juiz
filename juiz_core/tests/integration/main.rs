@@ -45,6 +45,8 @@ mod identifier_test;
 mod image_transfer_bench;
 #[cfg(feature = "ipc-broker")]
 mod ipc_broker_api_test;
+#[cfg(feature = "ipc-broker")]
+mod ipc_shared_memory_test;
 mod lazy_eval_test;
 mod local_broker_api_test;
 mod messenger_broker_proxy_test;

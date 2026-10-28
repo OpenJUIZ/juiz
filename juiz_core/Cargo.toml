@@ -63,7 +63,8 @@ libc = "0.2"
 [target.'cfg(windows)'.dependencies]
 interprocess = { workspace = true, optional = true }
 widestring = { version = "1", optional = true }
-windows-sys = { version = "0.61", optional = true, features = ["Win32_Foundation", "Win32_System_IO", "Win32_System_Pipes"] }
+# 共有メモリ (名前付きファイルマッピング、docs/spec/large-data.md §6.6) と名前付きパイプの操作
+windows-sys = { version = "0.61", optional = true, features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_IO", "Win32_System_Memory", "Win32_System_Pipes"] }
 
 [dev-dependencies]
 # ベンチ (tests/integration/image_transfer_bench.rs) で qmp ブローカーも測るため。

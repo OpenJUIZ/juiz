@@ -42,7 +42,7 @@ pub enum FrameKind {
     Error,
 }
 
-/// 本体の説明 (§3.4)。知らないキー (B の shm など) は読み飛ばす
+/// 本体の説明 (§3.4)。知らないキーは読み飛ばす
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum BodyDesc {
@@ -51,11 +51,46 @@ pub enum BodyDesc {
         height: u32,
         format: String,
         stride: u64,
+        /// 本体が共有メモリにあるときの場所 (B、§6.4)。このとき body_len は 0
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        shm: Option<ShmRef>,
     },
     Array {
         dtype: String,
         count: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        shm: Option<ShmRef>,
     },
+}
+
+/// 共有メモリのリングの中の本体の場所 (B、docs/spec/large-data.md §6.4)
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct ShmRef {
+    /// 領域の UUID
+    pub region: String,
+    pub slot: u32,
+    /// 書き終わりの seq (2n)
+    pub seq: u64,
+    pub len: u64,
+}
+
+impl BodyDesc {
+    pub fn shm(&self) -> Option<&ShmRef> {
+        match self {
+            BodyDesc::Image { shm, .. } | BodyDesc::Array { shm, .. } => shm.as_ref(),
+        }
+    }
+
+    pub fn set_shm(&mut self, r: Option<ShmRef>) {
+        match self {
+            BodyDesc::Image { shm, .. } | BodyDesc::Array { shm, .. } => *shm = r,
+        }
+    }
+
+    /// 本体のバイト数。説明が正しくなければエラー
+    pub fn body_len(&self) -> JuizResult<u64> {
+        expected_body_len(self).map_err(|m| anyhow!(m))
+    }
 }
 
 /// エラー応答の内容。受け手は JuizError::BrokerProxyRemoteError にする
@@ -153,6 +188,7 @@ fn expected_body_len(desc: &BodyDesc) -> Result<u64, String> {
             height,
             format,
             stride,
+            ..
         } => {
             let bpp = bytes_per_pixel(format)
                 .ok_or_else(|| format!("unknown image format '{format}'"))?;
@@ -166,7 +202,7 @@ fn expected_body_len(desc: &BodyDesc) -> Result<u64, String> {
                 .checked_mul(*height as u64)
                 .ok_or_else(|| "image is too large".to_owned())
         }
-        BodyDesc::Array { dtype, count } => match dtype.as_str() {
+        BodyDesc::Array { dtype, count, .. } => match dtype.as_str() {
             "i64le" | "f64le" => count
                 .checked_mul(8)
                 .ok_or_else(|| "array is too large".to_owned()),
@@ -181,6 +217,91 @@ fn expected_body_len(desc: &BodyDesc) -> Result<u64, String> {
 enum OutBody {
     Image { capsule: CapsulePtr, len: u64 },
     Bytes(Vec<u8>),
+    /// 共有メモリに書いてある本体 (B)。body_len は 0 で、バイトは続かない
+    Shared,
+}
+
+impl OutBody {
+    fn len(&self) -> u64 {
+        match self {
+            OutBody::Image { len, .. } => *len,
+            OutBody::Bytes(b) => b.len() as u64,
+            OutBody::Shared => 0,
+        }
+    }
+}
+
+/// カプセルを本体に出せるなら、その説明と本体を返す (画像と、要素の多い数の配列)。
+/// Value は本体に出さなければ None、Empty なども None
+fn body_of_capsule(
+    capsule: &CapsulePtr,
+    c: &Capsule,
+) -> JuizResult<Option<(BodyDesc, OutBody)>> {
+    if let Some(img) = c.try_as_image()? {
+        let (format, bpp, channel_bytes) = image_format_of(img)?;
+        let desc = BodyDesc::Image {
+            width: img.width(),
+            height: img.height(),
+            format: format.to_owned(),
+            stride: img.width() as u64 * bpp,
+            shm: None,
+        };
+        let body = if cfg!(target_endian = "big") && channel_bytes > 1 {
+            OutBody::Bytes(image_le_bytes(img, channel_bytes))
+        } else {
+            OutBody::Image {
+                capsule: capsule.clone(),
+                len: img.as_bytes().len() as u64,
+            }
+        };
+        return Ok(Some((desc, body)));
+    }
+    if let Some(v) = c.try_as_value()? {
+        if let Some((dtype, bytes)) = array_body(v) {
+            let desc = BodyDesc::Array {
+                dtype: dtype.to_owned(),
+                count: (bytes.len() / 8) as u64,
+                shm: None,
+            };
+            return Ok(Some((desc, OutBody::Bytes(bytes))));
+        }
+    }
+    Ok(None)
+}
+
+/// 共有メモリ (B) に書く本体。Topic の送り手がリングの枠に書くのに使う
+pub struct SharedBody {
+    pub desc: BodyDesc,
+    body: OutBody,
+}
+
+impl SharedBody {
+    /// カプセルを本体に出せなければ (小さな Value、Empty など) None
+    pub fn from_capsule(capsule: &CapsulePtr) -> JuizResult<Option<Self>> {
+        let r = capsule.lock_as_capsule(|c| body_of_capsule(capsule, c))??;
+        Ok(r.map(|(desc, body)| SharedBody { desc, body }))
+    }
+
+    pub fn len(&self) -> u64 {
+        self.body.len()
+    }
+
+    /// 本体を dst (長さ len()) へ書く
+    pub fn copy_into(&self, dst: &mut [u8]) -> JuizResult<()> {
+        match &self.body {
+            OutBody::Bytes(b) => dst.copy_from_slice(b),
+            OutBody::Image { capsule, len } => capsule.lock_as_image(|img| -> JuizResult<()> {
+                let bytes = img.as_bytes();
+                if bytes.len() as u64 != *len || dst.len() != bytes.len() {
+                    return Err(anyhow!("the image was changed while it was being sent"));
+                }
+                dst.copy_from_slice(bytes);
+                Ok(())
+            })??,
+            OutBody::Shared => {}
+        }
+        Ok(())
+    }
 }
 
 /// 組み立てたフレーム。`write_to` で書く
@@ -236,36 +357,10 @@ impl OutgoingFrame {
                 if c.is_empty() {
                     return Ok((jvalue!({"empty": true}), options, None));
                 }
-                if let Some(img) = c.try_as_image()? {
-                    let (format, bpp, channel_bytes) = image_format_of(img)?;
-                    let desc = BodyDesc::Image {
-                        width: img.width(),
-                        height: img.height(),
-                        format: format.to_owned(),
-                        stride: img.width() as u64 * bpp,
-                    };
-                    let body = if cfg!(target_endian = "big") && channel_bytes > 1 {
-                        OutBody::Bytes(image_le_bytes(img, channel_bytes))
-                    } else {
-                        OutBody::Image {
-                            capsule: capsule.clone(),
-                            len: img.as_bytes().len() as u64,
-                        }
-                    };
+                if let Some((desc, body)) = body_of_capsule(capsule, c)? {
                     return Ok((jvalue!({"body": index}), options, Some((desc, body))));
                 }
                 if let Some(v) = c.try_as_value()? {
-                    if let Some((dtype, bytes)) = array_body(v) {
-                        let desc = BodyDesc::Array {
-                            dtype: dtype.to_owned(),
-                            count: (bytes.len() / 8) as u64,
-                        };
-                        return Ok((
-                            jvalue!({"body": index}),
-                            options,
-                            Some((desc, OutBody::Bytes(bytes))),
-                        ));
-                    }
                     return Ok((jvalue!({"value": v}), options, None));
                 }
                 Err(anyhow!(JuizError::InvalidValueError {
@@ -310,6 +405,42 @@ impl OutgoingFrame {
         Ok(frame)
     }
 
+    /// 本体を共有メモリに置いた要求のフレーム (B、§6.4)。map は {arg_name: {"body": 0}} だけ
+    pub fn shared_request(
+        id: u64,
+        param: HashMap<String, String>,
+        arg_name: &str,
+        desc: BodyDesc,
+    ) -> Self {
+        let mut header = FrameHeader::new(id, FrameKind::Request);
+        let mut m = Map::new();
+        m.insert(arg_name.to_owned(), jvalue!({"body": 0}));
+        header.param = Some(param);
+        header.map = Some(m);
+        header.bodies.push(desc);
+        OutgoingFrame {
+            header,
+            bodies: vec![OutBody::Shared],
+        }
+    }
+
+    /// 本体の無い要求のフレーム (param だけ)
+    pub fn param_request(id: u64, param: HashMap<String, String>) -> Self {
+        let mut header = FrameHeader::new(id, FrameKind::Request);
+        header.param = Some(param);
+        OutgoingFrame {
+            header,
+            bodies: Vec::new(),
+        }
+    }
+
+    /// フレームをバイト列にする (ファイル記述子と一緒に 1 度に送るときに使う)
+    pub fn to_bytes(&self) -> JuizResult<Vec<u8>> {
+        let mut buf = Vec::new();
+        self.write_to(&mut buf)?;
+        Ok(buf)
+    }
+
     /// エラー応答のフレーム
     pub fn error(id: u64, class_name: &str, function_name: &str, message: String) -> Self {
         let mut header = FrameHeader::new(id, FrameKind::Error);
@@ -341,6 +472,9 @@ impl OutgoingFrame {
         small.extend_from_slice(&header);
         for body in self.bodies.iter() {
             match body {
+                OutBody::Shared => {
+                    small.extend_from_slice(&0u64.to_le_bytes());
+                }
                 OutBody::Bytes(bytes) => {
                     small.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
                     if bytes.len() < 64 * 1024 {
@@ -432,6 +566,8 @@ impl From<FrameReadError> for anyhow::Error {
 pub enum IncomingBody {
     Image(DynamicImage),
     Array(Value),
+    /// 共有メモリにある本体 (B)。ブローカーが共有メモリから読んで置き換える
+    Shared(BodyDesc),
 }
 
 /// 読んだフレーム
@@ -559,6 +695,37 @@ fn read_array<R: Read>(r: &mut R, dtype: &str, count: u64) -> JuizResult<Value> 
     Ok(Value::Array(values))
 }
 
+fn read_body<R: Read>(r: &mut R, desc: &BodyDesc) -> JuizResult<IncomingBody> {
+    match desc {
+        BodyDesc::Image {
+            width,
+            height,
+            format,
+            stride,
+            ..
+        } => read_image(r, *width, *height, format, *stride).map(IncomingBody::Image),
+        BodyDesc::Array { dtype, count, .. } => {
+            read_array(r, dtype, *count).map(IncomingBody::Array)
+        }
+    }
+}
+
+/// 共有メモリから写した本体のバイト列 (長さは説明どおり) をカプセルにする (B、§6.4)
+pub fn capsule_from_body_bytes(desc: &BodyDesc, bytes: &[u8]) -> JuizResult<Capsule> {
+    let expected = desc.body_len()?;
+    if expected != bytes.len() as u64 {
+        return Err(anyhow!(
+            "body length {} does not match its description ({expected} bytes)",
+            bytes.len()
+        ));
+    }
+    Ok(match read_body(&mut &bytes[..], desc)? {
+        IncomingBody::Image(img) => Capsule::from(img),
+        IncomingBody::Array(v) => Capsule::from(v),
+        IncomingBody::Shared(_) => unreachable!("read_body never returns a shared body"),
+    })
+}
+
 /// 先頭の 4 バイトを読む。何も読まずに閉じられたら None
 fn read_magic<R: Read>(r: &mut R) -> io::Result<Option<[u8; 4]>> {
     let mut buf = [0u8; 4];
@@ -649,6 +816,18 @@ pub fn read_frame<R: Read>(r: &mut R, limits: &FrameLimits) -> Result<IncomingFr
                 "frame is too large (more than {} bytes)",
                 limits.max_frame_bytes
             )))
+        } else if let Some(shm) = desc.shm() {
+            match expected_body_len(desc) {
+                Err(msg) => Some(Some(anyhow!("body {i}: {msg}"))),
+                Ok(_) if body_len != 0 => Some(Some(anyhow!(
+                    "body {i}: a body in shared memory must have body_len 0 ({body_len})"
+                ))),
+                Ok(expected) if expected != shm.len => Some(Some(anyhow!(
+                    "body {i}: shared memory length {} does not match its description ({expected} bytes)",
+                    shm.len
+                ))),
+                Ok(_) => None,
+            }
         } else {
             match expected_body_len(desc) {
                 Err(msg) => Some(Some(anyhow!("body {i}: {msg}"))),
@@ -666,18 +845,9 @@ pub fn read_frame<R: Read>(r: &mut R, limits: &FrameLimits) -> Result<IncomingFr
                 skip(r, body_len).map_err(broken)?;
                 bodies.push(None);
             }
+            None if desc.shm().is_some() => bodies.push(Some(IncomingBody::Shared(desc.clone()))),
             None => {
-                let body = match desc {
-                    BodyDesc::Image {
-                        width,
-                        height,
-                        format,
-                        stride,
-                    } => read_image(r, *width, *height, format, *stride).map(IncomingBody::Image),
-                    BodyDesc::Array { dtype, count } => {
-                        read_array(r, dtype, *count).map(IncomingBody::Array)
-                    }
-                };
+                let body = read_body(r, desc);
                 // 長さは確かめてあるので、ここで失敗するのは読み取りの失敗だけ
                 bodies.push(Some(body.map_err(FrameReadError::Broken)?));
             }
@@ -696,6 +866,18 @@ impl IncomingFrame {
 
     pub fn kind(&self) -> FrameKind {
         self.header.kind
+    }
+
+    /// 本体を取り出す (同じ本体を 2 度は使えない)
+    pub fn take_body(&mut self, index: usize) -> Option<IncomingBody> {
+        self.bodies.get_mut(index).and_then(|b| b.take())
+    }
+
+    /// 共有メモリにある本体があるか (B)
+    pub fn has_shared_body(&self) -> bool {
+        self.bodies
+            .iter()
+            .any(|b| matches!(b, Some(IncomingBody::Shared(_))))
     }
 
     /// カプセルの表し方からカプセルを作る。本体は取り出す (同じ本体を 2 度は使えない)
@@ -723,6 +905,11 @@ impl IncomingFrame {
             return Ok(match body {
                 IncomingBody::Image(img) => Capsule::from(img),
                 IncomingBody::Array(v) => Capsule::from(v),
+                IncomingBody::Shared(_) => {
+                    return Err(anyhow!(
+                        "body {index} is in shared memory, but this request can not use it"
+                    ))
+                }
             });
         }
         Err(invalid(&Value::Object(obj)))
