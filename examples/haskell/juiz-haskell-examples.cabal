@@ -10,6 +10,10 @@ build-type:         Simple
 -- juiz は Process をワーカースレッドから呼ぶので -threaded の RTS が必要
 -- (-threaded でなければ juiz_hs_init がエラーを返し、読み込みが失敗する)。
 -- libjuiz_sdk の場所は build.sh が --extra-lib-dirs で渡す。
+--
+-- Windows では lib の付かない <名前>.dll になる。Windows の GHC は Haskell の共有ライブラリ (DLL) を持たないので、
+-- RTS と依存するパッケージを DLL に静的に取り込む (options: standalone)。cabal はこの指定を
+-- foreign-library ごとに求める (common に書いても通らない) ので、各 foreign-library に書く。
 
 common plugin
     default-language: Haskell2010
@@ -17,24 +21,26 @@ common plugin
                     , hsjuiz
     hs-source-dirs:   src
     ghc-options:      -Wall -threaded
-    -- Windows の GHC は Haskell の共有ライブラリ (DLL) を持たないので、RTS と依存するパッケージを DLL に
-    -- 静的に取り込む (cabal は Windows の foreign-library にこの指定を求める)
-    if os(windows)
-        options:      standalone
 
 foreign-library increment_process_hs
     import:           plugin
     type:             native-shared
+    if os(windows)
+        options:      standalone
     other-modules:    IncrementProcess
 
 foreign-library decrement_process_hs
     import:           plugin
     type:             native-shared
+    if os(windows)
+        options:      standalone
     other-modules:    DecrementProcess
 
 foreign-library value_types_process_hs
     import:           plugin
     type:             native-shared
+    if os(windows)
+        options:      standalone
     build-depends:    containers, text
     other-modules:    ValueTypesProcess
 
@@ -42,30 +48,40 @@ foreign-library value_types_process_hs
 foreign-library example_container_hs
     import:           plugin
     type:             native-shared
+    if os(windows)
+        options:      standalone
     other-modules:    ExampleContainer
                       ExampleContainerState
 
 foreign-library example_container_hs_increment
     import:           plugin
     type:             native-shared
+    if os(windows)
+        options:      standalone
     other-modules:    ExampleContainerIncrement
                       ExampleContainerState
 
 foreign-library example_container_hs_get
     import:           plugin
     type:             native-shared
+    if os(windows)
+        options:      standalone
     other-modules:    ExampleContainerGet
                       ExampleContainerState
 
 foreign-library mismatched_container_process_hs
     import:           plugin
     type:             native-shared
+    if os(windows)
+        options:      standalone
     other-modules:    MismatchedContainerProcess
 
 -- Component: 1 つのライブラリに Process / Container / ContainerProcess をまとめる
 foreign-library example_component_hs
     import:           plugin
     type:             native-shared
+    if os(windows)
+        options:      standalone
     build-depends:    text
     other-modules:    ExampleComponent
                       ExampleComponentCounter
@@ -74,6 +90,8 @@ foreign-library example_component_hs
 foreign-library broken_component_hs
     import:           plugin
     type:             native-shared
+    if os(windows)
+        options:      standalone
     other-modules:    BrokenComponent
 
 -- 型付きの引数・戻り値 (docs/spec/datatype.md §22)。gen/ の Robot.* は build.sh が juiz-idl -g haskell で
@@ -81,6 +99,8 @@ foreign-library broken_component_hs
 foreign-library typed_component_hs
     import:           plugin
     type:             native-shared
+    if os(windows)
+        options:      standalone
     hs-source-dirs:   gen
     build-depends:    bytestring, containers, text
     other-modules:    TypedComponent
@@ -92,6 +112,8 @@ foreign-library typed_component_hs
 foreign-library image_component_hs
     import:           plugin
     type:             native-shared
+    if os(windows)
+        options:      standalone
     build-depends:    bytestring, text
     other-modules:    ImageComponent
 
@@ -99,6 +121,8 @@ foreign-library image_component_hs
 foreign-library broken_typed_process_hs
     import:           plugin
     type:             native-shared
+    if os(windows)
+        options:      standalone
     hs-source-dirs:   gen
     build-depends:    bytestring, containers, text
     other-modules:    BrokenTypedProcess
