@@ -507,58 +507,35 @@ fn do_task(system: &mut System, args: Args) -> JuizResult<()> {
         if module_manifest_print {
             println!("{compm:}");
         }
+        // 作るのは最初の 1 回だけ。-r のときは作ったものを周期で実行する
+        // (毎周期作ると 2 周目に同じ名前の二重登録でエラーになっていた)
         let mut procs: Vec<ProcessPtr> = Vec::new();
-        let mut conts: Vec<ContainerPtr> = Vec::new();
-        let mut cont_procs: Vec<ProcessPtr> = Vec::new();
-        loop {
+        if create {
             for pm in compm.processes.iter() {
-                if create {
-                    let proc = create_process_by_pm(system, pm)?;
-                    procs.push(proc.clone());
-                    if execute {
-                        let v = proc.lock_mut()?.execute()?;
-                        if print {
-                            println!("{v:?}");
-                        }
-                    }
-                }
+                procs.push(create_process_by_pm(system, pm)?);
             }
             for cm in compm.containers.iter() {
-                if create {
-                    let cont = create_container_by_cm(system, cm)?;
-                    conts.push(cont.clone());
-                    let cid = cont.identifier().clone();
-                    for pm in cm.processes.iter() {
-                        let cproc = create_container_process_by_cid_and_pm(system, &cid, pm)?;
-                        cont_procs.push(cproc.clone());
-                        if execute {
-                            let v = cproc.lock_mut()?.execute()?;
-                            if print {
-                                println!("{v:?}");
-                            }
-                        }
-                    }
+                let cont = create_container_by_cm(system, cm)?;
+                let cid = cont.identifier().clone();
+                for pm in cm.processes.iter() {
+                    procs.push(create_container_process_by_cid_and_pm(system, &cid, pm)?);
                 }
             }
-            if let Some(ratio_hz) = ratio {
-                let duration = Duration::from_secs_f64(1.0 / ratio_hz);
-                std::thread::sleep(duration);
+        }
+        loop {
+            if execute {
                 for p in procs.iter() {
                     let v = p.lock_mut()?.execute()?;
                     if print {
                         println!("{v:?}");
                     }
                 }
-                for cp in cont_procs.iter() {
-                    let v = cp.lock_mut()?.execute()?;
-                    if print {
-                        println!("{v:?}");
-                    }
-                }
-            } else {
-                break;
             }
-        } // loop
+            match ratio {
+                Some(ratio_hz) => std::thread::sleep(Duration::from_secs_f64(1.0 / ratio_hz)),
+                None => break,
+            }
+        }
     }
     Ok(())
 }
@@ -733,5 +710,38 @@ fn run(args: Args) -> JuizResult<()> {
         /* _ => {
             return Ok(())
         } */
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn add_ipc_broker_appends_to_brokers() {
+        // --ipc が無ければそのまま
+        let m = jvalue!({ "name": "a" });
+        assert_eq!(add_ipc_broker(m.clone(), None).unwrap(), m);
+        // brokers が無い / null / ある
+        for m in [
+            jvalue!({ "name": "a" }),
+            jvalue!({ "name": "a", "brokers": null }),
+        ] {
+            let m = add_ipc_broker(m, Some("cam0")).unwrap();
+            assert_eq!(m["brokers"], jvalue!([{ "type_name": "ipc", "name": "cam0" }]));
+        }
+        let m = add_ipc_broker(
+            jvalue!({ "brokers": [{ "type_name": "qmp", "name": "q" }] }),
+            Some("cam0"),
+        )
+        .unwrap();
+        assert_eq!(m["brokers"].as_array().unwrap().len(), 2);
+        assert_eq!(m["brokers"][1]["type_name"], "ipc");
+    }
+
+    #[test]
+    fn add_ipc_broker_rejects_invalid_conf() {
+        assert!(add_ipc_broker(jvalue!([]), Some("cam0")).is_err());
+        assert!(add_ipc_broker(jvalue!({ "brokers": "x" }), Some("cam0")).is_err());
     }
 }
