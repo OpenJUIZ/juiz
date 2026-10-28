@@ -1,0 +1,72 @@
+name: Test (Windows)
+
+# Windows でのビルドとテストと Windows の wheel。
+# macOS は Linux の 10 倍、Windows は 2 倍で数えられ、PR のたびに動かすと Actions の
+# 実行時間の大半を占めていたため、PR では動かさず main への push と手動実行でだけ動かす。
+# PR で確かめたいときは、Actions の画面から PR のブランチを指定して手動実行する。
+# Linux のジョブは test-linux.yml。
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      # Rust のビルドとテストに影響しないファイルだけの変更ではジョブを走らせない。
+      # examples/python と bindings/pyjuiz は Rust のテストから使われるので対象に含める。
+      - "**.md"
+      - "juiz_tutorial/**"
+      - "Dockerfile"
+      - "compose.yml"
+      - "build_docker.sh"
+      - ".github/workflows/python.yml"
+      - "webui/**"
+      - ".github/workflows/webui.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # pyo3 が埋め込む Python をシステムの python3 に固定する
+  PYO3_PYTHON: python3
+
+jobs:
+  # Windows でのビルドとテスト。Python は actions/setup-python で入れ、
+  # pyo3(auto-initialize)がその libpython にリンクする。C++ の例は MSVC と cmake でビルドする。
+  windows:
+    name: Windows build & test
+    runs-on: windows-latest
+    env:
+      # windows-latest の python3 は Microsoft Store のスタブになることがあるので python を使う
+      PYO3_PYTHON: python
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pyjuiz dependencies (used by the embedded Python)
+        run: python -m pip install pyyaml httpx pillow docstring_parser numpy
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Windows で失敗するテストをまとめて把握できるよう --no-fail-fast で最後まで実行する
+      - name: Build & test
+        run: scripts/test.sh --no-fail-fast
+
+      - name: Test python-entry
+        run: scripts/test.sh -p juiz_app --features python-entry --test python_entry_test
+
+  # pip で入れる juiz(bindings/juiz_py、issue #88)の wheel を Windows でビルドし、
+  # インストールした juiz コマンドで Python の Process とサンプルを動かす(juiz-wheels.yml)
+  juiz-wheels:
+    uses: ./.github/workflows/juiz-wheels.yml
+    with:
+      os: windows

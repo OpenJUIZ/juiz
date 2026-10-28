@@ -1,10 +1,9 @@
-name: Test
+name: Test (Linux)
 
-# PR では Linux のジョブ(rust・opencv・Linux x86_64 の wheel)だけを動かし、
-# macOS・Windows のジョブ、残りの wheel、coverage は main への push と手動実行で動かす。
-# macOS は Linux の 10 倍、Windows は 2 倍で数えられ、PR のたびに動かすと Actions の
-# 実行時間の大半を占めていたため。PR で macOS・Windows も確かめたいときは、
-# Actions の画面から PR のブランチを指定して Test を手動実行する。
+# Linux でのビルドとテスト(rust・opencv・Linux の wheel・coverage)。
+# PR と main への push と手動実行で動く。coverage と linux-aarch64 の wheel は PR では動かさない。
+# macOS・Windows は test-macos.yml・test-windows.yml に分けてあり、main への push と手動実行でだけ動く。
+# README のバッジを OS ごとに分けるため、ワークフローを OS ごとに分けている。
 # draft の PR では何も動かさない(ready for review にしたときに動く)。
 on:
   push:
@@ -109,81 +108,6 @@ jobs:
       - name: Test python-entry
         run: scripts/test.sh -p juiz_app --features python-entry --test python_entry_test
 
-  # macOS での Haskell のプラグインのビルドとテスト(issue #143)。macos-latest は Xcode 26 に
-  # Command Line Tools 27 (MacOSX27.0.sdk) が入っていて、GHC のリンクでその SDK を読む組み合わせを確かめる。
-  # examples/haskell/build.sh が DEVELOPER_DIR を切り替える。Haskell 以外のテストは Linux のジョブで確かめる。
-  haskell-macos:
-    name: Haskell plugin test (macOS)
-    if: github.event_name != 'pull_request'
-    runs-on: macos-latest
-    env:
-      # macOS の python3 は新しすぎて PyO3 が対応していないので、setup-python の 3.13 を使う(issue #100)
-      PYO3_PYTHON: python3.13
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Install pyjuiz dependencies (used by the embedded Python)
-        run: python3.13 -m pip install pyyaml httpx pillow docstring_parser numpy
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      # Haskell の例(examples/haskell)のビルドに使う GHC と cabal を入れる。
-      # ghcup での GHC のインストールに Linux で約 2 分、macOS で約 4 分かかるので、入れた GHC をキャッシュする。
-      # GHC の置き場所は ghcup と同じく ${GHCUP_INSTALL_BASE_PREFIX:-$HOME}/.ghcup/ghc/<版>
-      - name: Locate ghcup directory
-        id: ghcup
-        shell: bash
-        run: echo "dir=${GHCUP_INSTALL_BASE_PREFIX:-$HOME}/.ghcup" >> "$GITHUB_OUTPUT"
-      - name: Restore GHC
-        id: ghc-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ steps.ghcup.outputs.dir }}/ghc/${{ env.GHC_VERSION }}
-          key: ghc-${{ env.GHC_VERSION }}-${{ runner.os }}-${{ runner.arch }}
-      # キャッシュに GHC があれば、haskell-actions/setup はインストールを飛ばして ghcup set だけする
-      - uses: haskell-actions/setup@v2
-        with:
-          ghc-version: ${{ env.GHC_VERSION }}
-          cabal-version: ${{ env.CABAL_VERSION }}
-          # examples/haskell の依存は GHC に付いてくるパッケージだけなので、Hackage の索引は使わない
-          cabal-update: false
-      # テストが失敗しても次から使えるよう、インストールした直後に保存する
-      - name: Save GHC
-        if: steps.ghc-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ steps.ghcup.outputs.dir }}/ghc/${{ env.GHC_VERSION }}
-          key: ${{ steps.ghc-cache.outputs.cache-primary-key }}
-
-      # C++ の例のビルドと Haskell の型付きの例 (gen/ の型) に juiz-idl も使う。
-      # haskell_typed_test は Rust の native_pose_component・native_pose_reader も読み込む
-      - name: Build libjuiz_sdk and juiz-idl
-        run: cargo build -p juiz_sdk -p juiz_idl -p native_pose_component -p native_pose_reader
-
-      # haskell_container_test は C++ の Container (example_container_cpp) も読み込む
-      - name: Build C++ examples
-        run: |
-          cmake -S examples/cpp -B examples/cpp/build -DCMAKE_BUILD_TYPE=Debug
-          cmake --build examples/cpp/build --config Debug --parallel
-
-      - name: Build Haskell examples
-        run: examples/haskell/build.sh
-
-      - name: Test
-        env:
-          PYTHONPATH: ${{ github.workspace }}/bindings/pyjuiz
-          # Haskell の例が無いときにテストを飛ばさない
-          JUIZ_REQUIRE_HASKELL: "1"
-        run: >-
-          cargo test -p juiz_core --no-fail-fast --test integration
-          -- --test-threads=1 haskell_
-
   # OpenCV を使うコンポーネント(examples/rust/component/juiz_opencv)のビルドとテスト。
   # opencv クレートはビルド時に libclang でシステムの OpenCV のヘッダからバインディングを生成するので、
   # libopencv-dev と libclang-dev を入れる。通常のテストと独立させ、失敗しても他のジョブに影響しない。
@@ -212,46 +136,14 @@ jobs:
       - name: Test
         run: cargo test -p juiz_opencv
 
-  # Windows でのビルドとテスト。Python は actions/setup-python で入れ、
-  # pyo3(auto-initialize)がその libpython にリンクする。C++ の例は MSVC と cmake でビルドする。
-  windows:
-    name: Windows build & test
-    if: github.event_name != 'pull_request'
-    runs-on: windows-latest
-    env:
-      # windows-latest の python3 は Microsoft Store のスタブになることがあるので python を使う
-      PYO3_PYTHON: python
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install pyjuiz dependencies (used by the embedded Python)
-        run: python -m pip install pyyaml httpx pillow docstring_parser numpy
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      # Windows で失敗するテストをまとめて把握できるよう --no-fail-fast で最後まで実行する
-      - name: Build & test
-        run: scripts/test.sh --no-fail-fast
-
-      - name: Test python-entry
-        run: scripts/test.sh -p juiz_app --features python-entry --test python_entry_test
-
-  # pip で入れる juiz(bindings/juiz_py、issue #88)の wheel を Linux・macOS・Windows でビルドし、
+  # pip で入れる juiz(bindings/juiz_py、issue #88)の wheel を Linux でビルドし、
   # インストールした juiz コマンドで Python の Process とサンプルを動かす(juiz-wheels.yml)。
   # PR では Linux x86_64 だけ
   juiz-wheels:
     if: ${{ !github.event.pull_request.draft }}
     uses: ./.github/workflows/juiz-wheels.yml
     with:
+      os: linux
       linux-only: ${{ github.event_name == 'pull_request' }}
 
   # テストカバレッジ(cargo-llvm-cov)。結果はジョブサマリーに表示し、

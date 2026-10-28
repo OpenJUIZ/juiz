@@ -2,7 +2,7 @@ name: juiz wheels
 
 # pip で入れる juiz(bindings/juiz_py、issue #88)の wheel を OS・CPU ごとにビルドし、
 # インストールした juiz コマンドで Python の Process と juiz_examples_python のサンプルを動かす。
-# Test(test.yml)と Publish to PyPI(pypi-publish.yml)から呼ばれる。
+# Test(test-linux.yml・test-macos.yml・test-windows.yml)と Publish to PyPI(pypi-publish.yml)から呼ばれる。
 # wheel は abi3(Python 3.10 以降で共通)なので、OS・CPU の組み合わせごとに1つだけ作る。
 # 管理画面(webui)も先にビルドして wheel の juiz に埋め込み、/ui で配信されることを確かめる(issue #117)。
 # ビルドした wheel は juiz-wheel-<名前> というアーティファクトに置く。
@@ -11,8 +11,9 @@ name: juiz wheels
 # そのまま入れるため、展開した先で cargo がワークスペースを読めずビルドできない。
 # wheel の無い環境では pip が「対応する配布物が無い」で止まり、cargo install juiz_app を使ってもらう。
 #
-# 呼び出し側は inputs.linux-only で linux-x86_64 だけに絞れる(既定はすべての組み合わせ)。
-# Test(test.yml)は PR では linux-x86_64 だけにして Actions の実行時間を減らす。
+# 呼び出し側は inputs.os で OS を絞れ(linux・macos・windows、既定はすべての組み合わせ)、
+# inputs.linux-only で linux-x86_64 だけに絞れる。
+# Test は OS ごとのワークフローからそれぞれの OS を指定して呼び、PR では linux-x86_64 だけにして Actions の実行時間を減らす。
 on:
   workflow_call:
     inputs:
@@ -20,6 +21,10 @@ on:
         description: linux-x86_64 だけをビルドする
         type: boolean
         default: false
+      os:
+        description: ビルドする OS(linux・macos・windows)。空ならすべて
+        type: string
+        default: ""
 
 jobs:
   wheel:
@@ -29,6 +34,9 @@ jobs:
       matrix:
         name: >-
           ${{ fromJSON(inputs.linux-only && '["linux-x86_64"]'
+          || inputs.os == 'linux' && '["linux-x86_64", "linux-aarch64"]'
+          || inputs.os == 'macos' && '["macos-arm64", "macos-x86_64"]'
+          || inputs.os == 'windows' && '["windows-x86_64"]'
           || '["linux-x86_64", "linux-aarch64", "macos-arm64", "macos-x86_64", "windows-x86_64"]') }}
     # 組み合わせの名前から、ランナーと maturin の target を引く
     runs-on: >-

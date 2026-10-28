@@ -8,9 +8,11 @@
 
 # juiz - the robot middleware
 
-[![Test](https://github.com/OpenJUIZ/juiz/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/OpenJUIZ/juiz/actions/workflows/test.yml)
+[![Linux](https://github.com/OpenJUIZ/juiz/actions/workflows/test-linux.yml/badge.svg?branch=main)](https://github.com/OpenJUIZ/juiz/actions/workflows/test-linux.yml?query=branch%3Amain)
+[![macOS](https://github.com/OpenJUIZ/juiz/actions/workflows/test-macos.yml/badge.svg?branch=main)](https://github.com/OpenJUIZ/juiz/actions/workflows/test-macos.yml?query=branch%3Amain)
+[![Windows](https://github.com/OpenJUIZ/juiz/actions/workflows/test-windows.yml/badge.svg?branch=main)](https://github.com/OpenJUIZ/juiz/actions/workflows/test-windows.yml?query=branch%3Amain)
 [![Python](https://github.com/OpenJUIZ/juiz/actions/workflows/python.yml/badge.svg?branch=main)](https://github.com/OpenJUIZ/juiz/actions/workflows/python.yml)
-[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/OpenJUIZ/juiz/badges/coverage.json)](https://github.com/OpenJUIZ/juiz/actions/workflows/test.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/OpenJUIZ/juiz/badges/coverage.json)](https://github.com/OpenJUIZ/juiz/actions/workflows/test-linux.yml)
 
 JUIZ (ジュイス) は、ロボットやIoT機器をネットワーク分散システムとして開発するためのミドルウェアおよびソフトウェアプラットフォームです。
 カメラやロボット、モータやセンサなどのロボット要素を動かすソフトウェアを、複数の言語で簡単に開発し、それらを結合して一つのソフトウェアサービスのように動作させることができます。
