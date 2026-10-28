@@ -86,3 +86,49 @@ fn qmp_broker_api_between_processes() -> JuizResult<()> {
             Ok(())
         })
 }
+
+const DATA_PORT: i64 = 5023;
+
+/// 画像・数の配列・Topic の push を、生バイトのフレーム (docs/spec/large-data.md §3) で送る (#234)。
+/// Rust の関数で Process を登録するので同じプロセス内だけ。それでも QUIC のクライアントとサーバーの間は
+/// フレームのバイト列で受け渡す
+#[test]
+fn qmp_broker_sends_images_and_arrays() -> JuizResult<()> {
+    let _ = env_logger::try_init();
+    qmp_broker::register();
+    let broker_name = format!("127.0.0.1:{DATA_PORT}");
+    System::new(jvalue!({
+        "name": "qmp_broker_data_test",
+        "option": { "http_broker": { "start": false } },
+        "brokers": [
+            { "type_name": "qmp", "name": broker_name, "host": "127.0.0.1", "port": DATA_PORT }
+        ]
+    }))?
+    .setup()?
+    .run_and_do_once(|system| {
+        let (publisher, sink) = setup_data_processes(system)?;
+        {
+            let mut cb = system.core_broker().lock_mut()?;
+            let worker = cb.worker_mut();
+            worker.process_subscribe_topic(
+                sink.clone(),
+                &"img".to_owned(),
+                TopicManifest::new("qmp_image_topic"),
+            )?;
+            worker.process_publish_topic(publisher.clone(), TopicManifest::new("qmp_image_topic"))?;
+        }
+        let proxy = system
+            .core_broker()
+            .lock()?
+            .worker()
+            .broker_proxy("qmp", broker_name.as_str(), true)?;
+        let mut bp = juiz_lock(&proxy)?;
+        check_remote_error(&mut *bp)?;
+        check_images(&mut *bp)?;
+        check_arrays(&mut *bp)?;
+        check_topic_push_image(&mut *bp, "qmp_image_topic", &sink)?;
+        // エラーの後も同じ接続で呼べる
+        check_remote_error(&mut *bp)?;
+        Ok(())
+    })
+}

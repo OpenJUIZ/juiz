@@ -8,14 +8,15 @@ use std::sync::Mutex;
 use std::time::Duration;
 use std::{net::SocketAddr, sync::Arc};
 
-use bytes::Bytes;
 use quinn::ServerConfig;
 use quinn::{Connection, Endpoint, Incoming};
 use rustls::crypto::ring::default_provider;
 use rustls::pki_types::CertificateDer;
 use rustls::pki_types::PrivatePkcs8KeyDer;
 
-use crate::{error_response, read_all, value_to_vecu8, vecu8_to_value};
+use crate::{frame_limits, BlockingRecv, BlockingSend, READ_BUFFER_BYTES};
+use juiz_core::frame::{read_frame, FrameLimits, FrameReadError, OutgoingFrame};
+use std::io::BufReader;
 use juiz_core::localize_identifier;
 
 #[allow(unused)]
@@ -107,51 +108,78 @@ pub const ALPN_QUIC_HTTP: &[&[u8]] = &[b"hq-29"];
 /// HTTP ルータが Host ヘッダからしていることと同じ。これにより process/list などは
 /// qmp://<アクセスされた住所>/... の識別子を返し、それをそのまま渡されても自分宛てに
 /// 再接続せずに処理できる。
-fn localize_request(mut val: Value, own_name: &str) -> Value {
-    let Some(param) = val
-        .as_object_mut()
-        .and_then(|o| o.get_mut("__param__"))
-        .and_then(|p| p.as_object_mut())
-    else {
-        return val;
-    };
-    let accessed_name = param
-        .get("accessed_broker_name")
-        .and_then(|v| v.as_str())
-        .unwrap_or(own_name)
-        .to_owned();
-    if let Some(id) = param.get("identifier").and_then(|v| v.as_str()) {
-        let mut id = localize_identifier(id, "qmp", Some(accessed_name.as_str()));
+fn localize_request(cm: &mut CapsuleMap, own_name: &str) {
+    let accessed_name = cm
+        .get_param("accessed_broker_name")
+        .cloned()
+        .unwrap_or_else(|| own_name.to_owned());
+    if let Some(id) = cm.get_param("identifier").cloned() {
+        let mut id = localize_identifier(id.as_str(), "qmp", Some(accessed_name.as_str()));
         id = localize_identifier(id.as_str(), "qmp", Some(own_name));
-        param.insert("identifier".to_owned(), jvalue!(id));
+        cm.set_param("identifier", id.as_str());
     }
-    param.insert(
-        "accessed_broker_id".to_owned(),
-        jvalue!(format!("qmp://{accessed_name}")),
-    );
-    param.insert("accessed_broker_type".to_owned(), jvalue!("qmp"));
-    param.insert("accessed_broker_name".to_owned(), jvalue!(accessed_name));
-    val
+    cm.set_param("accessed_broker_id", format!("qmp://{accessed_name}").as_str());
+    cm.set_param("accessed_broker_type", "qmp");
+    cm.set_param("accessed_broker_name", accessed_name.as_str());
 }
 
-fn callback(
-    request: Vec<u8>,
+fn handle_request(
+    crud_broker: &Arc<Mutex<CRUDBroker>>,
+    mut cm: CapsuleMap,
+    remote_addr: SocketAddr,
+) -> JuizResult<CapsulePtr> {
+    let crud = juiz_lock(crud_broker)?;
+    localize_request(&mut cm, crud.name().as_str());
+    crud.on_capsule_map_request(cm, Some(remote_addr))
+}
+
+/// 1 つのストリームで、要求のフレームを読み、処理して、応答のフレームを書く。
+///
+/// ブロックする処理なので spawn_blocking の中で呼ぶ。失敗したら必ずエラー応答を返す
+/// (応答しないとクライアントは読み取りで失敗する)。区切りがわからなくなったフレームだけは応答しない。
+fn serve_stream(
+    send: quinn::SendStream,
+    recv: quinn::RecvStream,
     crud_broker: Arc<Mutex<CRUDBroker>>,
     remote_addr: SocketAddr,
-) -> anyhow::Result<Vec<u8>> {
-    let val = vecu8_to_value(request)?;
-    let crud = juiz_lock(&crud_broker)?;
-    let val = localize_request(val, crud.name().as_str());
-    let capsule_ptr = crud.on_value_request(val, Some(remote_addr))?;
-    if capsule_ptr.is_value()? {
-        capsule_ptr.lock_as_value(|v| value_to_vecu8(v))?
-    } else if capsule_ptr.is_empty()? {
-        Ok(value_to_vecu8(&jvalue!({}))?)
-    } else {
-        Err(anyhow!(JuizError::InvalidValueError {
-            message: format!("qmp_broker can not send this data ({capsule_ptr:?})")
-        }))
-    }
+    limits: FrameLimits,
+) -> anyhow::Result<()> {
+    let mut reader = BufReader::with_capacity(READ_BUFFER_BYTES, BlockingRecv(recv));
+    let mut writer = BlockingSend(send);
+    let response = match read_frame(&mut reader, &limits) {
+        Ok(frame) => {
+            let id = frame.id();
+            let param = |name: &str| {
+                frame
+                    .header
+                    .param
+                    .as_ref()
+                    .and_then(|p| p.get(name).cloned())
+                    .unwrap_or_default()
+            };
+            let (class_name, function_name) = (param("class_name"), param("function_name"));
+            let result = frame
+                .into_capsule_map()
+                .and_then(|cm| handle_request(&crud_broker, cm, remote_addr))
+                .and_then(|capsule| OutgoingFrame::response(id, &capsule));
+            match result {
+                Ok(response) => response,
+                Err(e) => {
+                    log::error!("qmp_broker: {class_name}/{function_name} failed. {e:#}");
+                    OutgoingFrame::error(id, &class_name, &function_name, format!("{e:#}"))
+                }
+            }
+        }
+        Err(FrameReadError::Closed) => return Ok(()),
+        Err(FrameReadError::Broken(e)) => return Err(e),
+        Err(FrameReadError::Fatal { id, error }) | Err(FrameReadError::Invalid { id, error }) => {
+            log::error!("qmp_broker: {error:#}");
+            OutgoingFrame::error(id, "", "", format!("{error:#}"))
+        }
+    };
+    drop(reader);
+    response.write_to(&mut writer)?;
+    writer.finish()
 }
 
 pub async fn on_start(broker_manifest: Value, crud_broker: Arc<Mutex<CRUDBroker>>) -> () {
@@ -169,6 +197,7 @@ pub async fn on_start(broker_manifest: Value, crud_broker: Arc<Mutex<CRUDBroker>
         .and_then(|v| Ok(Some(v as u64)))
         .or::<Option<u64>>(Ok(None))
         .unwrap();
+    let limits = frame_limits(&broker_manifest);
     let address = format!("{:}:{:}", host, port);
     let endpoint = match bind_server(address.as_str(), idle_timeout) {
         Ok(v) => v,
@@ -193,8 +222,8 @@ pub async fn on_start(broker_manifest: Value, crud_broker: Arc<Mutex<CRUDBroker>
     }
     run_server(
         endpoint,
-        Arc::new(move |req, conn: &Connection| {
-            callback(req, crud_broker.clone(), conn.remote_address())
+        Arc::new(move |send, recv, conn: &Connection| {
+            serve_stream(send, recv, crud_broker.clone(), conn.remote_address(), limits)
         }),
     )
     .await;
@@ -211,7 +240,10 @@ fn bind_server(address: &str, idle_timeout: Option<u64>) -> anyhow::Result<Endpo
 /// Runs a QUIC server on the given endpoint.
 async fn run_server<F>(endpoint: Endpoint, callback: Arc<F>)
 where
-    F: Fn(Vec<u8>, &Connection) -> anyhow::Result<Vec<u8>> + Send + Sync + 'static,
+    F: Fn(quinn::SendStream, quinn::RecvStream, &Connection) -> anyhow::Result<()>
+        + Send
+        + Sync
+        + 'static,
 {
     loop {
         log::trace!("endpoint.accept in run_server()");
@@ -229,7 +261,10 @@ where
 
 async fn handle_incoming<F>(incoming: Incoming, callback: Arc<F>) -> anyhow::Result<()>
 where
-    F: Fn(Vec<u8>, &Connection) -> anyhow::Result<Vec<u8>> + Send + Sync + 'static,
+    F: Fn(quinn::SendStream, quinn::RecvStream, &Connection) -> anyhow::Result<()>
+        + Send
+        + Sync
+        + 'static,
 {
     log::trace!("handle_incoming() called");
     match incoming.await {
@@ -243,7 +278,10 @@ where
 
 async fn handle_connection<F>(conn: Connection, callback: Arc<F>) -> anyhow::Result<()>
 where
-    F: Fn(Vec<u8>, &Connection) -> anyhow::Result<Vec<u8>> + Send + Sync + 'static,
+    F: Fn(quinn::SendStream, quinn::RecvStream, &Connection) -> anyhow::Result<()>
+        + Send
+        + Sync
+        + 'static,
 {
     log::trace!("handle_connection(from:{})", conn.remote_address());
     //async {
@@ -257,59 +295,21 @@ where
                 log::error!("Connection::accept_bi() error. {e:?}");
                 return Err(anyhow!(e));
             }
-            Ok(mut s) => {
-                let (send, recv) = &mut s;
-                match handle_stream(send, recv, callback.clone(), &conn).await {
-                    Ok(_) => {}
-                    Err(e) => {
-                        return Err(anyhow!(e));
-                    }
+            Ok((send, recv)) => {
+                // CoreBroker の処理はブロックするので、HTTP ブローカーと同じく blocking スレッドで実行する。
+                // 非同期タスク内で実行すると、処理中に BrokerProxy (tokio ランタイムを持つ) を作ったり
+                // 捨てたりしたときに panic する。失敗してもそのストリームだけを捨て、接続は保つ
+                // (接続を閉じると同じ BrokerProxy からの以後の呼び出しがすべて失敗する)。
+                let (callback, c) = (callback.clone(), conn.clone());
+                let r = tokio::task::spawn_blocking(move || callback(send, recv, &c))
+                    .await
+                    .map_err(|e| anyhow!(e))
+                    .and_then(|r| r);
+                if let Err(e) = r {
+                    log::error!("qmp_broker: a stream from {} failed. {e:#}", conn.remote_address());
                 }
             }
         }
     }
     //}.instrument(make_span(&conn)).await
-}
-
-async fn handle_stream<F>(
-    send: &mut quinn::SendStream,
-    recv: &mut quinn::RecvStream,
-    callback: Arc<F>,
-    connection: &Connection,
-) -> anyhow::Result<()>
-where
-    F: Fn(Vec<u8>, &Connection) -> anyhow::Result<Vec<u8>> + Send + Sync + 'static,
-{
-    let req = read_all(recv).await.or_else(|e| {
-        log::error!("read_all() failed. {e:?}");
-        return Err(anyhow!(e));
-    })?;
-
-    // CoreBroker の処理はブロックするので、HTTP ブローカーと同じく blocking スレッドで実行する。
-    // 非同期タスク内で実行すると、処理中に BrokerProxy (tokio ランタイムを持つ) を作ったり
-    // 捨てたりしたときに panic する。
-    let conn = connection.clone();
-    let response = tokio::task::spawn_blocking(move || callback(req, &conn))
-        .await
-        .map_err(|e| anyhow!(e))
-        .and_then(|r| r);
-    // エラーでも応答を返し、接続は保つ。応答しないとクライアントは読み取りで失敗し、
-    // 接続を閉じると同じ BrokerProxy からの以後の呼び出しがすべて失敗する。
-    let response = match response {
-        Ok(v) => v,
-        Err(e) => {
-            log::error!("qmp_broker request failed. Error({e:?})");
-            error_response(&e)?
-        }
-    };
-
-    // write_all は送信バッファへ複製するので、Vec をそのまま Bytes にして渡す。
-    send.write_chunk(Bytes::from(response)).await.or_else(|e| {
-        log::error!("write error. {e:?}");
-        Err(anyhow!(e))
-    })?;
-    send.finish().or_else(|e| {
-        log::error!("finish error. {e:?}");
-        Err(anyhow!(e))
-    })
 }

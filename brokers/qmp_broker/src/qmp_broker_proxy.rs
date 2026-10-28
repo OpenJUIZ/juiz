@@ -1,6 +1,11 @@
 use std::{
+    collections::HashMap,
+    io::BufReader,
     net::SocketAddr,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
     time::Duration,
 };
 
@@ -11,7 +16,6 @@ use juiz_core::{
     tokio::{self},
     CRUDBrokerProxy, CRUDBrokerProxyHolder,
 };
-use bytes::Bytes;
 use quinn::{
     crypto::rustls::QuicClientConfig, ClientConfig, Connection, Endpoint, TransportConfig,
 };
@@ -20,10 +24,9 @@ use rustls::{
     pki_types::{CertificateDer, ServerName, UnixTime},
 };
 
-use crate::{
-    payload_to_request_value, ERROR_KEY, read_all, to_request_value, value_to_request_value, value_to_vecu8,
-    vecu8_to_value,
-};
+use juiz_core::frame::{read_frame, FrameLimits, FrameReadError, OutgoingFrame};
+
+use crate::{frame_limits, BlockingRecv, BlockingSend, READ_BUFFER_BYTES};
 
 /// サーバーへの接続を待つ時間
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -55,6 +58,8 @@ pub struct QuicBrokerProxy {
     rt: Arc<tokio::runtime::Runtime>,
     endpoint: Endpoint,
     connection: Connection,
+    limits: FrameLimits,
+    next_id: AtomicU64,
 }
 
 fn manifest_to_host_and_port(manifest: &Value) -> JuizResult<(&str, &str, i64)> {
@@ -136,6 +141,8 @@ impl QuicBrokerProxy {
             rt: rt.clone(),
             endpoint,
             connection,
+            limits: frame_limits(manifest),
+            next_id: AtomicU64::new(1),
         })
     }
 }
@@ -164,50 +171,69 @@ async fn make_endpoint_and_connection(
     Ok((endpoint, connection))
 }
 
-async fn write_and_then<T, F: Fn(Vec<u8>) -> anyhow::Result<T>>(
-    connection: &Connection,
-    request: Vec<u8>,
-    callback: F,
-) -> anyhow::Result<T> {
-    log::trace!("write_and_then() called");
-    let (mut send, mut recv) = connection.open_bi().await.or_else(|e| {
-        log::error!("connection.open_bi failed. {e:?}");
-        Err(anyhow!(e))
-    })?;
-    // write_all は送信バッファへ複製するので、Vec をそのまま Bytes にして渡す。
-    send.write_chunk(Bytes::from(request)).await.or_else(|e| {
-        log::error!("SendStream.write_all failed. {e:?}");
-        Err(anyhow!(e))
-    })?;
-    send.finish().or_else(|e| {
-        log::error!("SendStream.finish() failed. {e:?}");
-        Err(anyhow!(e))
-    })?;
-    callback(read_all(&mut recv).await.or_else(|e| {
-        log::error!("read_all() failed. {e:?}");
-        Err(anyhow!(e))
-    })?)
-}
-
-fn response_to_capsule_ptr(response: Value) -> JuizResult<CapsulePtr> {
-    if let Some(message) = response.as_object().and_then(|o| o.get(ERROR_KEY)) {
-        return Err(anyhow!(
-            "qmp broker returned error: {}",
-            message.as_str().unwrap_or_default()
-        ));
+/// create の payload (オブジェクトの Value) を CapsuleMap にする。
+/// `{"__map__": ..., "__param__": ...}` の形 (container_create など) なら中身を取り出す (IPC と同じ)
+fn value_to_map(payload: Value) -> JuizResult<CapsuleMap> {
+    match payload {
+        Value::Null => Ok(CapsuleMap::new()),
+        v @ Value::Object(_) => CapsuleMap::try_from(v),
+        v => Err(anyhow!(JuizError::InvalidValueError {
+            message: format!("create payload must be an object ({v})")
+        })),
     }
-    Ok(response.into())
 }
 
-async fn write_and_then_value<T, F: Fn(serde_json::Value) -> anyhow::Result<T>>(
-    connection: &Connection,
-    request: serde_json::Value,
-    callback: F,
-) -> anyhow::Result<T> {
-    write_and_then(connection, value_to_vecu8(&request)?, |response| {
-        callback(vecu8_to_value(response)?)
-    })
-    .await
+impl QuicBrokerProxy {
+    /// 新しいストリームに要求のフレームを書いて閉じ、応答のフレームを読む
+    fn request(&self, frame: &OutgoingFrame) -> JuizResult<CapsulePtr> {
+        let id = frame.header().id;
+        let (send, recv) = futures::executor::block_on(self.connection.open_bi())
+            .map_err(|e| anyhow!(e).context(format!("qmp://{}: can not open a stream", self.name)))?;
+        let mut writer = BlockingSend(send);
+        frame
+            .write_to(&mut writer)
+            .and_then(|_| writer.finish())
+            .map_err(|e| e.context(format!("sending a request to qmp://{} failed", self.name)))?;
+        let mut reader = BufReader::with_capacity(READ_BUFFER_BYTES, BlockingRecv(recv));
+        let response = read_frame(&mut reader, &self.limits).map_err(|e| {
+            let closed = matches!(e, FrameReadError::Closed);
+            let e: anyhow::Error = e.into();
+            e.context(format!(
+                "receiving a response from qmp://{} failed{}",
+                self.name,
+                if closed { " (the server closed the stream)" } else { "" }
+            ))
+        })?;
+        if response.id() != id {
+            return Err(anyhow!(
+                "qmp://{}: the response id ({}) does not match the request id ({id})",
+                self.name,
+                response.id()
+            ));
+        }
+        response.into_capsule_ptr()
+    }
+
+    fn crud_request(
+        &self,
+        method_name: &str,
+        class_name: &str,
+        function_name: &str,
+        mut map: CapsuleMap,
+        param: HashMap<String, String>,
+    ) -> JuizResult<CapsulePtr> {
+        log::trace!("QuicBrokerProxy::{method_name}({class_name}, {function_name}) called");
+        for (k, v) in param.iter() {
+            map.set_param(k, v);
+        }
+        map.set_param("method_name", method_name);
+        map.set_param("class_name", class_name);
+        map.set_param("function_name", function_name);
+        // どの住所でアクセスしたかをサーバーに伝える (HTTP の Host ヘッダにあたる)
+        map.set_param("accessed_broker_name", self.name.as_str());
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        self.request(&OutgoingFrame::request(id, &map)?)
+    }
 }
 
 impl CRUDBrokerProxy for QuicBrokerProxy {
@@ -216,53 +242,27 @@ impl CRUDBrokerProxy for QuicBrokerProxy {
         class_name: &str,
         function_name: &str,
         payload: Value,
-        mut param: std::collections::HashMap<String, String>,
+        param: HashMap<String, String>,
     ) -> JuizResult<CapsulePtr> {
-        // どの住所でアクセスしたかをサーバーに伝える (HTTP の Host ヘッダにあたる)
-        param.insert("accessed_broker_name".to_owned(), self.name.clone());
-        log::trace!(
-            "QuicBrokerProxy::create({class_name},{function_name},{payload:?},{param:?}) called"
-        );
-        let request = value_to_request_value(class_name, function_name, "create", payload, param);
-        futures::executor::block_on(write_and_then_value(
-            &self.connection,
-            request,
-            |response| response_to_capsule_ptr(response),
-        ))
+        self.crud_request("create", class_name, function_name, value_to_map(payload)?, param)
     }
 
     fn delete(
         &self,
         class_name: &str,
         function_name: &str,
-        mut param: std::collections::HashMap<String, String>,
+        param: HashMap<String, String>,
     ) -> JuizResult<CapsulePtr> {
-        // どの住所でアクセスしたかをサーバーに伝える (HTTP の Host ヘッダにあたる)
-        param.insert("accessed_broker_name".to_owned(), self.name.clone());
-        log::trace!("QuicBrokerProxy::delete({class_name},{function_name},{param:?}) called");
-        let request = to_request_value(class_name, function_name, "delete", param);
-        futures::executor::block_on(write_and_then_value(
-            &self.connection,
-            request,
-            |response| response_to_capsule_ptr(response),
-        ))
+        self.crud_request("delete", class_name, function_name, CapsuleMap::new(), param)
     }
 
     fn read(
         &self,
         class_name: &str,
         function_name: &str,
-        mut param: std::collections::HashMap<String, String>,
+        param: HashMap<String, String>,
     ) -> JuizResult<CapsulePtr> {
-        // どの住所でアクセスしたかをサーバーに伝える (HTTP の Host ヘッダにあたる)
-        param.insert("accessed_broker_name".to_owned(), self.name.clone());
-        log::trace!("QuicBrokerProxy::read({class_name},{function_name},{param:?}) called");
-        let request = to_request_value(class_name, function_name, "read", param);
-        futures::executor::block_on(write_and_then_value(
-            &self.connection,
-            request,
-            |response| response_to_capsule_ptr(response),
-        ))
+        self.crud_request("read", class_name, function_name, CapsuleMap::new(), param)
     }
 
     fn update(
@@ -270,19 +270,9 @@ impl CRUDBrokerProxy for QuicBrokerProxy {
         class_name: &str,
         function_name: &str,
         payload: CapsuleMap,
-        mut param: std::collections::HashMap<String, String>,
+        param: HashMap<String, String>,
     ) -> JuizResult<CapsulePtr> {
-        // どの住所でアクセスしたかをサーバーに伝える (HTTP の Host ヘッダにあたる)
-        param.insert("accessed_broker_name".to_owned(), self.name.clone());
-        log::trace!(
-            "QuicBrokerProxy::update({class_name},{function_name},{payload:?},{param:?}) called"
-        );
-        let request = payload_to_request_value(class_name, function_name, "update", payload, param);
-        futures::executor::block_on(write_and_then_value(
-            &self.connection,
-            request,
-            |response| response_to_capsule_ptr(response),
-        ))
+        self.crud_request("update", class_name, function_name, payload, param)
     }
 }
 
