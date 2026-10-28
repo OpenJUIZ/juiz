@@ -299,7 +299,12 @@ mod imp {
         stream.try_clone()
     }
 
-    pub fn shutdown(_stream: &Stream) {}
+    fn raw_handle(stream: &Stream) -> windows_sys::Win32::Foundation::HANDLE {
+        use std::os::windows::io::{AsHandle, AsRawHandle};
+        match stream {
+            Stream::NamedPipe(s) => s.as_handle().as_raw_handle() as _,
+        }
+    }
 
     /// 受け手の読み取り。Windows では記述子を渡さない (共有メモリは名前で開く)
     pub struct RecvStream {
@@ -318,8 +323,33 @@ mod imp {
         }
     }
 
-    pub fn is_closed(_stream: &Stream) -> bool {
-        false
+    /// サーバー側の接続を切る。相手 (クライアント) の次の読み書きは失敗し、
+    /// この接続のスレッドで止まっている読み取りも取り消して終わらせる
+    pub fn shutdown(stream: &Stream) {
+        use windows_sys::Win32::System::{Pipes::DisconnectNamedPipe, IO::CancelIoEx};
+        let handle = raw_handle(stream);
+        unsafe {
+            DisconnectNamedPipe(handle);
+            CancelIoEx(handle, std::ptr::null());
+        }
+    }
+
+    /// 相手が閉じていれば (サーバーが止まった、接続を切った) true。
+    /// 読める量を覗くだけで、パイプの中身は読まない
+    pub fn is_closed(stream: &Stream) -> bool {
+        use windows_sys::Win32::System::Pipes::PeekNamedPipe;
+        let mut available = 0u32;
+        let ok = unsafe {
+            PeekNamedPipe(
+                raw_handle(stream),
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                &mut available,
+                std::ptr::null_mut(),
+            )
+        };
+        ok == 0
     }
 }
 
