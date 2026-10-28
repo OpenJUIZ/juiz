@@ -63,3 +63,8 @@ libc = "0.2"
 [target.'cfg(windows)'.dependencies]
 interprocess = { workspace = true, optional = true }
 widestring = { version = "1", optional = true }
+
+[dev-dependencies]
+# ベンチ (tests/integration/image_transfer_bench.rs) で qmp ブローカーも測るため。
+# 版を書かない path だけの dev-dependency は、crates.io に公開するときに外される
+juiz_qmp_broker = { path = "../brokers/qmp_broker" }

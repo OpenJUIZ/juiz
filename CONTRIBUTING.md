@@ -133,7 +133,7 @@ cargo test --release -p juiz_core --test integration -- image_transfer_bench --i
 PYTHONPATH=bindings/pyjuiz cargo test --release -p juiz_core --test integration -- composite_bench --ignored --nocapture --test-threads=1
 ```
 
-`image_transfer_bench` は、テストバイナリ自身を別プロセスの juiz として起動し(ポート 8050)、そこへ HTTP で画像を渡します。プラグインは使わないので、事前の準備は要りません。
+`image_transfer_bench` は、テストバイナリ自身を別プロセスの juiz として起動し(HTTP はポート 8050、qmp は 8051、IPC は名前 image_transfer_bench)、そこへ HTTP・IPC・qmp で画像を渡します。プラグインは使わないので、事前の準備は要りません。
 
 ### VS Code + Dev Containers で開発する
 

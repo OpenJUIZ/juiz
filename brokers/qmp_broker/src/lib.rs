@@ -1,7 +1,16 @@
+//! QUIC (qmp) ブローカー
+//!
+//! 要求ごとに双方向ストリームを開き、要求のフレームを 1 つ書いて閉じ、応答のフレームを 1 つ読む。
+//! フレームは IPC ブローカーと同じ生バイトの形式 (docs/spec/large-data.md §3、先頭は "JZF1") で、
+//! 画像は PNG にせず画素をそのまま送る。0.0.x の MessagePack の qmp とは互換が無い。
+
+use std::io::{self, Read, Write};
 use std::sync::{Arc, Mutex};
 
 use juiz_core::{
     anyhow::{self, anyhow},
+    frame::FrameLimits,
+    futures,
     prelude::*,
     {create_broker_factory_impl, create_broker_proxy_factory_impl, CRUDBroker, CRUDBrokerHolder},
 };
@@ -12,88 +21,54 @@ mod qmp_broker_proxy;
 /// qmp の CRUD を直接使うとき (list の namespace 絞り込みなど BrokerProxy に無い引数を渡すとき) に使う
 pub use qmp_broker_proxy::QuicBrokerProxy;
 
-/// 1 回のリクエスト/応答で読み取る最大バイト数
-pub(crate) const MAX_MESSAGE_SIZE: usize = 64 * 1024 * 1024;
+/// ストリームを読むときのバッファの大きさ。本体の大きな読み込みはバッファを通さずに直接読む
+pub(crate) const READ_BUFFER_BYTES: usize = 64 * 1024;
 
-/// サーバー側の処理が失敗したときに返す応答。クライアントはこのキーを見てエラーにする
-pub(crate) const ERROR_KEY: &str = "__qmp_error__";
+/// manifest の max_frame_bytes から、フレームを読むときの上限を求める (docs/spec/large-data.md §3.5)
+pub(crate) fn frame_limits(manifest: &Value) -> FrameLimits {
+    let mut limits = FrameLimits::default();
+    if let Some(max) = manifest.get("max_frame_bytes").and_then(|v| v.as_u64()) {
+        limits.max_frame_bytes = max;
+    }
+    limits
+}
 
-/// ストリームを最後まで読む。RecvStream::read_to_end は 0 で埋めた領域を確保してから
-/// 写すので、届いた順に Vec へ足していく（0 埋めの分だけ速い）。
-pub(crate) async fn read_all(recv: &mut quinn::RecvStream) -> anyhow::Result<Vec<u8>> {
-    let mut buf = Vec::new();
-    while let Some(chunk) = recv.read_chunk(usize::MAX, true).await? {
-        if buf.len() + chunk.bytes.len() > MAX_MESSAGE_SIZE {
-            return Err(anyhow!("message exceeds {MAX_MESSAGE_SIZE} bytes"));
+/// quinn の受信ストリームを std::io::Read として使う。
+///
+/// フレームの読み書き (juiz_core::frame) は同期の Read / Write で書かれているので、非同期の
+/// 読み込みを block_on で待つ。tokio の非同期タスクの中では使わない (spawn_blocking かふつうのスレッドで使う)。
+/// read は受け取ったデータを渡されたバッファへ直接写すので、画像の本体は最終的な領域へ読み込まれる。
+pub(crate) struct BlockingRecv(pub quinn::RecvStream);
+
+impl Read for BlockingRecv {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match futures::executor::block_on(self.0.read(buf)) {
+            Ok(Some(n)) => Ok(n),
+            Ok(None) => Ok(0),
+            Err(e) => Err(e.into()),
         }
-        buf.extend_from_slice(&chunk.bytes);
     }
-    Ok(buf)
 }
 
-pub(crate) fn error_response(e: &anyhow::Error) -> anyhow::Result<Vec<u8>> {
-    value_to_vecu8(&jvalue!({ ERROR_KEY: format!("{e:?}") }))
-}
+/// quinn の送信ストリームを std::io::Write として使う (BlockingRecv と同じく block_on で待つ)
+pub(crate) struct BlockingSend(pub quinn::SendStream);
 
-pub(crate) fn value_to_vecu8(val: &Value) -> anyhow::Result<Vec<u8>> {
-    rmp_serde::to_vec(val).or_else(|e| Err(anyhow!(e)))
-}
-
-pub(crate) fn vecu8_to_value(mut vecu8: Vec<u8>) -> anyhow::Result<Value> {
-    rmp_serde::from_slice::<serde_json::Value>(&mut vecu8.as_mut_slice()[..])
-        .or_else(|e| Err(anyhow!(e)))
-}
-
-pub(crate) fn value_to_request_value(
-    class_name: &str,
-    function_name: &str,
-    method_name: &str,
-    payload: Value,
-    mut param: std::collections::HashMap<String, String>,
-) -> Value {
-    param.insert("class_name".to_owned(), class_name.into());
-    param.insert("function_name".to_owned(), function_name.into());
-    param.insert("method_name".to_owned(), method_name.into());
-    jvalue!({
-        "__map__": payload,
-        "__param__": param
-    })
-}
-
-pub(crate) fn payload_to_request_value(
-    class_name: &str,
-    function_name: &str,
-    method_name: &str,
-    mut payload: CapsuleMap,
-    param: std::collections::HashMap<String, String>,
-) -> Value {
-    payload.set_param("class_name", class_name.into());
-    payload.set_param("function_name", function_name.into());
-    payload.set_param("method_name", method_name.into());
-    for (k, p) in param.iter() {
-        payload.set_param(k.as_str(), p.as_str());
+impl Write for BlockingSend {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        futures::executor::block_on(self.0.write(buf)).map_err(|e| e.into())
     }
-    payload.try_into().unwrap()
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
-pub(crate) fn to_request_value(
-    class_name: &str,
-    function_name: &str,
-    method_name: &str,
-    mut param: std::collections::HashMap<String, String>,
-) -> Value {
-    param.insert("class_name".to_owned(), class_name.into());
-    param.insert("function_name".to_owned(), function_name.into());
-    param.insert("method_name".to_owned(), method_name.into());
-    jvalue!({
-        "__map__": {},
-        "__param__": param
-    })
+impl BlockingSend {
+    /// フレームを書き終えたことを相手に伝える
+    pub(crate) fn finish(mut self) -> anyhow::Result<()> {
+        self.0.finish().map_err(|e| anyhow!(e))
+    }
 }
-
-// pub(crate) fn to_request(value: Value) -> anyhow::Result<CapsuleMap> {
-//     value.try_into()
-// }
 
 pub async fn on_start(broker_manifest: Value, crud_broker: Arc<Mutex<CRUDBroker>>) -> () {
     qmp_broker::on_start(broker_manifest, crud_broker).await
