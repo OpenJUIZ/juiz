@@ -31,7 +31,10 @@ pub use data_type::{
     RecordField, RecordType, ANY_FULL_NAME, IMAGE_FULL_NAME, RESERVED_NAMESPACE,
 };
 pub use type_schema::TypeSchema;
-pub use value_check::{check_value, read_value};
+pub use value_check::{
+    check_value, read_value, ATTR_MAXIMUM, ATTR_MAX_ITEMS, ATTR_MAX_LENGTH, ATTR_MINIMUM,
+    ATTR_MIN_ITEMS,
+};
 
 /// このクレートのエラー。juiz_sdk は同じ名前の `JuizError` の変種に変換する (仕様 §8)
 #[derive(thiserror::Error, Debug, Clone, PartialEq)]

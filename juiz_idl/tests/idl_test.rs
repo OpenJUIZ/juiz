@@ -424,6 +424,7 @@ fn cli_writes_files_and_checks() {
     .unwrap();
     let out = dir.join("out");
     let args = juiz_idl::cli::IdlArgs {
+        command: None,
         files: vec![input.clone()],
         out_dir: out.clone(),
         generators: vec![],
@@ -1074,9 +1075,9 @@ fn std_type_fingerprints_are_fixed() {
         "juiz_std.geometry.Pose2DStamped@sha256:d12b13d35378b5b4e1c58c69d0127163a8a44eced88a9370d3e92a4fe285b2ac",
         "juiz_std.geometry.PoseStamped@sha256:baf659705a5670baebc612b2f6685f8e7eb55778805845519b775682e46a35f3",
         "juiz_std.sensor.ImageInfo@sha256:2d1c807bbde404a420583f01a3914e1ffde48c71dd64ab570139e377b5baa109",
-        "juiz_std.sensor.Imu@sha256:ecf878ed8e4c3c5256440d854e6928405de03891d559f971b63a0d0dd73830cf",
-        "juiz_std.sensor.LaserScan@sha256:25fcb9214e49be850477e56173ac17546cd17826c6987f43b8315b2b168878d8",
-        "juiz_std.sensor.Range@sha256:03fb8b5d1132e768632b7f4db0b4e7e08f353af7b7919c460863a3e988f82aff",
+        "juiz_std.sensor.Imu@sha256:462c7a2a736c262fcc206f6cfd599cf83434eff4741f11fce12281a0cb66c61d",
+        "juiz_std.sensor.LaserScan@sha256:0a22cd83b68752d02353ecceecc0204c2150155a2947a4d8b5faa08031fbca74",
+        "juiz_std.sensor.Range@sha256:579845925f2d9f69e940ef0ba97b1be20f641d9467582f0e4322b8e427ed2fa3",
     ];
     assert_eq!(actual, expected);
 }

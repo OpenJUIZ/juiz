@@ -32,10 +32,13 @@
 //!
 //! 標準の型 `juiz_std` の JIDL は組み込んであり、`import idl "juiz_std/geometry.jidl";` で読める ([`BUILTIN_FILES`])。
 //! import の探し先は [`LoadOptions`]、ほかのパッケージにある型の参照は [`GenerateOptions`] (仕様 §24)。
+//!
+//! ROS 2 の `.msg` / `.srv` / `.idl` を JIDL にするのは [`ros2::import_ros2`] (`juiz idl import-ros2`、仕様 §25)。
 
 pub mod build;
 mod builtin;
 pub mod cli;
+mod constants;
 mod cpp;
 mod haskell;
 mod jidl;
@@ -43,6 +46,7 @@ mod json_schema;
 mod model;
 mod parser;
 mod python;
+pub mod ros2;
 mod rust;
 mod rust_skeleton;
 mod typescript;
@@ -52,6 +56,7 @@ use std::path::{Path, PathBuf};
 use juiz_types::TypeError;
 
 pub use builtin::{builtin_file, BUILTIN_FILES, BUILTIN_PREFIX};
+pub use constants::ATTR_CONSTANTS;
 pub use cpp::{generate_cpp, CPP_ALL_HEADER};
 pub use haskell::generate_haskell;
 pub use jidl::to_jidl;

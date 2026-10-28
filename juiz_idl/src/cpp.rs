@@ -12,6 +12,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use juiz_types::DataType;
 use serde_json::Value;
 
+use crate::constants::record_constants;
 use crate::{GeneratedFile, IdlError};
 
 /// 全部の名前空間を読み込むヘッダのファイル名
@@ -521,6 +522,27 @@ fn type_code(t: &DataType) -> Result<String, IdlError> {
                 from_values.push_str(&format!(
                     "        if (auto it = o.find({}); it != o.end()) out.{fident} = type_traits<{ty}>::from_value(it->second);\n",
                     string_literal(&f.name)
+                ));
+            }
+            // 定数 (juiz.constants、仕様 §25)
+            let constants = record_constants(r)
+                .map_err(|m| generate_error(format!("{}: {m}", r.full_name())))?;
+            for c in constants.iter() {
+                let (ty, lit) = match (&c.data_type, &c.value) {
+                    (DataType::Boolean, v) => ("bool", v.to_string()),
+                    (DataType::Int, v) => ("int32_t", v.to_string()),
+                    (DataType::Long, v) => ("int64_t", long_literal(v.as_i64().unwrap_or(0))),
+                    (DataType::Float, v) => (
+                        "float",
+                        format!("{}f", double_literal(v.as_f64().unwrap_or(0.0))),
+                    ),
+                    (DataType::Double, v) => ("double", double_literal(v.as_f64().unwrap_or(0.0))),
+                    (_, v) => ("const char*", string_literal(v.as_str().unwrap_or(""))),
+                };
+                out.push_str(&doc_lines(&c.doc, "    "));
+                out.push_str(&format!(
+                    "    static constexpr {ty} {} = {lit};\n",
+                    ident(&c.name)
                 ));
             }
             let eq = if eqs.is_empty() {

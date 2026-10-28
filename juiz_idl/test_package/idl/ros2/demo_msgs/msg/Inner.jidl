@@ -1,0 +1,7 @@
+// ROS 2 の demo_msgs/msg/Inner から juiz idl import-ros2 で作った (docs/spec/datatype.md §25)
+namespace ros2.demo_msgs.msg;
+
+record Inner {
+  float x = 1.5;
+  array<string> tags = ["a","b,c"];
+}

@@ -1,0 +1,4 @@
+int64 a
+int64 b 2
+---
+int64 sum

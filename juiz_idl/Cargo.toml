@@ -15,6 +15,7 @@ name = "juiz-idl"
 path = "src/bin/juiz-idl.rs"
 
 [dependencies]
+base64 = {workspace = true}
 clap = {workspace = true}
 juiz_types = {workspace = true}
 serde = {workspace = true, features = ["derive"]}

@@ -2,7 +2,7 @@
 //!
 //! 結果は名前を解決する前の構文木 ([`IdlFile`])。名前の解決と型の組み立ては `resolve` で行う。
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use crate::IdlError;
 
@@ -48,6 +48,8 @@ pub struct RecordDecl {
     pub namespace: Option<String>,
     pub doc: Option<String>,
     pub aliases: Vec<String>,
+    /// 名前に `.` を含む注釈 (`@juiz.constants(…)` など)。Avro の属性になる
+    pub attributes: Map<String, Value>,
     pub fields: Vec<FieldDecl>,
     pub pos: Pos,
 }
@@ -60,6 +62,8 @@ pub struct FieldDecl {
     pub type_expr: TypeExpr,
     /// 辞書の表し方 (仕様 §4) の既定値
     pub default: Option<Value>,
+    /// 名前に `.` を含む注釈 (`@juiz.maxLength(…)` など)。Avro の属性になる
+    pub attributes: Map<String, Value>,
     pub pos: Pos,
 }
 
@@ -71,6 +75,8 @@ pub struct EnumDecl {
     pub aliases: Vec<String>,
     pub symbols: Vec<String>,
     pub default: Option<String>,
+    /// 名前に `.` を含む注釈。Avro の属性になる
+    pub attributes: Map<String, Value>,
     pub pos: Pos,
 }
 
@@ -450,7 +456,7 @@ impl<'a> Parser<'a> {
             if self.rest().starts_with('@') {
                 let start = self.pos;
                 self.pos += 1;
-                let (name, _) = self.name()?;
+                let (name, _) = self.qualified_name()?;
                 self.expect_punct('(')?;
                 let value = self.json_value()?;
                 self.expect_punct(')')?;
@@ -468,7 +474,7 @@ impl<'a> Parser<'a> {
         start: usize,
     ) -> Result<RecordDecl, IdlError> {
         let (name, _) = self.name()?;
-        let (namespace, aliases) = self.type_annotations(&annotations)?;
+        let (namespace, aliases, attributes) = self.type_annotations(&annotations)?;
         self.expect_punct('{')?;
         let mut fields = Vec::new();
         loop {
@@ -478,14 +484,16 @@ impl<'a> Parser<'a> {
             }
             let fstart = self.pos;
             let mut aliases = Vec::new();
+            let mut fattributes = Map::new();
             for a in fannotations.iter() {
                 match a.name.as_str() {
                     "aliases" => aliases = self.string_list(a)?,
+                    attr if attr.contains('.') => self.add_attribute(&mut fattributes, a)?,
                     other => {
                         return Err(self.error_at(
                             a.start,
                             format!(
-                                "annotation @{other} cannot be used on a field (only @aliases)"
+                                "annotation @{other} cannot be used on a field (only @aliases and attributes such as @juiz.maxLength)"
                             ),
                         ))
                     }
@@ -505,6 +513,7 @@ impl<'a> Parser<'a> {
                 aliases,
                 type_expr,
                 default,
+                attributes: fattributes,
                 pos: self.position_of(fstart),
             });
         }
@@ -513,6 +522,7 @@ impl<'a> Parser<'a> {
             namespace,
             doc,
             aliases,
+            attributes,
             fields,
             pos: self.position_of(start),
         })
@@ -525,7 +535,7 @@ impl<'a> Parser<'a> {
         start: usize,
     ) -> Result<EnumDecl, IdlError> {
         let (name, _) = self.name()?;
-        let (namespace, aliases) = self.type_annotations(&annotations)?;
+        let (namespace, aliases, attributes) = self.type_annotations(&annotations)?;
         self.expect_punct('{')?;
         let mut symbols = vec![self.name()?.0];
         while self.eat_punct(',')? {
@@ -545,6 +555,7 @@ impl<'a> Parser<'a> {
             aliases,
             symbols,
             default,
+            attributes,
             pos: self.position_of(start),
         })
     }
@@ -552,12 +563,14 @@ impl<'a> Parser<'a> {
     fn type_annotations(
         &self,
         annotations: &[Annotation],
-    ) -> Result<(Option<String>, Vec<String>), IdlError> {
+    ) -> Result<(Option<String>, Vec<String>, Map<String, Value>), IdlError> {
         let mut namespace = None;
         let mut aliases = Vec::new();
+        let mut attributes = Map::new();
         for a in annotations.iter() {
             match a.name.as_str() {
                 "aliases" => aliases = self.string_list(a)?,
+                attr if attr.contains('.') => self.add_attribute(&mut attributes, a)?,
                 "namespace" => match &a.value {
                     Value::String(s) => namespace = Some(s.clone()),
                     _ => return Err(self.error_at(a.start, "@namespace takes a string")),
@@ -565,12 +578,25 @@ impl<'a> Parser<'a> {
                 other => {
                     return Err(self.error_at(
                         a.start,
-                        format!("unknown annotation @{other} (only @aliases and @namespace)"),
+                        format!("unknown annotation @{other} (only @aliases, @namespace and attributes such as @juiz.constants)"),
                     ))
                 }
             }
         }
-        Ok((namespace, aliases))
+        Ok((namespace, aliases, attributes))
+    }
+
+    /// 名前に `.` を含む注釈を Avro の属性として足す (仕様 §9.2)
+    fn add_attribute(
+        &self,
+        attributes: &mut Map<String, Value>,
+        a: &Annotation,
+    ) -> Result<(), IdlError> {
+        if attributes.contains_key(&a.name) {
+            return Err(self.error_at(a.start, format!("annotation @{} is written twice", a.name)));
+        }
+        attributes.insert(a.name.clone(), a.value.clone());
+        Ok(())
     }
 
     fn string_list(&self, a: &Annotation) -> Result<Vec<String>, IdlError> {
@@ -617,6 +643,7 @@ impl<'a> Parser<'a> {
                     aliases: Vec::new(),
                     type_expr,
                     default,
+                    attributes: Map::new(),
                     pos: self.position_of(pstart),
                 });
                 if self.eat_punct(')')? {

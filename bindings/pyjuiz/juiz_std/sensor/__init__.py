@@ -145,6 +145,12 @@ class Imu:
     angular_velocity: _ns_juiz_std_geometry.Vector3 = _dataclasses.field(default_factory=lambda: _jt.field_default(Imu, "angular_velocity"))
     # 加速度 [m/s^2]
     linear_acceleration: _ns_juiz_std_geometry.Vector3 = _dataclasses.field(default_factory=lambda: _jt.field_default(Imu, "linear_acceleration"))
+    # 姿勢の共分散 (3x3 の行優先。ROS 2 の sensor_msgs/Imu と同じく、先頭が -1 なら姿勢の値がない)
+    orientation_covariance: list[float] = _dataclasses.field(default_factory=lambda: _jt.field_default(Imu, "orientation_covariance"))
+    # 角速度の共分散 (3x3 の行優先)
+    angular_velocity_covariance: list[float] = _dataclasses.field(default_factory=lambda: _jt.field_default(Imu, "angular_velocity_covariance"))
+    # 加速度の共分散 (3x3 の行優先)
+    linear_acceleration_covariance: list[float] = _dataclasses.field(default_factory=lambda: _jt.field_default(Imu, "linear_acceleration_covariance"))
 
     def to_value(self) -> dict:
         """辞書 (仕様 §4 の表し方) にする"""
@@ -165,7 +171,7 @@ _jt.define_record(
     Imu,
     schema={
         "name": "juiz_std.sensor.Imu",
-        "fingerprint": "sha256:ecf878ed8e4c3c5256440d854e6928405de03891d559f971b63a0d0dd73830cf",
+        "fingerprint": "sha256:462c7a2a736c262fcc206f6cfd599cf83434eff4741f11fce12281a0cb66c61d",
         "avro": {
             "type": "record",
             "name": "Imu",
@@ -304,6 +310,69 @@ _jt.define_record(
                         "z": 0.0,
                     },
                 },
+                {
+                    "name": "orientation_covariance",
+                    "type": {
+                        "type": "array",
+                        "items": "double",
+                    },
+                    "doc": "姿勢の共分散 (3x3 の行優先。ROS 2 の sensor_msgs/Imu と同じく、先頭が -1 なら姿勢の値がない)",
+                    "default": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "juiz.maxItems": 9,
+                    "juiz.minItems": 9,
+                },
+                {
+                    "name": "angular_velocity_covariance",
+                    "type": {
+                        "type": "array",
+                        "items": "double",
+                    },
+                    "doc": "角速度の共分散 (3x3 の行優先)",
+                    "default": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "juiz.maxItems": 9,
+                    "juiz.minItems": 9,
+                },
+                {
+                    "name": "linear_acceleration_covariance",
+                    "type": {
+                        "type": "array",
+                        "items": "double",
+                    },
+                    "doc": "加速度の共分散 (3x3 の行優先)",
+                    "default": [
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ],
+                    "juiz.maxItems": 9,
+                    "juiz.minItems": 9,
+                },
             ],
         },
     },
@@ -312,6 +381,9 @@ _jt.define_record(
         ("orientation", "orientation", _jt.Record(lambda: _ns_juiz_std_geometry.Quaternion), {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0}),
         ("angular_velocity", "angular_velocity", _jt.Record(lambda: _ns_juiz_std_geometry.Vector3), {"x": 0.0, "y": 0.0, "z": 0.0}),
         ("linear_acceleration", "linear_acceleration", _jt.Record(lambda: _ns_juiz_std_geometry.Vector3), {"x": 0.0, "y": 0.0, "z": 0.0}),
+        ("orientation_covariance", "orientation_covariance", _jt.Array(_jt.Double), [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+        ("angular_velocity_covariance", "angular_velocity_covariance", _jt.Array(_jt.Double), [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+        ("linear_acceleration_covariance", "linear_acceleration_covariance", _jt.Array(_jt.Double), [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
     ],
 )
 
@@ -333,6 +405,12 @@ class LaserScan:
     range_max: float = 0.0
     # 距離 [m]。範囲外は range_min〜range_max の外の値
     ranges: list[float] = _dataclasses.field(default_factory=lambda: _jt.field_default(LaserScan, "ranges"))
+    # 測定の間の時間 [s]
+    time_increment: float = 0.0
+    # 走査の間の時間 [s]
+    scan_time: float = 0.0
+    # 反射の強さ (単位は機器による。ないときは空)
+    intensities: list[float] = _dataclasses.field(default_factory=lambda: _jt.field_default(LaserScan, "intensities"))
 
     def to_value(self) -> dict:
         """辞書 (仕様 §4 の表し方) にする"""
@@ -353,7 +431,7 @@ _jt.define_record(
     LaserScan,
     schema={
         "name": "juiz_std.sensor.LaserScan",
-        "fingerprint": "sha256:25fcb9214e49be850477e56173ac17546cd17826c6987f43b8315b2b168878d8",
+        "fingerprint": "sha256:0a22cd83b68752d02353ecceecc0204c2150155a2947a4d8b5faa08031fbca74",
         "avro": {
             "type": "record",
             "name": "LaserScan",
@@ -451,6 +529,27 @@ _jt.define_record(
                     "doc": "距離 [m]。範囲外は range_min〜range_max の外の値",
                     "default": [],
                 },
+                {
+                    "name": "time_increment",
+                    "type": "float",
+                    "doc": "測定の間の時間 [s]",
+                    "default": 0.0,
+                },
+                {
+                    "name": "scan_time",
+                    "type": "float",
+                    "doc": "走査の間の時間 [s]",
+                    "default": 0.0,
+                },
+                {
+                    "name": "intensities",
+                    "type": {
+                        "type": "array",
+                        "items": "float",
+                    },
+                    "doc": "反射の強さ (単位は機器による。ないときは空)",
+                    "default": [],
+                },
             ],
         },
     },
@@ -462,6 +561,9 @@ _jt.define_record(
         ("range_min", "range_min", _jt.Float, 0.0),
         ("range_max", "range_max", _jt.Float, 0.0),
         ("ranges", "ranges", _jt.Array(_jt.Float), []),
+        ("time_increment", "time_increment", _jt.Float, 0.0),
+        ("scan_time", "scan_time", _jt.Float, 0.0),
+        ("intensities", "intensities", _jt.Array(_jt.Float), []),
     ],
 )
 
@@ -477,6 +579,10 @@ class Range:
     min_range: float = 0.0
     # 測れる最長の距離 [m]
     max_range: float = 0.0
+    # 測り方 (ULTRASOUND = 0、INFRARED = 1)
+    radiation_type: int = 0
+    # 測る範囲の広がりの角度 [rad]
+    field_of_view: float = 0.0
 
     def to_value(self) -> dict:
         """辞書 (仕様 §4 の表し方) にする"""
@@ -497,7 +603,7 @@ _jt.define_record(
     Range,
     schema={
         "name": "juiz_std.sensor.Range",
-        "fingerprint": "sha256:03fb8b5d1132e768632b7f4db0b4e7e08f353af7b7919c460863a3e988f82aff",
+        "fingerprint": "sha256:579845925f2d9f69e940ef0ba97b1be20f641d9467582f0e4322b8e427ed2fa3",
         "avro": {
             "type": "record",
             "name": "Range",
@@ -574,6 +680,34 @@ _jt.define_record(
                     "doc": "測れる最長の距離 [m]",
                     "default": 0.0,
                 },
+                {
+                    "name": "radiation_type",
+                    "type": "int",
+                    "doc": "測り方 (ULTRASOUND = 0、INFRARED = 1)",
+                    "default": 0,
+                    "juiz.maximum": 255,
+                    "juiz.minimum": 0,
+                },
+                {
+                    "name": "field_of_view",
+                    "type": "float",
+                    "doc": "測る範囲の広がりの角度 [rad]",
+                    "default": 0.0,
+                },
+            ],
+            "juiz.constants": [
+                {
+                    "name": "ULTRASOUND",
+                    "type": "int",
+                    "ros_type": "uint8",
+                    "value": 0,
+                },
+                {
+                    "name": "INFRARED",
+                    "type": "int",
+                    "ros_type": "uint8",
+                    "value": 1,
+                },
             ],
         },
     },
@@ -582,5 +716,10 @@ _jt.define_record(
         ("range", "range", _jt.Float, 0.0),
         ("min_range", "min_range", _jt.Float, 0.0),
         ("max_range", "max_range", _jt.Float, 0.0),
+        ("radiation_type", "radiation_type", _jt.Int, 0),
+        ("field_of_view", "field_of_view", _jt.Float, 0.0),
     ],
 )
+
+Range.ULTRASOUND = 0
+Range.INFRARED = 1

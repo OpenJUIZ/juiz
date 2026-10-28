@@ -609,6 +609,7 @@ impl<'a> Resolver<'a> {
         let mut record = RecordType::new(&self.type_namespace(&r.namespace, r.pos)?, &r.name);
         record.doc = r.doc.clone();
         record.aliases = r.aliases.clone();
+        record.attributes = r.attributes.clone();
         let mut names = HashSet::new();
         for f in r.fields.iter() {
             check_name(&f.name, self.file_name, f.pos)?;
@@ -629,6 +630,8 @@ impl<'a> Resolver<'a> {
             }
             record = record.field(self.field(f, data_type)?);
         }
+        crate::constants::record_constants(&record)
+            .map_err(|m| semantic(self.file_name, r.pos, m))?;
         Ok(DataType::Record(record))
     }
 
@@ -640,6 +643,7 @@ impl<'a> Resolver<'a> {
         let mut field = RecordField::new(&f.name, data_type);
         field.doc = f.doc.clone();
         field.aliases = f.aliases.clone();
+        field.attributes = f.attributes.clone();
         if let Some(nf) = written_order {
             if let DataType::Optional { null_first, .. } = &mut field.data_type {
                 *null_first = nf;
@@ -686,6 +690,7 @@ impl<'a> Resolver<'a> {
         );
         t.doc = e.doc.clone();
         t.aliases = e.aliases.clone();
+        t.attributes = e.attributes.clone();
         if let Some(d) = &e.default {
             if !e.symbols.contains(d) {
                 return Err(semantic(

@@ -150,6 +150,23 @@ record Goal { juiz_std.geometry.Pose2D pose; double tolerance = 0.1; }
 
 Rust はクレート `juiz_std_types`、Python は pyjuiz に同梱の `juiz_std` パッケージに同じ型が入っています。
 
+## ROS 2 の型を取り込む
+
+`juiz idl import-ros2` (`juiz-idl import-ros2`) で ROS 2 の `.msg`・`.srv`・`.idl` を .jidl に変換できます。型ごとに `ros2/<パッケージ>/msg/<名前>.jidl` (名前空間 `ros2.<パッケージ>.msg`) を書き出すので、あとはふつうの JIDL として使えます。
+
+```sh
+source /opt/ros/humble/setup.bash   # 参照しているメッセージを AMENT_PREFIX_PATH から探す (-I <dir> でも足せる)
+juiz idl import-ros2 -o idl my_msgs/msg/Status.msg my_msgs/srv/SetMode.srv
+juiz-idl -I idl -g rust,python -o gen idl/ros2/my_msgs/msg/Status.jidl idl/ros2/my_msgs/srv/SetMode.jidl
+```
+
+- `std_msgs/Header`・`geometry_msgs/Pose`・`sensor_msgs/Imu` など、辞書の形が同じ標準メッセージは juiz_std の型に置き換えます (`--no-std-map` で置き換えない)。
+- `uint8` や `string<=10`、固定長の配列などは近い型 (`int`・`string`・`array`) にし、範囲・長さは `@juiz.maximum(255)` のような属性で残します。属性は型で値を読むとき (呼び出し時の検査、Rust の `from_value`) に検査され、指紋には入りません。
+- 定数 (`uint8 MODE_A=1`) は各言語の生成コードの定数 (Rust なら `Status::MODE_A`) になります。
+- `.srv` は Request のフィールドを引数、`<名前>_Response` を戻り値にした `process` 宣言になります。
+
+詳しくは仕様書 docs/spec/datatype.md の §25 を見てください。
+
 ## import の探し先とほかのパッケージの型
 
 - `-I <dir>` (build.rs は `.import_dir(dir)`、環境変数 `JUIZ_IDL_PATH` も) で import の探し先を足せます。相対パス → 探し先 → 組み込みの型の順に探します。
