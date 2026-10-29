@@ -99,15 +99,38 @@ fn execute_process_test() -> JuizResult<()> {
 #[cfg(test)]
 #[test]
 fn call_invalid_argument_process_test() -> JuizResult<()> {
-    match common::new_increment_process("increment")?.call(vec![("arg2", jvalue!(1))].into()) {
-        Ok(_vv) => {
-            assert!(false, "Process must be return error.");
-        }
-        Err(ev) => {
-            print!("Return value is {:?}", ev);
-            // assert_eq!(ev, JuizError::ArgumentMissingWhenCallingError{});
-        }
-    }
+    // 知らない引数 arg2 は無視され、省いた arg1 は既定値 1 で補われる (issue #265)
+    let v = common::new_increment_process("increment")?.call(vec![("arg2", jvalue!(1))].into())?;
+    assert_eq!(v.lock_as_value(|value| value.as_i64().unwrap())?, 2);
+    Ok(())
+}
+
+#[cfg(test)]
+#[test]
+fn call_with_omitted_argument_uses_default_test() -> JuizResult<()> {
+    let v = common::new_increment_process("increment")?.call(CapsuleMap::new())?;
+    assert_eq!(v.lock_as_value(|value| value.as_i64().unwrap())?, 2);
+    Ok(())
+}
+
+#[cfg(test)]
+#[test]
+fn call_with_omitted_argument_without_default_is_error_test() -> JuizResult<()> {
+    let manifest =
+        ProcessManifest::new("increment")
+            .name("increment")
+            .add_arg(ArgumentManifest::new(
+                ArgumentType::Int,
+                "arg1",
+                "".into(),
+                Value::Null,
+            ));
+    let p = process_new(manifest, common::increment_function)?;
+    let err = p.call(CapsuleMap::new()).err().expect("must be error");
+    assert!(matches!(
+        err.downcast_ref::<JuizError>(),
+        Some(JuizError::ArgumentMissingWhenCallingError { .. })
+    ));
     Ok(())
 }
 
