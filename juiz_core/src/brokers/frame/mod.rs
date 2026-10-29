@@ -623,8 +623,20 @@ fn read_rows<T: PlainScalar, R: Read>(
     rows: usize,
 ) -> io::Result<Vec<T>> {
     let mut v: Vec<T> = vec![T::default(); count];
+    fill_rows(r, &mut v, row_bytes, stride, rows)?;
+    Ok(v)
+}
+
+/// 用意した領域 v に、行ごとに row_bytes を読み、stride との差を読み飛ばす
+fn fill_rows<T: PlainScalar, R: Read>(
+    r: &mut R,
+    v: &mut [T],
+    row_bytes: usize,
+    stride: usize,
+    rows: usize,
+) -> io::Result<()> {
     {
-        let bytes = as_mut_bytes(&mut v);
+        let bytes = as_mut_bytes(v);
         if row_bytes == 0 {
             skip(r, (stride * rows) as u64)?;
         } else if stride == row_bytes {
@@ -642,7 +654,7 @@ fn read_rows<T: PlainScalar, R: Read>(
             *x = x.swap_from_le();
         }
     }
-    Ok(v)
+    Ok(())
 }
 
 fn read_image<R: Read>(
@@ -651,6 +663,7 @@ fn read_image<R: Read>(
     height: u32,
     format: &str,
     stride: u64,
+    spare: &mut Option<DynamicImage>,
 ) -> JuizResult<DynamicImage> {
     let bpp = bytes_per_pixel(format).ok_or_else(|| anyhow!("unknown image format '{format}'"))?;
     let row_bytes = (width as u64 * bpp) as usize;
@@ -658,10 +671,22 @@ fn read_image<R: Read>(
     let rows = height as usize;
     let pixels = width as usize * rows;
     let size_err = || anyhow!("image size does not match ({width}x{height} {format})");
+    // 同じ大きさ・形式の使い終わった画像があれば、その領域に読む (新しい領域のページフォールトを避ける)
+    let reusable = spare
+        .as_ref()
+        .is_some_and(|img| img.width() == width && img.height() == height && image_format_of(img).is_ok_and(|f| f.0 == format));
     macro_rules! read_as {
         ($t:ty, $channels:expr, $variant:ident) => {{
-            let v = read_rows::<$t, R>(r, pixels * $channels, row_bytes, stride, rows)?;
-            DynamicImage::$variant(ImageBuffer::from_raw(width, height, v).ok_or_else(size_err)?)
+            if reusable {
+                let Some(DynamicImage::$variant(mut buf)) = spare.take() else {
+                    unreachable!("the spare image was checked above")
+                };
+                fill_rows::<$t, R>(r, &mut buf, row_bytes, stride, rows)?;
+                DynamicImage::$variant(buf)
+            } else {
+                let v = read_rows::<$t, R>(r, pixels * $channels, row_bytes, stride, rows)?;
+                DynamicImage::$variant(ImageBuffer::from_raw(width, height, v).ok_or_else(size_err)?)
+            }
         }};
     }
     Ok(match format {
@@ -695,7 +720,11 @@ fn read_array<R: Read>(r: &mut R, dtype: &str, count: u64) -> JuizResult<Value> 
     Ok(Value::Array(values))
 }
 
-fn read_body<R: Read>(r: &mut R, desc: &BodyDesc) -> JuizResult<IncomingBody> {
+fn read_body<R: Read>(
+    r: &mut R,
+    desc: &BodyDesc,
+    spare: &mut Option<DynamicImage>,
+) -> JuizResult<IncomingBody> {
     match desc {
         BodyDesc::Image {
             width,
@@ -703,7 +732,7 @@ fn read_body<R: Read>(r: &mut R, desc: &BodyDesc) -> JuizResult<IncomingBody> {
             format,
             stride,
             ..
-        } => read_image(r, *width, *height, format, *stride).map(IncomingBody::Image),
+        } => read_image(r, *width, *height, format, *stride, spare).map(IncomingBody::Image),
         BodyDesc::Array { dtype, count, .. } => {
             read_array(r, dtype, *count).map(IncomingBody::Array)
         }
@@ -712,6 +741,16 @@ fn read_body<R: Read>(r: &mut R, desc: &BodyDesc) -> JuizResult<IncomingBody> {
 
 /// 共有メモリから写した本体のバイト列 (長さは説明どおり) をカプセルにする (B、§6.4)
 pub fn capsule_from_body_bytes(desc: &BodyDesc, bytes: &[u8]) -> JuizResult<Capsule> {
+    capsule_from_body_bytes_reusing(desc, bytes, &mut None)
+}
+
+/// capsule_from_body_bytes と同じ。spare が同じ大きさ・形式の画像なら、新しく確保せずにその領域へ写す
+/// (使ったら spare は None になる。合わなければ spare には触らない)
+pub fn capsule_from_body_bytes_reusing(
+    desc: &BodyDesc,
+    bytes: &[u8],
+    spare: &mut Option<DynamicImage>,
+) -> JuizResult<Capsule> {
     let expected = desc.body_len()?;
     if expected != bytes.len() as u64 {
         return Err(anyhow!(
@@ -719,7 +758,7 @@ pub fn capsule_from_body_bytes(desc: &BodyDesc, bytes: &[u8]) -> JuizResult<Caps
             bytes.len()
         ));
     }
-    Ok(match read_body(&mut &bytes[..], desc)? {
+    Ok(match read_body(&mut &bytes[..], desc, spare)? {
         IncomingBody::Image(img) => Capsule::from(img),
         IncomingBody::Array(v) => Capsule::from(v),
         IncomingBody::Shared(_) => unreachable!("read_body never returns a shared body"),
@@ -847,7 +886,7 @@ pub fn read_frame<R: Read>(r: &mut R, limits: &FrameLimits) -> Result<IncomingFr
             }
             None if desc.shm().is_some() => bodies.push(Some(IncomingBody::Shared(desc.clone()))),
             None => {
-                let body = read_body(r, desc);
+                let body = read_body(r, desc, &mut None);
                 // 長さは確かめてあるので、ここで失敗するのは読み取りの失敗だけ
                 bodies.push(Some(body.map_err(FrameReadError::Broken)?));
             }
@@ -1085,6 +1124,49 @@ mod tests {
         assert!(floats_v.as_array().unwrap().iter().all(|v| v.is_f64()));
         assert_eq!(floats_v, jvalue!(floats));
         assert_eq!(got.get("mixed").unwrap().extract_value().unwrap(), jvalue!(mixed));
+    }
+
+    #[test]
+    fn spare_image_is_reused_when_it_matches() {
+        for img in images() {
+            let (format, bpp, _) = image_format_of(&img).unwrap();
+            let desc = BodyDesc::Image {
+                width: img.width(),
+                height: img.height(),
+                format: format.to_owned(),
+                stride: img.width() as u64 * bpp,
+                shm: None,
+            };
+            // 同じ大きさ・形式なら、その領域に写して spare は空になる
+            let blank = DynamicImage::new(img.width(), img.height(), img.color());
+            let ptr = blank.as_bytes().as_ptr();
+            let mut spare = Some(blank);
+            let got = capsule_from_body_bytes_reusing(&desc, img.as_bytes(), &mut spare)
+                .unwrap()
+                .to_image()
+                .unwrap();
+            assert_eq!(got, img, "{format}");
+            assert_eq!(got.as_bytes().as_ptr(), ptr, "{format}: the spare buffer is used");
+            assert!(spare.is_none());
+
+            // 大きさか形式が違えば、新しく確保して spare には触らない
+            for other in [
+                DynamicImage::new(img.width() + 1, img.height(), img.color()),
+                DynamicImage::new(img.width(), img.height(), if format == "rgb8" {
+                    juiz_sdk::image::ColorType::Rgba8
+                } else {
+                    juiz_sdk::image::ColorType::Rgb8
+                }),
+            ] {
+                let mut spare = Some(other.clone());
+                let got = capsule_from_body_bytes_reusing(&desc, img.as_bytes(), &mut spare)
+                    .unwrap()
+                    .to_image()
+                    .unwrap();
+                assert_eq!(got, img, "{format}");
+                assert_eq!(spare, Some(other));
+            }
+        }
     }
 
     #[test]

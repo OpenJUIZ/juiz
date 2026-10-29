@@ -19,7 +19,6 @@ use std::{
     collections::HashMap,
     ffi::CString,
     fs,
-    io::{BufWriter, Cursor},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -708,28 +707,86 @@ fn capsuleptr_to_pyany(py: Python, value: &CapsulePtr) -> Py<PyAny> {
     todo!("capsuleptr_to_pyany failed. CapsulePtr type is not available yet. Value is {value:?}")
 }
 
-fn image_to_pyany(py: Python, image: &DynamicImage) -> Py<PyAny> {
-    let mut buffer = BufWriter::new(Cursor::new(Vec::new()));
-    image.write_to(&mut buffer, ImageFormat::Bmp).unwrap();
-    //image.as_bytes()
-    let w = image.width();
-    let h = image.height();
-    let py_app = r"
-import io
+/// PIL との画像の受け渡しに使う Python の関数。1 度だけコンパイルする
+const PIL_CONVERTER_CODE: &str = r"
 from PIL import Image
-def image_from_bytes(w, h, image_data):
-    # print('image_data', image_data, type(image_data))
-    return Image.frombytes('RGB', (w,h), image_data)
-    # return Image.open(io.BytesIO(image_data))
+
+def image_from_buffer(mode, w, h, data):
+    return Image.frombytes(mode, (w, h), data)
+
+# PIL のモードのうち、そのままのバイト列で juiz の画像にできるもの
+RAW_MODES = ('L', 'LA', 'RGB', 'RGBA', 'I;16')
+
+def image_to_raw(img):
+    if img.mode not in RAW_MODES:
+        return None
+    return (img.mode, img.width, img.height, img.tobytes())
 ";
-    let b = PyBytes::new(py, image.as_bytes());
-    let module = module_from_code(py, py_app, "", "").unwrap();
-    module
-        .getattr("image_from_bytes")
-        .unwrap()
-        .call1((w, h, b))
-        .unwrap()
-        .unbind()
+
+fn pil_converter<'py>(py: Python<'py>, name: &str) -> PyResult<Bound<'py, PyAny>> {
+    static MODULE: pyo3::sync::PyOnceLock<Py<PyModule>> = pyo3::sync::PyOnceLock::new();
+    let module = MODULE.get_or_try_init(py, || {
+        module_from_code(py, PIL_CONVERTER_CODE, "juiz_pil_converter.py", "juiz_pil_converter")
+            .map(|m| m.unbind())
+    })?;
+    module.bind(py).getattr(name)
+}
+
+/// 画像を PIL の画像にする。PIL にそのまま渡せる形式 (L, LA, RGB, RGBA, I;16) はそのバイト列を、
+/// それ以外 (16 ビットの RGB など、浮動小数点) は 8 ビットの RGB / RGBA にしてから渡す
+fn image_to_pyany(py: Python, image: &DynamicImage) -> Py<PyAny> {
+    image_to_pil(py, image).unwrap_or_else(|e| {
+        panic!("can not convert an image ({:?}) to PIL. {e}", image.color())
+    })
+}
+
+/// PyMemoryView_FromMemory の読み取り専用の印。pyo3::ffi::PyBUF_READ は abi3-py310 (pip の juiz-cli) では
+/// 定義されないので、CPython の値 (Include/pybuffer.h) をここに書く
+const PYBUF_READ: std::os::raw::c_int = 0x100;
+
+fn image_to_pil(py: Python, image: &DynamicImage) -> PyResult<Py<PyAny>> {
+    use image::DynamicImage::*;
+    let converted;
+    let (mode, image) = match image {
+        ImageLuma8(_) => ("L", image),
+        ImageLumaA8(_) => ("LA", image),
+        ImageRgb8(_) => ("RGB", image),
+        ImageRgba8(_) => ("RGBA", image),
+        // I;16 は 16 ビットのリトルエンディアン。as_bytes はネイティブの並びなので、ビッグエンディアンでは下の RGB にする
+        ImageLuma16(_) if cfg!(target_endian = "little") => ("I;16", image),
+        ImageLumaA16(_) => {
+            converted = DynamicImage::ImageLumaA8(image.to_luma_alpha8());
+            ("LA", &converted)
+        }
+        _ if image.color().has_alpha() => {
+            converted = DynamicImage::ImageRgba8(image.to_rgba8());
+            ("RGBA", &converted)
+        }
+        _ => {
+            converted = DynamicImage::ImageRgb8(image.to_rgb8());
+            ("RGB", &converted)
+        }
+    };
+    let bytes = image.as_bytes();
+    // 画素のバイト列を複製せずに見せる。frombytes は PIL の中に写すだけで参照を残さないが、
+    // 念のため呼んだ後に release して、この関数の外から触れないようにする
+    // SAFETY: bytes はこの関数の間は生きていて、読み取り専用の memoryview は書き込まない
+    let view = unsafe {
+        let ptr = pyo3::ffi::PyMemoryView_FromMemory(
+            bytes.as_ptr() as *mut std::os::raw::c_char,
+            bytes.len() as pyo3::ffi::Py_ssize_t,
+            PYBUF_READ,
+        );
+        Bound::from_owned_ptr_or_err(py, ptr)?
+    };
+    let result = pil_converter(py, "image_from_buffer")?.call1((
+        mode,
+        image.width(),
+        image.height(),
+        &view,
+    ));
+    view.call_method0("release")?;
+    Ok(result?.unbind())
 }
 
 // pub fn python_process_call(py: Python, entry_point: &Py<PyAny>, arguments: Vec<Py<PyAny>>) -> JuizResult<Capsule> {
@@ -956,6 +1013,10 @@ fn is_pil_image(value: &Bound<PyAny>) -> bool {
 }
 
 fn pil_to_image(py: Python, value: &Bound<PyAny>) -> PyResult<DynamicImage> {
+    if let Some(image) = pil_raw_to_image(py, value)? {
+        return Ok(image);
+    }
+    // そのままのバイト列で受け取れないモード (P、1、F など) は PNG を通す
     let app_code = r"
 import io
 
@@ -973,6 +1034,32 @@ def convert_img(img):
             "Image load from memory error. Error: {e:?}"
         )))
     })
+}
+
+/// PIL の画像を、PNG を通さずにバイト列で受け取る。対応していないモードなら None
+fn pil_raw_to_image(py: Python, value: &Bound<PyAny>) -> PyResult<Option<DynamicImage>> {
+    let raw = pil_converter(py, "image_to_raw")?.call1((value,))?;
+    if raw.is_none() {
+        return Ok(None);
+    }
+    let (mode, w, h, data): (String, u32, u32, Bound<PyBytes>) = raw.extract()?;
+    let bytes = data.as_bytes();
+    let size_error = || PyValueError::new_err(format!("PIL image data does not match its size ({w}x{h} {mode})"));
+    let image = match mode.as_str() {
+        "L" => DynamicImage::ImageLuma8(image::ImageBuffer::from_raw(w, h, bytes.to_vec()).ok_or_else(size_error)?),
+        "LA" => DynamicImage::ImageLumaA8(image::ImageBuffer::from_raw(w, h, bytes.to_vec()).ok_or_else(size_error)?),
+        "RGB" => DynamicImage::ImageRgb8(image::ImageBuffer::from_raw(w, h, bytes.to_vec()).ok_or_else(size_error)?),
+        "RGBA" => DynamicImage::ImageRgba8(image::ImageBuffer::from_raw(w, h, bytes.to_vec()).ok_or_else(size_error)?),
+        "I;16" => {
+            let v: Vec<u16> = bytes
+                .chunks_exact(2)
+                .map(|b| u16::from_le_bytes([b[0], b[1]]))
+                .collect();
+            DynamicImage::ImageLuma16(image::ImageBuffer::from_raw(w, h, v).ok_or_else(size_error)?)
+        }
+        _ => return Ok(None),
+    };
+    Ok(Some(image))
 }
 
 fn pylist_to_value(pylist: &Bound<PyList>) -> PyResult<Value> {

@@ -57,6 +57,7 @@ mod process_test;
 #[cfg(feature = "ipc-broker")]
 mod plugin_image_test;
 mod pyjuiz_ipc_proxy_test;
+mod python_image_test;
 mod pyjuiz_proxy_test;
 mod python_datatype_test;
 mod python_plugin_path_test;
