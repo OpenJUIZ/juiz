@@ -1,0 +1,27 @@
+; Windows で typed_component_hs.dll から公開するシンボル (juiz-haskell-examples.cabal の mod-def-file)
+; juiz_hs_init は hsjuiz、performMajorGC は RTS のもの (performMajorGC は juiz のテストが GC を起こすのに使う)
+EXPORTS
+    juiz_hs_init
+    performMajorGC
+    component_manifest_entry_point
+    poseMake_manifest_entry_point
+    poseMake_factory_entry_point
+    poseMove_manifest_entry_point
+    poseMove_factory_entry_point
+    poseX_manifest_entry_point
+    poseX_factory_entry_point
+    poseFrame_manifest_entry_point
+    poseFrame_factory_entry_point
+    everythingEcho_manifest_entry_point
+    everythingEcho_factory_entry_point
+    modeNext_manifest_entry_point
+    modeNext_factory_entry_point
+    odometryStep_manifest_entry_point
+    odometryStep_factory_entry_point
+    createHolder_manifest_entry_point
+    createHolder_factory_entry_point
+    createHolder_factory_destroy_entry_point
+    holderScale_manifest_entry_point
+    holderScale_factory_entry_point
+    holderLast_manifest_entry_point
+    holderLast_factory_entry_point

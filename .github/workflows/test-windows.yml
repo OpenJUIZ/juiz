@@ -30,10 +30,14 @@ env:
   RUST_BACKTRACE: 1
   # pyo3 が埋め込む Python をシステムの python3 に固定する
   PYO3_PYTHON: python3
+  # Haskell の例(examples/haskell)に使う GHC と cabal の版(test-linux.yml と同じ)
+  GHC_VERSION: "9.6.7"
+  CABAL_VERSION: "3.18.1.0"
 
 jobs:
   # Windows でのビルドとテスト。Python は actions/setup-python で入れ、
   # pyo3(auto-initialize)がその libpython にリンクする。C++ の例は MSVC と cmake でビルドする。
+  # Haskell の例は GHC で DLL にする(issue #137、bindings/hsjuiz/README.md の「Windows」)。
   windows:
     name: Windows build & test
     runs-on: windows-latest
@@ -57,8 +61,34 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # Haskell の例のビルドに使う GHC と cabal を入れる。インストールに約 3 分かかるので、
+      # test-linux.yml と同じく入れた GHC をキャッシュする。Windows の ghcup は C:\ghcup に入れる
+      - name: Restore GHC
+        id: ghc-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: C:\ghcup\ghc\${{ env.GHC_VERSION }}
+          key: ghc-${{ env.GHC_VERSION }}-${{ runner.os }}-${{ runner.arch }}
+      # キャッシュに GHC があれば、haskell-actions/setup はインストールを飛ばして ghcup set だけする
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: ${{ env.GHC_VERSION }}
+          cabal-version: ${{ env.CABAL_VERSION }}
+          # examples/haskell の依存は GHC に付いてくるパッケージだけなので、Hackage の索引は使わない
+          cabal-update: false
+      # テストが失敗しても次から使えるよう、インストールした直後に保存する
+      - name: Save GHC
+        if: steps.ghc-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: C:\ghcup\ghc\${{ env.GHC_VERSION }}
+          key: ${{ steps.ghc-cache.outputs.cache-primary-key }}
+
       # Windows で失敗するテストをまとめて把握できるよう --no-fail-fast で最後まで実行する
       - name: Build & test
+        env:
+          # GHC が入っていなければ Haskell のテストを飛ばさずにエラーにする
+          JUIZ_REQUIRE_HASKELL: "1"
         run: scripts/test.sh --no-fail-fast
 
       - name: Test python-entry

@@ -23,13 +23,14 @@ Component は `componentManifest` と `juizComponent 'component [componentProces
 
 ## ビルド
 
-GHC 9.6 以降と cabal が必要です(Linux / macOS)。リポジトリの直下で `cargo build` を済ませてから実行します。
+GHC 9.6 以降と cabal が必要です(Linux / macOS / Windows。Windows では Git Bash から実行します)。リポジトリの直下で `cargo build` を済ませてから実行します。
 
 ```terminal
 examples/haskell/build.sh
 ```
 
-`target/libincrement_process_hs.so`、`target/libexample_container_hs.so`(macOS は `.dylib`)などができます。
+`target/libincrement_process_hs.so`、`target/libexample_container_hs.so`(macOS は `.dylib`、Windows は `target/increment_process_hs.dll` など)ができます。
+Windows の DLL は公開するシンボルを `def/<名前>.def` に並べています(`bindings/hsjuiz/README.md` の「Windows」)。
 
 ## 動かす
 

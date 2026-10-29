@@ -20,7 +20,7 @@ module Juiz.Capsule
   , writeCapsulePtr
   ) where
 
-import Control.Exception (SomeException, throw, throwIO, try)
+import Control.Exception (SomeException, bracket, throw, throwIO, try)
 import Control.Monad (forM_, unless, void)
 import qualified Data.ByteString as BS
 import Data.IORef
@@ -35,7 +35,8 @@ import Foreign.C.String (CString)
 import Foreign.C.Types (CSize)
 import Foreign.Marshal.Alloc (alloca)
 import Data.Proxy (Proxy)
-import Foreign.Ptr (FunPtr, Ptr, freeHaskellFunPtr, nullPtr)
+import Foreign.Ptr (FunPtr, Ptr, nullPtr)
+import Foreign.StablePtr (castStablePtrToPtr, freeStablePtr, newStablePtr)
 import Foreign.Storable (Storable, peek)
 
 import Juiz.Error
@@ -199,26 +200,24 @@ boundedInt name v = case v of
 -- | callback (C から呼ばれる Haskell の関数) を作って act に渡し、終わったら解放する。
 -- callback の中の例外は C 側に出さずに覚えておき、act の後で投げ直す
 withCallback
-  :: (cb -> IO (FunPtr cb))
-  -> ((IO () -> IO ()) -> cb)  -- ^ 例外を捕まえる関数を受け取って callback を作る
-  -> (FunPtr cb -> IO r)
+  :: FunPtr cb                  -- ^ trampoline ("Juiz.Internal.FFI")
+  -> ((IO () -> IO ()) -> f)    -- ^ 例外を捕まえる関数を受け取って、trampoline から呼ぶ関数を作る
+  -> (FunPtr cb -> Ptr () -> IO r)  -- ^ trampoline と callback の arg を C の関数に渡す
   -> IO r
-withCallback mk build act = do
+withCallback tramp build act = do
   failure <- newIORef Nothing
   let guarded body = do
         r <- try body
         case r of
           Left (e :: SomeException) -> modifyIORef' failure (maybe (Just e) Just)
           Right () -> pure ()
-  fp <- mk (build guarded)
-  r <- act fp
-  freeHaskellFunPtr fp
+  r <- bracket (newStablePtr (build guarded)) freeStablePtr (act tramp . castStablePtrToPtr)
   readIORef failure >>= maybe (pure r) throwIO
 
 -- | lock_as_value_with_arg の callback を作って呼ぶ。callback が書き込みに失敗したら例外になる
 withLockCallback :: (Ptr CValue -> IO ()) -> (FunPtr LockCallback -> Ptr () -> IO Int64) -> IO Int64
 withLockCallback body lock =
-  withCallback mkLockCallback (\guarded _ v -> juizOk <$ guarded (body v)) (\fp -> lock fp nullPtr)
+  withCallback lockTrampoline (\guarded v -> juizOk <$ guarded (body v)) lock
 
 -- | value の中身を 'Value' として読み出す (lock の callback の中で呼ぶ)
 peekValue :: Ptr CValue -> IO Value
@@ -238,18 +237,18 @@ peekValue v = do
       pure (JString (TE.decodeUtf8 bytes))
     6 -> do
       items <- newIORef []
-      _ <- withCallback mkArrayCallback
-        (\guarded _ e -> guarded (peekValue e >>= \x -> modifyIORef' items (x :)))
-        (\fp -> c_value_array_foreach v fp nullPtr)
+      _ <- withCallback arrayTrampoline
+        (\guarded e -> guarded (peekValue e >>= \x -> modifyIORef' items (x :)))
+        (c_value_array_foreach v)
       JArray . reverse <$> readIORef items
     7 -> do
       items <- newIORef Map.empty
-      _ <- withCallback mkObjectCallback
-        (\guarded _ k e -> guarded $ do
+      _ <- withCallback objectTrampoline
+        (\guarded k e -> guarded $ do
             key <- peekText k
             x <- peekValue e
             modifyIORef' items (Map.insert key x))
-        (\fp -> c_value_object_foreach v fp nullPtr)
+        (c_value_object_foreach v)
       JObject <$> readIORef items
     _ -> throwJuiz juizValueTypeError "unknown value type"
   where

@@ -1,0 +1,8 @@
+; Windows で broken_component_hs.dll から公開するシンボル (juiz-haskell-examples.cabal の mod-def-file)
+; juiz_hs_init は hsjuiz、performMajorGC は RTS のもの (performMajorGC は juiz のテストが GC を起こすのに使う)
+EXPORTS
+    juiz_hs_init
+    performMajorGC
+    component_manifest_entry_point
+    orphan_manifest_entry_point
+    orphan_factory_entry_point

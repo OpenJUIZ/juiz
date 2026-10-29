@@ -1,4 +1,5 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- | libjuiz_sdk の C 関数 (bindings/cjuiz/include/juiz_sdk.h) の宣言。
 --
 -- ふつうは "Juiz" の関数を使い、ここを直接使う必要はない。
@@ -12,8 +13,9 @@ module Juiz.Internal.FFI
   , ContainerProcessFunction, ContainerProcessFactoryFunction
     -- * callback の型
   , LockCallback, ObjectCallback, ArrayCallback
-  , mkLockCallback, mkObjectCallback, mkArrayCallback
-  , ImageCallback, mkImageCallback
+  , ImageCallback
+  , LockFunction, ObjectFunction, ArrayFunction, ImageFunction
+  , lockTrampoline, objectTrampoline, arrayTrampoline, imageTrampoline
     -- * capsule_map
   , c_capsule_map_get_capsule
     -- * capsule_ptr
@@ -24,7 +26,7 @@ module Juiz.Internal.FFI
   , c_capsule_set_empty_object, c_capsule_set_empty_array
   , c_capsule_lock_as_value_with_arg
     -- * value
-  , c_hsjuiz_value_type
+  , c_hsjuiz_value_type, c_hsjuiz_runtime_tag
   , c_value_get_bool, c_value_get_int, c_value_get_uint, c_value_get_float
   , c_value_get_string_with_len
   , c_value_object_foreach, c_value_array_foreach
@@ -45,6 +47,7 @@ import Data.Word (Word8, Word64)
 import Foreign.C.String (CString)
 import Foreign.C.Types (CSize (..))
 import Foreign.Ptr (FunPtr, Ptr)
+import Foreign.StablePtr (castPtrToStablePtr, deRefStablePtr)
 
 -- | juiz_sdk.h の capsule_ptr (Rust の CapsulePtr)。ポインタとしてだけ使う
 data CCapsulePtr
@@ -84,13 +87,40 @@ type ObjectCallback = Ptr () -> CString -> Ptr CValue -> IO ()
 -- | value_array_foreach の callback (void (*)(void*, value*))
 type ArrayCallback = Ptr () -> Ptr CValue -> IO ()
 
-foreign import ccall "wrapper" mkLockCallback :: LockCallback -> IO (FunPtr LockCallback)
-foreign import ccall "wrapper" mkObjectCallback :: ObjectCallback -> IO (FunPtr ObjectCallback)
-foreign import ccall "wrapper" mkArrayCallback :: ArrayCallback -> IO (FunPtr ArrayCallback)
-
 -- | capsule_ptr_lock_as_image の callback (int64_t (*)(void*, const juiz_image*))
 type ImageCallback = Ptr () -> Ptr CImage -> IO Int64
-foreign import ccall "wrapper" mkImageCallback :: ImageCallback -> IO (FunPtr ImageCallback)
+
+-- callback は "wrapper" で作らず、決まった関数 (trampoline) を渡し、呼ぶ Haskell の関数は
+-- 第 1 引数 (void* arg) に StablePtr で渡す。"wrapper" は adjustor (実行できるメモリ) を作るが、
+-- Windows の GHC は多くのスレッドから作ると確保に失敗して落ちることがある (issue #137)
+
+-- | lock の callback で呼ぶ関数 ('LockCallback' から arg を除いたもの)
+type LockFunction = Ptr CValue -> IO Int64
+-- | value_object_foreach の callback で呼ぶ関数
+type ObjectFunction = CString -> Ptr CValue -> IO ()
+-- | value_array_foreach の callback で呼ぶ関数
+type ArrayFunction = Ptr CValue -> IO ()
+-- | capsule_ptr_lock_as_image の callback で呼ぶ関数
+type ImageFunction = Ptr CImage -> IO Int64
+
+hsjuizLockTrampoline :: Ptr () -> Ptr CValue -> IO Int64
+hsjuizLockTrampoline arg v = deRefStablePtr (castPtrToStablePtr arg) >>= \(f :: LockFunction) -> f v
+hsjuizObjectTrampoline :: Ptr () -> CString -> Ptr CValue -> IO ()
+hsjuizObjectTrampoline arg k v = deRefStablePtr (castPtrToStablePtr arg) >>= \(f :: ObjectFunction) -> f k v
+hsjuizArrayTrampoline :: Ptr () -> Ptr CValue -> IO ()
+hsjuizArrayTrampoline arg v = deRefStablePtr (castPtrToStablePtr arg) >>= \(f :: ArrayFunction) -> f v
+hsjuizImageTrampoline :: Ptr () -> Ptr CImage -> IO Int64
+hsjuizImageTrampoline arg p = deRefStablePtr (castPtrToStablePtr arg) >>= \(f :: ImageFunction) -> f p
+
+foreign export ccall "hsjuiz_lock_trampoline" hsjuizLockTrampoline :: Ptr () -> Ptr CValue -> IO Int64
+foreign export ccall "hsjuiz_object_trampoline" hsjuizObjectTrampoline :: Ptr () -> CString -> Ptr CValue -> IO ()
+foreign export ccall "hsjuiz_array_trampoline" hsjuizArrayTrampoline :: Ptr () -> Ptr CValue -> IO ()
+foreign export ccall "hsjuiz_image_trampoline" hsjuizImageTrampoline :: Ptr () -> Ptr CImage -> IO Int64
+
+foreign import ccall "&hsjuiz_lock_trampoline" lockTrampoline :: FunPtr LockCallback
+foreign import ccall "&hsjuiz_object_trampoline" objectTrampoline :: FunPtr ObjectCallback
+foreign import ccall "&hsjuiz_array_trampoline" arrayTrampoline :: FunPtr ArrayCallback
+foreign import ccall "&hsjuiz_image_trampoline" imageTrampoline :: FunPtr ImageCallback
 
 -- capsule_map
 foreign import ccall unsafe "capsule_map_get_capsule"
@@ -116,6 +146,8 @@ foreign import ccall safe "capsule_lock_as_value_with_arg"
 
 -- value (読み出し)
 foreign import ccall unsafe "hsjuiz_value_type" c_hsjuiz_value_type :: Ptr CValue -> IO Int64
+-- この hsjuiz (と RTS) の実体を表す値 (cbits/hsjuiz.c、Juiz.Container が使う)
+foreign import ccall unsafe "hsjuiz_runtime_tag" c_hsjuiz_runtime_tag :: IO (Ptr ())
 -- value_get_bool は bool* (1 バイト) に書き込む
 foreign import ccall unsafe "value_get_bool" c_value_get_bool :: Ptr CValue -> Ptr Word8 -> IO Int64
 foreign import ccall unsafe "value_get_int" c_value_get_int :: Ptr CValue -> Ptr Int64 -> IO Int64

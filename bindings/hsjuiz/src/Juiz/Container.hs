@@ -41,14 +41,21 @@ import Juiz.Process
 -- 状態の型は 'Typeable' で覚えておき、ContainerProcess に渡すときに確かめる
 data ContainerBox = forall s. Typeable s => ContainerBox s (s -> IO ())
 
--- | juiz に渡す @void*@ は、先頭にこの値、続けて 'StablePtr' を置いた malloc の領域。
+-- | juiz に渡す @void*@ は、先頭にこの値、続けて作った hsjuiz の実体を表す値 ('c_hsjuiz_runtime_tag')、
+-- 'StablePtr' を置いた malloc の領域。
 -- 別の言語の Container (C++ のオブジェクトなど) が ContainerProcess に渡されたときに、
--- StablePtr として読んでプロセスが落ちないよう、先頭の値で見分ける
+-- StablePtr として読んでプロセスが落ちないよう、先頭の値で見分ける。
+-- Windows ではプラグインの DLL ごとに RTS が別なので、別の DLL の StablePtr は読めない。
+-- 実体を表す値が違えば読まずにエラーにする
 containerMagic :: Word64
-containerMagic = 0x48534a55495a4331 -- "HSJUIZC1"
+containerMagic = 0x48534a55495a4332 -- "HSJUIZC2"
 
 magicSize :: Int
 magicSize = sizeOf containerMagic
+
+-- | StablePtr を置く位置
+stablePtrOffset :: Int
+stablePtrOffset = magicSize + sizeOf nullPtr
 
 -- | Container の manifest_entry_point の中身。マニフェストの引数の数と、Container を作る関数の引数の数が
 -- 違えばエラーにする (juiz はプラグインを読み込むときに失敗する)
@@ -71,10 +78,12 @@ containerCreateEntryPointWithDestroy
 containerCreateEntryPointWithDestroy m f destroy cm pobj = guardEntryPoint (cmTypeName m) $ do
   args <- readArguments (cmArguments m) cm
   s <- applyArgs f args
-  cell <- mallocBytes (magicSize + sizeOf (undefined :: StablePtr ContainerBox))
+  cell <- mallocBytes (stablePtrOffset + sizeOf (undefined :: StablePtr ContainerBox))
   sp <- newStablePtr (ContainerBox s destroy)
+  tag <- c_hsjuiz_runtime_tag
   poke (castPtr cell) containerMagic
-  pokeByteOff cell magicSize sp
+  pokeByteOff cell magicSize tag
+  pokeByteOff cell stablePtrOffset sp
   poke pobj cell
   pure juizOk
 
@@ -132,6 +141,13 @@ stablePtrOf p = do
   magic <- peek (castPtr p) :: IO Word64
   unless (magic == containerMagic) $
     throwJuiz juizHaskellContainerTypeError "the container is not a Haskell (hsjuiz) container"
-  sp <- peekByteOff p magicSize
+  tag <- peekByteOff p magicSize :: IO (Ptr ())
+  ownTag <- c_hsjuiz_runtime_tag
+  unless (tag == ownTag) $
+    throwJuiz juizHaskellContainerTypeError
+      "the container was created by another Haskell plugin with its own GHC runtime \
+      \(on Windows each Haskell DLL has its own runtime; put the container and its container processes \
+      \in one component with juizComponent)"
+  sp <- peekByteOff p stablePtrOffset
   when (castStablePtrToPtr sp == nullPtr) $ throwJuiz juizHaskellContainerTypeError "the container is broken"
   pure sp

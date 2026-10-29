@@ -1,0 +1,7 @@
+; Windows で mismatched_container_process_hs.dll から公開するシンボル (juiz-haskell-examples.cabal の mod-def-file)
+; juiz_hs_init は hsjuiz、performMajorGC は RTS のもの (performMajorGC は juiz のテストが GC を起こすのに使う)
+EXPORTS
+    juiz_hs_init
+    performMajorGC
+    manifest_entry_point
+    container_process_factory_entry_point

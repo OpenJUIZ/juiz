@@ -20,14 +20,22 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <pthread.h>
+#endif
 #include <HsFFI.h>
 #include <Rts.h> /* rtsSupportsBoundThreads, setKeepCAFs */
 
 /* -threaded でない RTS にリンクされている */
 #define HSJUIZ_NOT_THREADED_RTS_ERROR INT64_C(-601)
 
+#ifdef _WIN32
+static INIT_ONCE juiz_hs_init_once = INIT_ONCE_STATIC_INIT;
+#else
 static pthread_once_t juiz_hs_init_once = PTHREAD_ONCE_INIT;
+#endif
 
 static void juiz_hs_init_impl(void)
 {
@@ -39,13 +47,40 @@ static void juiz_hs_init_impl(void)
     hs_init(&argc, &argv);
 }
 
+#ifdef _WIN32
+static BOOL CALLBACK juiz_hs_init_once_callback(PINIT_ONCE once, PVOID param, PVOID *context)
+{
+    (void)once; (void)param; (void)context;
+    juiz_hs_init_impl();
+    return TRUE;
+}
+#endif
+
 int64_t juiz_hs_init(void)
 {
     if (!rtsSupportsBoundThreads()) {
         return HSJUIZ_NOT_THREADED_RTS_ERROR;
     }
+#ifdef _WIN32
+    InitOnceExecuteOnce(&juiz_hs_init_once, juiz_hs_init_once_callback, NULL, NULL);
+#else
     pthread_once(&juiz_hs_init_once, juiz_hs_init_impl);
+#endif
     return 0;
+}
+
+/*
+ * この hsjuiz (と GHC の RTS) の実体を表す値 (Juiz.Container が Container の目印と一緒に置く)。
+ * Linux / macOS では hsjuiz も RTS も共有ライブラリで、すべての Haskell のプラグインが同じものを使うので、
+ * どのプラグインでも同じ値になる。Windows では RTS と hsjuiz がプラグインの DLL ごとに静的に入るので、
+ * DLL ごとに違う値になる。違う RTS の StablePtr は読めないので、ContainerProcess はこの値を比べて、
+ * 別の DLL で作られた Container を受け付けない (issue #137)
+ */
+static const char hsjuiz_runtime_tag_value = 0;
+
+const void* hsjuiz_runtime_tag(void)
+{
+    return &hsjuiz_runtime_tag_value;
 }
 
 /*

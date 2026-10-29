@@ -69,16 +69,11 @@ if command -v "$cc_bin" >/dev/null 2>&1; then
 fi
 
 step "Haskell の例をビルドする (examples/haskell)"
-case "$(uname -s)" in
-    MINGW* | MSYS* | CYGWIN*) haskell_skip_reason="Windows の Haskell プラグインはまだ対応していません (issue #137)" ;;
-    *)
-        if command -v ghc >/dev/null 2>&1 && command -v cabal >/dev/null 2>&1; then
-            haskell_skip_reason=""
-        else
-            haskell_skip_reason="ghc と cabal が見つかりません。Haskell の例とテストを動かすには GHC 9.6 以降と cabal を入れてください (https://www.haskell.org/ghcup/)"
-        fi
-        ;;
-esac
+if command -v ghc >/dev/null 2>&1 && command -v cabal >/dev/null 2>&1; then
+    haskell_skip_reason=""
+else
+    haskell_skip_reason="ghc と cabal が見つかりません。Haskell の例とテストを動かすには GHC 9.6 以降と cabal を入れてください (https://www.haskell.org/ghcup/)"
+fi
 if [[ -z "$haskell_skip_reason" ]]; then
     examples/haskell/build.sh
 elif [[ "${JUIZ_REQUIRE_HASKELL:-0}" == "1" ]]; then

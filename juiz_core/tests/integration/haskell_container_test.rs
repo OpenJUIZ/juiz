@@ -107,7 +107,31 @@ fn container_id(cb: &CoreBroker, name: &str) -> JuizResult<ContainerIdentifier> 
         .unwrap_or_else(|| panic!("container {name} not found")))
 }
 
+/// Windows では Haskell の DLL ごとに GHC の RTS が別にあり、別の DLL で作った Container の状態は読めないので、
+/// 別の DLL の ContainerProcess の呼び出しはエラーになる (issue #137。同じ DLL にまとめる Component は
+/// haskell_component_test で確かめる)
+#[cfg(target_os = "windows")]
+#[test]
+fn haskell_container_process_in_another_dll_is_rejected_on_windows() -> JuizResult<()> {
+    crate::common::logger::init();
+    if skip_without_haskell_examples() {
+        return Ok(());
+    }
+    System::new(system_manifest())?
+        .setup()?
+        .run_and_do_once(|system| {
+            let cb = system.core_broker().lock()?;
+            let (inc0, get0) = (find(&cb, "inc0")?, find(&cb, "get0")?);
+            let r = cb.container_process_call(&get0, CapsuleMap::new());
+            assert!(r.is_err(), "{r:?}");
+            let r = cb.container_process_call(&inc0, arg0(3));
+            assert!(r.is_err(), "{r:?}");
+            Ok(())
+        })
+}
+
 /// Container の状態を ContainerProcess で読み書きでき、Container ごとに状態が分かれている
+#[cfg(not(target_os = "windows"))]
 #[test]
 fn haskell_container_keeps_state() -> JuizResult<()> {
     crate::common::logger::init();
@@ -222,9 +246,12 @@ fn haskell_container_process_rejects_other_containers() -> JuizResult<()> {
             let r = cb.container_process_call(&get.identifier(), CapsuleMap::new());
             assert!(r.is_err(), "{r:?}");
 
-            // その後も正しい組み合わせは呼べる
-            let get0 = find(&cb, "get0")?;
-            assert_eq!(call(&cb, &get0, CapsuleMap::new())?, jvalue!(15));
+            // その後も正しい組み合わせは呼べる (Windows では別の DLL の Container なので呼べない)
+            #[cfg(not(target_os = "windows"))]
+            {
+                let get0 = find(&cb, "get0")?;
+                assert_eq!(call(&cb, &get0, CapsuleMap::new())?, jvalue!(15));
+            }
             Ok(())
         })
 }
