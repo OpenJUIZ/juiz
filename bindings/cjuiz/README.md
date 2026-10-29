@@ -10,7 +10,7 @@ v0.0.26 以降は、libjuiz_sdk とこのヘッダ(C++ のヘッダも)を OS・
 [GitHub Releases](https://github.com/OpenJUIZ/juiz/releases) に置いています(Linux x86_64・aarch64、macOS arm64・x86_64)。
 `scripts/install-juiz-sdk.sh <版>` で取得して `~/.juiz/sdk/<版>` に展開できます。中身は次のとおりで、pkg-config の `juiz_sdk.pc` も入っています。
 
-0.0.26 の次の版からは、Windows x86_64 向けの `juiz_sdk-<版>-x86_64-pc-windows-msvc.zip` も置き、
+0.0.27 からは、Windows x86_64 向けの `juiz_sdk-<版>-x86_64-pc-windows-msvc.zip` も置き、
 どのアーカイブにも CMake の `find_package(juiz_sdk)` 用の `juiz_sdkConfig.cmake` を入れます(issue #273、#162)。
 Windows では PowerShell で `scripts/install-juiz-sdk.ps1 <版>` を実行すると `%USERPROFILE%\.juiz\sdk\<版>` に展開できます。
 
