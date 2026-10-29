@@ -51,7 +51,7 @@ jobs:
           python-version: "3.14"
 
       - name: Install pyjuiz dependencies (used by the embedded Python)
-        run: python3 -m pip install pyyaml httpx pillow docstring_parser numpy
+        run: python3 -m pip install pyyaml httpx pillow numpy
 
       - uses: dtolnay/rust-toolchain@stable
 

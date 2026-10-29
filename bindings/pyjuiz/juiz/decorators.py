@@ -5,10 +5,7 @@ import functools
 from .juiz import *
 from . import datatype
 from PIL.Image import Image
-import docstring_parser
 
-
-class PyJuizDocStringParseError(Exception):  pass
 
 class PyJuizTypeInspectError(Exception): 
     def __init__(self, type_obj):
@@ -259,12 +256,6 @@ class JuizProcess(object):
         self.__proc = proc
         self.name = proc.__name__
         self.signature = _signature(proc)
-        try:
-            self._doc_obj = docstring_parser.parse(proc.__doc__)
-            print('doc_obj:', self._doc_obj)
-        except:
-            raise PyJuizDocStringParseError()
-        
         self._manifest = ProcessManifest.new(self.name).set_description(proc.__doc__)
         self._arg_names = list(self.signature.parameters)
         self._arg_types = []

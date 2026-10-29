@@ -4,7 +4,7 @@
 # プラグインを読み込むテスト(system_test や *_broker_api_test など)は、次の前提が揃っていないと失敗する。
 #   1. Rust の例: ワークスペースの cargo build で ../target/debug にできる
 #   2. C++ の例:  examples/cpp の cmake ビルドで ../target にできる(1 の juiz_sdk にリンクする)
-#   3. Python の例: pyyaml httpx pillow docstring_parser numpy と PYTHONPATH=bindings/pyjuiz
+#   3. Python の例: pyyaml httpx pillow numpy と PYTHONPATH=bindings/pyjuiz
 #   4. Haskell の例: examples/haskell の cabal ビルドで ../target にできる(GHC と cabal が無ければ飛ばし、
 #      Haskell のテストも飛ばす。JUIZ_REQUIRE_HASKELL=1 なら飛ばさずにエラーにする)
 # このスクリプトは 1〜4 を済ませてから cargo test -- --test-threads=1 を実行する。
@@ -89,11 +89,11 @@ else
 fi
 
 step "Python の例が使うパッケージを確認する ($python)"
-python_packages=(pyyaml httpx pillow docstring_parser numpy)
+python_packages=(pyyaml httpx pillow numpy)
 missing=$("$python" - <<'PY'
 import importlib.util
 # pip のパッケージ名と import 名の対応
-modules = {"pyyaml": "yaml", "httpx": "httpx", "pillow": "PIL", "docstring_parser": "docstring_parser", "numpy": "numpy"}
+modules = {"pyyaml": "yaml", "httpx": "httpx", "pillow": "PIL", "numpy": "numpy"}
 print(" ".join(p for p, m in modules.items() if importlib.util.find_spec(m) is None))
 PY
 )
