@@ -7,6 +7,7 @@ wheel をインストールした環境で実行する:
 Python の Process を読み込んだ juiz を起動し、HTTP 経由で呼び出して結果を確かめたあと、
 Ctrl+C(Windows では CTRL_BREAK_EVENT)で止まることを確かめる。
 埋め込んだ管理画面が /ui/ で配信されることも確かめる(issue #117、wheel のビルド前に webui をビルドしておくこと)。
+IPC ブローカー(--ipc)で起動し、ipc:// 経由でも呼び出せることを確かめる(issue #237)。
 juiz_examples_python のディレクトリを渡すと、そのサンプル(Process と Container)も同じように動かす。
 """
 
@@ -21,6 +22,7 @@ import time
 import urllib.request
 
 PORT = 18080
+IPC_NAME = "juiz_py_smoke_test"
 
 PROCESS = '''\
 from juiz import juiz_process
@@ -85,11 +87,12 @@ def check_webui(port: int) -> bool:
     return True
 
 
-def run_case(juiz: str, cwd: str, conf: str, port: int, calls: list, webui: bool = False) -> bool:
+def run_case(juiz: str, cwd: str, conf: str, port: int, calls: list, webui: bool = False,
+             server_args: list = ()) -> bool:
     """cwd で juiz -f conf -d を起動し、calls の各コマンドの出力に期待する文字列が含まれるか確かめてから止める。
 
     calls は (juiz のサブコマンドと引数のリスト, 出力に含まれるべき文字列) のリスト。
-    webui が True なら管理画面の配信も確かめる。
+    webui が True なら管理画面の配信も確かめる。server_args は juiz の起動に足す引数。
     """
     print(f"--- {conf}")
     # 直前の juiz(別の Python の版で続けて動かしたときを含む)のソケットが TIME_WAIT に残ると
@@ -98,7 +101,7 @@ def run_case(juiz: str, cwd: str, conf: str, port: int, calls: list, webui: bool
     kwargs = {}
     if os.name == "nt":
         kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-    server = subprocess.Popen([juiz, "-f", conf, "-d"], cwd=cwd, **kwargs)
+    server = subprocess.Popen([juiz, "-f", conf, "-d", *server_args], cwd=cwd, **kwargs)
     try:
         wait_for_port(port, 60)
         if webui and not check_webui(port):
@@ -156,9 +159,11 @@ def main() -> int:
             f.write(CONF)
 
         url = f"http://127.0.0.1:{PORT}/process/increment0::increment_process_python"
+        ipc_url = f"ipc://{IPC_NAME}/process/increment0::increment_process_python"
         if not run_case(juiz, work, "smoke.conf", PORT, [
             (["process", "call", url, '{"arg1": 3}', "-p"], "Value(4)"),
-        ], webui=True):
+            (["-s", f"ipc://{IPC_NAME}", "process", "call", ipc_url, '{"arg1": 3}', "-p"], "Value(4)"),
+        ], webui=True, server_args=["--ipc", IPC_NAME]):
             return 1
 
     if len(sys.argv) > 1 and not run_examples(juiz, sys.argv[1]):
