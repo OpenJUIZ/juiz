@@ -11,6 +11,7 @@ use crate::containers::{
 };
 //use crate::plugin::cpp::cpp_container_factory_impl::CppContainerStruct;
 use crate::prelude::*;
+use crate::plugin::open_library;
 use crate::processes::process_factory_create_from_trait;
 use juiz_sdk::build_info::{BuildInfo, SDK_BUILD_INFO_SYMBOL};
 
@@ -130,8 +131,8 @@ impl CppPlugin {
         }
         let entry_point = manifest_entry_point.to_owned() + "_entry_point";
         unsafe {
-            let lib = Arc::new(Library::new(path.clone()).or_else(|e| {
-                log::error!("【エラー】Library::new({path:?}) failed. Error ({e:?})");
+            let lib = Arc::new(open_library(&path).or_else(|e| {
+                log::error!("【エラー】open_library({path:?}) failed. Error ({e:?})");
                 Err(e)
             })?);
             check_sdk_build_info(&path, &lib)?;

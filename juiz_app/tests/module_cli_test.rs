@@ -2,6 +2,7 @@
 //!
 //! - `-1` で 1 つずつ作る、`-c <型名>` で指定した型だけ作る、`-e` で 1 回実行、`--print` で結果を出す、`-m` でマニフェストを出す
 //! - `-d` (常駐) と `-r <Hz>` (周期実行) の経路
+//! - Windows でプラグインの隣の juiz_sdk.dll を探す (issue #273)
 //!
 //! プラグイン (increment_process, example_container とその ContainerProcess, native_pose_component, cpp_component) は
 //! scripts/test.sh で ../target/debug にビルドされている前提。
@@ -177,6 +178,58 @@ fn component_module_execute() {
     for v in ["Value(Number(4))", "Value(Number(0))", "Value(Number(1))"] {
         assert!(out.contains(v), "{v}: {out}");
     }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Windows: juiz.exe と別のディレクトリにある C++ のプラグインを、その隣に置いた juiz_sdk.dll で開ける (issue #273)。
+///
+/// juiz.exe のある target/debug にも juiz_sdk.dll があり、Windows は juiz.exe のディレクトリから DLL を探すので、
+/// juiz.exe を別のディレクトリに写して起動する。PATH からも juiz_sdk.dll のあるディレクトリ
+/// (cargo test が足す target/debug/deps など) を外す。プラグインの隣を探さないと juiz_sdk.dll が見つからない。
+#[cfg(windows)]
+#[test]
+fn cpp_plugin_finds_juiz_sdk_dll_next_to_it() {
+    use common::plugin_dir;
+    use std::process::Command;
+
+    let dir = temp_dir("module_cli_dll_search");
+    let conf = write_conf(&dir);
+    let bin = dir.join("bin");
+    let plugins = dir.join("plugins");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::create_dir_all(&plugins).unwrap();
+    let exe = bin.join("juiz.exe");
+    std::fs::copy(env!("CARGO_BIN_EXE_juiz"), &exe).unwrap();
+    let plugin = plugins.join("cpp_component.dll");
+    std::fs::copy(plugin_file("cpp_component"), &plugin).unwrap();
+    std::fs::copy(
+        plugin_dir().join("juiz_sdk.dll"),
+        plugins.join("juiz_sdk.dll"),
+    )
+    .unwrap();
+
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let path = std::env::join_paths(
+        std::env::split_paths(&path).filter(|p| !p.join("juiz_sdk.dll").exists()),
+    )
+    .unwrap();
+    let out = Command::new(&exe)
+        .env("PATH", path)
+        .args([
+            "-f",
+            path_str(&conf),
+            "--component",
+            path_str(&plugin),
+            "-l",
+            "cpp",
+            "-e",
+            "--print",
+        ])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{out:?}");
+    assert!(stdout.contains("Value(Number(4))"), "{stdout}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

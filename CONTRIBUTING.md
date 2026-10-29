@@ -162,7 +162,7 @@ HTTP ブローカーの 8000 番ポートはホストに転送されるので、
 |---|---|---|---|
 | `publish.yml` | crates.io | juiz_types / juiz_idl / juiz_macro / juiz_sdk / juiz_std_types / juiz_webui / juiz_core / juiz_qmp_broker / juiz_app | シークレット `CARGO_REGISTRY_TOKEN` |
 | `pypi-publish.yml` | PyPI | pyjuiz、juiz-cli | Trusted Publishing(環境 `pypi`) |
-| `sdk-release.yml` | GitHub Releases | libjuiz_sdk とヘッダのアーカイブ `juiz_sdk-<版>-<ターゲット名>.tar.gz`(Linux x86_64・aarch64、macOS arm64・x86_64) | `GITHUB_TOKEN` |
+| `sdk-release.yml` | GitHub Releases | libjuiz_sdk とヘッダのアーカイブ `juiz_sdk-<版>-<ターゲット名>.tar.gz`(Linux x86_64・aarch64、macOS arm64・x86_64)と `.zip`(Windows x86_64) | `GITHUB_TOKEN` |
 | `hackage-publish.yml` | Hackage | hsjuiz(パッケージとドキュメント) | シークレット `HACKAGE_TOKEN` |
 
 版上げでは次のファイルの版をそろえます。
@@ -171,7 +171,9 @@ HTTP ブローカーの 8000 番ポートはホストに転送されるので、
 - `bindings/pyjuiz/setup.py`、`bindings/juiz_py/pyproject.toml`(`version` と `pyjuiz==`)、`bindings/juiz_py/Cargo.toml`、`bindings/juiz_py/Cargo.lock`
 - `bindings/hsjuiz/hsjuiz.cabal` の `version`(と `bindings/hsjuiz/CHANGELOG.md`)
 
-libjuiz_sdk のアーカイブは `scripts/package-juiz-sdk.sh` で作り、利用者は `scripts/install-juiz-sdk.sh <版>` で取得します。
+libjuiz_sdk のアーカイブは `scripts/package-juiz-sdk.sh` で作り、利用者は `scripts/install-juiz-sdk.sh <版>`(Windows は `scripts/install-juiz-sdk.ps1 <版>`)で取得します。
+アーカイブには CMake の `find_package(juiz_sdk)` 用の `lib/cmake/juiz_sdk/juiz_sdkConfig.cmake`(元は `bindings/cppjuiz/cmake/juiz_sdkConfig.cmake`)が入り、
+`sdk-release.yml` は `bindings/cppjuiz/tests/find_package` をそのアーカイブでビルドして確かめます。
 `scripts/check-hsjuiz-package.sh <展開したアーカイブ>` は、hsjuiz を sdist から(Hackage から入れたときと同じ形で)そのアーカイブだけを使ってビルドできるか確かめます。
 juiz は C++ / Haskell のプラグインを開いたとき、プラグインが読み込んだ libjuiz_sdk の `juiz_sdk_build_info` を自分の juiz_sdk と比べ、版が違えばエラー、Rust コンパイラの版だけが違えば警告にします。
 

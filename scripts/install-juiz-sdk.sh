@@ -8,7 +8,7 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/OpenJUIZ/juiz/main/scripts/install-juiz-sdk.sh | sh -s -- 0.0.26
 #
-# 対応: Linux(x86_64・aarch64)、macOS(arm64・x86_64)
+# 対応: Linux(x86_64・aarch64)、macOS(arm64・x86_64)。Windows は install-juiz-sdk.ps1 を使う(issue #273)
 set -eu
 
 if [ $# -lt 1 ]; then
@@ -24,6 +24,10 @@ case "$(uname -s)-$(uname -m)" in
     Linux-aarch64 | Linux-arm64) target=aarch64-unknown-linux-gnu ;;
     Darwin-arm64) target=aarch64-apple-darwin ;;
     Darwin-x86_64) target=x86_64-apple-darwin ;;
+    MINGW* | MSYS* | CYGWIN*)
+        echo "error: Windows では scripts/install-juiz-sdk.ps1 を PowerShell で実行してください。" >&2
+        exit 1
+        ;;
     *)
         echo "error: $(uname -s) $(uname -m) 向けの libjuiz_sdk は配布していません。juiz のリポジトリで cargo build -p juiz_sdk を実行してください。" >&2
         exit 1
@@ -65,7 +69,11 @@ Haskell (hsjuiz): add this to your cabal.project
     extra-lib-dirs: $dest/lib
     ghc-options: -optl-Wl,-rpath,$dest/lib
 
-C++: add include directories $dest/cjuiz/include and $dest/cppjuiz/include,
+C++ (CMake): configure with -DCMAKE_PREFIX_PATH=$dest and write
+  find_package(juiz_sdk $version EXACT CONFIG REQUIRED)
+  target_link_libraries(<plugin> PRIVATE juiz_sdk::juiz_sdk)
+
+C++ (others): add include directories $dest/cjuiz/include and $dest/cppjuiz/include,
      and link $dest/lib/libjuiz_sdk with rpath $dest/lib
      (or PKG_CONFIG_PATH=$dest/lib/pkgconfig pkg-config --cflags --libs juiz_sdk)
 EOF

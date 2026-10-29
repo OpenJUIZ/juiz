@@ -10,12 +10,42 @@ v0.0.26 以降は、libjuiz_sdk とこのヘッダ(C++ のヘッダも)を OS・
 [GitHub Releases](https://github.com/OpenJUIZ/juiz/releases) に置いています(Linux x86_64・aarch64、macOS arm64・x86_64)。
 `scripts/install-juiz-sdk.sh <版>` で取得して `~/.juiz/sdk/<版>` に展開できます。中身は次のとおりで、pkg-config の `juiz_sdk.pc` も入っています。
 
+0.0.26 の次の版からは、Windows x86_64 向けの `juiz_sdk-<版>-x86_64-pc-windows-msvc.zip` も置き、
+どのアーカイブにも CMake の `find_package(juiz_sdk)` 用の `juiz_sdkConfig.cmake` を入れます(issue #273、#162)。
+Windows では PowerShell で `scripts/install-juiz-sdk.ps1 <版>` を実行すると `%USERPROFILE%\.juiz\sdk\<版>` に展開できます。
+
 ```
 lib/libjuiz_sdk.so (macOS は .dylib、install name は @rpath/libjuiz_sdk.dylib)
 lib/pkgconfig/juiz_sdk.pc
+bin/juiz_sdk.dll, lib/juiz_sdk.dll.lib (Windows は .so と .pc の代わりに DLL とインポートライブラリ)
+lib/cmake/juiz_sdk/juiz_sdkConfig.cmake, juiz_sdkConfigVersion.cmake
 cjuiz/include/juiz_sdk.h
 cppjuiz/include/juiz/*.h
+cppjuiz/cmake/juiz_idl.cmake
 ```
+
+### CMake で使う
+
+展開したディレクトリを `CMAKE_PREFIX_PATH` に足して(`-DCMAKE_PREFIX_PATH=<展開先>`)、次のように書きます。
+`juiz_sdk::juiz_sdk` をリンクすると、C / C++ のヘッダの include パスと C++17 が付き、MSVC には `/utf-8` が付きます(ヘッダが UTF-8 の日本語のコメントを含むため)。
+
+```cmake
+find_package(juiz_sdk 0.0.27 EXACT CONFIG REQUIRED)   # 版は juiz と同じものを指定する
+add_library(my_process SHARED my_process.cpp)
+target_link_libraries(my_process PRIVATE juiz_sdk::juiz_sdk)
+juiz_sdk_copy_runtime(my_process)   # Windows ではプラグインの隣に juiz_sdk.dll を写す (Linux / macOS では何もしない)
+```
+
+IDL から C++ の型を作る `juiz_generate_types()`(`cppjuiz/cmake/juiz_idl.cmake`)も `find_package` で使えるようになります。
+Linux / macOS では、CMake がビルドしたプラグインの rpath にアーカイブの `lib/` を入れます。
+
+### Windows の DLL の探し方
+
+Windows では、プラグインの DLL は libjuiz_sdk の DLL `juiz_sdk.dll` に依存します。juiz はプラグインを
+`LOAD_WITH_ALTERED_SEARCH_PATH` で開くので、`juiz_sdk.dll` を **プラグインの DLL と同じディレクトリ** に置けば見つかります
+(Linux の rpath `$ORIGIN` に当たります)。PATH に通したディレクトリからも探します。
+MSVC でビルドした DLL を 1 種類だけ配っていますが、境界は C ABI なので、MinGW など他のコンパイラで作ったプラグインからも使えます
+(MinGW では `juiz_sdk.dll` を直接リンクできます)。
 
 使う `juiz` と **同じ版** の libjuiz_sdk でビルドしてください。juiz はプラグインを開いたとき、プラグインが読み込んだ libjuiz_sdk の
 `juiz_sdk_build_info()` を自分の juiz_sdk と比べ、版が違えば読み込みをエラーにします(Rust コンパイラの版だけが違うときは警告)。
