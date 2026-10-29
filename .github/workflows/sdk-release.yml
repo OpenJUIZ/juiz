@@ -1,14 +1,15 @@
 name: libjuiz_sdk release
 
 # C++ / Haskell のプラグインが使う libjuiz_sdk とヘッダを、OS・CPU ごとのアーカイブ
-# (juiz_sdk-<版>-<ターゲット名>.tar.gz と .sha256)にして GitHub Releases に置く(issue #136)。
-# 利用者は scripts/install-juiz-sdk.sh で取得できる。
+# (juiz_sdk-<版>-<ターゲット名>.tar.gz と .sha256、Windows は .zip)にして GitHub Releases に置く
+# (issue #136、Windows は #273)。利用者は scripts/install-juiz-sdk.sh(Windows は install-juiz-sdk.ps1)で取得できる。
 #
 # - v* タグ: タグの版と juiz_sdk/Cargo.toml の version が一致するときだけ、タグのリリースに置く
 #   (リリースが無ければ作る。リリース作成画面で先に作ったときは、そのリリースに足す)
 # - プルリクエスト・手動実行: アーカイブを作って確かめるだけ(アーティファクトに置く)
 #
-# どのアーカイブも、展開した libjuiz_sdk を Python の ctypes で開いて juiz_sdk_build_info を呼ぶ。
+# どのアーカイブも、展開した libjuiz_sdk を Python の ctypes で開いて juiz_sdk_build_info を呼び、
+# 中の juiz_sdkConfig.cmake を find_package で使って小さな C++ のプラグインをビルドして開けることを確かめる(issue #162)。
 # Linux x86_64 と macOS arm64 では、hsjuiz を sdist から(Hackage から入れたときと同じ形で)
 # このアーカイブだけを使ってビルドし、Haskell のプラグインを開けることも確かめる。
 on:
@@ -19,6 +20,8 @@ on:
       - ".github/workflows/sdk-release.yml"
       - "scripts/package-juiz-sdk.sh"
       - "scripts/check-hsjuiz-package.sh"
+      - "scripts/install-juiz-sdk.sh"
+      - "scripts/install-juiz-sdk.ps1"
       - "juiz_sdk/**"
       - "bindings/cjuiz/**"
       - "bindings/cppjuiz/**"
@@ -70,7 +73,15 @@ jobs:
           - target: x86_64-apple-darwin
             runner: macos-15-intel
             haskell: false
+          # MSVC でビルドした DLL 1 種だけを配る。境界は C ABI なので MinGW などからも使える(issue #273)
+          - target: x86_64-pc-windows-msvc
+            runner: windows-2022
+            haskell: false
     runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        # Windows も Git Bash で同じスクリプトを使う
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
@@ -86,27 +97,89 @@ jobs:
       - name: Package
         run: |
           archive=$(scripts/package-juiz-sdk.sh "${{ matrix.target }}" dist)
-          mkdir -p "$RUNNER_TEMP/sdk"
-          tar -C "$RUNNER_TEMP/sdk" -xzf "$archive"
-          echo "SDK_DIR=$(ls -d "$RUNNER_TEMP"/sdk/juiz_sdk-*)" >> "$GITHUB_ENV"
+          sdk_root="$RUNNER_TEMP/sdk"
+          mkdir -p "$sdk_root"
+          case "$archive" in
+            *.zip) unzip -q "$archive" -d "$sdk_root" ;;
+            *) tar -C "$sdk_root" -xzf "$archive" ;;
+          esac
+          echo "SDK_DIR=$(ls -d "$sdk_root"/juiz_sdk-*)" >> "$GITHUB_ENV"
           ls -l dist
 
       - name: Check the packaged library
         run: |
           ls -lR "$SDK_DIR"
-          if [ "$(uname -s)" = Darwin ]; then
-            otool -D "$SDK_DIR/lib/libjuiz_sdk.dylib"
-            otool -D "$SDK_DIR/lib/libjuiz_sdk.dylib" | grep -q '@rpath/libjuiz_sdk.dylib'
-            lib="$SDK_DIR/lib/libjuiz_sdk.dylib"
-          else
-            lib="$SDK_DIR/lib/libjuiz_sdk.so"
-          fi
-          python3 - "$lib" <<'EOF'
+          case "${{ matrix.target }}" in
+            *-windows-*)
+              test -f "$SDK_DIR/lib/juiz_sdk.dll.lib"
+              lib="$SDK_DIR/bin/juiz_sdk.dll"
+              ;;
+            *-apple-*)
+              otool -D "$SDK_DIR/lib/libjuiz_sdk.dylib"
+              otool -D "$SDK_DIR/lib/libjuiz_sdk.dylib" | grep -q '@rpath/libjuiz_sdk.dylib'
+              lib="$SDK_DIR/lib/libjuiz_sdk.dylib"
+              ;;
+            *) lib="$SDK_DIR/lib/libjuiz_sdk.so" ;;
+          esac
+          # Windows の python3 は Microsoft Store のスタブのことがあるので python を使う
+          py=python3
+          if [ "$RUNNER_OS" = Windows ]; then py=python; fi
+          "$py" - "$lib" <<'EOF'
           import ctypes, sys
           lib = ctypes.CDLL(sys.argv[1])
           lib.juiz_sdk_build_info.restype = ctypes.c_char_p
           print(lib.juiz_sdk_build_info().decode())
           EOF
+
+      # アーカイブの juiz_sdkConfig.cmake で C++ のプラグインをビルドし、開けることを確かめる(issue #162)。
+      # Windows では juiz_sdk_copy_runtime がプラグインの隣に juiz_sdk.dll を写すので、それで開ける
+      - name: Build a C++ plugin with find_package(juiz_sdk)
+        run: |
+          version=$(sed -n 's/^version *= *"\(.*\)"/\1/p' juiz_sdk/Cargo.toml | head -n 1)
+          build="$RUNNER_TEMP/find_package_build"
+          cmake -S bindings/cppjuiz/tests/find_package -B "$build" \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$SDK_DIR" -DJUIZ_SDK_EXPECTED_VERSION="$version"
+          cmake --build "$build" --config Release
+          case "${{ matrix.target }}" in
+            *-windows-*) plugin="$build/out/find_package_process.dll" ;;
+            *-apple-*) plugin="$build/out/libfind_package_process.dylib" ;;
+            *) plugin="$build/out/libfind_package_process.so" ;;
+          esac
+          py=python3
+          if [ "$RUNNER_OS" = Windows ]; then py=python; fi
+          "$py" - "$plugin" <<'EOF'
+          import ctypes, sys
+          lib = ctypes.CDLL(sys.argv[1])
+          print("opened", sys.argv[1], lib.manifest_entry_point)
+          EOF
+
+      # 取得スクリプトで、作ったアーカイブを Releases と同じ配置の手元の HTTP サーバーから入れられることを確かめる。
+      # Windows は Windows PowerShell 5.1 と PowerShell 7 の両方で install-juiz-sdk.ps1 を試す
+      - name: Install the archive with the install script
+        run: |
+          version=$(sed -n 's/^version *= *"\(.*\)"/\1/p' juiz_sdk/Cargo.toml | head -n 1)
+          serve="$RUNNER_TEMP/serve"
+          mkdir -p "$serve/v$version"
+          cp dist/* "$serve/v$version/"
+          py=python3
+          if [ "$RUNNER_OS" = Windows ]; then py=python; fi
+          "$py" -m http.server 8765 --bind 127.0.0.1 --directory "$serve" > /dev/null 2>&1 &
+          server=$!
+          trap 'kill $server' EXIT
+          sleep 2
+          export JUIZ_SDK_BASE_URL=http://127.0.0.1:8765
+          if [ "$RUNNER_OS" = Windows ]; then
+            for shell in powershell pwsh; do
+              dest="$RUNNER_TEMP/installed-$shell"
+              "$shell" -NoProfile -ExecutionPolicy Bypass -File scripts/install-juiz-sdk.ps1 "$version" "$dest"
+              test -f "$dest/bin/juiz_sdk.dll"
+              test -f "$dest/lib/cmake/juiz_sdk/juiz_sdkConfig.cmake"
+            done
+          else
+            dest="$RUNNER_TEMP/installed"
+            sh scripts/install-juiz-sdk.sh "$version" "$dest"
+            test -f "$dest/lib/cmake/juiz_sdk/juiz_sdkConfig.cmake"
+          fi
 
       - uses: haskell-actions/setup@v2
         if: matrix.haskell

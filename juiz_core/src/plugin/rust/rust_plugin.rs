@@ -8,7 +8,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::plugin::Plugin;
+use crate::plugin::{open_library, Plugin};
 use crate::{
     containers::{container_factory_create, container_process_factory_create},
     prelude::*,
@@ -50,7 +50,7 @@ impl RustPlugin {
             }));
         }
         unsafe {
-            match libloading::Library::new(path.clone()) {
+            match open_library(&path) {
                 Ok(lib) => {
                     type FunctionType = libloading::Symbol<
                         'static,
