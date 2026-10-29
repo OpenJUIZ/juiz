@@ -159,6 +159,7 @@ MessagePack(QMP)は今のとおり Value を変換したものを流すので、
 - 型付きの引数の `default` は、§4 の辞書での表し方で書く。manifest を作るときに §4 の規則で検査し、合わなければエラー(今の `new_with_check` と同じ扱い)。
 - 今の `outputs`(`OutputProfile`、pyjuiz だけが埋めている)は互換のために残す。新しいコードは `output_schema` を使う。Rust の SDK は `output_schema` を付けるとき、`outputs` が空なら `type_name` だけの `outputs`(`{"enum_type": "Primitive", "type_name": "Object", "default_value": null}` など)も埋める(古いクライアントの表示用。Step 1)。
 - 型付きの引数の `default` が `null` で、型が `T?` でなければ「既定値なし」として扱い、検査しない(今の Image 引数などと同じ)。`image` の引数の `default` は検査しない。
+- `call` で省いた引数は、呼ばれる側(`ProcessImpl::call`)で `default` を補ってから実行する(issue #265。ブローカー越しでも同じ)。「既定値なし」の引数と `image` の引数は補わず、`ArgumentMissingWhenCallingError` になる。`T?` で `default` が `null` なら `null` を補う。`p_apply` の拘束値は `call` では使わない(EC・`execute` のときだけ使う)。
 - 戻り値が `void`(`null`)の型付きの Process は、今の `Capsule::Empty` を返してよい。
 
 ## 7. 互換性

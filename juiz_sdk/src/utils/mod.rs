@@ -8,6 +8,7 @@ pub mod yaml_conf_load;
 
 pub use manifest_checker::{
     check_connection_manifest, check_corebroker_manifest, check_manifest_before_call,
+    fill_default_arguments,
 };
 pub use manifest_util::{
     get_array, get_array_mut, get_hashmap, get_hashmap_mut, get_str, get_value, when_contains_do,
