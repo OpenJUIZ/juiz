@@ -6,6 +6,12 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# ソースとヘッダは BOM なしの UTF-8 で、日本語のコメントを含む。MSVC は既定でシステムの
+# コードページで読むので、日本語の Windows (CP932) ではコメントの直後の行が壊れてビルドできない。
+if (MSVC)
+  add_compile_options(/utf-8)
+endif ()
+
 set(JUIZ_HEADER_DIR bindings/cppjuiz/include)
 set(PROJECT_HOME ${PROJECT_SOURCE_DIR}/../../)
 include_directories(${PROJECT_HOME}/${JUIZ_HEADER_DIR})
