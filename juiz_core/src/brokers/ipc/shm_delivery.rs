@@ -6,16 +6,17 @@
 //! - Topic ごとの配達のスレッドが受け箱から取り出し、共有メモリから読んで、今と同じく Topic に push する。
 //!   読む前か読んでいる最中に上書きされていたら捨てて数える (overwritten)
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use juiz_sdk::anyhow::anyhow;
+use juiz_sdk::image::DynamicImage;
 
 use super::shm::{RingLayout, ShmReadError, ShmReader};
 use crate::brokers::core_broker::CoreBrokerPtr;
-use crate::brokers::frame::{capsule_from_body_bytes, BodyDesc, IncomingBody, IncomingFrame, ShmRef};
+use crate::brokers::frame::{capsule_from_body_bytes_reusing, BodyDesc, IncomingBody, IncomingFrame, ShmRef};
 use crate::prelude::*;
 use crate::topics::SharedMemoryStats;
 
@@ -248,6 +249,22 @@ fn stats_of(core_broker: &CoreBrokerPtr, topic_name: &str) -> Option<Arc<SharedM
     Some(topic.shared_memory_stats())
 }
 
+/// 使い回しを待つ、届けた画像の数。Topic と subscribe した Process の引数は最後の 1 件を持ち続けるので、
+/// 使い終わるのは 1 つ前より古いもの。それより多くは持たない (使われていない領域を抱え続けないため)
+const KEEP_DELIVERED: usize = 2;
+
+/// 届けた画像のうち、ほかに参照の無いものを 1 つ取り出す。参照のあるものは残す
+fn take_unused_image(delivered: &mut VecDeque<CapsulePtr>) -> Option<DynamicImage> {
+    for i in 0..delivered.len() {
+        let p = delivered.remove(i)?;
+        match p.try_into_capsule() {
+            Ok(c) => return c.to_image(),
+            Err(p) => delivered.insert(i, p),
+        }
+    }
+    None
+}
+
 fn deliver_loop(
     mailbox: Arc<Mailbox>,
     deliver: Deliver,
@@ -256,6 +273,8 @@ fn deliver_loop(
     topic_name: String,
     core_broker: CoreBrokerPtr,
 ) {
+    // 届けた画像 (古い順)。次に受け取るときに、誰も持っていないものがあればその領域を使い回す
+    let mut delivered: VecDeque<CapsulePtr> = VecDeque::new();
     loop {
         let notice = {
             let Ok(mut latest) = mailbox.latest.lock() else {
@@ -274,19 +293,42 @@ fn deliver_loop(
                 };
             }
         };
+        // 前に届けた画像のうち、もう誰も持っていないものの領域に写す (large-data.md §6.9 の「受け手の領域の使い回し」)
+        let mut spare = take_unused_image(&mut delivered);
+        let had_spare = spare.is_some();
         let desc = notice.desc.clone();
-        match notice
+        let faults_before = minor_page_faults();
+        let copy_start = Instant::now();
+        let read = notice
             .reader
-            .read(&notice.shm, |bytes| capsule_from_body_bytes(&desc, bytes))
-        {
+            .read(&notice.shm, |bytes| capsule_from_body_bytes_reusing(&desc, bytes, &mut spare));
+        let copy_time = copy_start.elapsed();
+        let faults = minor_page_faults().saturating_sub(faults_before);
+        match read {
             Ok(capsule) => {
+                let capsule: CapsulePtr = capsule.into();
                 let mut cm = CapsuleMap::new();
                 for (k, v) in notice.param.iter() {
                     cm.set_param(k, v);
                 }
-                cm.insert(notice.arg_name.clone(), capsule.into());
+                cm.insert(notice.arg_name.clone(), capsule.clone());
+                let push_start = Instant::now();
                 if let Err(e) = deliver(cm) {
                     log::error!("ipc://{own_name}: topic push of {topic_name} (shared memory) failed. {e:#}");
+                }
+                let push_time = push_start.elapsed();
+                if let Some(stats) = stats_of(&core_broker, &topic_name) {
+                    SharedMemoryStats::add(&stats.received);
+                    if had_spare && spare.is_none() {
+                        SharedMemoryStats::add(&stats.reused);
+                    }
+                    SharedMemoryStats::add_n(&stats.receive_copy_ns, copy_time.as_nanos() as u64);
+                    SharedMemoryStats::add_n(&stats.receive_page_faults, faults);
+                    SharedMemoryStats::add_n(&stats.receive_push_ns, push_time.as_nanos() as u64);
+                }
+                delivered.push_back(capsule);
+                if delivered.len() > KEEP_DELIVERED {
+                    delivered.pop_front();
                 }
             }
             Err(ShmReadError::Overwritten) => {
@@ -299,5 +341,43 @@ fn deliver_loop(
                 log::error!("ipc://{own_name}: can not read {topic_name} from shared memory. {e:#}");
             }
         }
+    }
+}
+
+/// このスレッドでこれまでに起きたページフォールト (minor) の数。Linux 以外は 0
+fn minor_page_faults() -> u64 {
+    #[cfg(target_os = "linux")]
+    {
+        let mut usage = std::mem::MaybeUninit::<libc::rusage>::zeroed();
+        // SAFETY: usage は書き込み先として十分な大きさがある
+        if unsafe { libc::getrusage(libc::RUSAGE_THREAD, usage.as_mut_ptr()) } == 0 {
+            // SAFETY: getrusage が成功したので初期化されている
+            return unsafe { usage.assume_init() }.ru_minflt as u64;
+        }
+    }
+    0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn image_ptr(w: u32) -> CapsulePtr {
+        Capsule::from(DynamicImage::new_rgb8(w, 1)).into()
+    }
+
+    #[test]
+    fn only_images_nobody_holds_are_taken() {
+        let (old, held) = (image_ptr(1), image_ptr(2));
+        let holder = held.clone();
+        let mut delivered: VecDeque<CapsulePtr> = [held, old].into_iter().collect();
+        // 古い順に見て、参照の残っているもの (幅 2) は飛ばし、誰も持っていないもの (幅 1) を取り出す
+        assert_eq!(take_unused_image(&mut delivered).map(|i| i.width()), Some(1));
+        assert_eq!(delivered.len(), 1);
+        assert_eq!(take_unused_image(&mut delivered), None);
+        assert_eq!(delivered.len(), 1);
+        drop(holder);
+        assert_eq!(take_unused_image(&mut delivered).map(|i| i.width()), Some(2));
+        assert!(delivered.is_empty());
     }
 }

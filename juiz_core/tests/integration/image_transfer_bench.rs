@@ -462,6 +462,52 @@ struct Row {
     /// Topic (別プロセス) の [A, B]
     topic_push: [Duration; 2],
     topic_delivered: [Duration; 2],
+    /// B の受け手の内訳 (#270)
+    topic_b_receive: ReceiveBreakdown,
+}
+
+/// 共有メモリの Topic の受け手の 1 フレームあたりの内訳 (受け手の Topic の profile の数え上げの差から求める)
+#[derive(Default, Clone, Copy)]
+struct ReceiveBreakdown {
+    copy: Duration,
+    page_faults: f64,
+    push: Duration,
+    reused: f64,
+}
+
+/// profile の中から Topic の shared_memory の数え上げを探す (入れ子のどこにあってもよい)
+fn find_shm_stats(v: &Value, topic: &str) -> Option<Value> {
+    match v {
+        Value::Object(obj) => {
+            if let Some(Value::Array(topics)) = obj.get("topics") {
+                for t in topics {
+                    let id = t.get("identifier").and_then(|n| n.as_str()).unwrap_or("");
+                    if id.contains(&format!("/{topic}::")) {
+                        return t.get("shared_memory").cloned();
+                    }
+                }
+            }
+            obj.values().find_map(|c| find_shm_stats(c, topic))
+        }
+        Value::Array(a) => a.iter().find_map(|c| find_shm_stats(c, topic)),
+        _ => None,
+    }
+}
+
+impl ReceiveBreakdown {
+    fn between(before: &Value, after: &Value) -> Self {
+        let diff = |key: &str| {
+            let get = |v: &Value| v.get(key).and_then(|x| x.as_u64()).unwrap_or(0);
+            get(after).saturating_sub(get(before))
+        };
+        let n = diff("received").max(1);
+        ReceiveBreakdown {
+            copy: Duration::from_nanos(diff("receive_copy_ns") / n),
+            page_faults: diff("receive_page_faults") as f64 / n as f64,
+            push: Duration::from_nanos(diff("receive_push_ns") / n),
+            reused: diff("reused") as f64 / n as f64,
+        }
+    }
 }
 
 #[test]
@@ -665,6 +711,11 @@ fn bench_image_transfer() -> JuizResult<()> {
             };
             let mut topic_push = [Duration::ZERO; 2];
             let mut topic_delivered = [Duration::ZERO; 2];
+            let mut topic_b_receive = ReceiveBreakdown::default();
+            let remote_shm_stats = || -> JuizResult<Value> {
+                let profile = juiz_lock(&ipc)?.system_profile_full()?;
+                Ok(find_shm_stats(&profile, TOPIC_B).unwrap_or(Value::Null))
+            };
             for (i, source) in topic_sources.iter().enumerate() {
                 let publish = |seed: i64| -> JuizResult<()> {
                     let mut p = source.lock_mut()?;
@@ -684,11 +735,15 @@ fn bench_image_transfer() -> JuizResult<()> {
                     }
                     Ok(())
                 };
+                let stats_before = remote_shm_stats()?;
                 topic_delivered[i] = time_per_call(width, |seed| {
                     let before = received(i)?;
                     publish(seed)?;
                     wait_for(before + 1)
                 })?;
+                if i == 1 {
+                    topic_b_receive = ReceiveBreakdown::between(&stats_before, &remote_shm_stats()?);
+                }
                 // B は受け手を待たないので、続けて publish すると受け手が古いフレームを捨てる。間を空けて測る
                 let mut total = Duration::ZERO;
                 let n = 5;
@@ -720,6 +775,7 @@ fn bench_image_transfer() -> JuizResult<()> {
                 unix_raw,
                 topic_push,
                 topic_delivered,
+                topic_b_receive,
             });
         }
 
@@ -844,6 +900,25 @@ fn bench_image_transfer() -> JuizResult<()> {
             ms(r.topic_push[1]),
             ms(r.topic_delivered[1]),
             r.topic_delivered[0].as_secs_f64() / r.topic_delivered[1].as_secs_f64(),
+        );
+    }
+    println!("\n### Topic B の受け手の内訳 (1 フレームあたりの平均、#270)");
+    header(&[
+        "",
+        "共有メモリからのコピー [ms]",
+        "コピー中のページフォールト [回]",
+        "Topic への push [ms]",
+        "領域を使い回せた割合",
+    ]);
+    for r in rows.iter() {
+        let b = r.topic_b_receive;
+        println!(
+            "| {} | {} | {:.0} | {} | {:.0}% |",
+            r.label,
+            ms(b.copy),
+            b.page_faults,
+            ms(b.push),
+            b.reused * 100.0,
         );
     }
     println!("\n### 送れないもの");

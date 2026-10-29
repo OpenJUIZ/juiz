@@ -129,6 +129,16 @@ pub struct SharedMemoryStats {
     pub fallback: AtomicU64,
     pub dropped: AtomicU64,
     pub overwritten: AtomicU64,
+    /// 受け手が共有メモリから読んで Topic に push した数と、その時間の合計 (#270 の内訳)
+    pub received: AtomicU64,
+    /// 共有メモリから受け手の画像へのコピー (確保とページフォールトを含む) [ns]
+    pub receive_copy_ns: AtomicU64,
+    /// コピーの間に起きたページフォールト (minor) の数。Linux だけ数える
+    pub receive_page_faults: AtomicU64,
+    /// 受け手の Topic への push (subscriber の実行を含む) [ns]
+    pub receive_push_ns: AtomicU64,
+    /// 使い終わった画像の領域に写せた数
+    pub reused: AtomicU64,
 }
 
 impl SharedMemoryStats {
@@ -144,6 +154,10 @@ impl SharedMemoryStats {
 
     pub fn add(counter: &AtomicU64) {
         counter.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn add_n(counter: &AtomicU64, n: u64) {
+        counter.fetch_add(n, Ordering::Relaxed);
     }
 
     /// profile の "shared_memory"。使っていなければ None。slot_bytes は決まるまで "auto"
@@ -162,6 +176,11 @@ impl SharedMemoryStats {
             "fallback": self.fallback.load(Ordering::Relaxed),
             "dropped": self.dropped.load(Ordering::Relaxed),
             "overwritten": self.overwritten.load(Ordering::Relaxed),
+            "received": self.received.load(Ordering::Relaxed),
+            "reused": self.reused.load(Ordering::Relaxed),
+            "receive_copy_ns": self.receive_copy_ns.load(Ordering::Relaxed),
+            "receive_page_faults": self.receive_page_faults.load(Ordering::Relaxed),
+            "receive_push_ns": self.receive_push_ns.load(Ordering::Relaxed),
         }))
     }
 }
