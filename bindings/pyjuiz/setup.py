@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="pyjuiz",
-    version="0.0.25",
+    version="0.0.26",
     description='Python binding interface for JUIZ robot middleware components',
     url='https://github.com/OpenJUIZ/juiz',
     author='ysuga',
@@ -10,7 +10,7 @@ setup(
     license='MIT OR Apache-2.0',
     license_files=['LICENSE-MIT', 'LICENSE-APACHE'],
     keywords='robot,middleware',
-    install_requires=["pyyaml", "httpx", "pillow", "docstring_parser"],
+    install_requires=["pyyaml", "httpx", "pillow"],
     extras_require={
         #"develop": ["dev-packageA", "dev-packageB"]
     },

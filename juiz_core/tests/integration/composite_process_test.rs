@@ -189,8 +189,8 @@ fn composite_call_evaluates_two_stages() -> JuizResult<()> {
     let p = instance(&pf, "c0")?;
     // (5 + 1) - (2 * 2)
     assert_eq!(call(&p, vec![("x", jvalue!(5)), ("y", jvalue!(2))])?, 2);
-    // 引数が足りなければ子を呼ぶ前にエラー
-    assert!(p.lock()?.call(vec![("x", jvalue!(5))].into()).is_err());
+    // 省いた公開引数 y は子 double の arg1 の既定値 1 で補われる (issue #265): (5 + 1) - (1 * 2)
+    assert_eq!(call(&p, vec![("x", jvalue!(5))])?, 4);
     Ok(())
 }
 

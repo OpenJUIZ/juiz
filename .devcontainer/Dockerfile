@@ -14,7 +14,7 @@ RUN apt-get update \
 
 # 埋め込み Python(PyO3)から使う pyjuiz の依存パッケージ(CI と同じもの)
 RUN python3 -m pip install --break-system-packages --no-cache-dir \
-        pyyaml httpx pillow docstring_parser
+        pyyaml httpx pillow
 
 # Rust は stable を vscode ユーザーに入れる(CI の dtolnay/rust-toolchain@stable と同じ)。
 # Apple Silicon の Mac でも動くように、アーキテクチャに合った rustup-init を取得する。

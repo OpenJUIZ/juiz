@@ -1,6 +1,6 @@
 [package]
 name = "juiz_webui"
-version = "0.0.25"
+version = "0.0.26"
 edition = "2021"
 description = "Built web UI (system viewer) of JUIZ, embedded into juiz_core and served at /ui."
 # このクレートは公開時にリポジトリの外(git 管理外)へコピーしてから cargo publish するので、

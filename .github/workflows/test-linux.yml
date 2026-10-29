@@ -61,18 +61,21 @@ jobs:
           sudo apt-get install -y --no-install-recommends cmake clang
 
       - uses: actions/setup-python@v5
+        id: setup-python
         with:
           python-version: ${{ matrix.python }}
 
       - name: Install pyjuiz dependencies (used by the embedded Python)
-        run: python3 -m pip install pyyaml httpx pillow docstring_parser numpy
+        run: python3 -m pip install pyyaml httpx pillow numpy
 
       - uses: dtolnay/rust-toolchain@stable
 
-      # pyo3 のビルド結果は Python の版で変わるので、キャッシュを版ごとに分ける
+      # pyo3 のビルド結果は Python の版で変わるので、キャッシュを版ごとに分ける。
+      # pyo3 のビルドスクリプトの結果には Python のパス(/opt/hostedtoolcache/Python/<版>/...)が入るので、
+      # ランナーの Python のパッチ版が変わると古いパスで -lpython3.x が見つからずリンクに失敗する。パッチ版まで分ける
       - uses: Swatinem/rust-cache@v2
         with:
-          key: python${{ matrix.python }}
+          key: python${{ steps.setup-python.outputs.python-version }}
 
       # Haskell の例(examples/haskell)のビルドに使う GHC と cabal を入れる。
       # ghcup での GHC のインストールに Linux で約 2 分、macOS で約 4 分かかるので、入れた GHC をキャッシュする。
@@ -177,7 +180,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends cmake clang python3-dev python3-pip
 
       - name: Install pyjuiz dependencies (used by the embedded Python)
-        run: python3 -m pip install --break-system-packages pyyaml httpx pillow docstring_parser numpy
+        run: python3 -m pip install --break-system-packages pyyaml httpx pillow numpy
 
       - uses: dtolnay/rust-toolchain@stable
         with:

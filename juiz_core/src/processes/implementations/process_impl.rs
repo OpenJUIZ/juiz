@@ -10,7 +10,7 @@ use crate::prelude::*;
 use juiz_sdk::connections::{
     ConnectionManifest, ConnectionProfile, DestinationConnection, SourceConnection,
 };
-use juiz_sdk::utils::check_manifest_before_call;
+use juiz_sdk::utils::{check_manifest_before_call, fill_default_arguments};
 
 //use crate::value::CapsuleMap;
 use super::inlet::Inlet;
@@ -257,6 +257,8 @@ impl Process for ProcessImpl {
 
     fn call(&self, args: RequestMap) -> JuizResult<ResponsePtr> {
         log::trace!("【呼出】ProcessImpl({:})::call({args})", self.identifier());
+        // 省かれた引数は manifest の既定値で補う (issue #265)
+        let args = fill_default_arguments(&self.profile, args);
         check_manifest_before_call(&(self.profile), &args)?;
         let result = match self.passthrough_function.as_ref() {
             Some(f) => f(args),
