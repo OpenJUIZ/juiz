@@ -118,7 +118,7 @@ scripts/test.sh --prepare-only               # 準備だけ行う
 
 juiz_core の統合テストは、リンクの時間を減らすため `juiz_core/tests/integration/` の下にまとめて 1 本のバイナリ(`--test integration`)にしています。新しいテストはこのディレクトリにファイルを置き、`main.rs` に `mod` を足してください。ログは `env_logger::try_init()` ではなく `common::logger::init()` で設定します。
 
-必要なものは Rust、CMake と C++ コンパイラ、Python 3 と pyjuiz の依存パッケージ(`python3 -m pip install pyyaml httpx pillow docstring_parser numpy`)です。足りないものがあれば、スクリプトがその旨と入れ方を表示して止まります。
+必要なものは Rust、CMake と C++ コンパイラ、Python 3 と pyjuiz の依存パッケージ(`python3 -m pip install pyyaml httpx pillow numpy`)です。足りないものがあれば、スクリプトがその旨と入れ方を表示して止まります。
 GHC と cabal は任意で、無ければ Haskell の例のビルドとテスト(`haskell_plugin_test`)を飛ばします(CI では `JUIZ_REQUIRE_HASKELL=1` にして飛ばしません)。
 `cargo test` だけを実行すると、例のプラグインを読み込むテスト(`system_test` や `*_broker_api_test` など)は失敗します。そのときのエラーには、見つからなかったプラグインのパスや足りない Python モジュールと、必要な準備が表示されます。
 

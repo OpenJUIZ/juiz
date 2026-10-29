@@ -10,7 +10,7 @@ setup(
     license='MIT OR Apache-2.0',
     license_files=['LICENSE-MIT', 'LICENSE-APACHE'],
     keywords='robot,middleware',
-    install_requires=["pyyaml", "httpx", "pillow", "docstring_parser"],
+    install_requires=["pyyaml", "httpx", "pillow"],
     extras_require={
         #"develop": ["dev-packageA", "dev-packageB"]
     },

@@ -553,7 +553,7 @@ fn module_from_code<'py>(
         }
         let hinted = PyModuleNotFoundError::new_err(format!(
             "{}. Python plugins need pyjuiz (the `juiz` module) and its dependencies: \
-             run `python3 -m pip install pyyaml httpx pillow docstring_parser` and add \
+             run `python3 -m pip install pyyaml httpx pillow` and add \
              bindings/pyjuiz to PYTHONPATH (or `python3 -m pip install pyjuiz`). \
              For juiz's own tests, `scripts/test.sh` checks these.",
             e.value(py)
