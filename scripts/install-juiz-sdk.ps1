@@ -1,20 +1,25 @@
-# GitHub Releases から Windows 向けの libjuiz_sdk とヘッダ(juiz_sdk-<版>-x86_64-pc-windows-msvc.zip)を取得して展開する(issue #273)。
-# C++ のプラグインを、juiz のソースを取得せずにビルドするために使う。Linux / macOS は install-juiz-sdk.sh を使う。
+# Download libjuiz_sdk and its headers for Windows (juiz_sdk-<version>-x86_64-pc-windows-msvc.zip)
+# from GitHub Releases and extract them (issue #273). Use install-juiz-sdk.sh on Linux / macOS.
+# This lets you build C++ plugins without fetching and building the juiz sources.
 #
-# 使い方: install-juiz-sdk.ps1 <版> [展開先]
-#   版は juiz コマンドと同じもの(juiz --version、例: 0.0.27)。
-#   展開先の既定は %USERPROFILE%\.juiz\sdk\<版>(環境変数 JUIZ_SDK_HOME で %USERPROFILE%\.juiz\sdk を変えられる)。
+# Usage: install-juiz-sdk.ps1 <version> [dest]
+#   version: the same version as the juiz command (juiz --version), e.g. 0.0.27
+#   dest:    defaults to %USERPROFILE%\.juiz\sdk\<version>
+#            (set JUIZ_SDK_HOME to change %USERPROFILE%\.juiz\sdk)
 #
 #   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/OpenJUIZ/juiz/main/scripts/install-juiz-sdk.ps1))) 0.0.27
 #
-# 対応: Windows x86_64(MSVC でビルドした DLL。MinGW など他のコンパイラのプラグインからも C ABI で使える)
-# Windows PowerShell 5.1 と PowerShell 7 で動く。
+# Supported: Windows x86_64 (a DLL built with MSVC; plugins built with MinGW etc. can use it through the C ABI).
+# Works with Windows PowerShell 5.1 and PowerShell 7.
+#
+# Keep this file ASCII only: Windows PowerShell 5.1 reads a UTF-8 file without BOM in the ANSI code page,
+# so Japanese text breaks the parser.
 param(
     [Parameter(Mandatory = $true, Position = 0)][string]$Version,
     [Parameter(Position = 1)][string]$Dest
 )
 $ErrorActionPreference = 'Stop'
-$ProgressPreference = 'SilentlyContinue'  # Windows PowerShell 5.1 の Invoke-WebRequest は進捗表示でとても遅くなる
+$ProgressPreference = 'SilentlyContinue'  # the progress bar makes Invoke-WebRequest very slow on PowerShell 5.1
 
 $Version = $Version.TrimStart('v')
 if (-not $Dest) {
@@ -25,7 +30,7 @@ $base_url = if ($env:JUIZ_SDK_BASE_URL) { $env:JUIZ_SDK_BASE_URL } else { 'https
 
 $arch = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
 if ($arch -ne 'AMD64') {
-    Write-Error "$arch 向けの libjuiz_sdk は配布していません。juiz のリポジトリで cargo build -p juiz_sdk を実行してください。"
+    Write-Error "libjuiz_sdk is not distributed for $arch. Build it with 'cargo build -p juiz_sdk' in the juiz repository."
 }
 $target = 'x86_64-pc-windows-msvc'
 
@@ -34,7 +39,7 @@ $url = "$base_url/v$Version/$name.zip"
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("juiz_sdk_" + [System.Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tmp | Out-Null
 try {
-    # Windows PowerShell 5.1 は既定で TLS 1.2 を使わないことがある
+    # Windows PowerShell 5.1 may not use TLS 1.2 by default
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
     Write-Host "downloading $url"
@@ -42,13 +47,13 @@ try {
     try {
         Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $zip
     } catch {
-        Write-Error "$url を取得できません。版($Version)が公開されているか https://github.com/OpenJUIZ/juiz/releases を確認してください。"
+        Write-Error "Cannot download $url. Check that version $Version is published at https://github.com/OpenJUIZ/juiz/releases"
     }
     Invoke-WebRequest -UseBasicParsing -Uri "$url.sha256" -OutFile "$zip.sha256"
     $expected = ((Get-Content "$zip.sha256" -Raw).Trim() -split '\s+')[0].ToLower()
     $actual = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
     if ($expected -ne $actual) {
-        Write-Error "$name.zip のチェックサムが合いません"
+        Write-Error "Checksum mismatch: $name.zip"
     }
 
     Expand-Archive -Path $zip -DestinationPath $tmp
@@ -61,7 +66,7 @@ try {
 }
 
 $cmake_dest = $Dest -replace '\\', '/'
-@"
+Write-Host @"
 installed libjuiz_sdk $Version to $Dest
 
 CMake: configure with -DCMAKE_PREFIX_PATH=$cmake_dest and write
@@ -72,4 +77,4 @@ CMake: configure with -DCMAKE_PREFIX_PATH=$cmake_dest and write
 Other build systems: add include directories $Dest\cjuiz\include and $Dest\cppjuiz\include,
   link $Dest\lib\juiz_sdk.dll.lib, and put $Dest\bin\juiz_sdk.dll next to the plugin's DLL
   (juiz looks for the DLLs a plugin depends on in the plugin's directory, and in PATH).
-"@ | Write-Host
+"@
