@@ -30,7 +30,7 @@ cppjuiz/cmake/juiz_idl.cmake
 `juiz_sdk::juiz_sdk` をリンクすると、C / C++ のヘッダの include パスと C++17 が付き、MSVC には `/utf-8` が付きます(ヘッダが UTF-8 の日本語のコメントを含むため)。
 
 ```cmake
-find_package(juiz_sdk 0.0.27 EXACT CONFIG REQUIRED)   # 版は juiz と同じものを指定する
+find_package(juiz_sdk 0.0.28 EXACT CONFIG REQUIRED)   # 版は juiz と同じものを指定する
 add_library(my_process SHARED my_process.cpp)
 target_link_libraries(my_process PRIVATE juiz_sdk::juiz_sdk)
 juiz_sdk_copy_runtime(my_process)   # Windows ではプラグインの隣に juiz_sdk.dll を写す (Linux / macOS では何もしない)
@@ -38,6 +38,10 @@ juiz_sdk_copy_runtime(my_process)   # Windows ではプラグインの隣に jui
 
 IDL から C++ の型を作る `juiz_generate_types()`(`cppjuiz/cmake/juiz_idl.cmake`)も `find_package` で使えるようになります。
 Linux / macOS では、CMake がビルドしたプラグインの rpath にアーカイブの `lib/` を入れます。
+
+アプリ配布形式 `.juizapp` に入れるプラグインは、`juiz_sdk_copy_runtime` の代わりに `juiz_sdk_bundle(my_process)` を使います(0.0.28 から)。
+rpath を `$ORIGIN`(macOS は `@loader_path`)だけにし、ビルドしたプラグインの隣に libjuiz_sdk を写すので、
+できたディレクトリをそのままパッケージの `plugins/<ターゲット名>/` に置けます(docs/spec/app-package.md §12.2)。
 
 ### Windows の DLL の探し方
 
