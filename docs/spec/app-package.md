@@ -268,8 +268,8 @@ juiz run <パッケージ> [--entry <conf>] [--depend <名前>=<URL>]... [その
 5. 常駐して動かす(`-d` と同じく、止めるまで動き続ける)。ただし HTTP ブローカーは `-d` のように強制で立てず、conf の `option.http_broker` と `-b` に従う。
 
 - `--namespace`・`--ipc`・`-b` など、juiz の他のオプションは普通の起動と同じ意味で効く(`kind: base` の `--ipc` は §10.1)。
-  `juiz run` 自身が受け付けるのは `--entry`・`-b`・`--ipc`・`--namespace`(`juiz -b run …` のように run の前に書いてもよい)。
-- #285 の時点では、`--depend`、インストール済みの名前での起動(§8)、`kind: base` と `depends` の扱い(§10)はまだ無い(#286)。`depends` があれば、確かめずにつながないことを警告して起動する。
+  `juiz run` 自身が受け付けるのは `--entry`・`-b`・`--ipc`・`--namespace`・`--depend`(`-b`・`--ipc`・`--namespace` は `juiz -b run …` のように run の前に書いてもよい)。
+- `--depend`、インストール済みの名前での起動(§8)、`kind: base` と `depends` の扱い(§10)は #286 で入れた。
 - カレントディレクトリは変えない。環境変数 `JUIZ_APP_DIR` に展開先の絶対パスを入れて起動する(Python のプラグインが `assets/` などを開くとき用)。
 - 展開先は読み取り専用として扱う。プラグインはそこに書き込まないこと(キャッシュは消されうる、同じ展開先を複数の起動が共有する)。
 
@@ -311,7 +311,8 @@ juiz packages
 - `kind: app` も `kind: base` も入れられる。依存の解決に使うのは `kind: base` だけ。
 - `juiz install` は依存先を入れない(取ってくる場所が無いため)。足りない依存は警告を出す。
 - `juiz uninstall <name>` は全版を、`<name>@<version>` はその版を消す。
-- `juiz packages` はインストール済みのパッケージを `name version kind` の表で出す。
+- `juiz packages` はインストール済みのパッケージを `name version kind` の表で出す(見出しは `NAME VERSION KIND`、名前・版の順)。
+- 置いた印 `.juizapp-complete` の無いディレクトリ(途中で止まった install)は、インストール済みとして扱わない。次の `juiz install` が消して置き直す。
 
 ## 9. 検証の順番
 
@@ -381,6 +382,10 @@ subsystems:
 - `type_name: http` でポートを省いたときは、インストール済みの基礎(範囲に合う一番新しい版)の `base.http_port` を使う。基礎が入っていないか `base.http_port` が無ければエラー(`cannot decide the port for robot_base. Write the port in the conf or --depend.`)。
 - `package` を持たない `subsystems` は今までどおり扱い、依存の確認はしない。
 - つないだ後、相手の profile の `package` を見て、`name` が一致し、`version` が範囲に入ることを確かめる(§10.3)。
+- subsystem としてつなぐと、相手は同じ種類のブローカーでこちらへつなぎ返す(mastersystem)。そのため `juiz run` は、アプリ側にもブローカーを用意する。
+  - ipc でつなぐとき、conf に ipc ブローカーが無く `--ipc` も無ければ、`<アプリ名>-<プロセス ID>` の名前で ipc ブローカーを足す(同じアプリを複数動かせるように)。
+  - http でつなぐときは、`-b` が無くても HTTP ブローカーを立てる(ポートは conf の `option.http_broker.port`、既定 8000)。
+- 確認(つないで profile を見る)は、アプリのブローカーを立てる前に行う。確認に失敗したときにソケットなどを残さないため。juiz_core の `System::set_subsystem_check` で、conf の `subsystems` の各要素について呼ぶ。
 - 基礎とアプリの名前の衝突を避けるには、ネームスペースを分ける(基礎 `/robot1/base`、アプリ `/robot1/patrol` など)。juiz run はネームスペースを自動では付けない。
 
 ### 10.3 依存のエラー

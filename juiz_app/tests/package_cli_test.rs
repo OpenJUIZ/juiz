@@ -215,3 +215,223 @@ fn run_rejects_missing_file() {
     assert!(!o.status.success());
     assert!(String::from_utf8_lossy(&o.stderr).contains("no_such_app.juizapp is not found"));
 }
+
+/// プラグインの無い(conf だけの)パッケージを作って pack する
+fn pack_conf_only(dir: &Path, name: &str, manifest_extra: &str, conf: &str) -> std::path::PathBuf {
+    let src = dir.join(format!("{name}_src"));
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(
+        src.join("juizapp.yaml"),
+        format!("format: 1\nname: {name}\n{manifest_extra}"),
+    )
+    .unwrap();
+    std::fs::write(src.join("app.conf"), conf).unwrap();
+    let o = juiz()
+        .current_dir(dir)
+        .args(["pack", path_str(&src)])
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{o:?}");
+    let version = manifest_extra
+        .lines()
+        .find_map(|l| l.strip_prefix("version: "))
+        .unwrap();
+    dir.join(format!("{name}-{version}.juizapp"))
+}
+
+/// IPC で相手の system の profile を取る。つながらなければ None
+fn ipc_profile(name: &str) -> Option<juiz_sdk::serde_json::Value> {
+    use juiz_core::prelude::*;
+    let mut out = None;
+    let _ = System::new(
+        jvalue!({ "name": "package_cli_probe", "option": { "http_broker": { "start": false } } }),
+    )
+    .unwrap()
+    .setup()
+    .unwrap()
+    .run_and_do_once(|system| {
+        let bp = system
+            .core_broker()
+            .lock()?
+            .worker()
+            .broker_proxy("ipc", name, true)?;
+        // BrokerProxy は値を {"__value__": …} で包んで返す
+        out = juiz_lock(&bp)?
+            .system_profile_full()
+            .ok()
+            .map(|p| p.get("__value__").cloned().unwrap_or(p));
+        Ok(())
+    });
+    out
+}
+
+fn wait_profile(
+    name: &str,
+    ok: impl Fn(&juiz_sdk::serde_json::Value) -> bool,
+) -> juiz_sdk::serde_json::Value {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    loop {
+        if let Some(p) = ipc_profile(name) {
+            if ok(&p) {
+                return p;
+            }
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "ipc://{name} did not become ready: {:?}",
+            ipc_profile(name)
+        );
+        std::thread::sleep(std::time::Duration::from_millis(300));
+    }
+}
+
+/// 基礎を install して名前で起動し、depends を持つアプリが ipc でつながる (issue #286、§8・§10)
+#[test]
+fn install_base_and_connect_app() {
+    let dir = temp_dir("package_depends");
+    let data = dir.join("data");
+    let cache = dir.join("cache");
+    // 基礎の名前は IPC 名になるので、テストごとに変える
+    let base = format!("base_{}", std::process::id() % 100000);
+    let quiet = "option:\n  http_broker:\n    start: false\n";
+    let base_pkg = pack_conf_only(
+        &dir,
+        &base,
+        "version: 1.2.0\nkind: base\nbase:\n  http_port: 8073\n",
+        &format!("name: robot_base_system\n{quiet}"),
+    );
+    let app_pkg = pack_conf_only(
+        &dir,
+        "my_patrol",
+        &format!("version: 0.1.0\ndepends:\n  {base}: \">=1.2, <2\"\n"),
+        "name: my_patrol_system\noption:\n  http_broker:\n    start: false\n    port: 8074\n",
+    );
+    let juiz_env = || {
+        let mut c = juiz();
+        c.current_dir(&dir)
+            .env("JUIZ_DATA_DIR", &data)
+            .env("JUIZ_CACHE_DIR", &cache);
+        c
+    };
+    let run_app_err = || {
+        let o = juiz_env()
+            .args(["run", path_str(&app_pkg)])
+            .output()
+            .unwrap();
+        assert!(!o.status.success(), "{o:?}");
+        String::from_utf8_lossy(&o.stderr).into_owned()
+    };
+
+    // 基礎が入っていない
+    let err = run_app_err();
+    assert!(
+        err.contains(&format!(
+            "my_patrol depends on {base} >=1.2, <2, but {base} is not installed. Install it with: juiz install {base}-<version>.juizapp"
+        )),
+        "{err}"
+    );
+
+    // install と packages。アプリを入れると足りない基礎を警告する
+    let o = juiz_env()
+        .args(["install", path_str(&app_pkg)])
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{o:?}");
+    assert!(
+        String::from_utf8_lossy(&o.stderr).contains("but it is not installed"),
+        "{o:?}"
+    );
+    let o = juiz_env()
+        .args(["install", path_str(&base_pkg)])
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{o:?}");
+    assert!(
+        String::from_utf8_lossy(&o.stdout).contains(&format!("Installed {base} 1.2.0 into")),
+        "{o:?}"
+    );
+    let o = juiz_env().args(["packages"]).output().unwrap();
+    let table = String::from_utf8_lossy(&o.stdout).into_owned();
+    assert!(table.starts_with("NAME"), "{table}");
+    assert!(
+        table.contains(&format!("{base}")) && table.contains("1.2.0") && table.contains("base"),
+        "{table}"
+    );
+    assert!(
+        table.contains("my_patrol") && table.contains("app"),
+        "{table}"
+    );
+
+    // 入っているが動いていない
+    let err = run_app_err();
+    assert!(
+        err.contains(&format!(
+            "but {base} is not running at ipc://{base}. Start it first with: juiz run {base}"
+        )),
+        "{err}"
+    );
+
+    // パッケージを使わずに同じ IPC 名で動いているもの
+    {
+        let plain = dir.join("plain.conf");
+        std::fs::write(&plain, format!("name: plain\n{quiet}")).unwrap();
+        let mut d = Daemon::spawn(
+            &["-d", "-q", "--ipc", &base, "-f", path_str(&plain)],
+            dir.join("plain.log"),
+        );
+        let p = wait_profile(&base, |_| true);
+        assert!(p.get("package").is_none(), "{p}");
+        let err = run_app_err();
+        assert!(
+            err.contains(&format!(
+                "ipc://{base} is running but is not started from a package"
+            )),
+            "{err}"
+        );
+        d.stop();
+    }
+
+    // 基礎を名前で起動すると、IPC 名はパッケージ名で、profile に package が載る
+    let mut cmd = juiz_env();
+    cmd.args(["run", &base]);
+    let mut base_daemon = Daemon::spawn_command(cmd, dir.join("base.log"));
+    let p = wait_profile(&base, |p| p.get("package").is_some());
+    assert_eq!(p["package"]["name"], base.as_str(), "{p}");
+    assert_eq!(p["package"]["version"], "1.2.0", "{p}");
+    assert_eq!(p["package"]["kind"], "base", "{p}");
+    assert!(base_daemon
+        .log_text()
+        .contains(&format!("Running {base} 1.2.0 from")));
+
+    // アプリはインストール済みの名前でも起動でき、基礎に subsystem としてつながる
+    let mut cmd = juiz_env();
+    cmd.args(["run", "my_patrol"]);
+    let mut app_daemon = Daemon::spawn_command(cmd, dir.join("app.log"));
+    let p = wait_profile(&base, |p| {
+        p.get("mastersystem").is_some_and(|m| !m.is_null())
+    });
+    assert!(p["mastersystem"].is_object(), "{p}");
+    app_daemon.stop();
+
+    // --depend で http につなぐ。ポートを省くとインストール済みの基礎の base.http_port (8073) を使う
+    let mut cmd = juiz_env();
+    cmd.env("RUST_LOG", "info").args([
+        "run",
+        "my_patrol",
+        "--depend",
+        &format!("{base}=http://127.0.0.1"),
+    ]);
+    let mut app_daemon = Daemon::spawn_command(cmd, dir.join("app_http.log"));
+    app_daemon.wait_log("Added subsystem(");
+    let log = app_daemon.log_text();
+    assert!(log.contains("127.0.0.1:8073"), "{log}");
+    app_daemon.stop();
+    base_daemon.stop();
+
+    // 消す
+    let o = juiz_env().args(["uninstall", &base]).output().unwrap();
+    assert!(o.status.success(), "{o:?}");
+    let o = juiz_env().args(["packages"]).output().unwrap();
+    assert!(!String::from_utf8_lossy(&o.stdout).contains(&base), "{o:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

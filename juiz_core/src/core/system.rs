@@ -23,6 +23,11 @@ use super::system_store::{SystemStore, SystemStorePtr};
 
 type SpinCallbackFunctionType = dyn Fn() -> JuizResult<()>;
 
+/// conf の `subsystems` の各要素について、[`System::setup`] がブローカーを立てる前に呼ぶ確認。
+/// 引数は System とその subsystem の conf。エラーを返すと、ブローカーを立てずに setup がそのエラーで失敗する
+/// (docs/spec/app-package.md §10.2)
+pub type SubsystemCheckFunctionType = dyn Fn(&System, &Value) -> JuizResult<()>;
+
 #[allow(dead_code)]
 pub struct System {
     core: ObjectCore,
@@ -32,6 +37,7 @@ pub struct System {
     pub tokio_runtime: tokio::runtime::Runtime,
     spin_callback: Option<Box<SpinCallbackFunctionType>>,
     working_dir: Option<PathBuf>,
+    subsystem_check: Option<Box<SubsystemCheckFunctionType>>,
 }
 
 fn check_system_manifest(manifest: Value) -> JuizResult<Value> {
@@ -86,6 +92,7 @@ impl System {
                 .unwrap(),
             spin_callback: None,
             working_dir: None,
+            subsystem_check: None,
         })
     }
 
@@ -104,6 +111,16 @@ impl System {
     pub fn set_working_dir(mut self, path: &Path) -> Self {
         self.working_dir = Some(path.into());
         self
+    }
+
+    /// conf の `subsystems` につなぐ前の確認を決める ([`SubsystemCheckFunctionType`])
+    pub fn set_subsystem_check(mut self, check: Box<SubsystemCheckFunctionType>) -> Self {
+        self.subsystem_check = Some(check);
+        self
+    }
+
+    pub(crate) fn subsystem_check(&self) -> Option<&SubsystemCheckFunctionType> {
+        self.subsystem_check.as_deref()
     }
 
     pub fn get_working_dir(&self) -> Option<PathBuf> {

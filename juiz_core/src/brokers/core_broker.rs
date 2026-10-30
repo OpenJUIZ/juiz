@@ -185,11 +185,16 @@ impl JuizObject for CoreBroker {
         } else {
             Value::Null
         };
-        Ok(obj_merge(v, &jvalue!({
+        let mut v = obj_merge(v, &jvalue!({
             "system_store" : self.system_store.profile_full()?,
             "mastersystem": master_profile,
             "subsystems": self.subsystem_proxies.iter().map(|p|{p.profile_full().unwrap()}).collect::<Vec<Value>>()
-        }))?.into())
+        }))?;
+        // juiz run でパッケージから起動したときは、その名前と版を載せる (docs/spec/app-package.md §10.1)
+        if let Some(package) = self.worker().store().manifest_ref().get("package") {
+            get_hashmap_mut(&mut v)?.insert("package".to_owned(), package.clone());
+        }
+        Ok(v)
     }
 }
 
