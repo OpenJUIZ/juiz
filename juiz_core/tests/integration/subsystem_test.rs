@@ -134,6 +134,45 @@ fn test_topic_subscriber_subsystem_is_not_duplicated() -> JuizResult<()> {
         })
 }
 
+/// 2 台目の juiz を止めた後、1 台目の Topic は push の失敗が続くとその転送先を外す (issue #301)
+#[cfg(test)]
+#[test]
+fn test_stopped_subscriber_subsystem_is_dropped_from_topic() -> JuizResult<()> {
+    crate::common::logger::init();
+    System::new(publisher_manifest())?
+        .setup()?
+        .run_and_do_once(|master| {
+            System::new(subscriber_manifest())?
+                .setup()?
+                .run_and_do_once(|sub| {
+                    let uuid = Uuid::parse_str(
+                        sub.core_broker().lock()?.system_uuid()?.as_str().unwrap(),
+                    )?;
+                    let mut cb = sub.core_broker().lock_mut()?;
+                    let bp: &mut dyn BrokerProxy = &mut *cb;
+                    bp.topic_request_publish("topic0", Some(uuid))?;
+                    Ok(())
+                })?;
+            assert_eq!(num_topic_subscriber_subsystems(master)?, 1);
+            let topic = master
+                .core_broker()
+                .lock()?
+                .worker()
+                .store()
+                .topics
+                .get("topic0")
+                .expect("topic0 must exist")
+                .clone();
+            topic.set_push_failure_policy(std::time::Duration::ZERO, 2)?;
+            // 止まった転送先への push は失敗しても Topic の push 自体はエラーにしない
+            topic.push(jvalue!({"in1": 1}).into(), None)?;
+            assert_eq!(num_topic_subscriber_subsystems(master)?, 1);
+            topic.push(jvalue!({"in1": 1}).into(), None)?;
+            assert_eq!(num_topic_subscriber_subsystems(master)?, 0);
+            Ok(())
+        })
+}
+
 /// 再帰的な system/profile_full で、サブシステムの中身と、経由する BrokerProxy が分かる (issue #116)
 #[cfg(test)]
 #[test]

@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, RwLock},
+    sync::{Arc, Mutex, RwLock},
+    time::{Duration, Instant},
 };
 
 use crate::{
@@ -14,6 +15,71 @@ pub use shared_memory::{SharedMemoryConfig, SharedMemoryStats, TopicSharedMemory
 
 pub type TopicName = String;
 
+/// 転送先のサブシステムへの push が失敗し続けたら、この時間で転送先から外す (issue #301)
+pub const PUSH_FAILURE_DROP_AFTER: Duration = Duration::from_secs(30);
+/// 外すには、続けてこの回数以上失敗していることも要る (一度だけの失敗で外さないため)
+pub const PUSH_FAILURE_DROP_MIN_COUNT: u32 = 3;
+
+/// 転送先のサブシステムへの push の失敗の記録。
+/// 止まったサブシステムへ毎周期 ERROR を出し続けないように、最初の失敗で 1 回だけ警告し、
+/// 失敗が続いたら転送先から外す。サブシステムが起動し直せば、Topic の問い合わせでまた登録される (issue #301)
+#[derive(Debug)]
+pub struct PushFailures {
+    drop_after: Duration,
+    drop_min_count: u32,
+    /// サブシステムの UUID → (最初に失敗した時刻, 続けて失敗した回数)
+    failures: HashMap<Uuid, (Instant, u32)>,
+}
+
+/// 失敗を記録した結果、どうするか
+#[derive(Debug, PartialEq, Eq)]
+pub enum PushFailureAction {
+    /// 続けての失敗の 1 回目。警告を出す
+    Warn,
+    /// 続けて失敗しているが、まだ外さない。何も出さない
+    Keep,
+    /// 失敗が続いたので転送先から外す
+    Drop,
+}
+
+impl PushFailures {
+    pub fn new(drop_after: Duration, drop_min_count: u32) -> Self {
+        Self {
+            drop_after,
+            drop_min_count,
+            failures: HashMap::new(),
+        }
+    }
+
+    /// 成功したら記録を消す。失敗していたなら true (回復したことを知らせるため)
+    pub fn record_success(&mut self, uuid: &Uuid) -> bool {
+        self.failures.remove(uuid).is_some()
+    }
+
+    pub fn record_failure(&mut self, uuid: &Uuid, now: Instant) -> PushFailureAction {
+        let entry = self.failures.entry(*uuid).or_insert((now, 0));
+        entry.1 += 1;
+        if entry.1 == 1 {
+            return PushFailureAction::Warn;
+        }
+        if entry.1 >= self.drop_min_count && now.duration_since(entry.0) >= self.drop_after {
+            self.failures.remove(uuid);
+            return PushFailureAction::Drop;
+        }
+        PushFailureAction::Keep
+    }
+
+    pub fn forget(&mut self, uuid: &Uuid) {
+        self.failures.remove(uuid);
+    }
+}
+
+impl Default for PushFailures {
+    fn default() -> Self {
+        Self::new(PUSH_FAILURE_DROP_AFTER, PUSH_FAILURE_DROP_MIN_COUNT)
+    }
+}
+
 #[derive(Clone)]
 #[allow(unused)]
 pub struct Topic {
@@ -25,6 +91,8 @@ pub struct Topic {
     typed_subscribers: HashMap<(String, String), TypeSchema>,
     /// 共有メモリ (B) の設定とリング。conf の topics: に shared_memory があるときだけ (docs/spec/large-data.md §6)
     shared_memory: Option<Arc<TopicSharedMemory>>,
+    /// 転送先への push の失敗の記録 (issue #301)
+    push_failures: Arc<Mutex<PushFailures>>,
 }
 
 #[allow(unused)]
@@ -36,6 +104,7 @@ impl Topic {
             typed_publishers: HashMap::new(),
             typed_subscribers: HashMap::new(),
             shared_memory: None,
+            push_failures: Arc::new(Mutex::new(PushFailures::default())),
         }
     }
 
@@ -85,6 +154,7 @@ impl TopicPtr {
             log::trace!("Topic ({my_topic_name}) / topic_func called");
             let v = arg.take("input")?;
             check_topic_capsule(&v)?;
+            let mut dropped: Vec<Uuid> = Vec::new();
             match my_topic.read() {
                 Ok(t) => {
                     log::trace!(" - my_topic.read() OK.");
@@ -112,12 +182,38 @@ impl TopicPtr {
                             }
                             bp.topic_push(my_topic_name.as_str(), v.clone(), Some(my_uuid))
                         });
+                        let Ok(mut failures) = t.push_failures.lock() else {
+                            continue;
+                        };
+                        // 止まったサブシステムへ毎周期 ERROR を出さない。最初の失敗で 1 回警告し、
+                        // 失敗が続いたら転送先から外す (issue #301)
                         match r {
-                            Ok(_) => log::trace!("SubsystemProxy.topic_push() success"),
-                            Err(e) => log::error!(
-                                "Error {e} occurred in SubsystemProxy(uuid={}).topic_push()",
-                                subsystem.uuid()
-                            ),
+                            Ok(_) => {
+                                log::trace!("SubsystemProxy.topic_push() success");
+                                if failures.record_success(subsystem.uuid()) {
+                                    log::info!(
+                                        "Topic({my_topic_name}): pushing to Subsystem(uuid={}) recovered.",
+                                        subsystem.uuid()
+                                    );
+                                }
+                            }
+                            Err(e) => match failures.record_failure(subsystem.uuid(), Instant::now()) {
+                                PushFailureAction::Warn => log::warn!(
+                                    "Topic({my_topic_name}): can not push to Subsystem(uuid={}). {e}. It is removed from the destinations if this continues.",
+                                    subsystem.uuid()
+                                ),
+                                PushFailureAction::Keep => log::debug!(
+                                    "Topic({my_topic_name}): can not push to Subsystem(uuid={}). {e}",
+                                    subsystem.uuid()
+                                ),
+                                PushFailureAction::Drop => {
+                                    log::warn!(
+                                        "Topic({my_topic_name}): Subsystem(uuid={}) is removed from the destinations because pushing kept failing. {e}",
+                                        subsystem.uuid()
+                                    );
+                                    dropped.push(*subsystem.uuid());
+                                }
+                            },
                         }
                     }
                 }
@@ -126,6 +222,14 @@ impl TopicPtr {
                     return Err(anyhow!(JuizError::ObjectLockError {
                         target: "Topic".to_owned()
                     }));
+                }
+            }
+            if !dropped.is_empty() {
+                match my_topic.write() {
+                    Ok(mut t) => t
+                        .subsystem_proxies
+                        .retain(|ssp| !dropped.contains(ssp.uuid())),
+                    Err(_) => log::error!("my_topic.write() failed."),
                 }
             }
             log::trace!("Topic ({my_topic_name}) / topic_func exit");
@@ -169,6 +273,17 @@ impl TopicPtr {
     pub fn set_shared_memory(&self, config: Option<SharedMemoryConfig>) -> JuizResult<()> {
         let shm = config.map(|c| Arc::new(TopicSharedMemory::new(c, self.shm_stats.clone())));
         self.write_topic()?.shared_memory = shm;
+        Ok(())
+    }
+
+    /// 転送先を外すまでの時間と回数を変える (テスト用, issue #301)
+    pub fn set_push_failure_policy(
+        &self,
+        drop_after: Duration,
+        drop_min_count: u32,
+    ) -> JuizResult<()> {
+        let t = self.read_topic()?;
+        *juiz_lock(&t.push_failures)? = PushFailures::new(drop_after, drop_min_count);
         Ok(())
     }
 
@@ -337,6 +452,9 @@ impl TopicPtr {
                     }
                     !same
                 });
+                if let Ok(mut failures) = t.push_failures.lock() {
+                    failures.forget(subsystem_proxy.uuid());
+                }
                 t.subsystem_proxies.push(subsystem_proxy);
                 Ok(())
             }
@@ -365,4 +483,74 @@ impl TopicPtr {
         }
     }
     */
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn push_failures_warn_once_then_drop() {
+        let mut f = PushFailures::new(Duration::from_secs(30), 3);
+        let id = Uuid::new_v4();
+        let t0 = Instant::now();
+        assert_eq!(f.record_failure(&id, t0), PushFailureAction::Warn);
+        assert_eq!(
+            f.record_failure(&id, t0 + Duration::from_secs(1)),
+            PushFailureAction::Keep
+        );
+        // 回数は足りても時間が足りなければ外さない
+        assert_eq!(
+            f.record_failure(&id, t0 + Duration::from_secs(2)),
+            PushFailureAction::Keep
+        );
+        assert_eq!(
+            f.record_failure(&id, t0 + Duration::from_secs(30)),
+            PushFailureAction::Drop
+        );
+        // 外したら記録は消え、また登録されれば最初からやり直す
+        assert_eq!(
+            f.record_failure(&id, t0 + Duration::from_secs(31)),
+            PushFailureAction::Warn
+        );
+    }
+
+    #[test]
+    fn push_failures_need_min_count() {
+        let mut f = PushFailures::new(Duration::from_secs(30), 3);
+        let id = Uuid::new_v4();
+        let t0 = Instant::now();
+        assert_eq!(f.record_failure(&id, t0), PushFailureAction::Warn);
+        // 時間が過ぎていても 2 回目では外さない (止まっていた後の 1 回の失敗で外さないため)
+        assert_eq!(
+            f.record_failure(&id, t0 + Duration::from_secs(60)),
+            PushFailureAction::Keep
+        );
+        assert_eq!(
+            f.record_failure(&id, t0 + Duration::from_secs(61)),
+            PushFailureAction::Drop
+        );
+    }
+
+    #[test]
+    fn push_failures_reset_on_success() {
+        let mut f = PushFailures::new(Duration::from_secs(30), 3);
+        let id = Uuid::new_v4();
+        let other = Uuid::new_v4();
+        let t0 = Instant::now();
+        assert!(!f.record_success(&id));
+        assert_eq!(f.record_failure(&id, t0), PushFailureAction::Warn);
+        assert_eq!(f.record_failure(&other, t0), PushFailureAction::Warn);
+        assert!(f.record_success(&id));
+        // 回復したら、次の失敗はまた 1 回目として警告する
+        assert_eq!(
+            f.record_failure(&id, t0 + Duration::from_secs(40)),
+            PushFailureAction::Warn
+        );
+        // 別の転送先の記録は残っている
+        assert_eq!(
+            f.record_failure(&other, t0 + Duration::from_secs(1)),
+            PushFailureAction::Keep
+        );
+    }
 }
