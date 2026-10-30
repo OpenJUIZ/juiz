@@ -1081,7 +1081,7 @@ impl CoreWorker {
         process: ProcessPtr,
         topic_info: TopicManifest,
     ) -> JuizResult<()> {
-        log::error!("process_publish_topic({topic_info:?}) called");
+        log::trace!("process_publish_topic({topic_info:?}) called");
         let topic_name = topic_info.name.as_str();
         let topic = self.create_topic(topic_name.to_owned())?;
         // Topic の既存の subscribe 側と型を比べる (issue #193)
@@ -1100,7 +1100,7 @@ impl CoreWorker {
         arg_name: &String,
         topic_info: TopicManifest,
     ) -> JuizResult<()> {
-        log::error!("process_subscribe_topic({arg_name}, {topic_info:?}) called");
+        log::trace!("process_subscribe_topic({arg_name}, {topic_info:?}) called");
         let topic_name = topic_info.name.as_str();
         let topic = self.create_topic(topic_name.to_owned())?;
         // Topic の既存の publish 側と型を比べる (issue #193)
@@ -1114,7 +1114,7 @@ impl CoreWorker {
     }
 
     fn connect_to_topic(&mut self, process: ProcessPtr, topic: TopicPtr) -> JuizResult<()> {
-        log::error!("connect_to_topic");
+        log::trace!("connect_to_topic");
         // let topic_publish_connection_manifest = jvalue!({
         //     "type": "push",
         // });
@@ -1138,7 +1138,7 @@ impl CoreWorker {
         arg_name: &String,
         topic: TopicPtr,
     ) -> JuizResult<()> {
-        log::error!("connect_from_topic");
+        log::trace!("connect_from_topic");
         // let topic_subscribe_connection_manifest = jvalue!({
         //     "type": "push",
         // });

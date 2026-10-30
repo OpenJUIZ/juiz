@@ -252,7 +252,8 @@ impl CRUDBrokerProxy for HTTPBrokerProxy {
         };
         match request.send() {
             Err(e) => {
-                log::error!("HttpBrokerProxy::update() failed. Error is {:?}", e);
+                // 呼び出し元がエラーを受け取って扱うので、ここでは debug に留める (issue #301)
+                log::debug!("HttpBrokerProxy::update() failed. Error is {:?}", e);
                 Err(anyhow::Error::from(e))
             }
             Ok(response) => {
