@@ -177,17 +177,18 @@ plugins:
       path: "plugins/{target}"     # Linux x86_64 では plugins/x86_64-unknown-linux-gnu
 ```
 
-- 対象は `plugins` の下のすべての種類(`process_factories`、`container_factories`、`container_process_factories`、`components`、`broker_factories`)の `path`。
+- 対象は `plugins` の下のすべての種類(`process_factories`、`container_factories` とその `processes`、`container_process_factories`、`components`、`broker_factories`、`ec_factories`)の `path`。
 - 置き換えるのは文字列 `{target}` だけ。それ以外の `{…}` はそのまま残す。
 - パッケージの外(普通の `juiz -f app.conf`)でも同じように置き換える。開発中の conf と配布する conf を同じにできる。
-- 置き換えは conf を読んだ直後、相対パスの解決の前に行う。
+- 置き換えは conf を読んだ直後、相対パスの解決の前に行う(`System::new` で、`~/.juiz/conf/default.conf` を重ねた後)。実装は juiz_core の `replace_target_in_plugin_paths`、置き換え先は `juiz_core::HOST_TARGET`。
 
 ### 5.3 ブローカーのプラグインのパス(#284)
 
-今のブローカーのプラグイン(`plugins.broker_factories`)の `path` はカレントディレクトリからの相対で解決されている(`system_builder/brokers.rs` の `working_dir = None`)。他のプラグインと同じく **conf の親ディレクトリからの相対** に揃える。
+0.0.27 までのブローカーのプラグイン(`plugins.broker_factories`)の `path` はカレントディレクトリからの相対で解決されていた(`system_builder/brokers.rs` の `working_dir = None`)。他のプラグインと同じく **conf の親ディレクトリからの相対** に揃える。
 
 - 絶対パスはそのまま使う。
 - これは今の挙動を変えるので、#284 の PR と版上げの変更点に書く。
+- `plugins.ec_factories` の `path` は、まだカレントディレクトリからの相対のまま(`system_builder/ecs.rs`)。`{target}` の置き換えはされる。
 
 ## 6. `juiz pack`(#285)
 

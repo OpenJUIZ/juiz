@@ -13,6 +13,7 @@ use std::sync::{
 use std::time::{self, Duration};
 
 use crate::brokers::broker_ptr::BrokerPtr;
+use crate::plugin::replace_target_in_plugin_paths;
 use crate::prelude::*;
 
 use crate::brokers::broker_factories_wrapper::BrokerFactoriesWrapper;
@@ -68,6 +69,8 @@ impl System {
         log::trace!("【呼出】System::new({manifest})");
         let checked_manifest = check_system_manifest(manifest)?;
         let updated_manifest: Value = merge_home_manifest(checked_manifest)?;
+        // plugins の path の {target} は相対パスの解決より前に置き換える (#284)
+        let updated_manifest = replace_target_in_plugin_paths(updated_manifest);
         let store = SystemStorePtr::new(SystemStore::new());
         Ok(System {
             core: ObjectCore::create(JuizObjectClass::System("System"), "system", "system"),

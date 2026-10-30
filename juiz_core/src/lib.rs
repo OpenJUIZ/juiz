@@ -29,6 +29,8 @@ pub use brokers::frame;
 #[cfg(feature = "ipc-broker")]
 pub use brokers::ipc;
 pub use core::{SystemStore, SystemStorePtr};
+// conf の plugins の path の {target} 置換とその置き換え先 (docs/spec/app-package.md §5、#284)
+pub use plugin::{replace_target_in_plugin_paths, HOST_TARGET};
 pub use ecs::{
     execution_context_core::ExecutionContextState, ExecutionContext, ExecutionContextCore,
     ExecutionContextFactory,

@@ -25,7 +25,8 @@ fn setup_broker_factory(
     v: &Value,
 ) -> JuizResult<()> {
     log::trace!("setup_broker_factory(name={name:}) called");
-    let working_dir = None;
+    // 他のプラグインと同じく conf の親ディレクトリからの相対で解決する (#284)。絶対パスはそのまま
+    let working_dir = system.get_working_dir();
     let plugin_filename =
         concat_dirname(v, plugin_name_to_file_name(&name.to_string()), working_dir)?;
     let bf;
