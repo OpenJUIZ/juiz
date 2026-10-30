@@ -17,7 +17,8 @@ pub(super) fn setup_execution_context_factories(
     log::trace!("system_builder::setup_execution_context_factories() called");
     for (name, value) in get_hashmap(manifest)?.iter() {
         log::debug!("ExecutionContextFactory (name={name:}, value='{value:}') Loading...");
-        let working_dir = None;
+        // 他のプラグインと同じく conf の親ディレクトリからの相対で解決する (#284)。絶対パスはそのまま
+        let working_dir = system.get_working_dir();
         let plugin_filename = concat_dirname(value, plugin_name_to_file_name(name), working_dir)?;
 
         log::debug!(" - filename: {plugin_filename:?}");
