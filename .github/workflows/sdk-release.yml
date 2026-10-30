@@ -20,6 +20,7 @@ on:
       - ".github/workflows/sdk-release.yml"
       - "scripts/package-juiz-sdk.sh"
       - "scripts/check-hsjuiz-package.sh"
+      - "scripts/bundle-plugin-deps.sh"
       - "scripts/install-juiz-sdk.sh"
       - "scripts/install-juiz-sdk.ps1"
       - "juiz_sdk/**"
@@ -153,6 +154,39 @@ jobs:
           print("opened", sys.argv[1], lib.manifest_entry_point)
           EOF
 
+      # juiz_sdk_bundle でビルドしたプラグイン(.juizapp の plugins/<ターゲット名>/ の形、issue #287)は、
+      # rpath が $ORIGIN / @loader_path だけで、ディレクトリを移しても隣の libjuiz_sdk で開ける
+      - name: Check a C++ plugin bundled with juiz_sdk_bundle
+        run: |
+          build="$RUNNER_TEMP/find_package_build"
+          moved="$RUNNER_TEMP/bundle_moved"
+          mv "$build/bundle" "$moved"
+          ls -l "$moved"
+          case "${{ matrix.target }}" in
+            *-windows-*) plugin="$moved/bundled_process.dll" ;;
+            *-apple-*)
+              plugin="$moved/libbundled_process.dylib"
+              otool -l "$plugin" | grep -A2 LC_RPATH
+              scripts/bundle-plugin-deps.sh --check "$plugin"
+              ;;
+            *)
+              plugin="$moved/libbundled_process.so"
+              readelf -d "$plugin" | grep -E 'R(UN)?PATH'
+              readelf -d "$plugin" | grep -E 'R(UN)?PATH' | grep -qF '[$ORIGIN]'
+              scripts/bundle-plugin-deps.sh --check "$plugin"
+              ;;
+          esac
+          py=python3
+          if [ "$RUNNER_OS" = Windows ]; then py=python; fi
+          "$py" - "$plugin" <<'EOF'
+          import ctypes, os, sys
+          if hasattr(os, "add_dll_directory"):
+              # Windows の ctypes は既定でプラグインのディレクトリを探さない(juiz は LOAD_WITH_ALTERED_SEARCH_PATH で探す)
+              os.add_dll_directory(os.path.dirname(sys.argv[1]))
+          lib = ctypes.CDLL(sys.argv[1])
+          print("opened", sys.argv[1], lib.manifest_entry_point)
+          EOF
+
       # 取得スクリプトで、作ったアーカイブを Releases と同じ配置の手元の HTTP サーバーから入れられることを確かめる。
       # Windows は Windows PowerShell 5.1 と PowerShell 7 の両方で install-juiz-sdk.ps1 を試す
       - name: Install the archive with the install script
@@ -186,6 +220,10 @@ jobs:
         with:
           ghc-version: "9.6"
           cabal-version: latest
+
+      - name: Install patchelf
+        if: matrix.haskell && runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y patchelf
 
       - name: Build hsjuiz from its sdist with the packaged libjuiz_sdk
         if: matrix.haskell

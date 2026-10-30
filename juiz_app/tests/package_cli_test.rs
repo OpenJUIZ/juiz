@@ -73,6 +73,9 @@ fn pack_and_run_rust_app() {
         .output()
         .unwrap();
     assert!(o.status.success(), "{o:?}");
+    // Rust のプラグインは OS の基本のライブラリしか使わないので、依存の警告は出ない (issue #287)
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(!err.contains(" needs "), "{err}");
     let pkg = out.join("inc_app-0.1.0.juizapp");
     assert!(pkg.is_file(), "{o:?}");
 

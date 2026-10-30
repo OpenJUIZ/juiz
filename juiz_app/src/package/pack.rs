@@ -116,6 +116,7 @@ pub(crate) fn pack(opts: &PackOptions) -> Result<Packed> {
 
     // 3. 各プラグインのファイル
     let mut rust_files: Vec<String> = Vec::new();
+    let mut host_native: Vec<String> = Vec::new();
     for p in &plugins {
         let raw = &p.path;
         if p.native && !raw.contains("{target}") {
@@ -148,6 +149,9 @@ pub(crate) fn pack(opts: &PackOptions) -> Result<Packed> {
                     dir.display()
                 );
             }
+            if p.native && t == juiz_core::HOST_TARGET {
+                host_native.push(rel.clone());
+            }
             if p.language == "rust" {
                 rust_files.push(rel);
             }
@@ -174,6 +178,13 @@ pub(crate) fn pack(opts: &PackOptions) -> Result<Packed> {
                     "C++ / Haskell plugins are in the package, but {sdk} is not"
                 ));
             }
+        }
+    }
+
+    // 依存する共有ライブラリが、受け取る側でも見つかるか(ホストのターゲットの分だけ見られる、§12.2)
+    for rel in &host_native {
+        for w in dependency_warnings(&files[rel].abs) {
+            warn(&format!("{rel} {w}"));
         }
     }
 
@@ -336,6 +347,101 @@ fn push_plugin(
 
 /// Rust のプラグインのファイルから、juiz_sdk が埋め込むビルド情報 `juiz_sdk=…;rustc=…` を探す。
 /// 読み込まずにバイト列から探すので、別のターゲットのバイナリでも読める
+/// OS の基本のライブラリ(受け取る側にもあるとみなすもの)。scripts/bundle-plugin-deps.sh と同じ
+fn is_system_library(name: &str) -> bool {
+    if name.starts_with("/usr/lib/") || name.starts_with("/System/") {
+        return true;
+    }
+    const LINUX: &[&str] = &[
+        "linux-vdso.so",
+        "linux-gate.so",
+        "ld-linux",
+        "ld64.so",
+        "libc.so",
+        "libm.so",
+        "libdl.so",
+        "libpthread.so",
+        "librt.so",
+        "libutil.so",
+        "libresolv.so",
+        "libgcc_s.so",
+        "libstdc++.so",
+    ];
+    LINUX.iter().any(|p| name.starts_with(p))
+}
+
+/// プラグインが使う共有ライブラリのうち、プラグインの隣にも OS の基本のライブラリにも無いものを並べる
+/// (Linux は ldd、macOS は otool -L。コマンドが無いか失敗したら何も言わない)
+fn dependency_warnings(plugin: &Path) -> Vec<String> {
+    let hint =
+        "Put it next to the plugin (scripts/bundle-plugin-deps.sh, or juiz_sdk_bundle() in CMake).";
+    let Some(dir) = plugin.parent().and_then(|d| std::fs::canonicalize(d).ok()) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    if cfg!(target_os = "macos") {
+        let Some(text) = command_output("otool", &["-L"], plugin) else {
+            return out;
+        };
+        for line in text.lines().skip(1) {
+            let Some(dep) = line.split_whitespace().next() else {
+                continue;
+            };
+            if is_system_library(dep) {
+                continue;
+            }
+            let base = dep.rsplit('/').next().unwrap_or(dep);
+            if plugin.file_name().is_some_and(|f| f == base) {
+                continue; // 自分の install name
+            }
+            if dep.starts_with('@') {
+                if !dir.join(base).is_file() {
+                    out.push(format!("needs {dep}, but {base} is not next to it. {hint}"));
+                }
+            } else {
+                out.push(format!("needs {dep}, which is outside the package. {hint}"));
+            }
+        }
+    } else if cfg!(target_os = "linux") {
+        let Some(text) = command_output("ldd", &[], plugin) else {
+            return out;
+        };
+        for line in text.lines() {
+            let line = line.trim();
+            let Some((name, rest)) = line.split_once(" => ") else {
+                continue;
+            };
+            if is_system_library(name) {
+                continue;
+            }
+            if rest.starts_with("not found") {
+                out.push(format!("needs {name}, which is not found. {hint}"));
+                continue;
+            }
+            let path = Path::new(rest.split(" (").next().unwrap_or(rest));
+            let found_dir = path.parent().and_then(|d| std::fs::canonicalize(d).ok());
+            if found_dir.as_deref() != Some(dir.as_path()) {
+                out.push(format!(
+                    "needs {name}, which is found at {} outside the package. {hint}",
+                    path.display()
+                ));
+            }
+        }
+    }
+    out
+}
+
+fn command_output(cmd: &str, args: &[&str], file: &Path) -> Option<String> {
+    let o = std::process::Command::new(cmd)
+        .args(args)
+        .arg(file)
+        .output()
+        .ok()?;
+    o.status
+        .success()
+        .then(|| String::from_utf8_lossy(&o.stdout).into_owned())
+}
+
 pub(crate) fn read_build_info(path: &Path) -> Result<BuildInfo> {
     let bytes = std::fs::read(path)?;
     let needle = b"juiz_sdk=";
@@ -506,6 +612,17 @@ fn write_zip(out: &Path, m: &Manifest, files: &BTreeMap<String, Collected>) -> R
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn system_libraries() {
+        use super::is_system_library;
+        assert!(is_system_library("libc.so.6"));
+        assert!(is_system_library("libstdc++.so.6"));
+        assert!(is_system_library("/usr/lib/libSystem.B.dylib"));
+        assert!(!is_system_library("libjuiz_sdk.so"));
+        assert!(!is_system_library("libgmp.so.10"));
+        assert!(!is_system_library("@rpath/libjuiz_sdk.dylib"));
+    }
+
     use super::*;
 
     #[test]

@@ -12,6 +12,10 @@
 #                                Windows: ビルドした <target> の隣に juiz_sdk.dll を写す。juiz はプラグインの
 #                                ディレクトリから juiz_sdk.dll を探す (Linux の rpath $ORIGIN に当たる)。
 #                                Linux / macOS では何もしない (プラグインの rpath に lib/ が入る)
+#   juiz_sdk_bundle(<target>)    .juizapp に入れるプラグイン用 (docs/spec/app-package.md §12.2, issue #287)。
+#                                <target> の rpath を $ORIGIN (macOS は @loader_path) だけにし、ビルドした
+#                                <target> の隣に libjuiz_sdk (Windows は juiz_sdk.dll) を写す。できたディレクトリを
+#                                そのまま plugins/<ターゲット名>/ に置けば、SDK の無い機械でも読み込める
 #   juiz_generate_types(...)     juiz-idl で IDL から C++ の型を作る (cppjuiz/cmake/juiz_idl.cmake)
 #   juiz_sdk_VERSION, juiz_sdk_ROOT_DIR, juiz_sdk_RUNTIME_LIBRARY (libjuiz_sdk の .so / .dylib / .dll)
 #
@@ -64,6 +68,21 @@ function(juiz_sdk_copy_runtime TARGET)
       COMMAND ${CMAKE_COMMAND} -E copy_if_different "${juiz_sdk_RUNTIME_LIBRARY}" "$<TARGET_FILE_DIR:${TARGET}>"
       VERBATIM)
   endif ()
+endfunction()
+
+function(juiz_sdk_bundle TARGET)
+  if (APPLE)
+    set(_origin "@loader_path")
+  else ()
+    set(_origin "$ORIGIN")
+  endif ()
+  # ビルドした場所でも配る場所と同じ rpath にする (SDK の lib/ の絶対パスを書き込まない)
+  set_target_properties(${TARGET} PROPERTIES
+    BUILD_WITH_INSTALL_RPATH TRUE
+    INSTALL_RPATH "${_origin}")
+  add_custom_command(TARGET ${TARGET} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${juiz_sdk_RUNTIME_LIBRARY}" "$<TARGET_FILE_DIR:${TARGET}>"
+    VERBATIM)
 endfunction()
 
 include("${juiz_sdk_ROOT_DIR}/cppjuiz/cmake/juiz_idl.cmake")
