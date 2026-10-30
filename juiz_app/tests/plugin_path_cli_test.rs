@@ -1,7 +1,7 @@
-//! conf の plugins の path の `{target}` 置換と、ブローカーのプラグインを conf の親ディレクトリから
+//! conf の plugins の path の `{target}` 置換と、ブローカー・EC のプラグインを conf の親ディレクトリから
 //! 探すことのテスト (issue #284、docs/spec/app-package.md §5.2・§5.3)
 //!
-//! プラグイン (qmp_broker, increment_process) は scripts/test.sh で ../target/debug にビルドされている前提。
+//! プラグイン (qmp_broker, increment_process, timer_ec) は scripts/test.sh で ../target/debug にビルドされている前提。
 mod common;
 
 use common::{juiz, plugin_file, temp_dir};
@@ -11,7 +11,7 @@ use std::path::Path;
 fn write_app(dir: &Path) {
     let plugins = dir.join("plugins").join(juiz_core::HOST_TARGET);
     std::fs::create_dir_all(&plugins).unwrap();
-    for name in ["qmp_broker", "increment_process"] {
+    for name in ["qmp_broker", "increment_process", "timer_ec"] {
         let src = plugin_file(name);
         let file = Path::new(&src).file_name().unwrap();
         std::fs::copy(&src, plugins.join(file)).unwrap();
@@ -28,6 +28,9 @@ plugins:
       path: "plugins/{target}"
   process_factories:
     increment_process:
+      path: "plugins/{target}"
+  ec_factories:
+    timer_ec:
       path: "plugins/{target}"
 processes:
   - type_name: increment_process
@@ -57,6 +60,10 @@ fn target_placeholder_and_broker_path_relative_to_conf() {
     // ブローカーは組み込みの qmp ではなく、conf の隣の plugins/<target>/ から読み込まれる
     assert!(
         log.contains("BrokerFactory (name=qmp_broker) Loaded"),
+        "{log}"
+    );
+    assert!(
+        log.contains("ExecutionContextFactory (name=timer_ec) Loaded"),
         "{log}"
     );
     assert!(log.contains(juiz_core::HOST_TARGET), "{log}");

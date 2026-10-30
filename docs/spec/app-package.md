@@ -70,7 +70,7 @@ talker_listener-0.1.0.juizapp   (zip)
 └─ LICENSE                      (任意)
 ```
 
-- ネイティブのプラグイン(Rust・C++・Haskell と、ブローカーのプラグイン)は `plugins/<ターゲット>/` に置かなければならない。conf からは `path: "plugins/{target}"` で参照する(§5.2)。
+- ネイティブのプラグイン(Rust・C++・Haskell と、ブローカー・EC のプラグイン)は `plugins/<ターゲット>/` に置かなければならない。conf からは `path: "plugins/{target}"` で参照する(§5.2)。
 - OS に依存しないもの(Python・型・資産)はターゲットで分けない。
 - 予約するパス: `juizapp.yaml`、`juizapp.yaml.sig`(署名用、§13)、`bin/`(juiz 同梱の単体版用、§13)。format 1 のパッケージは `juizapp.yaml.sig` と `bin/` を含んではならない(pack も run もエラーにする)。
 
@@ -182,13 +182,12 @@ plugins:
 - パッケージの外(普通の `juiz -f app.conf`)でも同じように置き換える。開発中の conf と配布する conf を同じにできる。
 - 置き換えは conf を読んだ直後、相対パスの解決の前に行う(`System::new` で、`~/.juiz/conf/default.conf` を重ねた後)。実装は juiz_core の `replace_target_in_plugin_paths`、置き換え先は `juiz_core::HOST_TARGET`。
 
-### 5.3 ブローカーのプラグインのパス(#284)
+### 5.3 ブローカー・EC のプラグインのパス(#284)
 
-0.0.27 までのブローカーのプラグイン(`plugins.broker_factories`)の `path` はカレントディレクトリからの相対で解決されていた(`system_builder/brokers.rs` の `working_dir = None`)。他のプラグインと同じく **conf の親ディレクトリからの相対** に揃える。
+0.0.27 までのブローカーのプラグイン(`plugins.broker_factories`)と EC のプラグイン(`plugins.ec_factories`)の `path` はカレントディレクトリからの相対で解決されていた(`system_builder/brokers.rs`・`ecs.rs` の `working_dir = None`)。他のプラグインと同じく **conf の親ディレクトリからの相対** に揃える。
 
 - 絶対パスはそのまま使う。
 - これは今の挙動を変えるので、#284 の PR と版上げの変更点に書く。
-- `plugins.ec_factories` の `path` は、まだカレントディレクトリからの相対のまま(`system_builder/ecs.rs`)。`{target}` の置き換えはされる。
 
 ## 6. `juiz pack`(#285)
 
@@ -224,7 +223,7 @@ pack は次を順に行い、どれかが満たされなければエラーにし
 2. `entry` の conf があり、YAML として読める。
 3. entry の conf の `plugins` を読み、各プラグインについて:
    - `path` は相対パスで、`{target}` を置き換えた結果がパッケージの中を指していなければならない(`..` で外に出てはならない)。
-   - ネイティブのプラグイン(`language` が `rust`(省略時)・`c++`・`haskell` のもの、と `broker_factories`)は `path` に `{target}` を含まなければならない。
+   - ネイティブのプラグイン(`language` が `rust`(省略時)・`c++`・`haskell` のもの、と `broker_factories`・`ec_factories`)は `path` に `{target}` を含まなければならない。
    - 集めた各ターゲットのディレクトリに、そのプラグインのファイル(`lib<name>.so` / `lib<name>.dylib` / `<name>.dll`)がなければならない。
    - Python のプラグインは `<path>/<name>.py` がなければならない。
 4. `languages` を 3 から求めて書く。作る人が書いてあれば、求めたものと一致しなければならない。
