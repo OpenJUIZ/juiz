@@ -11,3 +11,7 @@ pub use python_plugin::PythonPlugin;
 mod disabled;
 #[cfg(not(feature = "python"))]
 pub use disabled::PythonPlugin;
+
+// juiz run がパッケージの Python の要求を確かめる (docs/spec/app-package.md §9、#285)
+mod env;
+pub use env::{python_check, PythonCheck, PYTHON_ENABLED};

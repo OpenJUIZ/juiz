@@ -72,7 +72,7 @@ juiz process call "http://127.0.0.1:8000/process/increment_process0::increment_p
 
 ### Rust・C++ で書く場合
 
-Rust や C++ で書く場合は、`juiz` コマンドを `cargo install juiz_app` で入れます(Rust 1.81 以降が必要です)。
+Rust や C++ で書く場合は、`juiz` コマンドを `cargo install juiz_app` で入れます(Rust 1.88 以降が必要です)。
 pip の `juiz-cli` は CI でビルドしたもので、手元でビルドした Rust のプラグインはコンパイラの版がそろわないため読み込めません。
 
 この `juiz` で Python の Process も使うときは、`pip install pyjuiz` **だけ** を追加してください。`juiz-cli` も入れると `juiz` コマンドが 2 つになり、どちらが動くかが PATH の順番で決まってしまいます。

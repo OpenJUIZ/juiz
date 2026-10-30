@@ -41,6 +41,12 @@ juiz_idl = { workspace = true }
 juiz_sdk = { workspace = true }
 juiz_qmp_broker = { workspace = true, optional = true }
 pyo3 = { workspace = true, optional = true }
+# juiz pack / juiz run (.juizapp、docs/spec/app-package.md、#285)
+globset = "0.4"
+semver = "1"
+sha2 = { workspace = true }
+yaml-rust2 = { workspace = true }
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 
 [dev-dependencies]

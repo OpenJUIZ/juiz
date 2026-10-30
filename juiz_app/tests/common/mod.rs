@@ -30,6 +30,17 @@ impl Daemon {
         Daemon { child, log }
     }
 
+    /// 環境変数やカレントディレクトリを決めた cmd で juiz を起動する。標準出力と標準エラーは log に書く
+    pub fn spawn_command(mut cmd: Command, log: PathBuf) -> Daemon {
+        let file = std::fs::File::create(&log).unwrap();
+        let child = cmd
+            .stdout(file.try_clone().unwrap())
+            .stderr(file)
+            .spawn()
+            .unwrap();
+        Daemon { child, log }
+    }
+
     pub fn log_text(&self) -> String {
         std::fs::read_to_string(&self.log).unwrap_or_default()
     }
