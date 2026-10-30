@@ -3,6 +3,11 @@
 hsjuiz の版は juiz(crates.io の juiz_app、PyPI の pyjuiz / juiz-cli)と同じ番号にそろえています。
 使う libjuiz_sdk も同じ版にしてください。
 
+## 0.0.28
+
+- アプリ配布形式 `.juizapp` に Haskell のプラグインを入れるため、`scripts/bundle-plugin-deps.sh` で
+  プラグインと libjuiz_sdk・GHC の共有ライブラリ・libffi・libgmp を 1 つのディレクトリに集められるようにした(issue #287)。
+
 ## 0.0.27
 
 - Windows でも、Haskell のプラグインを DLL として作れるようにした(issue #137。手順の整備は #137 で続ける)。
