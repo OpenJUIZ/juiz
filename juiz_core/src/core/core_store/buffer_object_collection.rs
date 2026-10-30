@@ -80,6 +80,16 @@ where
         self.get(&id)
     }
 
+    /// id のオブジェクトを外す。無ければ None
+    pub fn deregister_by_id(&self, id: &Identifier) -> Option<Arc<Mutex<T>>> {
+        log::trace!(
+            "StoreWorker({})::deregister_by_id(id={:?}) called",
+            self.name,
+            id
+        );
+        self.objects.borrow_mut().remove(id)
+    }
+
     pub fn get_with_error_ignore(&self, id: &Identifier) -> JuizResult<Arc<Mutex<T>>> {
         match self.objects.borrow().get(id) {
             Some(p) => Ok(Arc::clone(p)),

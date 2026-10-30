@@ -86,6 +86,18 @@ pub(crate) fn create_update_callbacks() -> CallbackContainerType {
         }
         Ok(value_to_capsule(cb.system_add_mastersystem(manif)?))
     });
+    system_callbacks.insert("remove_subsystem", |_crud, cb, args| {
+        log::debug!("[UPDATE] system/remove_subsystem called");
+        let uuid = match args.get("uuid")?.extract_value()?.as_str() {
+            Some(s) => Ok(uuid::Uuid::parse_str(s)?),
+            None => Err(anyhow!(JuizError::InvalidValueError {
+                message: "system_remove_subsystem need 'uuid' argument.".to_owned()
+            })),
+        }?;
+        Ok(value_to_capsule(
+            cb.lock_mut()?.system_remove_subsystem(uuid)?,
+        ))
+    });
     system_callbacks.insert("load_process", |_crud, cb, args| {
         log::debug!("[UPDATE] system/load_process called");
         let filepath = match args.get("filepath")?.extract_value()?.as_str() {

@@ -44,6 +44,12 @@ pub trait SystemBrokerProxy {
     ///
     fn system_add_mastersystem(&mut self, profile: Value) -> JuizResult<Value>;
 
+    /// サブシステムの登録を外す (issue #303)
+    ///
+    /// System が終わるときに、つないでいる相手 (マスターシステムとサブシステム) へ自分の UUID を渡して呼ぶ。
+    /// 相手は subsystems の一覧・マスターシステム・Topic の転送先からその System を外す。
+    fn system_remove_subsystem(&mut self, uuid: Uuid) -> JuizResult<Value>;
+
     /// SystemのUUIDを取得する
     ///
     ///

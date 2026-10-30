@@ -323,6 +323,12 @@ impl SystemBrokerProxy for MessengerBrokerProxy {
         capsule_to_value(self.update("system", "add_mastersystem", cp, &[])?)
     }
 
+    fn system_remove_subsystem(&mut self, uuid: Uuid) -> JuizResult<Value> {
+        let mut cp = CapsuleMap::new();
+        cp.insert("uuid".to_owned(), jvalue!(uuid.to_string()).into());
+        capsule_to_value(self.update("system", "remove_subsystem", cp, &[])?)
+    }
+
     fn system_load_process(&mut self, language: String, filepath: String) -> JuizResult<Value> {
         let mut cp = CapsuleMap::new();
         cp.insert(

@@ -73,6 +73,18 @@ pub fn add_subsystem_dummy(_query: Query<IdentifierQuery>, Json(_body): Json<Val
 )]
 pub fn add_mastersystem_dummy(_query: Query<FullQuery>, Json(_body): Json<Value>) {}
 
+#[allow(unused)]
+#[utoipa::path(
+    patch,
+    path = "/api/system/remove_subsystem",
+    request_body(content = Value, description = "{\"uuid\": 外すサブシステムの UUID}"),
+    responses(
+        (status = 200, description = "外したサブシステムの uuid と broker_proxy")
+    ),
+    tag = "universal.system",
+)]
+pub fn remove_subsystem_dummy(Json(_body): Json<Value>) {}
+
 pub fn system_openapi_handler() -> Json<juiz_sdk::serde_json::Value> {
     Json(jvalue!({
         "openapi": "3.0.1",
@@ -131,6 +143,7 @@ pub fn system_openapi_handler() -> Json<juiz_sdk::serde_json::Value> {
         fslist_handler_dummy,
         add_subsystem_dummy,
         add_mastersystem_dummy,
+        remove_subsystem_dummy,
     ),
     components(schemas())
 )]
