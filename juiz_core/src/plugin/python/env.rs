@@ -109,6 +109,8 @@ pub fn python_check(requires: &[String], python_version: Option<&str>) -> JuizRe
     use std::ffi::CString;
     let requires_json = juiz_sdk::serde_json::to_string(requires)?;
     let result: String = Python::attach(|py| -> PyResult<String> {
+        // venv に入れたパッケージも数えるよう、先に venv の site-packages を足す (#296)
+        super::venv::add_virtualenv_once(py);
         let code = CString::new(CHECK_PY).unwrap();
         let module =
             PyModule::from_code(py, &code, c"juiz_package_check.py", c"juiz_package_check")?;

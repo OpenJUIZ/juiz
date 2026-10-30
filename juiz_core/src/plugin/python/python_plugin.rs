@@ -543,6 +543,8 @@ fn module_from_code<'py>(
     file_name: &str,
     module_name: &str,
 ) -> PyResult<Bound<'py, PyModule>> {
+    // Python のモジュールは必ずここを通るので、最初の 1 回で venv の site-packages を足しておく (#296)
+    super::venv::add_virtualenv_once(py);
     let code = to_cstring(code)?;
     let file_name = to_cstring(file_name)?;
     let module_name = to_cstring(module_name)?;
