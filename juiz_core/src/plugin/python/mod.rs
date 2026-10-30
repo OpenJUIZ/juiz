@@ -7,6 +7,10 @@ mod python_plugin;
 #[cfg(feature = "python")]
 pub use python_plugin::PythonPlugin;
 
+// 有効にした venv の site-packages を埋め込みの Python に足す (#296)
+#[cfg(feature = "python")]
+mod venv;
+
 #[cfg(not(feature = "python"))]
 mod disabled;
 #[cfg(not(feature = "python"))]
