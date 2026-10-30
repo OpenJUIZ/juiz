@@ -251,9 +251,9 @@ enum SubCommands {
         target: Vec<String>,
     },
 
-    /// Check, extract and run a .juizapp package (docs/spec/app-package.md §7)
+    /// Check, extract and run a .juizapp package or an installed package (docs/spec/app-package.md §7)
     Run {
-        /// .juizapp file
+        /// .juizapp file, or the name of an installed package (name or name@version)
         package: String,
 
         /// conf in the package to start with (default: 'entry' in juizapp.yaml)
@@ -268,7 +268,25 @@ enum SubCommands {
 
         #[arg(long = "namespace", help = "Default namespace of the system (same as juiz --namespace).")]
         namespace: Option<String>,
+
+        /// Where to connect a dependency: <name>=<URL> (ex., robot_base=ipc://robot_base2). Can be repeated.
+        #[arg(long = "depend")]
+        depend: Vec<String>,
     },
+
+    /// Install a .juizapp package (docs/spec/app-package.md §8)
+    Install {
+        /// .juizapp file
+        package: String,
+    },
+
+    /// Remove an installed package: name (all versions) or name@version
+    Uninstall {
+        package: String,
+    },
+
+    /// List installed packages
+    Packages {},
 }
 
 fn do_task_once(system: &mut System, args: Args) -> JuizResult<()> {
@@ -675,7 +693,7 @@ where
     }
 }
 
-/// `juiz pack` と `juiz run` を実行する。どちらでもなければ None
+/// `juiz pack`・`juiz run`・`juiz install` などパッケージのコマンドを実行する。どれでもなければ None
 fn package_command(args: &Args) -> Option<JuizResult<()>> {
     match args.subcommand.as_ref()? {
         SubCommands::Pack { dir, output, target } => Some(
@@ -702,13 +720,54 @@ fn package_command(args: &Args) -> Option<JuizResult<()>> {
             start_http_broker,
             ipc,
             namespace,
+            depend,
         } => Some(package::run::run_package(&package::run::RunOptions {
             package: package.clone(),
             entry: entry.clone(),
             start_http_broker: *start_http_broker || args.start_http_broker,
             ipc: ipc.clone().or_else(|| args.ipc.clone()),
             namespace: namespace.clone().or_else(|| args.namespace.clone()),
+            depends: depend.clone(),
         })),
+        SubCommands::Install { package } => Some((|| {
+            use package::install::{install, InstallOutcome};
+            let data = package::install::data_dir()?;
+            match install(std::path::Path::new(package), &data, &package::run::Host::current())? {
+                InstallOutcome::Installed(i) => println!(
+                    "Installed {} {} into {}",
+                    i.manifest.name,
+                    i.manifest.version,
+                    i.dir.display()
+                ),
+                InstallOutcome::AlreadyInstalled(i) => println!(
+                    "{} {} is already installed in {}",
+                    i.manifest.name,
+                    i.manifest.version,
+                    i.dir.display()
+                ),
+            }
+            Ok(())
+        })()),
+        SubCommands::Uninstall { package } => Some((|| {
+            let data = package::install::data_dir()?;
+            for i in package::install::uninstall(package, &data)? {
+                println!("Uninstalled {} {}", i.manifest.name, i.manifest.version);
+            }
+            Ok(())
+        })()),
+        SubCommands::Packages {} => Some((|| {
+            let data = package::install::data_dir()?;
+            let all = package::install::list(&data)?;
+            if all.is_empty() {
+                println!(
+                    "No packages are installed in {}",
+                    data.join("packages").display()
+                );
+            } else {
+                print!("{}", package::install::format_table(&all));
+            }
+            Ok(())
+        })()),
         _ => None,
     }
 }
@@ -734,10 +793,14 @@ fn add_ipc_broker(mut manifest: Value, ipc: Option<&str>) -> JuizResult<Value> {
 
 fn run(args: Args) -> JuizResult<()> {
     log::trace!("【呼出】juiz_app::run called");
-    let manifest = namespace::override_namespace(
+    let mut manifest = namespace::override_namespace(
         yaml_conf_load(args.filepath.clone())?,
         args.namespace.as_deref(),
     )?;
+    // profile の package は juiz run でパッケージから起動したときだけ載せる (docs/spec/app-package.md §10.1)
+    if let Some(obj) = manifest.as_object_mut() {
+        obj.remove("package");
+    }
     let manifest = add_ipc_broker(manifest, args.ipc.as_deref())?;
     let flag_start = if args.daemonize {
         true
@@ -787,7 +850,12 @@ fn run(args: Args) -> JuizResult<()> {
             on_composite(manifest, working_dir, subcommand, args)
         }
         SubCommands::Type { subcommand } => on_type(manifest, working_dir, subcommand, args),
-        SubCommands::Idl { .. } | SubCommands::Pack { .. } | SubCommands::Run { .. } => {
+        SubCommands::Idl { .. }
+        | SubCommands::Pack { .. }
+        | SubCommands::Run { .. }
+        | SubCommands::Install { .. }
+        | SubCommands::Uninstall { .. }
+        | SubCommands::Packages { .. } => {
             unreachable!()
         }
         /* _ => {

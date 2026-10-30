@@ -95,6 +95,16 @@ pub(crate) fn setup_objects(system: &mut System, manifest: &Value) -> JuizResult
         setup_brokers(system, v).context("system_builder::setup_brokers in System::setup() failed.")
     })?;
 
+    // subsystems につなぐ前の確認は、ブローカーを立てる前に行う。失敗したときにソケットなどを残さないため
+    if let (Some(check), Some(subsystems)) = (
+        system.subsystem_check(),
+        manifest.get("subsystems").and_then(|v| v.as_array()),
+    ) {
+        for s in subsystems {
+            check(system, s)?;
+        }
+    }
+
     system.start_brokers()?;
 
     // BrokerProxyをセットアップする

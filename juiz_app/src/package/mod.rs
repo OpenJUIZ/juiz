@@ -1,10 +1,14 @@
-//! アプリ配布形式 .juizapp の `juiz pack` と `juiz run`(docs/spec/app-package.md、#285)
+//! アプリ配布形式 .juizapp の `juiz pack`・`juiz run`・`juiz install`(docs/spec/app-package.md、#285、#286)
 //!
 //! - [`manifest`]: マニフェスト `juizapp.yaml` の読み書きと項目の検査(§4)
 //! - [`names`]: zip のエントリ名の安全規則(§11)とパッケージ内の相対パス
 //! - [`pack`]: `juiz pack`(§6)
 //! - [`run`]: `juiz run` の検証・キャッシュへの展開・起動(§7、§9)
+//! - [`install`]: `juiz install` / `uninstall` / `packages` とインストール済みの検索(§8)
+//! - [`depends`]: 基礎の起動時の設定と、depends の解決・確認(§10)
 
+pub(crate) mod depends;
+pub(crate) mod install;
 pub(crate) mod manifest;
 pub(crate) mod names;
 pub(crate) mod pack;

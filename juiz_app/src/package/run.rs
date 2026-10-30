@@ -1,8 +1,9 @@
-//! `juiz run <file.juizapp>`(docs/spec/app-package.md §7、§9、§11)
+//! `juiz run <file.juizapp | name>`(docs/spec/app-package.md §7、§9、§10、§11)
 
-use super::manifest::{check_format, exact_version, parse_req, Manifest};
+use super::manifest::{check_format, exact_version, parse_req, Kind, Manifest};
 use super::names::{check_entry_name, find_case_collision, is_reserved_path, normalize_relative};
-use super::{sha256_hex_reader, warn, yaml, JUIZ_VERSION, MANIFEST_FILE};
+use super::{depends, install};
+use super::{sha256_hex_reader, yaml, JUIZ_VERSION, MANIFEST_FILE};
 use juiz_core::anyhow::{anyhow, bail, Context, Result};
 use juiz_core::prelude::*;
 use juiz_core::utils::yaml_conf_load;
@@ -32,6 +33,8 @@ pub(crate) struct RunOptions {
     pub start_http_broker: bool,
     pub ipc: Option<String>,
     pub namespace: Option<String>,
+    /// `--depend <名前>=<URL>`(§10.2)
+    pub depends: Vec<String>,
 }
 
 /// パッケージを動かそうとしている juiz(§1.1 のホスト)
@@ -92,26 +95,19 @@ pub(crate) fn cache_dir() -> Result<PathBuf> {
 /// `juiz run` の本体
 pub(crate) fn run_package(opts: &RunOptions) -> Result<()> {
     let file = PathBuf::from(&opts.package);
-    if !file.is_file() {
-        if opts.package.ends_with(".juizapp") {
+    let host = Host::current();
+    let data = install::data_dir()?;
+    // 名前が .juizapp で終わるか、そのパスにファイルがあればファイル。それ以外はインストール済みの名前(§7)
+    let prepared = if opts.package.ends_with(".juizapp") || file.is_file() {
+        if !file.is_file() {
             bail!("{} is not found", opts.package);
         }
-        bail!(
-            "'{}' is not a .juizapp file. Running an installed package by name needs 'juiz install', which this juiz does not support yet.",
-            opts.package
-        );
-    }
-    let prepared = prepare(&file, &cache_dir()?, &Host::current())?;
+        prepare(&file, &cache_dir()?, &host)?
+    } else {
+        install::prepare_installed(&opts.package, &data, &host)?
+    };
     let m = &prepared.manifest;
     check_python(m)?;
-    if !m.depends.is_empty() {
-        let list: Vec<String> = m.depends.iter().map(|(k, v)| format!("{k} {v}")).collect();
-        warn(&format!(
-            "{} depends on {}, but this juiz does not check or connect depends yet. Start them yourself.",
-            m.name,
-            list.join(", ")
-        ));
-    }
     let entry_raw = opts.entry.clone().unwrap_or_else(|| m.entry.clone());
     let entry = normalize_relative(&entry_raw)
         .filter(|e| !e.is_empty())
@@ -125,11 +121,13 @@ pub(crate) fn run_package(opts: &RunOptions) -> Result<()> {
         m.version,
         prepared.dir.display()
     );
-    start(&prepared.dir, &prepared.dir.join(&entry), opts)
+    start(&prepared, &prepared.dir.join(&entry), opts, &data)
 }
 
-/// 展開先の conf で起動する(§7.1 の 3、5)
-fn start(app_dir: &Path, conf: &Path, opts: &RunOptions) -> Result<()> {
+/// 展開先の conf で起動する(§7.1 の 3〜5)
+fn start(prepared: &Prepared, conf: &Path, opts: &RunOptions, data: &Path) -> Result<()> {
+    let app_dir = &prepared.dir;
+    let m = &prepared.manifest;
     // 環境変数は他のスレッドを立てる前に入れる
     std::env::set_var("JUIZ_APP_DIR", app_dir);
     let text =
@@ -140,18 +138,79 @@ fn start(app_dir: &Path, conf: &Path, opts: &RunOptions) -> Result<()> {
     {
         bail!("{} must be a map", conf.display());
     }
-    let manifest = crate::namespace::override_namespace(
+    let mut manifest = crate::namespace::override_namespace(
         yaml_conf_load(conf.display().to_string())?,
         opts.namespace.as_deref(),
     )?;
-    let manifest = crate::add_ipc_broker(manifest, opts.ipc.as_deref())?;
+    // 4. 基礎の IPC・HTTP ブローカーと、depends のつなぎ先(§10)
+    let mut ipc = opts.ipc.clone();
+    if m.kind == Kind::Base {
+        ipc = depends::apply_base(m, &mut manifest, opts.ipc.as_deref())?;
+    }
+    depends::set_package_profile(m, &mut manifest)?;
+    let cli = opts
+        .depends
+        .iter()
+        .map(|s| depends::parse_depend_arg(s))
+        .collect::<Result<Vec<_>>>()?;
+    let installed = install::list(data)?;
+    let deps = depends::resolve(m, &mut manifest, &cli, &installed)?;
+    let (ipc, needs_http) = depends::ensure_brokers(m, &mut manifest, &deps, ipc.as_deref())?;
+    let manifest = crate::add_ipc_broker(manifest, ipc.as_deref())?;
     let working_dir = conf.parent().unwrap_or(app_dir);
-    let mut system = System::new(manifest)?.set_working_dir(working_dir);
-    // HTTP ブローカーは -d のように強制では立てず、conf と -b に従う
-    if opts.start_http_broker {
+    let mut system = System::new(manifest)?
+        .set_working_dir(working_dir)
+        .set_subsystem_check(subsystem_check(m, deps, &installed));
+    // HTTP ブローカーは -d のように強制では立てず、conf と -b に従う。http で基礎につなぐときは立てる
+    if opts.start_http_broker || needs_http {
         system = system.start_http_broker(true);
     }
-    system.setup()?.run_and_do(|_| Ok(()))
+    let mut system = system.setup().map_err(|e| {
+        // 依存のエラーは setup の文脈を付けずに見せる
+        match e.downcast_ref::<depends::DependError>() {
+            Some(d) => anyhow!(d.0.clone()),
+            None => e,
+        }
+    })?;
+    system.run_and_do(|_| Ok(()))
+}
+
+/// depends の subsystem につなぐ前に、相手の profile の package を確かめる(§10.2、§10.3)
+fn subsystem_check(
+    m: &Manifest,
+    deps: Vec<depends::Depend>,
+    installed: &[install::Installed],
+) -> Box<juiz_core::SubsystemCheckFunctionType> {
+    let app = m.name.clone();
+    let installed_bases: BTreeSet<String> = installed
+        .iter()
+        .filter(|i| i.manifest.kind == Kind::Base)
+        .map(|i| i.manifest.name.clone())
+        .collect();
+    Box::new(move |system: &System, sub: &Value| -> JuizResult<()> {
+        let Some(name) = sub.get("package").and_then(Value::as_str) else {
+            return Ok(());
+        };
+        let Some(dep) = deps.iter().find(|d| d.name == name) else {
+            return Ok(());
+        };
+        let not_reached = || depends::connect_error(&app, dep, installed_bases.contains(name));
+        let bp = system
+            .core_broker()
+            .lock()?
+            .create_broker_proxy(sub.clone())
+            .map_err(|_| not_reached())?;
+        let profile = juiz_lock(&bp)?
+            .system_profile_full()
+            .map_err(|_| not_reached())?;
+        // http・ipc などの BrokerProxy は値を {"__value__": …} で包んで返す
+        let profile = match profile.get("__value__") {
+            Some(v) => v.clone(),
+            None => profile,
+        };
+        depends::check_profile(&app, dep, &profile)?;
+        Ok(())
+    })
 }
 
 /// §9 の段 7・8(Python)
@@ -191,8 +250,8 @@ fn check_python(m: &Manifest) -> Result<()> {
     Ok(())
 }
 
-/// §9 の段 1〜6 を行い、キャッシュに展開する
-pub(crate) fn prepare(file: &Path, cache_root: &Path, host: &Host) -> Result<Prepared> {
+/// §9 の段 1・2 を行い、パッケージ内のマニフェストに必須の項目を確かめる
+pub(crate) fn open_package(file: &Path) -> Result<(ZipArchive<File>, Manifest)> {
     let label = file.display().to_string();
     let not_package = || anyhow!("{label} is not a juiz app package (no juizapp.yaml at the root)");
 
@@ -217,8 +276,12 @@ pub(crate) fn prepare(file: &Path, cache_root: &Path, host: &Host) -> Result<Pre
     check_format(&value, &label)?;
     let m = Manifest::from_value(value, &label)?;
     m.check_packed(&label)?;
-    let id = format!("{} {}", m.name, m.version);
+    Ok((zip, m))
+}
 
+/// §9 の段 3(juiz の版)・4(ターゲット)
+pub(crate) fn check_host(m: &Manifest, host: &Host) -> Result<()> {
+    let id = format!("{} {}", m.name, m.version);
     // 3. juiz の版
     let range = m.juiz.as_deref().unwrap_or("*");
     let req = parse_req("'juiz'", range)?;
@@ -248,6 +311,29 @@ pub(crate) fn prepare(file: &Path, cache_root: &Path, host: &Host) -> Result<Pre
             host.target
         );
     }
+    Ok(())
+}
+
+/// §9 の段 6(Rust のプラグインをビルドした rustc)
+pub(crate) fn check_rustc(m: &Manifest, host: &Host) -> Result<()> {
+    if m.has_language("rust") {
+        let rustc = m.rust_rustc.as_deref().unwrap_or("unknown");
+        if rustc != host.rustc {
+            bail!(
+                "{} {} contains Rust plugins built with {rustc}, but this juiz was built with {}.",
+                m.name,
+                m.version,
+                host.rustc
+            );
+        }
+    }
+    Ok(())
+}
+
+/// §9 の段 1〜6 を行い、キャッシュに展開する
+pub(crate) fn prepare(file: &Path, cache_root: &Path, host: &Host) -> Result<Prepared> {
+    let (mut zip, m) = open_package(file)?;
+    check_host(&m, host)?;
 
     // 5. ファイル(キャッシュに展開済みなら省く)
     let hash = {
@@ -259,19 +345,11 @@ pub(crate) fn prepare(file: &Path, cache_root: &Path, host: &Host) -> Result<Pre
     if !dest.join(COMPLETE_MARK).is_file() {
         std::fs::create_dir_all(&apps)
             .with_context(|| format!("cannot create {}", apps.display()))?;
-        extract(&mut zip, &m, &apps, &dest)?;
+        extract(&mut zip, &m, &dest)?;
     }
 
     // 6. ビルド情報
-    if m.has_language("rust") {
-        let rustc = m.rust_rustc.as_deref().unwrap_or("unknown");
-        if rustc != host.rustc {
-            bail!(
-                "{id} contains Rust plugins built with {rustc}, but this juiz was built with {}.",
-                host.rustc
-            );
-        }
-    }
+    check_rustc(&m, host)?;
     let dir = std::path::absolute(&dest)?;
     Ok(Prepared { manifest: m, dir })
 }
@@ -283,15 +361,17 @@ struct EntryInfo {
     executable: bool,
 }
 
-/// §11 の規則で全エントリを調べてから、一時ディレクトリに展開し、`files` と照合して rename する
-fn extract<R: Read + std::io::Seek>(
+/// §11 の規則で全エントリを調べてから、dest と同じ親の一時ディレクトリに展開し、`files` と照合して rename する
+pub(crate) fn extract<R: Read + std::io::Seek>(
     zip: &mut ZipArchive<R>,
     m: &Manifest,
-    apps: &Path,
     dest: &Path,
 ) -> Result<()> {
     let entries = check_entries(zip, m)?;
-    let tmp = apps.join(format!(
+    let parent = dest
+        .parent()
+        .ok_or_else(|| anyhow!("{} has no parent directory", dest.display()))?;
+    let tmp = parent.join(format!(
         ".tmp-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
@@ -439,20 +519,20 @@ fn check_entries<R: Read + std::io::Seek>(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::package::to_hex;
     use zip::write::SimpleFileOptions;
     use zip::ZipWriter;
 
-    fn tmp(name: &str) -> PathBuf {
+    pub(crate) fn tmp(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("juiz_run_{name}_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
     }
 
-    fn host() -> Host {
+    pub(crate) fn host() -> Host {
         Host {
             juiz_version: Version::parse("0.0.28").unwrap(),
             target: "x86_64-unknown-linux-gnu".to_owned(),
@@ -465,7 +545,12 @@ mod tests {
     }
 
     /// manifest の files を entries から作り(override で書き換えられる)、zip を書く
-    fn write_pkg(path: &Path, head: &str, entries: &[(&str, &[u8])], files_override: Option<&str>) {
+    pub(crate) fn write_pkg(
+        path: &Path,
+        head: &str,
+        entries: &[(&str, &[u8])],
+        files_override: Option<&str>,
+    ) {
         let files = files_override.map(str::to_owned).unwrap_or_else(|| {
             let mut s = String::from("files:\n");
             for (n, b) in entries {
@@ -485,7 +570,7 @@ mod tests {
         zip.finish().unwrap();
     }
 
-    const HEAD: &str = "format: 1\nname: app\nversion: 0.1.0\njuiz: \">=0.0.28\"\nentry: app.conf\nlanguages: [python]\ntargets: [any]";
+    pub(crate) const HEAD: &str = "format: 1\nname: app\nversion: 0.1.0\njuiz: \">=0.0.28\"\nentry: app.conf\nlanguages: [python]\ntargets: [any]";
 
     #[test]
     fn extracts_and_reuses_cache() {

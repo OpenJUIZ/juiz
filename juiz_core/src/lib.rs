@@ -28,7 +28,7 @@ pub use brokers::frame;
 /// IPC ブローカー (docs/spec/ipc-broker.md、feature "ipc-broker")
 #[cfg(feature = "ipc-broker")]
 pub use brokers::ipc;
-pub use core::{SystemStore, SystemStorePtr};
+pub use core::{SubsystemCheckFunctionType, SystemStore, SystemStorePtr};
 // conf の plugins の path の {target} 置換とその置き換え先 (docs/spec/app-package.md §5、#284)
 pub use plugin::{replace_target_in_plugin_paths, HOST_TARGET};
 // juiz run が使う、埋め込みの Python の確認 (docs/spec/app-package.md §9、#285)
