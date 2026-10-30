@@ -268,6 +268,8 @@ juiz run <パッケージ> [--entry <conf>] [--depend <名前>=<URL>]... [その
 5. 常駐して動かす(`-d` と同じく、止めるまで動き続ける)。ただし HTTP ブローカーは `-d` のように強制で立てず、conf の `option.http_broker` と `-b` に従う。
 
 - `--namespace`・`--ipc`・`-b` など、juiz の他のオプションは普通の起動と同じ意味で効く(`kind: base` の `--ipc` は §10.1)。
+  `juiz run` 自身が受け付けるのは `--entry`・`-b`・`--ipc`・`--namespace`(`juiz -b run …` のように run の前に書いてもよい)。
+- #285 の時点では、`--depend`、インストール済みの名前での起動(§8)、`kind: base` と `depends` の扱い(§10)はまだ無い(#286)。`depends` があれば、確かめずにつながないことを警告して起動する。
 - カレントディレクトリは変えない。環境変数 `JUIZ_APP_DIR` に展開先の絶対パスを入れて起動する(Python のプラグインが `assets/` などを開くとき用)。
 - 展開先は読み取り専用として扱う。プラグインはそこに書き込まないこと(キャッシュは消されうる、同じ展開先を複数の起動が共有する)。
 
@@ -319,7 +321,7 @@ juiz packages
 | --- | --- | --- |
 | 1. 入れ物 | zip として開ける。ルートに `juizapp.yaml` がある(1 MiB 以下) | `<file> is not a juiz app package (no juizapp.yaml at the root)` |
 | 2. format | `format` を知っている(今は `1` だけ) | `<file> uses package format <n>, but this juiz (<版>) supports up to 1. Update juiz.` |
-| 3. juiz の版 | ホストの juiz の版が `juiz` の範囲に入る | `<name> <ver> requires juiz <範囲>, but this is juiz <版>.` に続けて、`=x.y.z` なら `Install it with: cargo install juiz --version x.y.z` か `pip install juiz-cli==x.y.z` |
+| 3. juiz の版 | ホストの juiz の版が `juiz` の範囲に入る | `<name> <ver> requires juiz <範囲>, but this is juiz <版>.` に続けて、`=x.y.z` なら `Install it with: cargo install juiz_app --version x.y.z` か `pip install juiz-cli==x.y.z` |
 | 4. ターゲット | ホストのターゲットが `targets` にあるか、`targets` が `[any]` | `<name> <ver> is built for <targets の並び>, but this machine is <ホスト>.` |
 | 5. ファイル | §11 の zip の安全規則と、`files` との照合(§9.1) | 規則・ファイルごとの文(§11、§9.1) |
 | 6. ビルド情報 | Rust を含むとき、`rust.rustc` がホストの rustc と一致する(§12.1) | `<name> <ver> contains Rust plugins built with <rustc>, but this juiz was built with <rustc>.` |

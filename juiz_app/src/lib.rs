@@ -12,6 +12,7 @@ mod container_process;
 mod default_juiz_conf;
 mod execution_context;
 mod namespace;
+mod package;
 mod process;
 mod setup;
 mod types;
@@ -234,6 +235,39 @@ enum SubCommands {
     Idl {
         #[command(flatten)]
         args: juiz_idl::cli::IdlArgs,
+    },
+
+    /// Pack a directory with juizapp.yaml into a .juizapp package (docs/spec/app-package.md §6)
+    Pack {
+        /// Directory that has juizapp.yaml
+        dir: String,
+
+        /// Output file or directory (default: <name>-<version>.juizapp in the current directory)
+        #[arg(short = 'o', long = "output")]
+        output: Option<String>,
+
+        /// Put only the plugins of this target (ex., x86_64-unknown-linux-gnu). Can be repeated.
+        #[arg(long = "target")]
+        target: Vec<String>,
+    },
+
+    /// Check, extract and run a .juizapp package (docs/spec/app-package.md §7)
+    Run {
+        /// .juizapp file
+        package: String,
+
+        /// conf in the package to start with (default: 'entry' in juizapp.yaml)
+        #[arg(long = "entry")]
+        entry: Option<String>,
+
+        #[arg(short = 'b', help = "Start HTTP Broker. By default, option.http_broker in the conf decides.")]
+        start_http_broker: bool,
+
+        #[arg(long = "ipc", help = "Start an IPC broker with this name (same as juiz --ipc).")]
+        ipc: Option<String>,
+
+        #[arg(long = "namespace", help = "Default namespace of the system (same as juiz --namespace).")]
+        namespace: Option<String>,
     },
 }
 
@@ -623,12 +657,59 @@ where
             }
         };
     }
+    // juiz pack / juiz run も系の conf (-f) を読まない
+    match package_command(&args) {
+        Some(Ok(_)) => return 0,
+        Some(Err(e)) => {
+            eprintln!("error: {e:#}");
+            return 1;
+        }
+        None => {}
+    }
     match run(args) {
         Ok(_) => 0,
         Err(e) => {
             println!("Error:{:?}", e);
             1
         }
+    }
+}
+
+/// `juiz pack` と `juiz run` を実行する。どちらでもなければ None
+fn package_command(args: &Args) -> Option<JuizResult<()>> {
+    match args.subcommand.as_ref()? {
+        SubCommands::Pack { dir, output, target } => Some(
+            package::pack::pack(&package::pack::PackOptions {
+                dir: PathBuf::from(dir),
+                output: output.as_ref().map(PathBuf::from),
+                targets: target.clone(),
+            })
+            .map(|p| {
+                let m = &p.manifest;
+                println!(
+                    "Packed {} {} ({}; {} files) into {}",
+                    m.name,
+                    m.version,
+                    m.targets.as_deref().unwrap_or_default().join(", "),
+                    m.files.as_ref().map(|f| f.len()).unwrap_or(0),
+                    p.path.display()
+                );
+            }),
+        ),
+        SubCommands::Run {
+            package,
+            entry,
+            start_http_broker,
+            ipc,
+            namespace,
+        } => Some(package::run::run_package(&package::run::RunOptions {
+            package: package.clone(),
+            entry: entry.clone(),
+            start_http_broker: *start_http_broker || args.start_http_broker,
+            ipc: ipc.clone().or_else(|| args.ipc.clone()),
+            namespace: namespace.clone().or_else(|| args.namespace.clone()),
+        })),
+        _ => None,
     }
 }
 
@@ -706,7 +787,9 @@ fn run(args: Args) -> JuizResult<()> {
             on_composite(manifest, working_dir, subcommand, args)
         }
         SubCommands::Type { subcommand } => on_type(manifest, working_dir, subcommand, args),
-        SubCommands::Idl { .. } => unreachable!(),
+        SubCommands::Idl { .. } | SubCommands::Pack { .. } | SubCommands::Run { .. } => {
+            unreachable!()
+        }
         /* _ => {
             return Ok(())
         } */
