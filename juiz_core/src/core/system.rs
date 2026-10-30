@@ -334,6 +334,8 @@ impl System {
     }
 
     fn stop(&mut self) -> JuizResult<()> {
+        // ほかの System とつないでいたら、止まる前に相手から自分の登録を外してもらう (issue #303)
+        self.core_broker().leave_connected_systems()?;
         for (type_name, broker) in self.store.lock()?.brokers.iter() {
             log::info!("ブローカ({type_name:})を停止します。");
             let _ = broker.lock_mut()?.stop()?;

@@ -464,6 +464,24 @@ impl TopicPtr {
         }
     }
 
+    /// 転送先から uuid のサブシステムを外し、外したものを返す (issue #303)
+    pub fn remove_subscriber_subsystem(&self, uuid: &Uuid) -> JuizResult<Option<SubSystemProxy>> {
+        match self.topic.write() {
+            Ok(mut t) => {
+                if let Ok(mut failures) = t.push_failures.lock() {
+                    failures.forget(uuid);
+                }
+                Ok(t.subsystem_proxies
+                    .iter()
+                    .position(|ssp| ssp.uuid() == uuid)
+                    .map(|i| t.subsystem_proxies.remove(i)))
+            }
+            Err(_e) => Err(anyhow!(JuizError::ObjectLockError {
+                target: "Topic".to_owned()
+            })),
+        }
+    }
+
     /*
     pub fn register_publisher_subsystem(&self, subsystem_proxy: SubSystemProxy) -> JuizResult<()> {
         log::trace!("register_publisher_subsystem(name={}, subsystem_proxy={}) called", self.name(), subsystem_proxy.uuid());

@@ -81,6 +81,54 @@ impl CoreBrokerPtr {
         self.lock_mut()?.finish_add_mastersystem(&plan, uuid)?;
         Ok(plan.profile)
     }
+
+    /// つないでいるマスターシステムとサブシステムを忘れる。
+    /// 終了処理が走らずに止まったとき (強制終了など) を再現するテスト用 (issue #303)
+    #[doc(hidden)]
+    pub fn forget_connected_systems(&self) -> JuizResult<()> {
+        let mut cb = self.lock_mut()?;
+        cb.master_system_proxy = None;
+        cb.subsystem_proxies.clear();
+        Ok(())
+    }
+
+    /// つないでいるマスターシステムとサブシステムに、自分の登録を外してもらう (issue #303)。
+    /// System の終了処理から呼ぶ。
+    ///
+    /// 相手が先に止まっているなどで届かなくても終了処理を続けられるように、エラーは返さずログだけ出す。
+    pub fn leave_connected_systems(&self) -> JuizResult<()> {
+        let (peers, my_uuid) = {
+            let mut cb = self.lock_mut()?;
+            let mut peers: Vec<SubSystemProxy> =
+                cb.master_system_proxy.take().into_iter().collect();
+            for ssp in cb.subsystem_proxies.drain(..) {
+                if !peers.iter().any(|p| p.uuid() == ssp.uuid()) {
+                    peers.push(ssp);
+                }
+            }
+            (peers, cb.system_store.uuid()?)
+        };
+        // 相手への問い合わせはロックを外して行う (issue #159 と同じ理由)
+        for peer in peers {
+            log::debug!(
+                "System({})に、このシステム({my_uuid})の登録を外すよう伝えます。",
+                peer.uuid()
+            );
+            let result = juiz_lock(&peer.broker_proxy())
+                .and_then(|mut bp| bp.system_remove_subsystem(my_uuid));
+            match result {
+                Ok(_) => log::info!(
+                    "System({})からこのシステム({my_uuid})の登録を外しました。",
+                    peer.uuid()
+                ),
+                Err(e) => log::warn!(
+                    "System({})からこのシステム({my_uuid})の登録を外せませんでした。{e}",
+                    peer.uuid()
+                ),
+            }
+        }
+        Ok(())
+    }
 }
 
 impl CoreBroker {
@@ -314,6 +362,71 @@ impl SystemBrokerProxy for CoreBroker {
         let uuid = plan.negotiate()?;
         self.finish_add_mastersystem(&plan, uuid)?;
         Ok(plan.profile)
+    }
+
+    /// サブシステムの登録を外す (issue #303)
+    ///
+    /// subsystems の一覧・マスターシステム・各 Topic の転送先から外し、そのために作った BrokerProxy も
+    /// ほかで使っていなければ外す。どこにも登録されていない UUID ならエラー。
+    fn system_remove_subsystem(&mut self, uuid: Uuid) -> JuizResult<Value> {
+        log::trace!("【呼出】system_remove_subsystem({uuid})");
+        let mut removed: Vec<SubSystemProxy> = Vec::new();
+        if let Some(index) = self
+            .subsystem_proxies
+            .iter()
+            .position(|ssp| ssp.uuid() == &uuid)
+        {
+            removed.push(self.subsystem_proxies.remove(index));
+        }
+        // juiz run のアプリのように相手が conf の subsystems にこちらを書いてつないだときは、
+        // こちらは相手をマスターシステムとして登録しているので、そちらも外す
+        if self
+            .master_system_proxy
+            .as_ref()
+            .is_some_and(|m| m.uuid() == &uuid)
+        {
+            removed.extend(self.master_system_proxy.take());
+        }
+        // マスターシステムは 1 つしか持てないので、同じ基礎に複数のアプリがつなぐと先のアプリは
+        // Topic の転送先にだけ残っていることがある。Topic の転送先はいつも探す
+        let mut removed_from_topics = Vec::new();
+        for (name, topic) in self.worker().store().topics.iter() {
+            if let Some(ssp) = topic.remove_subscriber_subsystem(&uuid)? {
+                log::debug!("Topic({name}): System(uuid={uuid}) is removed from the destinations.");
+                removed_from_topics.push(ssp);
+            }
+        }
+        if removed.is_empty() && removed_from_topics.is_empty() {
+            log::debug!("system_remove_subsystem: System(uuid={uuid}) is not registered.");
+            return Err(anyhow!(JuizError::ObjectCanNotFoundByIdError {
+                id: format!("subsystem({uuid})")
+            }));
+        }
+        let profile = removed
+            .first()
+            .and_then(|ssp| ssp.profile_full().ok())
+            .unwrap_or(Value::Null);
+        // BrokerProxy は、同じ相手を指すサブシステムやマスターシステムが残っていなければ外す
+        for ssp in removed.iter().chain(removed_from_topics.iter()) {
+            let bp_id = juiz_lock(&ssp.broker_proxy())?.identifier().clone();
+            let still_used = self
+                .subsystem_proxies
+                .iter()
+                .chain(self.master_system_proxy.iter())
+                .any(|other| {
+                    juiz_lock(&other.broker_proxy())
+                        .map(|b| *b.identifier() == bp_id)
+                        .unwrap_or(false)
+                });
+            if !still_used {
+                self.worker()
+                    .store()
+                    .broker_proxies
+                    .deregister_by_id(&bp_id);
+            }
+        }
+        log::info!("System(uuid={uuid}) is removed from subsystems / mastersystem.");
+        Ok(jvalue!({"uuid": uuid.to_string(), "broker_proxy": profile}))
     }
 
     fn system_load_process(&mut self, language: String, filepath: String) -> JuizResult<Value> {

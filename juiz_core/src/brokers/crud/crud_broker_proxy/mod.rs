@@ -632,6 +632,15 @@ impl SystemBrokerProxy for CRUDBrokerProxyHolder {
         )
     }
 
+    fn system_remove_subsystem(&mut self, uuid: Uuid) -> JuizResult<Value> {
+        let mut cp = CapsuleMap::new();
+        cp.insert("uuid".to_owned(), jvalue!(uuid.to_string()).into());
+        capsule_to_value(
+            self.broker
+                .update("system", "remove_subsystem", cp, HashMap::new())?,
+        )
+    }
+
     fn system_load_process(&mut self, language: String, filepath: String) -> JuizResult<Value> {
         let mut cp = CapsuleMap::new();
         cp.insert(
