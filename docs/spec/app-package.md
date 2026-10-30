@@ -426,7 +426,7 @@ subsystems:
 | --- | --- | --- |
 | Rust | `plugins/<target>/` に so / dylib / dll | `juiz` で指定された版で、同じ rustc でビルドされた juiz(§12.1) |
 | C++ | プラグインと libjuiz_sdk(と自分で同梱したいライブラリ) | 対応する版の juiz |
-| Haskell | プラグイン(RTS 入り)と libjuiz_sdk と GHC の共有ライブラリの依存 | 対応する版の juiz |
+| Haskell | プラグインと libjuiz_sdk と GHC の共有ライブラリ・libffi・libgmp(§12.2) | 対応する版の juiz |
 | Python | `.py` | Python を埋め込める juiz(pip の juiz-cli が楽)と `python.requires` のパッケージ |
 
 ### 12.1 Rust のプラグインと rustc
@@ -441,8 +441,15 @@ Rust のプラグインはホストと juiz_sdk の版だけでなく、rustc �
 C ABI のプラグインは libjuiz_sdk を通して値を受け渡すので、libjuiz_sdk を同じディレクトリ(`plugins/<target>/`)に置き、プラグインがそれを見つけられるようにする。
 
 - Windows はプラグインの隣の DLL を探す(PR #274 で対応済み)。
-- Linux / macOS はプラグインの rpath に `$ORIGIN` / `@loader_path` を入れる。juiz_sdkConfig.cmake と hsjuiz の手順に足す(#287)。
+- Linux / macOS はプラグインの rpath を `$ORIGIN` / `@loader_path` にする(#287)。
 - 同梱した libjuiz_sdk は、今までどおり開いたときに `juiz_sdk_build_info` でホストと比べる。
+
+作り方(#287):
+
+- C++(CMake): `find_package(juiz_sdk)` の後で `juiz_sdk_bundle(<target>)` を呼ぶ。`<target>` の rpath を `$ORIGIN` / `@loader_path` だけにし(ビルドした場所でも SDK の絶対パスを書き込まない)、ビルドした `<target>` の隣に libjuiz_sdk(Windows は `juiz_sdk.dll`)を写す。できたディレクトリの中身を `plugins/<ターゲット名>/` に置く。
+- Haskell など、ほかの共有ライブラリにも依存するもの: `scripts/bundle-plugin-deps.sh <プラグイン> <出力ディレクトリ>` で、プラグインと依存するライブラリを 1 つのディレクトリに集め、どれも隣を探すように書き換える(Linux は patchelf で RUNPATH を `$ORIGIN`、macOS は install_name_tool で `@rpath/<名前>` と `@loader_path`、書き換えた後に codesign で署名し直す)。Haskell のプラグインは libjuiz_sdk のほかに GHC の共有ライブラリ(`libHSbase-*`、`libHSrts*` など、cabal の `foreign-library` は base と RTS にも動的リンクする)と libffi・libgmp に依存するので、これで全部を集める。Windows は対象外(Haskell の Windows は #137)。
+- 写さない「OS の基本のライブラリ」は、Linux は glibc(libc・libm・libdl・libpthread・librt・libutil・libresolv・ld-linux)と libgcc_s・libstdc++、macOS は `/usr/lib/` と `/System/` の下。受け取る側の glibc が作った側より古いと動かないので、Linux 向けは古めの環境(Ubuntu 22.04 など)でビルドする。
+- `juiz pack` は、ホストのターゲットのネイティブのプラグインについて依存するライブラリを調べ(Linux は `ldd`、macOS は `otool -L`)、プラグインの隣にも OS の基本のライブラリにも無いもの(見つからない、またはパッケージの外で見つかった)を警告する。ほかのターゲットのプラグインは調べられないので、`scripts/bundle-plugin-deps.sh --check <プラグイン>` をその OS で使う。
 
 ## 13. 後回しにするもの
 

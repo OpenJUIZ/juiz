@@ -7,9 +7,12 @@
 #    (cabal.project の書き方は README と同じ)
 # 3. できた共有ライブラリを Python の ctypes で開き、juiz_hs_init と、ライブラリが読み込んだ
 #    libjuiz_sdk の juiz_sdk_build_info を呼ぶ(juiz が読み込むときと同じく、ライブラリのハンドルで探す)
+# 4. scripts/bundle-plugin-deps.sh で、ライブラリと libjuiz_sdk・GHC の共有ライブラリなどを 1 つのディレクトリに集め
+#    (.juizapp の plugins/<ターゲット名>/ の形、issue #287)、別の場所に移しても 3 と同じく開けることを確かめる
 #
 # 使い方: scripts/check-hsjuiz-package.sh <展開した juiz_sdk のディレクトリ>
 #   GHC と cabal が必要。Hackage の索引は使わない(hsjuiz の依存は GHC に付いてくるパッケージだけ)。
+#   Linux では 4 に patchelf が要る。
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
@@ -66,7 +69,8 @@ if [[ -z "$lib" ]]; then
 fi
 expected_sdk=$(sed -n 's/^version *= *"\(.*\)"/\1/p' "$repo_root/juiz_sdk/Cargo.toml" | head -n 1)
 
-python3 - "$lib" "$expected_sdk" <<'EOF'
+open_plugin() {
+    python3 - "$1" "$expected_sdk" <<'EOF'
 import ctypes, sys
 lib = ctypes.CDLL(sys.argv[1])
 lib.juiz_hs_init.restype = ctypes.c_int64
@@ -76,5 +80,16 @@ lib.juiz_sdk_build_info.restype = ctypes.c_char_p
 info = lib.juiz_sdk_build_info().decode()
 print(f"juiz_sdk_build_info: {info}")
 assert f"juiz_sdk={sys.argv[2]};" in info, info
-print("ok: hsjuiz builds from its sdist with the packaged libjuiz_sdk")
 EOF
+}
+
+open_plugin "$lib"
+echo "ok: hsjuiz builds from its sdist with the packaged libjuiz_sdk"
+
+# 4. .juizapp に入れる形に集め、別の場所に移して開く
+"$repo_root/scripts/bundle-plugin-deps.sh" "$lib" "$work/bundle"
+mv "$work/bundle" "$work/moved"
+ls -l "$work/moved"
+"$repo_root/scripts/bundle-plugin-deps.sh" --check "$work/moved/$(basename "$lib")"
+open_plugin "$work/moved/$(basename "$lib")"
+echo "ok: the bundled Haskell plugin opens from its own directory"

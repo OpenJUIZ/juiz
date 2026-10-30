@@ -17,3 +17,11 @@ set_target_properties(find_package_process PROPERTIES
   LIBRARY_OUTPUT_DIRECTORY "$<1:${CMAKE_BINARY_DIR}/out>"
   RUNTIME_OUTPUT_DIRECTORY "$<1:${CMAKE_BINARY_DIR}/out>")
 juiz_sdk_copy_runtime(find_package_process)
+
+# .juizapp に入れる形 (issue #287): rpath は $ORIGIN / @loader_path だけで、隣に libjuiz_sdk を置く
+add_library(bundled_process SHARED find_package_process.cpp)
+target_link_libraries(bundled_process PRIVATE juiz_sdk::juiz_sdk)
+set_target_properties(bundled_process PROPERTIES
+  LIBRARY_OUTPUT_DIRECTORY "$<1:${CMAKE_BINARY_DIR}/bundle>"
+  RUNTIME_OUTPUT_DIRECTORY "$<1:${CMAKE_BINARY_DIR}/bundle>")
+juiz_sdk_bundle(bundled_process)
