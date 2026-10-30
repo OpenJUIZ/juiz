@@ -3,6 +3,10 @@
 hsjuiz の版は juiz(crates.io の juiz_app、PyPI の pyjuiz / juiz-cli)と同じ番号にそろえています。
 使う libjuiz_sdk も同じ版にしてください。
 
+## 0.0.29
+
+- hsjuiz 自体の変更はない(juiz 本体の修正 #301・#303・#304 に版をそろえた)。
+
 ## 0.0.28
 
 - アプリ配布形式 `.juizapp` に Haskell のプラグインを入れるため、`scripts/bundle-plugin-deps.sh` で
