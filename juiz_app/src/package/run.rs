@@ -237,17 +237,67 @@ fn check_python(m: &Manifest) -> Result<()> {
         );
     }
     if !r.missing.is_empty() {
-        let quoted: Vec<String> = r.missing.iter().map(|s| format!("\"{s}\"")).collect();
+        let virtual_env = std::env::var("VIRTUAL_ENV").ok();
         bail!(
-            "{} {} needs Python packages that are not installed: {}\nInstall them with: {} -m pip install {}",
+            "{} {} needs Python packages that are not installed: {}\n{}",
             m.name,
             m.version,
             r.missing.join(", "),
-            r.executable,
-            quoted.join(" ")
+            pip_install_hint(
+                &r.executable,
+                &r.missing,
+                virtual_env.as_deref(),
+                cfg!(windows)
+            )
         );
     }
     Ok(())
+}
+
+/// 足りない Python のパッケージを入れる pip のコマンドを、貼り付けてそのまま通る形で作る (#304)。
+///
+/// - 有効にした venv の中の Python なら `python -m pip ...`(venv の python が PATH の先頭にあるので、どのシェルでも通る)
+/// - パスに空白などが無ければ、そのパスのまま
+/// - 空白などがあれば、Windows は PowerShell(`& "..."`)と cmd(`"..."`)の両方を、それ以外は `'...'` で囲んだ形を示す
+fn pip_install_hint(
+    executable: &str,
+    packages: &[String],
+    virtual_env: Option<&str>,
+    windows: bool,
+) -> String {
+    let args = packages
+        .iter()
+        .map(|s| format!("\"{s}\""))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let in_venv = virtual_env.is_some_and(|venv| {
+        let norm = |s: &str| {
+            let s = s.replace('\\', "/").trim_end_matches('/').to_owned();
+            if windows {
+                s.to_lowercase()
+            } else {
+                s
+            }
+        };
+        norm(executable).starts_with(&format!("{}/", norm(venv)))
+    });
+    if in_venv {
+        return format!("Install them with: python -m pip install {args}");
+    }
+    let needs_quote = executable
+        .chars()
+        .any(|c| c.is_whitespace() || "\"'&()^%!;,$`".contains(c));
+    if !needs_quote {
+        return format!("Install them with: {executable} -m pip install {args}");
+    }
+    if windows {
+        format!(
+            "Install them with:\n  PowerShell: & \"{executable}\" -m pip install {args}\n  cmd:        \"{executable}\" -m pip install {args}"
+        )
+    } else {
+        let quoted = executable.replace('\'', "'\\''");
+        format!("Install them with: '{quoted}' -m pip install {args}")
+    }
 }
 
 /// §9 の段 1・2 を行い、パッケージ内のマニフェストに必須の項目を確かめる
@@ -571,6 +621,54 @@ pub(crate) mod tests {
     }
 
     pub(crate) const HEAD: &str = "format: 1\nname: app\nversion: 0.1.0\njuiz: \">=0.0.28\"\nentry: app.conf\nlanguages: [python]\ntargets: [any]";
+
+    #[test]
+    fn pip_install_hint_can_be_pasted() {
+        let pkgs = vec!["six>=1.16".to_owned(), "numpy".to_owned()];
+        // パスに空白が無ければ、そのまま
+        assert_eq!(
+            pip_install_hint(r"C:\Python310\python.exe", &pkgs, None, true),
+            r#"Install them with: C:\Python310\python.exe -m pip install "six>=1.16" "numpy""#
+        );
+        // 有効にした venv の中の Python なら python -m pip(大文字小文字と区切りの違いは Windows では無視する)
+        assert_eq!(
+            pip_install_hint(
+                r"C:\Users\Taro Yamada\app\.venv\Scripts\python.exe",
+                &pkgs,
+                Some(r"c:/users/taro yamada/app/.venv"),
+                true
+            ),
+            r#"Install them with: python -m pip install "six>=1.16" "numpy""#
+        );
+        assert_eq!(
+            pip_install_hint(
+                "/home/me/my app/.venv/bin/python3",
+                &pkgs,
+                Some("/home/me/my app/.venv/"),
+                false
+            ),
+            r#"Install them with: python -m pip install "six>=1.16" "numpy""#
+        );
+        // venv の外の Python で、パスに空白があれば囲む(Windows は PowerShell と cmd の両方)
+        assert_eq!(
+            pip_install_hint(r"C:\Users\Taro Yamada\AppData\Local\Programs\Python\Python310\python.exe", &pkgs, Some(r"C:\other\.venv"), true),
+            "Install them with:\n  PowerShell: & \"C:\\Users\\Taro Yamada\\AppData\\Local\\Programs\\Python\\Python310\\python.exe\" -m pip install \"six>=1.16\" \"numpy\"\n  cmd:        \"C:\\Users\\Taro Yamada\\AppData\\Local\\Programs\\Python\\Python310\\python.exe\" -m pip install \"six>=1.16\" \"numpy\""
+        );
+        assert_eq!(
+            pip_install_hint("/opt/my python/bin/python3", &pkgs, None, false),
+            r#"Install them with: '/opt/my python/bin/python3' -m pip install "six>=1.16" "numpy""#
+        );
+        // venv の名前で始まる別のディレクトリは venv の中とみなさない
+        assert_eq!(
+            pip_install_hint(
+                "/home/me/.venv2/bin/python3",
+                &pkgs,
+                Some("/home/me/.venv"),
+                false
+            ),
+            r#"Install them with: /home/me/.venv2/bin/python3 -m pip install "six>=1.16" "numpy""#
+        );
+    }
 
     #[test]
     fn extracts_and_reuses_cache() {
