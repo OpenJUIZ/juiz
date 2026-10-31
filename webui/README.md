@@ -14,7 +14,7 @@ TypeScript + React + Vite で作り、図は React Flow(`@xyflow/react`)、自�
 
 ```sh
 # juiz を HTTP Broker 付きで起動しておく(既定は http://localhost:8000)
-juiz -f juiz.conf -b
+juiz -f juiz.conf --http
 
 cd webui
 npm install

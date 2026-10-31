@@ -501,7 +501,7 @@ fn ipc_broker_api_between_processes() -> JuizResult<()> {
     let juiz = target_dir().join(if cfg!(windows) { "juiz.exe" } else { "juiz" });
     let mut server = Server(
         Command::new(juiz)
-            .args(["-d", "-q", "--ipc", ipc_name, "-f"])
+            .args(["-d", "--no-http", "--ipc", ipc_name, "-f"])
             .arg(&conf)
             .stdin(Stdio::null())
             .stdout(Stdio::null())

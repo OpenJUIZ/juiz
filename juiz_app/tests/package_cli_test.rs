@@ -379,7 +379,7 @@ fn install_base_and_connect_app() {
         let plain = dir.join("plain.conf");
         std::fs::write(&plain, format!("name: plain\n{quiet}")).unwrap();
         let mut d = Daemon::spawn(
-            &["-d", "-q", "--ipc", &base, "-f", path_str(&plain)],
+            &["-d", "--no-http", "--ipc", &base, "-f", path_str(&plain)],
             dir.join("plain.log"),
         );
         let p = wait_profile(&base, |_| true);
@@ -436,5 +436,98 @@ fn install_base_and_connect_app() {
     assert!(o.status.success(), "{o:?}");
     let o = juiz_env().args(["packages"]).output().unwrap();
     assert!(!String::from_utf8_lossy(&o.stdout).contains(&base), "{o:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// juiz run の HTTP ブローカー: 既定は立てる、--no-http で立てない、conf の start: false は --http で上書き (issue #306、§7.1)
+#[test]
+fn run_http_broker_flags() {
+    let dir = temp_dir("package_http_flags");
+    let cache = dir.join("cache");
+    let port = 8075;
+    let bound = format!("バインド成功(host=0.0.0.0, port={port})");
+    let open = || std::net::TcpStream::connect(("127.0.0.1", port)).is_ok();
+    let default_pkg = pack_conf_only(
+        &dir,
+        "http_default",
+        "version: 0.1.0\n",
+        &format!("name: http_default_system\noption:\n  http_broker:\n    port: {port}\n"),
+    );
+    let off_pkg = pack_conf_only(
+        &dir,
+        "http_off",
+        "version: 0.1.0\n",
+        &format!("name: http_off_system\noption:\n  http_broker:\n    start: false\n    port: {port}\n"),
+    );
+    let spawn = |args: &[&str], log: &str| {
+        let mut cmd = juiz();
+        cmd.current_dir(&dir)
+            .env("JUIZ_CACHE_DIR", &cache)
+            .env("RUST_LOG", "info")
+            .arg("run")
+            .args(args);
+        Daemon::spawn_command(cmd, dir.join(log))
+    };
+    // 立たないことは、起動してしばらく待ってもポートが開かず、バインドの記録も無いことで見る
+    let assert_closed = |d: &Daemon| {
+        d.wait_log("Running ");
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        assert!(!open(), "port {port} is open");
+        let text = d.log_text();
+        assert!(!text.contains(&bound), "{text}");
+    };
+
+    // 既定(conf に start が無い): 立つ
+    let mut d = spawn(&[path_str(&default_pkg)], "default.log");
+    d.wait_log(&bound);
+    assert!(open());
+    d.stop();
+
+    // --no-http: 立たない(run の前に書いてもよい)
+    let mut d = spawn(&[path_str(&default_pkg), "--no-http"], "no_http.log");
+    assert_closed(&d);
+    d.stop();
+    let mut cmd = juiz();
+    cmd.current_dir(&dir)
+        .env("JUIZ_CACHE_DIR", &cache)
+        .env("RUST_LOG", "info")
+        .args(["--no-http", "run", path_str(&default_pkg)]);
+    let mut d = Daemon::spawn_command(cmd, dir.join("no_http_before.log"));
+    assert_closed(&d);
+    d.stop();
+
+    // conf で start: false: 立たない
+    let mut d = spawn(&[path_str(&off_pkg)], "off.log");
+    assert_closed(&d);
+    d.stop();
+
+    // conf で start: false でも --http なら立つ。--no-http と両方なら --http
+    for (args, log) in [
+        (vec![path_str(&off_pkg), "--http"], "off_http.log"),
+        (vec![path_str(&off_pkg), "--http", "--no-http"], "off_http_no_http.log"),
+    ] {
+        let mut d = spawn(&args, log);
+        d.wait_log(&bound);
+        assert!(open());
+        d.stop();
+    }
+
+    // --no-http と http での依存の接続は両立しないので、つなぐ前にエラーにする
+    let app_pkg = pack_conf_only(
+        &dir,
+        "http_dep_app",
+        "version: 0.1.0\ndepends:\n  some_base: \">=1\"\n",
+        "name: http_dep_app_system\n",
+    );
+    let o = juiz()
+        .current_dir(&dir)
+        .env("JUIZ_CACHE_DIR", &cache)
+        .env("JUIZ_DATA_DIR", dir.join("data"))
+        .args(["run", path_str(&app_pkg), "--no-http", "--depend", "some_base=http://127.0.0.1:1"])
+        .output()
+        .unwrap();
+    assert!(!o.status.success(), "{o:?}");
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(err.contains("--no-http"), "{err}");
     let _ = std::fs::remove_dir_all(&dir);
 }

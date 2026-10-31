@@ -70,13 +70,13 @@ struct Args {
     ratio: Option<f64>,
 
     #[arg(
-        short = 'q',
+        long = "no-http",
         default_value = "false",
-        help = "Stop HTTP Broker. Default(false). This option is used with -d option only. If you use this with -b option, http server will start."
+        help = "Do not start HTTP Broker. Used with -d or run. If you use this with --http option, http server will start."
     )]
     stop_http_broker: bool,
 
-    #[arg(short = 'b', help = "Start HTTP Broker. Default(false)")]
+    #[arg(long = "http", help = "Start HTTP Broker. Default(false)")]
     start_http_broker: bool,
 
     #[arg(
@@ -260,8 +260,14 @@ enum SubCommands {
         #[arg(long = "entry")]
         entry: Option<String>,
 
-        #[arg(short = 'b', help = "Start HTTP Broker. By default, option.http_broker in the conf decides.")]
+        #[arg(long = "http", help = "Start HTTP Broker even if option.http_broker.start is false in the conf.")]
         start_http_broker: bool,
+
+        #[arg(
+            long = "no-http",
+            help = "Do not start HTTP Broker even if the conf has no option.http_broker or says start: true. --http wins."
+        )]
+        stop_http_broker: bool,
 
         #[arg(long = "ipc", help = "Start an IPC broker with this name (same as juiz --ipc).")]
         ipc: Option<String>,
@@ -718,6 +724,7 @@ fn package_command(args: &Args) -> Option<JuizResult<()>> {
             package,
             entry,
             start_http_broker,
+            stop_http_broker,
             ipc,
             namespace,
             depend,
@@ -725,6 +732,7 @@ fn package_command(args: &Args) -> Option<JuizResult<()>> {
             package: package.clone(),
             entry: entry.clone(),
             start_http_broker: *start_http_broker || args.start_http_broker,
+            stop_http_broker: *stop_http_broker || args.stop_http_broker,
             ipc: ipc.clone().or_else(|| args.ipc.clone()),
             namespace: namespace.clone().or_else(|| args.namespace.clone()),
             depends: depend.clone(),
@@ -802,11 +810,8 @@ fn run(args: Args) -> JuizResult<()> {
         obj.remove("package");
     }
     let manifest = add_ipc_broker(manifest, args.ipc.as_deref())?;
-    let flag_start = if args.daemonize {
-        true
-    } else {
-        args.start_http_broker
-    };
+    // -d は HTTP ブローカーを立てる。--no-http で立てない。--http はどちらでも立てる (issue #306)
+    let flag_start = args.start_http_broker || (args.daemonize && !args.stop_http_broker);
     let manifest_filepath = PathBuf::from(args.filepath.as_str().to_string());
     let working_dir = manifest_filepath.parent().unwrap();
     let ratio = args.ratio;

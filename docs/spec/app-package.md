@@ -265,10 +265,21 @@ juiz run <パッケージ> [--entry <conf>] [--depend <名前>=<URL>]... [その
 2. ファイルなら §7.2 のキャッシュに展開する。インストール済みならその置き場所をそのまま使う。
 3. 展開先の `entry`(`--entry` があればそれ)の conf を読み、普通の `juiz -f` と同じく conf の親ディレクトリを基準にパスを解決する。
 4. `kind: base` なら §10.1、`depends` があれば §10.2 の設定を conf に足す。
-5. 常駐して動かす(`-d` と同じく、止めるまで動き続ける)。ただし HTTP ブローカーは `-d` のように強制で立てず、conf の `option.http_broker` と `-b` に従う。
+5. 常駐して動かす(`-d` と同じく、止めるまで動き続ける)。ただし HTTP ブローカーは `-d` のように強制で立てず、conf の `option.http_broker` と `--http`・`--no-http` に従う(下の表、#306。0.0.29 までの `-b` は `--http` に変わった)。
 
-- `--namespace`・`--ipc`・`-b` など、juiz の他のオプションは普通の起動と同じ意味で効く(`kind: base` の `--ipc` は §10.1)。
-  `juiz run` 自身が受け付けるのは `--entry`・`-b`・`--ipc`・`--namespace`・`--depend`(`-b`・`--ipc`・`--namespace` は `juiz -b run …` のように run の前に書いてもよい)。
+| conf の `option.http_broker` | 指定なし | `--no-http` | `--http` |
+|---|---|---|---|
+| 書いていない、または `start` が無い | 立つ(juiz の既定) | 立たない | 立つ |
+| `start: true` | 立つ | 立たない | 立つ |
+| `start: false` | 立たない | 立たない | 立つ |
+
+- `--http` と `--no-http` を両方付けたら `--http` に従う(立つ)。
+- `kind: base` の `base.http_port`(§10.1)は conf の `start: true` と同じ扱いで、`--no-http` なら立たない。
+- http で基礎につなぐとき(§10.2)は HTTP ブローカーが要るので、`--no-http` を付けるとつなぐ前にエラーにする。
+- HTTP を外に出したくない配布アプリは、conf に `start: false` を書いておく。書かないと 8000 番(`port` の既定)が開く。
+
+- `--namespace`・`--ipc`・`--http`・`--no-http` など、juiz の他のオプションは普通の起動と同じ意味で効く(`kind: base` の `--ipc` は §10.1)。
+  `juiz run` 自身が受け付けるのは `--entry`・`--http`・`--no-http`・`--ipc`・`--namespace`・`--depend`(`--http`・`--no-http`・`--ipc`・`--namespace` は `juiz --http run …` のように run の前に書いてもよい)。
 - `--depend`、インストール済みの名前での起動(§8)、`kind: base` と `depends` の扱い(§10)は #286 で入れた。
 - カレントディレクトリは変えない。環境変数 `JUIZ_APP_DIR` に展開先の絶対パスを入れて起動する(Python のプラグインが `assets/` などを開くとき用)。
 - 展開先は読み取り専用として扱う。プラグインはそこに書き込まないこと(キャッシュは消されうる、同じ展開先を複数の起動が共有する)。
@@ -354,7 +365,7 @@ juiz packages
 - IPC ブローカー `{type_name: ipc, name: <パッケージ名>}`(`--ipc <パッケージ名>` と同じ)。IPC ブローカーの名前は一意なので、同じ機械で同じ基礎は 1 つしか動かない(2 つ目は ipc-broker.md §2.5 の `already in use` で止まる)。
   - `--ipc` で別の名前を指定したらエラーにする(`a base package always uses its package name as the IPC name`)。
   - conf の `brokers` にすでに同じ名前の ipc ブローカーがあれば、足さない。
-- `base.http_port` があれば、`option.http_broker.start: true` と `port: <http_port>` にする。`-b` を付けなくても HTTP ブローカーが立つ。
+- `base.http_port` があれば、`option.http_broker.start: true` と `port: <http_port>` にする。`--http` を付けなくても HTTP ブローカーが立つ。
 - system の profile(`system/profile_full`)に次を載せる。アプリはこれで相手を確かめる。
 
 ```json
@@ -384,7 +395,7 @@ subsystems:
 - つないだ後、相手の profile の `package` を見て、`name` が一致し、`version` が範囲に入ることを確かめる(§10.3)。
 - subsystem としてつなぐと、相手は同じ種類のブローカーでこちらへつなぎ返す(mastersystem)。そのため `juiz run` は、アプリ側にもブローカーを用意する。
   - ipc でつなぐとき、conf に ipc ブローカーが無く `--ipc` も無ければ、`<アプリ名>-<プロセス ID>` の名前で ipc ブローカーを足す(同じアプリを複数動かせるように)。
-  - http でつなぐときは、`-b` が無くても HTTP ブローカーを立てる(ポートは conf の `option.http_broker.port`、既定 8000)。
+  - http でつなぐときは、`--http` が無くても HTTP ブローカーを立てる(ポートは conf の `option.http_broker.port`、既定 8000)。`--no-http` とは両立しないのでエラーにする(§7.1)。
 - 確認(つないで profile を見る)は、アプリのブローカーを立てる前に行う。確認に失敗したときにソケットなどを残さないため。juiz_core の `System::set_subsystem_check` で、conf の `subsystems` の各要素について呼ぶ。
 - 基礎とアプリの名前の衝突を避けるには、ネームスペースを分ける(基礎 `/robot1/base`、アプリ `/robot1/patrol` など)。juiz run はネームスペースを自動では付けない。
 
