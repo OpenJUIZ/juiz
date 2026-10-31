@@ -107,8 +107,6 @@ members = [
     "examples/rust/component/example_component", 
     "brokers/qmp_broker",
 
-    #"tutorial/rust/talker_listener/talker",
-
 
     "juiz_sdk/test_packages/a_arg_proc",
     "juiz_sdk/test_packages/aa_arg_proc",
@@ -180,10 +178,6 @@ default-members = [
     "juiz_sdk/test_packages/native_pose_reader",
 ]
 
-
-workspace.exclude = [
-    "juiz_tutorial/rust/integer_component"
-]
 
 # デバッグ情報を行番号のみにして、コンパイル・リンク時間と target の容量を減らす。
 # バックトレースの行番号は残る。デバッガで変数を見たい場合は一時的に debug = true に戻す。
