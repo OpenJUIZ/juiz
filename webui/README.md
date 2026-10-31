@@ -55,7 +55,7 @@ juiz 管理画面: http://localhost:8000/ui/
 
 ### ビルドしたディレクトリを配信する
 
-埋め込みの代わりに、ビルドした画面を `option.http_broker.static_filepaths` で配信することもできます。`/ui` を指定すると、埋め込みの画面ではなくこちらを配信します。パスは juiz を起動したディレクトリ(`-C` で指定したディレクトリ)からの相対です。
+埋め込みの代わりに、ビルドした画面を `option.http_broker.static_filepaths` で配信することもできます。`/ui` を指定すると、埋め込みの画面ではなくこちらを配信します。パスは conf のあるディレクトリからの相対です(0.0.29 まではカレントディレクトリからの相対でした。conf からの相対で見つからずカレントディレクトリからは見つかるときは、警告を出してそちらを使います)。
 
 ```yaml
 "option":
@@ -63,7 +63,7 @@ juiz 管理画面: http://localhost:8000/ui/
     "port": 8000
     "start": true
     "static_filepaths":
-      "/ui": "./webui/dist"
+      "/ui": "./dist"   # webui/juiz_webui.conf から見たパス
 ```
 
 リポジトリの最上位で次のように起動すれば、juiz をビルドし直さずに `webui/dist` の画面を試せます。
