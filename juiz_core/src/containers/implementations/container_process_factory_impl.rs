@@ -107,7 +107,12 @@ pub fn bind_container_function<T: 'static>(
         match container.lock_mut()?.downcast_mut::<ContainerImpl<T>>() {
             Some(c) => (function)(c, args),
             None => Err(anyhow!(JuizError::ContainerDowncastingError {
-                identifier: "ContainerPtr".to_owned()
+                identifier: format!(
+                    "{} (the container is not the type this container process expects. \
+                     If one of them is loaded through the Rust plugin C ABI and the other through the Rust ABI, \
+                     rebuild the container and its container processes with the same juiz_sdk)",
+                    container.identifier()
+                )
             })),
         }
     })

@@ -1,0 +1,12 @@
+[package]
+name = "fake_rustc"
+license.workspace = true
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# `-V` だけ偽の版を返す rustc のラッパー (issue #330)。
+# scripts/test.sh が RUSTC にこれを指定して、ホストと違う rustc でビルドしたことになるプラグインを作る。
+[[bin]]
+name = "fake_rustc"
+path = "src/main.rs"

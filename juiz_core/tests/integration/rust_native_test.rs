@@ -7,6 +7,10 @@
 //! - 別のプラグインへは ABI タグが違うので辞書を通る
 //! ことを確かめる。プラグイン (juiz_sdk/test_packages/native_pose_component、native_pose_reader) は
 //! ../target/debug から読む。
+//!
+//! Native を C ABI 越しに運ぶのは Step 3 (#331)。それまでは C ABI で読むと Native は境界で encode されるので
+//! (docs/spec/rust-plugin-abi.md §10、決めごと C)、L2 の性質を確かめるテストはプラグインを conf の
+//! `abi: rust` で今の Rust ABI で読む。C ABI で読んだときに値が正しいことは `*_through_c_abi` で確かめる。
 
 use juiz_core::prelude::*;
 use juiz_sdk::process_identifier::ProcessIdentifier;
@@ -14,7 +18,8 @@ use juiz_sdk::process_identifier::ProcessIdentifier;
 const COMPONENT_PROCESSES: [&str; 3] =
     ["native_pose_make", "native_pose_move", "native_pose_clones"];
 
-fn conf() -> Value {
+/// abi: プラグインの conf の `abi` ("rust" か "c")
+fn conf(abi: &str) -> Value {
     let instance =
         |t: &str| jvalue!({ "type_name": t, "name": format!("{t}0"), "use_memo": false });
     let pull = |source: &str, destination: &str, arg_name: &str| {
@@ -33,8 +38,8 @@ fn conf() -> Value {
         "name": "rust_native_test",
         "option": { "http_broker": { "start": false } },
         "plugins": {
-            "components": { "native_pose_component": { "path": "../target/debug" } },
-            "process_factories": { "native_pose_reader": { "path": "../target/debug" } }
+            "components": { "native_pose_component": { "path": "../target/debug", "abi": abi } },
+            "process_factories": { "native_pose_reader": { "path": "../target/debug", "abi": abi } }
         },
         "composites": [
             {
@@ -98,8 +103,12 @@ fn x_of(result: &CapsulePtr) -> JuizResult<f64> {
 }
 
 fn with_system(f: impl FnOnce(&mut System) -> JuizResult<()>) -> JuizResult<()> {
+    with_system_abi("rust", f)
+}
+
+fn with_system_abi(abi: &str, f: impl FnOnce(&mut System) -> JuizResult<()>) -> JuizResult<()> {
     crate::common::logger::init();
-    System::new(conf())?.setup()?.run_and_do_once(f)
+    System::new(conf(abi))?.setup()?.run_and_do_once(f)
 }
 
 #[test]
@@ -159,6 +168,20 @@ fn other_plugin_receives_through_dictionary() -> JuizResult<()> {
         assert_eq!(result.lock_as_value(|v| v.as_f64().unwrap())?, 2.5);
         let result = process(system, "native_pose_reader")?.lock()?.execute()?;
         assert_eq!(result.lock_as_value(|v| v.as_f64().unwrap())?, 0.0);
+        Ok(())
+    })
+}
+
+/// C ABI で読んだとき (Step 3 #331 まで): Native は境界で encode されるが、値は同じになる
+#[test]
+fn values_are_the_same_through_c_abi() -> JuizResult<()> {
+    with_system_abi("c", |system| {
+        let result = call(system, "pose_chain", vec![("x", jvalue!(1.0))])?;
+        assert_eq!(x_of(&result)?, 3.0);
+        let result = process(system, "native_pose_move")?.lock()?.execute()?;
+        assert_eq!(x_of(&result)?, 1.0);
+        let result = call(system, "pose_cross", vec![("x", jvalue!(2.5))])?;
+        assert_eq!(result.lock_as_value(|v| v.as_f64().unwrap())?, 2.5);
         Ok(())
     })
 }

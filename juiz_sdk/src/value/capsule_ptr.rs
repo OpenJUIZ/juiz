@@ -439,6 +439,13 @@ impl TryInto<Value> for CapsulePtr {
     type Error = anyhow::Error;
 }
 
+impl CapsulePtr {
+    /// 2 つが同じカプセルを指しているか (中身は比べない)
+    pub fn ptr_eq(&self, other: &CapsulePtr) -> bool {
+        Arc::ptr_eq(&self.value, &other.value)
+    }
+}
+
 impl Clone for CapsulePtr {
     fn clone(&self) -> Self {
         Self {

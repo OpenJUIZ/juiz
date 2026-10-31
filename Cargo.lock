@@ -313,6 +313,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
+name = "cabi_image_proc"
+version = "0.1.0"
+dependencies = [
+ "juiz_sdk",
+]
+
+[[package]]
 name = "cc"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -778,6 +785,10 @@ version = "0.1.0"
 dependencies = [
  "juiz_sdk",
 ]
+
+[[package]]
+name = "fake_rustc"
+version = "0.1.0"
 
 [[package]]
 name = "fastbloom"
@@ -2078,6 +2089,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
+name = "panic_proc"
+version = "0.1.0"
+dependencies = [
+ "juiz_sdk",
+]
+
+[[package]]
 name = "parking_lot"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2667,6 +2685,13 @@ dependencies = [
  "mime_guess",
  "sha2",
  "walkdir",
+]
+
+[[package]]
+name = "rust_abi_only_proc"
+version = "0.1.0"
+dependencies = [
+ "juiz_sdk",
 ]
 
 [[package]]

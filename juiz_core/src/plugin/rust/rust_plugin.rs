@@ -5,10 +5,15 @@ use std::{
     ffi::CStr,
     os::raw::c_char,
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
 };
 
+use super::cabi_host::{self, CabiEntry};
 use crate::plugin::{open_library, Plugin};
+use juiz_sdk::cabi::{KIND_COMPONENT, KIND_CONTAINER, KIND_CONTAINER_PROCESS, KIND_PROCESS};
 use crate::{
     containers::{container_factory_create, container_process_factory_create},
     prelude::*,
@@ -17,11 +22,40 @@ use crate::{
 
 pub trait PluginManager {}
 
+/// Process・Container・ContainerProcess・Component をどの入口で読むか (docs/spec/rust-plugin-abi.md §11)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RustPluginAbi {
+    /// `<symbol>_cabi` があれば C ABI、無ければ今の Rust ABI (既定)
+    #[default]
+    Auto,
+    /// `_cabi` があっても今の Rust ABI で読む (conf の `abi: rust`)。移行期間の逃げ道
+    Rust,
+}
+
+impl RustPluginAbi {
+    /// プラグインの conf の `abi` を読む。無ければ Auto、`rust` なら Rust、`c` なら Auto
+    pub fn from_conf(v: &Value) -> JuizResult<Self> {
+        match v.get("abi") {
+            None | Some(Value::Null) => Ok(RustPluginAbi::Auto),
+            Some(Value::String(s)) if s == "c" || s == "auto" => Ok(RustPluginAbi::Auto),
+            Some(Value::String(s)) if s == "rust" => Ok(RustPluginAbi::Rust),
+            Some(other) => Err(anyhow::Error::from(JuizError::InvalidSettingError {
+                message: format!(
+                    "the 'abi' of a Rust plugin must be \"c\" or \"rust\", but it is {other}"
+                ),
+            })),
+        }
+    }
+}
+
 #[allow(unused)]
 pub struct RustPlugin {
     path: PathBuf,
     plugin_manager: Option<Arc<Mutex<dyn PluginManager>>>,
-    lib: Option<Library>,
+    lib: Arc<Library>,
+    abi: RustPluginAbi,
+    /// Rust ABI で読んだことを一度だけ知らせるため
+    told_rust_abi: AtomicBool,
 }
 
 impl std::fmt::Debug for RustPlugin {
@@ -30,12 +64,18 @@ impl std::fmt::Debug for RustPlugin {
             .field("path", &self.path)
             .field("plugin_manager", &"{}".to_owned())
             .field("lib", &self.lib)
+            .field("abi", &self.abi)
             .finish()
     }
 }
 
 impl RustPlugin {
     pub fn load(path: PathBuf) -> JuizResult<RustPlugin> {
+        Self::load_with_abi(path, RustPluginAbi::Auto)
+    }
+
+    /// abi に Rust を渡すと、C ABI の入口があっても今の Rust ABI で読む
+    pub fn load_with_abi(path: PathBuf, abi: RustPluginAbi) -> JuizResult<RustPlugin> {
         log::trace!("【呼出】RustPlugin::load({:?})", path);
         if !path.exists() {
             log::error!(
@@ -66,9 +106,11 @@ impl RustPlugin {
                     };
                     log::info!("RustPlugin({:?})をロード完了", path);
                     Ok(RustPlugin {
-                        lib: Some(lib),
+                        lib: Arc::new(lib),
                         plugin_manager,
                         path,
+                        abi,
+                        told_rust_abi: AtomicBool::new(false),
                     })
                 }
                 Err(e) => {
@@ -87,7 +129,7 @@ impl RustPlugin {
             std::str::from_utf8(symbol_name)
         );
         unsafe {
-            match self.lib.as_ref().unwrap().get::<T>(symbol_name) {
+            match self.lib.get::<T>(symbol_name) {
                 Ok(func) => Ok(func),
                 Err(_) => {
                     log::error!(
@@ -116,8 +158,6 @@ impl RustPlugin {
             libloading::Symbol<'a, unsafe extern "C" fn() -> *const c_char>;
         let func = match unsafe {
             self.lib
-                .as_ref()
-                .unwrap()
                 .get::<BuildInfoSymbolType>(build_info_symbol.as_bytes())
         } {
             Ok(func) => func,
@@ -147,6 +187,27 @@ impl RustPlugin {
         )
     }
 
+    /// C ABI の入口 `<symbol_name>_cabi` を探す (§11)。abi が Rust のとき、または無いときは None。
+    /// None のときは今の Rust ABI で読み、そのことを一度だけ知らせる
+    fn find_cabi(&self, symbol_name: &str, kind: u32) -> JuizResult<Option<CabiEntry>> {
+        if self.abi == RustPluginAbi::Rust {
+            log::debug!(
+                "RustPlugin({}) '{symbol_name}' is loaded through the Rust ABI (abi: rust)",
+                self.path.display()
+            );
+            return Ok(None);
+        }
+        let entry = CabiEntry::find(&self.lib, &self.path.display().to_string(), symbol_name, kind)?;
+        if entry.is_none() && !self.told_rust_abi.swap(true, Ordering::Relaxed) {
+            log::info!(
+                "loaded {} through the Rust ABI. Rebuild it with juiz_sdk {} or later to load it through the C ABI.",
+                self.path.display(),
+                BuildInfo::current().juiz_sdk_str()
+            );
+        }
+        Ok(entry)
+    }
+
     pub fn load_process_factory(
         &self,
         _working_dir: Option<PathBuf>,
@@ -159,6 +220,9 @@ impl RustPlugin {
             'static,
             unsafe extern "Rust" fn() -> JuizResult<ProcessFactoryStruct>,
         >;
+        if let Some(entry) = self.find_cabi(symbol_name, KIND_PROCESS)? {
+            return cabi_host::process_factory(entry);
+        }
         self.check_build_info(symbol_name)?;
         unsafe {
             let symbol = self.load_symbol::<SymbolType>(symbol_name.as_bytes())?;
@@ -180,6 +244,9 @@ impl RustPlugin {
             'static,
             unsafe extern "Rust" fn() -> JuizResult<ContainerFactoryStruct>,
         >;
+        if let Some(entry) = self.find_cabi(symbol_name, KIND_CONTAINER)? {
+            return cabi_host::container_factory(entry);
+        }
         self.check_build_info(symbol_name)?;
         unsafe {
             let symbol = self.load_symbol::<SymbolType>(symbol_name.as_bytes())?;
@@ -198,6 +265,9 @@ impl RustPlugin {
             'static,
             unsafe extern "Rust" fn() -> JuizResult<ContainerProcessFactoryStruct>,
         >;
+        if let Some(entry) = self.find_cabi(symbol_name, KIND_CONTAINER_PROCESS)? {
+            return cabi_host::container_process_factory(entry);
+        }
         self.check_build_info(symbol_name)?;
         unsafe {
             let symbol = self.load_symbol::<SymbolType>(symbol_name.as_bytes())?;
@@ -213,6 +283,9 @@ impl RustPlugin {
         );
         type ComponentProfileFunctionSymbolType<'a> =
             libloading::Symbol<'a, unsafe extern "Rust" fn() -> ComponentManifest>;
+        if let Some(entry) = self.find_cabi("component_manifest", KIND_COMPONENT)? {
+            return cabi_host::component_manifest(&entry);
+        }
         self.check_build_info("component_manifest")?;
         let symbol =
             self.load_symbol::<ComponentProfileFunctionSymbolType>(b"component_manifest")?;
@@ -282,6 +355,10 @@ impl Plugin for RustPlugin {
     fn profile_full(&self) -> JuizResult<Value> {
         Ok(jvalue!({
             "path": self.path,
+            "abi": match self.abi {
+                RustPluginAbi::Auto => "c",
+                RustPluginAbi::Rust => "rust",
+            },
         }))
     }
 }

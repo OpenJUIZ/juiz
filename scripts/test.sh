@@ -2,7 +2,8 @@
 # juiz のテストを手元と CI で同じ手順で実行するスクリプト。
 #
 # プラグインを読み込むテスト(system_test や *_broker_api_test など)は、次の前提が揃っていないと失敗する。
-#   1. Rust の例: ワークスペースの cargo build で ../target/debug にできる
+#   1. Rust の例: ワークスペースの cargo build で ../target/debug にできる。
+#      C ABI のテスト用に、違う rustc でビルドしたことにした例を ../target/fake-rustc/debug に作る
 #   2. C++ の例:  examples/cpp の cmake ビルドで ../target にできる(1 の juiz_sdk にリンクする)
 #   3. Python の例: pyyaml httpx pillow numpy と PYTHONPATH=bindings/pyjuiz
 #   4. Haskell の例: examples/haskell の cabal ビルドで ../target にできる(GHC と cabal が無ければ飛ばし、
@@ -52,6 +53,16 @@ step() {
 
 step "Rust のワークスペースと例をビルドする (cargo build)"
 cargo build
+
+# Rust のプラグインの C ABI (issue #330) のテストが、ホストと違う rustc でビルドしたことにしたプラグインを読む。
+# RUSTC に `-V` だけ偽の版を返すラッパー (juiz_sdk/test_packages/fake_rustc) を指定し、別の target-dir に作る
+step "違う rustc でビルドしたことにした Rust のプラグインを作る (target/fake-rustc)"
+fake_rustc="$repo_root/target/debug/fake_rustc"
+case "$(uname -s)" in
+    MINGW* | MSYS* | CYGWIN*) fake_rustc="$(cygpath -m "$fake_rustc").exe" ;;
+esac
+RUSTC="$fake_rustc" cargo build --target-dir target/fake-rustc \
+    -p increment_process -p example_container -p example_container_increment
 
 step "C++ の例をビルドする (examples/cpp)"
 if ! command -v cmake >/dev/null 2>&1; then
