@@ -23,6 +23,17 @@ use super::system_store::{SystemStore, SystemStorePtr};
 
 type SpinCallbackFunctionType = dyn Fn() -> JuizResult<()>;
 
+/// [`System::wait_for_signal`] が待つ、止める合図。
+#[cfg(not(windows))]
+const STOP_SIGNALS: &[i32] = &[signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM];
+/// [`System::wait_for_signal`] が待つ、止める合図。Windows では Ctrl+Break の SIGBREAK も待つ (issue #307)。
+#[cfg(windows)]
+const STOP_SIGNALS: &[i32] = &[
+    signal_hook::consts::SIGINT,
+    signal_hook::consts::SIGTERM,
+    signal_hook::consts::SIGBREAK,
+];
+
 /// conf の `subsystems` の各要素について、[`System::setup`] がブローカーを立てる前に呼ぶ確認。
 /// 引数は System とその subsystem の conf。エラーを返すと、ブローカーを立てずに setup がそのエラーで失敗する
 /// (docs/spec/app-package.md §10.2)
@@ -320,17 +331,29 @@ impl System {
     }
 
     ///
-    /// SIGINTおよびSIGTERMを待つ。待つ間はsleep_time秒だけsleepするたびにself.spin()を呼ぶ。
+    /// 止める合図(SIGINT・SIGTERM、Windows ではこれに加えて Ctrl+Break の SIGBREAK)を待つ。
+    /// 待つ間はsleep_time秒だけsleepするたびにself.spin()を呼ぶ。
     ///
-    pub fn wait_for_singal(&mut self) -> JuizResult<()> {
+    /// SIGBREAK を受けないと、Windows の Ctrl+Break(`CREATE_NEW_PROCESS_GROUP` で起動した
+    /// 子プロセスを止めるときにも使われる)で OS の既定の処理が動き、後始末をせずに
+    /// 0xC000013A で終わってしまう (issue #307)。
+    ///
+    pub fn wait_for_signal(&mut self) -> JuizResult<()> {
         let term = Arc::new(AtomicBool::new(false));
-        let _ = signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&term));
-        let _ = signal_hook::flag::register(signal_hook::consts::SIGTERM, Arc::clone(&term));
+        for sig in STOP_SIGNALS {
+            let _ = signal_hook::flag::register(*sig, Arc::clone(&term));
+        }
         while !term.load(Ordering::Relaxed) {
             self.spin();
             std::thread::sleep(self.sleep_time);
         }
         Ok(())
+    }
+
+    /// [`System::wait_for_signal`] の綴りを誤った古い名前。
+    #[deprecated(since = "0.0.30", note = "wait_for_signal を使ってください")]
+    pub fn wait_for_singal(&mut self) -> JuizResult<()> {
+        self.wait_for_signal()
     }
 
     fn stop(&mut self) -> JuizResult<()> {
@@ -359,7 +382,7 @@ impl System {
         log::trace!("【呼出】System::run()");
         log::info!("【run】Juizシステム({})開始しました。", self.store.uuid()?);
         // self.setup().context("System::setup() in System::run() failed.")?;
-        self.wait_for_singal()
+        self.wait_for_signal()
             .context("System::wait_for_signal() in System::run() failed.")?;
         self.stop()?;
         log::debug!("【終了】System::run()");
@@ -378,7 +401,7 @@ impl System {
             self.store.uuid()?
         );
         (func)(self).context("User function passed for System::run_and_do() failed.")?;
-        self.wait_for_singal()
+        self.wait_for_signal()
             .context("System::wait_for_signal() in System::run_and_do() failed.")?;
         log::debug!("【終了】System::run_and_do()");
         self.stop()?;
@@ -397,7 +420,7 @@ impl System {
             self.store.uuid()?
         );
         (func)(self).context("User function passed for System::run_and_do_once() failed.")?;
-        //self.wait_for_singal().context("System::wait_for_signal() in System::run_and_do() failed.")?;
+        //self.wait_for_signal().context("System::wait_for_signal() in System::run_and_do() failed.")?;
         self.stop()?;
         log::debug!("【終了】System::run_and_do_once()");
         self.cleanup()?;

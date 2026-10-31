@@ -4,7 +4,7 @@
 //! - add_subsystem_by_id / add_systemproxy_by_id でもう一方の System を登録する
 //! - process_list などの recursive = true でサブシステムの中身も数える
 //! - start_http_broker、has_broker_factory、create_broker_proxy、profile_full
-//! - run_and_do は SIGINT / SIGTERM を受けるまで spin し続け、受けたら止まる
+//! - run_and_do は SIGINT / SIGTERM(Windows では SIGBREAK も)を受けるまで spin し続け、受けたら止まる
 //!
 //! プラグイン (increment_process、example_container とその ContainerProcess、timer_ec) は ../target/debug から読む。
 
@@ -209,6 +209,28 @@ fn system_run_and_do_until_signal() -> JuizResult<()> {
         Ok(())
     })?;
     assert!(called);
+    assert!(spins.load(Ordering::SeqCst) >= 3);
+    Ok(())
+}
+
+/// Windows の Ctrl+Break(SIGBREAK)でも、SIGTERM と同じく止まる (issue #307)
+#[cfg(windows)]
+#[test]
+fn system_run_and_do_until_sigbreak() -> JuizResult<()> {
+    crate::common::logger::init();
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    let spins = Arc::new(AtomicUsize::new(0));
+    let spins2 = spins.clone();
+    let mut system = System::new(jvalue!({ "name": "system_run_sigbreak_test" }))?.setup()?;
+    system.set_spin_sleeptime(std::time::Duration::from_millis(1));
+    system.set_spin_callback(Box::new(move || {
+        if spins2.fetch_add(1, Ordering::SeqCst) == 2 {
+            signal_hook::low_level::raise(signal_hook::consts::SIGBREAK).unwrap();
+        }
+        Ok(())
+    }));
+    system.run_and_do(|_| Ok(()))?;
     assert!(spins.load(Ordering::SeqCst) >= 3);
     Ok(())
 }
