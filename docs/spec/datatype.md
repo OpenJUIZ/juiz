@@ -522,6 +522,7 @@ fn move_to(target: Pose2D, speed: f64) -> JuizResult<Pose2D> { … }
   1. 届いた値が Native で、型タグ(完全名・指紋・ABI タグ)が自分の型のものと同じで、`RustNative<T>` にダウンキャストできる(同じ形の別の Rust の型でない)ときだけ、ネイティブ値のまま受け取る。ほかに参照が無ければ(Composite の中間値)値を**移し**、あれば(接続の memo を共有しているとき)`clone` する。encode は起きない。
   2. それ以外(別のプラグイン・型なし・他の言語の値)は、今のとおり辞書を読み(Native なら encode が起きる)、`from_value`(`read_value` で受け取る側の形にする)で作る。
 - 戻り値を Rust 以外が読むとき(ブローカー越し・他の言語・profile)は、`to_value` で encode する(lazy-evaluation.md §5)。
+- プラグインを C ABI で読んだとき(rust-plugin-abi.md §10、#331)は、Native はプラグインの中に置いたまま、ホストはハンドルと表(`encode` / `destroy`)を持つ。同じプラグイン(info の `native_abi_tag` が同じ)の Process・コンテナプロセスへはハンドルのまま渡すので、上の 1 の受け取り方(移す・`clone`)はそのまま働く。ほかへは表の `encode` で辞書にする。C ABI で読んだプラグインと Rust ABI(`abi: rust`)で読んだプラグインの間も、別のプラグインと同じく辞書を通る。
 - 足した API: `JuizType::extract`、`juiz_sdk::types::{RustNative, rust_abi_tag, native_into_capsule, native_from_capsule_ptr, native_extract}`、`NativeValue::into_any`(移すため。既定は `None`)、`NativeCell::try_into_value`、`Capsule::into_native_cell`、`CapsulePtr::try_into_capsule`、`ContainerManifest::add_typed_arg`。`NativeTypeTag` は `TypeTag` の別名にした(同じもの)。
 - `process` / `container` 宣言からの Rust の skeleton の生成は §18。
 

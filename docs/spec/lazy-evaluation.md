@@ -221,6 +221,7 @@ pub struct NativeTypeTag {
 ## 10. プラグインを外すとき
 
 - encode の関数(`NativeValue` の vtable)はプラグインの中にある。プラグインの Native 値が残ったままプラグインを外すと危ない。
+- Rust プラグインを C ABI で読んだとき(rust-plugin-abi.md §10)は、ホストの入れ物 `RustCabiNative` が `Arc<Library>` を持つので、値が残っている間はプラグインが外れない。
 - 今の juiz は実行中にプラグインを外さないので、**当面は「外さない」前提**とする。外す機能を作るときは、先にそのプラグインが作った Native 値をすべて encode して `Value` / `Image` に置き換える。
 - Python の Native 値は juiz_core の python_plugin(インタプリタは juiz の終了まで残る)の中なので、この問題はない。
 
@@ -238,7 +239,7 @@ pub struct NativeTypeTag {
 |---|---|---|
 | L0 仕様 | #174 | この文書 |
 | L1 Python | #175 | §3〜§7・§10・§11。juiz_sdk の `CapsuleValue::Native` と §3.2 の API、§6 のロックの順序、python_plugin の §4 と §7。テストは Python → Python(接続と Composite)で encode が起きないこと、Python → Rust・ブローカー越し・Topic で今と同じ値になること、numpy の配列を Python 同士で渡せること。`juiz_core/tests/integration/composite_bench.rs` で効果を測り、結果を #175 に残す |
-| L2 Rust | #176(#163 Step 3 とまとめる) | §8・§9。`#[juiz_process]` 系マクロの戻り値を任意の型にして Native で返す。決めたことは datatype.md §17。テストは `juiz_sdk/tests/typed_process_test.rs`、`juiz_core/tests/integration/rust_native_test.rs`(Composite では移すので clone も encode もしない、接続では clone 1 回、別のプラグインへは辞書) |
+| L2 Rust | #176(#163 Step 3 とまとめる) | §8・§9。`#[juiz_process]` 系マクロの戻り値を任意の型にして Native で返す。決めたことは datatype.md §17。テストは `juiz_sdk/tests/typed_process_test.rs`、`juiz_core/tests/integration/rust_native_test.rs`(Composite では移すので clone も encode もしない、接続では clone 1 回、別のプラグインへは辞書)。Rust プラグインの C ABI(#291)で読んでも同じ性質を保つ(rust-plugin-abi.md §10、#331) |
 | L3 C++ | #177(#163 Step 6 とまとめる) | §8・§9。`JUIZ_TYPE` による codec 登録、Native を読み書きする C ABI 関数の追加。決めたことは datatype.md §21(codec は値と一緒に運び、登録所には入れない。C++ の受け取り側は値を複製せずに借りる)。テストは `juiz_core/tests/integration/cpp_typed_test.rs` |
 
 ## 13. 対象外(後の Step か、未定)

@@ -124,7 +124,7 @@ pub struct JuizFrameIn {
     /// 本体の配列。ヘッダの bodies と同じ順
     pub bodies: *const JuizBytes,
     pub body_count: usize,
-    /// Native の配列 (§10)。Step 3 までは null, 0
+    /// Native の配列 (§10.3)。ヘッダの `{"native": <番号>}` が添字で指す
     pub natives: *const JuizRustNative,
     pub native_count: usize,
 }
@@ -139,13 +139,13 @@ pub struct JuizFrameOut {
     pub body: Option<
         extern "C" fn(ctx: *mut c_void, index: usize, ptr: *mut *mut u8, len: *mut usize) -> i64,
     >,
-    /// Native を渡す (§10)。Step 3 までは null
+    /// Native をハンドルのまま渡す (§10.2)。null なら、プラグインは Native を encode して書く
     pub native: Option<extern "C" fn(ctx: *mut c_void, index: usize, native: JuizRustNative) -> i64>,
     /// エラー文 (UTF-8)。入口が負の値を返すときに 1 回だけ呼ぶ
     pub error: Option<extern "C" fn(ctx: *mut c_void, message: JuizBytes)>,
 }
 
-/// Native の関数の表 (§10.1、Step 3 で使う)
+/// Native の関数の表 (§10.1)
 #[repr(C)]
 pub struct JuizRustNativeVtable {
     pub abi_version: u32,
@@ -156,7 +156,7 @@ pub struct JuizRustNativeVtable {
     pub destroy: Option<extern "C" fn(handle: *mut c_void)>,
 }
 
-/// プラグインの中に置いたままの Native (§10.1、Step 3 で使う)
+/// プラグインの中に置いたままの Native (§10.1)
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct JuizRustNative {
@@ -166,7 +166,7 @@ pub struct JuizRustNative {
     pub type_tag: JuizBytes,
     /// 0 Value / 1 Image
     pub kind: u32,
-    /// 引数のとき: 1 なら持ち主がプラグインに移る
+    /// 引数のとき: 1 なら持ち主がプラグインに移る。戻り値ではいつも 1 (持ち主がホストに移る)
     pub owned: u32,
 }
 
@@ -356,19 +356,62 @@ fn report_to_frame_out(out: &JuizFrameOut, message: &str) {
     }
 }
 
-/// 引数のフレームを CapsuleMap にする (§5.2)。画像のコピーはここで 1 回
+/// 引数の Native を受け取る (§10.3)。owned = 1 のものはここで持ち主になる。
+/// このプラグインの表 (NATIVE_VTABLE) で作ったものでなければエラー。そのとき owned = 1 のものは、
+/// その表の destroy で解放する
+fn take_natives(args: &JuizFrameIn) -> Result<Vec<Capsule>, Failure> {
+    if args.native_count == 0 {
+        return Ok(Vec::new());
+    }
+    if args.natives.is_null() {
+        return Err(Failure::Null);
+    }
+    // SAFETY: ホストは natives を呼び出しの間有効に保つ
+    let natives = unsafe { std::slice::from_raw_parts(args.natives, args.native_count) };
+    let mut out = Vec::with_capacity(natives.len());
+    let mut failure = None;
+    for (i, n) in natives.iter().enumerate() {
+        let ours = std::ptr::eq(n.vtable, &NATIVE_VTABLE);
+        if !ours || n.handle.is_null() {
+            if n.owned != 0 && !n.handle.is_null() && !n.vtable.is_null() {
+                // SAFETY: owned = 1 なので持ち主はこちら。作った側の表で解放する
+                if let Some(destroy) = unsafe { (*n.vtable).destroy } {
+                    destroy(n.handle);
+                }
+            }
+            failure.get_or_insert_with(|| {
+                Failure::Frame(format!(
+                    "native {i} was not made by this plugin (the host must encode it before passing it)"
+                ))
+            });
+            continue;
+        }
+        let cell = if n.owned != 0 {
+            // SAFETY: handle はこのプラグインの native_into_out が Box::into_raw した NativeCell で、
+            // owned = 1 なので持ち主がこちらに移った
+            *unsafe { Box::from_raw(n.handle as *mut NativeCell) }
+        } else {
+            // SAFETY: ホストが呼び出しの間持ち続ける。Arc を複製して使い、呼び出しの後は handle に触らない
+            unsafe { &*(n.handle as *const NativeCell) }.clone()
+        };
+        out.push(Capsule::from(cell));
+    }
+    match failure {
+        Some(f) => Err(f),
+        None => Ok(out),
+    }
+}
+
+/// 引数のフレームを CapsuleMap にする (§5.2)。画像のコピーはここで 1 回。
+/// Native (§10.3) は複製も encode もせずに受け取る
 fn read_args(args: *const JuizFrameIn) -> Result<CapsuleMap, Failure> {
     if args.is_null() {
         return Err(Failure::Null);
     }
     // SAFETY: ホストは args とその指す先を呼び出しの間有効に保つ
     let args = unsafe { &*args };
-    if args.native_count != 0 {
-        return Err(Failure::Frame(
-            "Native arguments are not supported by this juiz_sdk (Rust plugin ABI 1 without Native)"
-                .to_owned(),
-        ));
-    }
+    // owned = 1 の Native の持ち主になるのを先にする (後で失敗しても解放されるように)
+    let natives = take_natives(args)?;
     let header = unsafe { args.header.as_slice() }.ok_or(Failure::Null)?;
     let descs: &[JuizBytes] = if args.body_count == 0 {
         &[]
@@ -382,14 +425,147 @@ fn read_args(args: *const JuizFrameIn) -> Result<CapsuleMap, Failure> {
         bodies.push(unsafe { b.as_slice() }.ok_or(Failure::Null)?);
     }
     read_frame_parts(header, &bodies, &FrameLimits::default())
-        .and_then(|f| f.into_call_map())
+        .and_then(|mut f| {
+            f.set_natives(natives);
+            f.into_call_map()
+        })
         .map_err(|e| Failure::Frame(format!("{e:#}")))
 }
 
-/// 戻り値を書き込み口に書く (§5.3)。画像のコピーはここで 1 回
-fn write_result(out: &JuizFrameOut, result: Capsule) -> Result<(), Failure> {
+// ---- Native (§10) ----
+
+/// このプラグインの Native の表。値と一緒に運ぶ (§10.1)。
+/// juiz_sdk はプラグインごとに静的にリンクされるので、アドレスはプラグインごとに違う
+static NATIVE_VTABLE: JuizRustNativeVtable = JuizRustNativeVtable {
+    abi_version: ABI_VERSION,
+    struct_size: std::mem::size_of::<JuizRustNativeVtable>() as u32,
+    encode: Some(native_encode),
+    destroy: Some(native_destroy),
+};
+
+/// NativeKind を表の数にする (0 Value / 1 Image)
+pub fn native_kind_code(kind: NativeKind) -> u32 {
+    match kind {
+        NativeKind::Value => 0,
+        NativeKind::Image => 1,
+    }
+}
+
+/// Native の型タグの JSON (§10.1)。型タグが無ければ name (表示用の型名) だけ
+fn native_type_tag_json(cell: &NativeCell) -> Vec<u8> {
+    let v = match cell.value().type_tag() {
+        Some(t) => serde_json::json!({"name": t.name, "fingerprint": t.fingerprint, "abi": t.abi}),
+        None => serde_json::json!({"name": cell.value().type_name()}),
+    };
+    serde_json::to_vec(&v).unwrap_or_default()
+}
+
+/// 表の encode。共通形式にして out に書く (ヘッダは kind: response で、result がその値)
+extern "C" fn native_encode(handle: *const c_void, out: *const JuizFrameOut) -> i64 {
+    if out.is_null() {
+        return JUIZ_RUST_NULL_ARGUMENT;
+    }
+    // SAFETY: ホストは out を呼び出しの間有効に保つ
+    let out = unsafe { &*out };
+    guarded(
+        |m| report_to_frame_out(out, m),
+        || {
+            if handle.is_null() {
+                return Err(Failure::Null);
+            }
+            // SAFETY: handle はこのプラグインの NativeCell で、ホストが持っている間は有効
+            let cell = unsafe { &*(handle as *const NativeCell) };
+            // encode 済みならその結果を使う (複製しない)。まだならキャッシュせずに encode する
+            // (ホストの側が結果を覚えるので、プラグインの側でも覚えると二重になる)
+            let capsule = if cell.is_encoded() {
+                Capsule::from(cell.clone())
+            } else {
+                match cell.value().encode().map_err(|e| {
+                    call_failure(anyhow::anyhow!(JuizError::NativeEncodeError {
+                        native: cell.describe(),
+                        message: format!("{e:#}"),
+                    }))
+                })? {
+                    EncodedValue::Value(v) => Capsule::from(v),
+                    EncodedValue::Image(i) => Capsule::from(i),
+                }
+            };
+            write_frame(out, capsule)
+        },
+    )
+}
+
+/// 表の destroy。panic はログに出して握りつぶす
+extern "C" fn native_destroy(handle: *mut c_void) {
+    if handle.is_null() {
+        return;
+    }
+    let r = catch_unwind(AssertUnwindSafe(|| {
+        // SAFETY: handle は native_into_out が Box::into_raw したもので、1 回だけ渡される
+        drop(unsafe { Box::from_raw(handle as *mut NativeCell) });
+    }));
+    if let Err(payload) = r {
+        let m = panic_message(payload.as_ref());
+        let _ = catch_unwind(AssertUnwindSafe(move || drop(payload)));
+        let _ = catch_unwind(|| log::error!("destroying a native value {m}"));
+    }
+}
+
+/// 戻り値の Native をハンドルのままホストへ渡す (§10.2)。
+/// ホストが断ったら (begin / native が負)、ここで解放して HostRefused
+fn native_into_out(
+    out: &JuizFrameOut,
+    native: extern "C" fn(ctx: *mut c_void, index: usize, native: JuizRustNative) -> i64,
+    cell: NativeCell,
+    options: &std::collections::HashMap<String, String>,
+) -> Result<(), Failure> {
     let begin = out.begin.ok_or(Failure::Null)?;
-    // Native は encode して書く (Step 3 まで、§5.3 の 5)
+    let mut header = crate::frame::FrameHeader::new(0, crate::frame::FrameKind::Response);
+    header.result = Some(serde_json::json!({"native": 0}));
+    if !options.is_empty() {
+        header.option = Some(options.clone());
+    }
+    let header = serde_json::to_vec(&header)
+        .map_err(|e| Failure::Call(format!("can not write the frame header ({e})")))?;
+    if begin(out.ctx, JuizBytes::from_slice(&header)) < 0 {
+        return Err(Failure::HostRefused);
+    }
+    let tag = native_type_tag_json(&cell);
+    let kind = native_kind_code(cell.kind());
+    let handle = Box::into_raw(Box::new(cell)) as *mut c_void;
+    let n = JuizRustNative {
+        handle,
+        vtable: &NATIVE_VTABLE,
+        type_tag: JuizBytes::from_slice(&tag),
+        kind,
+        owned: 1,
+    };
+    if native(out.ctx, 0, n) < 0 {
+        // 受け取られなかったので、持ち主はまだこちら
+        native_destroy(handle);
+        return Err(Failure::HostRefused);
+    }
+    Ok(())
+}
+
+/// 戻り値を書き込み口に書く (§5.3)。Native は、ホストが native の口を持てばハンドルのまま渡し (§10.2)、
+/// 持たなければ encode して書く
+fn write_result(out: &JuizFrameOut, result: Capsule) -> Result<(), Failure> {
+    if let Some(native) = out.native {
+        if result.is_native() {
+            let options = result.get_options().clone();
+            if let Ok(cell) = result.into_native_cell() {
+                return native_into_out(out, native, cell, &options);
+            }
+            unreachable!("is_native() was true");
+        }
+    }
+    write_frame(out, result)
+}
+
+/// 戻り値をフレームで書く (§5.3)。画像のコピーはここで 1 回。Native は encode して書く
+fn write_frame(out: &JuizFrameOut, result: Capsule) -> Result<(), Failure> {
+    let begin = out.begin.ok_or(Failure::Null)?;
     let ptr: CapsulePtr = result.into();
     let frame = OutgoingFrame::response(0, &ptr).map_err(call_failure)?;
     let header = frame.header_bytes().map_err(call_failure)?;
@@ -519,6 +695,8 @@ where
     F: Fn(CapsuleMap) -> JuizResult<Capsule>,
 {
     if out.is_null() {
+        // owned = 1 の Native の持ち主になってから返す (§10.3)
+        let _ = guarded(|_| {}, || read_args(args).map(drop));
         return JUIZ_RUST_NULL_ARGUMENT;
     }
     // SAFETY: ホストは out を呼び出しの間有効に保つ
@@ -549,6 +727,8 @@ where
             write_sink(error, m.as_bytes());
         },
         || {
+            // owned = 1 の Native の持ち主になるのを先にする (§10.3)
+            let map = read_args(args)?;
             if handle.is_null() {
                 return Err(Failure::Null);
             }
@@ -556,7 +736,6 @@ where
             let manifest: ContainerManifest = serde_json::from_slice(json).map_err(|e| {
                 Failure::Frame(format!("can not read the container manifest ({e})"))
             })?;
-            let map = read_args(args)?;
             let t = create(map).map_err(call_failure)?;
             let container = ContainerImpl::new(manifest, t).map_err(call_failure)?;
             let raw = Box::into_raw(Box::new(container)) as *mut c_void;
@@ -601,6 +780,8 @@ where
     F: Fn(&mut ContainerImpl<T>, CapsuleMap) -> JuizResult<Capsule>,
 {
     if out.is_null() {
+        // owned = 1 の Native の持ち主になってから返す (§10.3)
+        let _ = guarded(|_| {}, || read_args(args).map(drop));
         return JUIZ_RUST_NULL_ARGUMENT;
     }
     // SAFETY: ホストは out を呼び出しの間有効に保つ
@@ -608,12 +789,13 @@ where
     guarded(
         |m| report_to_frame_out(out, m),
         || {
+            // owned = 1 の Native の持ち主になるのを先にする (§10.3)
+            let map = read_args(args)?;
             if handle.is_null() {
                 return Err(Failure::Null);
             }
             // SAFETY: handle は同じ型タグの create_container が作ったもので、ホストはロックを持って呼ぶ
             let container = unsafe { &mut *(handle as *mut ContainerImpl<T>) };
-            let map = read_args(args)?;
             let result = function(container, map).map_err(call_failure)?;
             write_result(out, result)
         },

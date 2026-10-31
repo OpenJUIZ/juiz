@@ -31,6 +31,7 @@ pub use brokers::ipc;
 pub use core::{SubsystemCheckFunctionType, SystemStore, SystemStorePtr};
 // conf の plugins の path の {target} 置換とその置き換え先 (docs/spec/app-package.md §5、#284)
 pub use plugin::{replace_target_in_plugin_paths, HOST_TARGET};
+pub use plugin::{rust_cabi_native_encode_count, RustCabiNative};
 // juiz run が使う、埋め込みの Python の確認 (docs/spec/app-package.md §9、#285)
 pub use plugin::{python_check, PythonCheck, PYTHON_ENABLED};
 pub use ecs::{
