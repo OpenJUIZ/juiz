@@ -123,7 +123,7 @@ pub fn run_import_ros2(args: &ImportRos2Args) -> Result<(), IdlError> {
     let written: Vec<PathBuf> = imported
         .files
         .iter()
-        .map(|f| args.out_dir.join(&f.path))
+        .map(|f| f.path_in(&args.out_dir))
         .collect();
     load_files_with(&written, &LoadOptions::default())?;
     for p in written.iter() {
@@ -175,7 +175,7 @@ pub fn run(args: &IdlArgs) -> Result<(), IdlError> {
     let files = generate_with(&model, &kinds, &options)?;
     write_files(&files, &args.out_dir)?;
     for f in files.iter() {
-        println!("{}", args.out_dir.join(&f.path).display());
+        println!("{}", f.path_in(&args.out_dir).display());
     }
     Ok(())
 }

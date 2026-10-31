@@ -1108,3 +1108,19 @@ fn pyjuiz_std_types_are_up_to_date() {
         );
     }
 }
+
+/// 書き出し先は `/` 区切りの相対パスを OS の区切りで積んだもの (issue #280)
+#[test]
+fn generated_file_path_in_uses_os_separator() {
+    let f = juiz_idl::GeneratedFile {
+        path: "examples/__init__.py".into(),
+        contents: String::new(),
+    };
+    let out = std::path::Path::new("gen");
+    let expected = out.join("examples").join("__init__.py");
+    assert_eq!(f.path_in(out), expected);
+    assert_eq!(
+        f.path_in(out).display().to_string(),
+        expected.display().to_string()
+    );
+}

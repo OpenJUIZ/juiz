@@ -140,6 +140,20 @@ pub struct GeneratedFile {
     pub contents: String,
 }
 
+impl GeneratedFile {
+    /// `out_dir` の下の書き出し先。`path` は `/` 区切りなので、区切りごとに積んで OS の区切りにそろえる
+    /// (Windows で `gen\examples/__init__.py` のように混ざらないように)
+    pub fn path_in(&self, out_dir: &Path) -> PathBuf {
+        let mut path = out_dir.to_path_buf();
+        for part in self.path.to_string_lossy().split('/') {
+            if !part.is_empty() {
+                path.push(part);
+            }
+        }
+        path
+    }
+}
+
 /// 先に書くキー。serde_json の Map はキーを辞書順に並べるので、人が読みやすい順に並べ直して書く
 const KEY_ORDER: [&str; 23] = [
     "$schema",
@@ -366,7 +380,7 @@ pub fn write_files(files: &[GeneratedFile], out_dir: &Path) -> Result<(), IdlErr
         message: e.to_string(),
     })?;
     for f in files.iter() {
-        let path = out_dir.join(&f.path);
+        let path = f.path_in(out_dir);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| IdlError::Io {
                 path: parent.display().to_string(),
