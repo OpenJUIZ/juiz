@@ -240,11 +240,12 @@ pack は次を順に行い、どれかが満たされなければエラーにし
 5. `targets` を `plugins/` の下のディレクトリ名から求めて書く(`--target` があればその列)。ネイティブのプラグインが 1 つも無ければ `[any]`。作る人が書いてあれば、求めたものと一致しなければならない。
 6. Rust を含むとき、各 Rust のプラグインを C ABI か Rust ABI かに分ける(§12.1)。どちらもファイルのバイト列から文字列を探して読む(読み込まずに読むので、別ターゲットのバイナリでも読める)。
    - `broker_factories`・`ec_factories` のプラグインは Rust ABI。
+   - conf のプラグインの項目に `abi: rust`(rust-plugin-abi.md §11)を書いたものも Rust ABI(ホストが Rust ABI で読むため)。`abi` が `c`・`rust` 以外ならエラー。
    - それ以外は、印 `juiz_rust_abi=<版>;`(rust-plugin-abi.md §9.3)があれば C ABI、無ければ Rust ABI(この仕組みより前の juiz_sdk でビルドしたもの)。
    - どのプラグインからも、ビルド情報の文字列(`juiz_sdk=…;rustc=…`、`juiz_sdk::build_info`)を読む。`juiz_sdk` の版はすべてのプラグイン・ターゲットで同じでなければならない。違えばどのファイルが違うかを示してエラー。`rust.juiz_sdk` に書く。
    - C ABI のプラグインがあれば、その版を `rust.abi` に書く。版はすべて同じでなければならない(違えばエラー)。
    - Rust ABI のプラグインがあれば、それらの `rustc` はすべて同じでなければならず、`rust.rustc` に書く。`juiz` を省いていれば `=<juiz_sdk>` を書く。書いてあれば `=<juiz_sdk>` と一致しなければならない(§4.3)。
-   - Rust ABI のプラグインが無ければ `rust.rustc` は書かない。`juiz` を省いていれば `>=<pack した juiz の版>` を書く(§4.3)。書いてあり、その範囲が C ABI を読めない juiz(C ABI が入った版より前)を含むときは警告を出す。
+   - Rust ABI のプラグインが無ければ `rust.rustc` は書かない。`juiz` を省いていれば `>=<pack した juiz の版>` を書く(§4.3)。書いてあり、その範囲が C ABI を読めない juiz(C ABI が入った 0.0.30 より前。pack は 0.0.29 が範囲に入るかで見る)を含むときは警告を出す。
 7. `kind: base` で `base.http_port` があるとき、entry の conf に `option.http_broker.port` があれば同じ値でなければならない。`kind: app` で `base` を書いてはならない。
 8. `depends` の名前が §4.2 に合い、版の範囲が読める。自分自身の名前を含んではならない。
 9. 各ファイルの SHA-256 を `files` に書く(パスの順に並べる)。
@@ -506,4 +507,4 @@ format 1 では行わない。足すときは format を上げるか、format 1 
 | 4 `juiz install` と依存、基礎 | #286 | §8、§10 |
 | 5 C++ / Haskell の同梱 | #287 | §12.2 |
 | 6 サンプルとサイト | #288 | — |
-| Rust プラグインの C ABI(#291 の Step 4) | #332 | §4.1 の `rust.abi`・`rust.rustc`、§4.3、§6.3 の 6、§9 の段 6・10、§12.1(#328 で直した) |
+| Rust プラグインの C ABI(#291 の Step 4) | #332 | §4.1 の `rust.abi`・`rust.rustc`、§4.3、§6.3 の 6、§9 の段 6・10、§12.1(#328 で直し、#332 で実装) |

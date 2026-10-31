@@ -2,7 +2,9 @@
 //! (docs/spec/app-package.md §8、#286)
 
 use super::manifest::{Kind, Manifest};
-use super::run::{check_host, check_rustc, extract, open_package, Host, Prepared, COMPLETE_MARK};
+use super::run::{
+    check_host, check_rust_build, extract, open_package, Host, Prepared, COMPLETE_MARK,
+};
 use super::{warn, MANIFEST_FILE};
 use juiz_core::anyhow::{anyhow, bail, Context, Result};
 use semver::{Version, VersionReq};
@@ -128,7 +130,7 @@ pub(crate) fn install(file: &Path, data: &Path, host: &Host) -> Result<InstallOu
             .with_context(|| format!("cannot read {}", path.display()))?;
         let old = Manifest::parse_str(&text, &dest.display().to_string())?;
         if old.files == m.files {
-            check_rustc(&m, host)?;
+            check_rust_build(&m, host)?;
             return Ok(InstallOutcome::AlreadyInstalled(Installed {
                 manifest: old,
                 dir: std::path::absolute(&dest)?,
@@ -148,7 +150,7 @@ pub(crate) fn install(file: &Path, data: &Path, host: &Host) -> Result<InstallOu
     std::fs::create_dir_all(&parent)
         .with_context(|| format!("cannot create {}", parent.display()))?;
     extract(&mut zip, &m, &dest)?;
-    if let Err(e) = check_rustc(&m, host) {
+    if let Err(e) = check_rust_build(&m, host) {
         let _ = std::fs::remove_dir_all(&dest);
         let _ = std::fs::remove_dir(&parent);
         return Err(e);
@@ -257,7 +259,7 @@ pub(crate) fn prepare_installed(spec: &str, data: &Path, host: &Host) -> Result<
     let m = found.manifest.clone();
     m.check_packed(&found.dir.display().to_string())?;
     check_host(&m, host)?;
-    check_rustc(&m, host)?;
+    check_rust_build(&m, host)?;
     Ok(Prepared {
         manifest: m,
         dir: found.dir.clone(),

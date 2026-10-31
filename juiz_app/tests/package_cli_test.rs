@@ -1,6 +1,7 @@
 //! `juiz pack` と `juiz run` のテスト (issue #285、docs/spec/app-package.md §6・§7)
 //!
 //! プラグイン (increment_process) は scripts/test.sh で ../target/debug にビルドされている前提。
+//! 違う rustc でビルドしたことにした increment_process (../target/fake-rustc/debug) も scripts/test.sh が作る (#330)。
 mod common;
 
 use common::{juiz, path_str, plugin_file, temp_dir, Daemon};
@@ -9,9 +10,14 @@ use std::path::Path;
 
 /// Rust のプラグイン 1 つを plugins/<target>/ に置いたアプリのディレクトリを作る
 fn write_rust_app(dir: &Path, juiz_field: &str) {
+    write_rust_app_with(dir, juiz_field, &plugin_file("increment_process"), "");
+}
+
+/// `src` のプラグインを置き、conf のプラグインの項目に `plugin_extra` を足す
+fn write_rust_app_with(dir: &Path, juiz_field: &str, src: &str, plugin_extra: &str) {
     let plugins = dir.join("plugins").join(juiz_core::HOST_TARGET);
     std::fs::create_dir_all(&plugins).unwrap();
-    let src = plugin_file("increment_process");
+    let src = src.to_owned();
     std::fs::copy(&src, plugins.join(Path::new(&src).file_name().unwrap())).unwrap();
     std::fs::write(
         dir.join("juizapp.yaml"),
@@ -20,18 +26,20 @@ fn write_rust_app(dir: &Path, juiz_field: &str) {
     .unwrap();
     std::fs::write(
         dir.join("app.conf"),
-        r#"name: package_cli_test
+        format!(
+            r#"name: package_cli_test
 option:
   http_broker:
     start: false
 plugins:
   process_factories:
     increment_process:
-      path: "plugins/{target}"
-processes:
+      path: "plugins/{{target}}"
+{plugin_extra}processes:
   - type_name: increment_process
     name: inc0
-"#,
+"#
+        ),
     )
     .unwrap();
     // 入れないもの
@@ -96,13 +104,15 @@ fn pack_and_run_rust_app() {
     );
     let manifest = zip_manifest(&pkg);
     let version = env!("CARGO_PKG_VERSION");
+    // C ABI のプラグインだけなので、juiz の版は >= にし、rustc は書かない (#332)
     assert!(
-        manifest.contains(&format!("juiz: \"={version}\"")),
+        manifest.contains(&format!("juiz: \">={version}\"")),
         "{manifest}"
     );
     assert!(manifest.contains("languages:\n  - rust\n"), "{manifest}");
     assert!(manifest.contains(juiz_core::HOST_TARGET), "{manifest}");
-    assert!(manifest.contains("rustc: "), "{manifest}");
+    assert!(manifest.contains("  abi: 1\n"), "{manifest}");
+    assert!(!manifest.contains("rustc: "), "{manifest}");
     assert!(manifest.contains("sha256:"), "{manifest}");
 
     // 同じ入力からは同じバイト列ができる
@@ -139,11 +149,13 @@ fn pack_and_run_rust_app() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Rust ABI で読むプラグイン (conf の `abi: rust`) を含むときは、juiz の版を `=x.y.z` に強制し rustc を書く
 #[test]
-fn pack_rejects_inexact_juiz_with_rust_plugins() {
+fn pack_rejects_inexact_juiz_with_rust_abi_plugins() {
     let dir = temp_dir("package_cli_inexact");
     let app = dir.join("app");
-    write_rust_app(&app, "juiz: \">=0.0.1\"\n");
+    let src = plugin_file("increment_process");
+    write_rust_app_with(&app, "juiz: \">=0.0.1\"\n", &src, "      abi: rust\n");
     let o = juiz()
         .current_dir(&dir)
         .args(["pack", "app"])
@@ -152,8 +164,86 @@ fn pack_rejects_inexact_juiz_with_rust_plugins() {
     assert!(!o.status.success(), "{o:?}");
     let err = String::from_utf8_lossy(&o.stderr);
     assert!(err.contains("'juiz' in juizapp.yaml must be"), "{err}");
+    assert!(err.contains("loaded through the Rust ABI"), "{err}");
     // 何も書かない
     assert!(!dir.join("inc_app-0.1.0.juizapp").exists());
+
+    // juiz を省けば =<juiz_sdk> と rustc を書く
+    let app2 = dir.join("app2");
+    write_rust_app_with(&app2, "", &src, "      abi: rust\n");
+    let o = juiz()
+        .current_dir(&dir)
+        .args(["pack", "app2"])
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{o:?}");
+    let manifest = zip_manifest(&dir.join("inc_app-0.1.0.juizapp"));
+    let version = env!("CARGO_PKG_VERSION");
+    assert!(
+        manifest.contains(&format!("juiz: \"={version}\"")),
+        "{manifest}"
+    );
+    assert!(manifest.contains("rustc: "), "{manifest}");
+    assert!(!manifest.contains("abi: "), "{manifest}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// C ABI のプラグインだけなら juiz の版を緩めてよい。C ABI を読めない juiz を含む範囲には警告を出す
+#[test]
+fn pack_accepts_loose_juiz_with_cabi_plugins() {
+    let dir = temp_dir("package_cli_loose");
+    let app = dir.join("app");
+    write_rust_app(&app, "juiz: \">=0.0.1\"\n");
+    let o = juiz()
+        .current_dir(&dir)
+        .args(["pack", "app"])
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{o:?}");
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(err.contains("includes juiz older than"), "{err}");
+    let manifest = zip_manifest(&dir.join("inc_app-0.1.0.juizapp"));
+    assert!(manifest.contains("juiz: \">=0.0.1\""), "{manifest}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// ホストと違う rustc でビルドしたプラグインも、C ABI なら pack して run できる (#291 の目的、#332)
+#[test]
+fn pack_and_run_plugin_built_with_other_rustc() {
+    let fake = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../target/fake-rustc/debug")
+        .join(
+            Path::new(&plugin_file("increment_process"))
+                .file_name()
+                .unwrap(),
+        );
+    assert!(
+        fake.is_file(),
+        "{} is not found. Run scripts/test.sh, which builds it with a fake rustc",
+        fake.display()
+    );
+    let dir = temp_dir("package_cli_fake_rustc");
+    let app = dir.join("app");
+    let cache = dir.join("cache");
+    write_rust_app_with(&app, "", fake.to_str().unwrap(), "");
+    let o = juiz()
+        .current_dir(&dir)
+        .args(["pack", "app"])
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{o:?}");
+    let manifest = zip_manifest(&dir.join("inc_app-0.1.0.juizapp"));
+    assert!(manifest.contains("  abi: 1\n"), "{manifest}");
+    assert!(!manifest.contains("rustc: "), "{manifest}");
+
+    let mut cmd = juiz();
+    cmd.current_dir(&dir)
+        .env("JUIZ_CACHE_DIR", &cache)
+        .env("RUST_LOG", "info")
+        .args(["run", "inc_app-0.1.0.juizapp"]);
+    let mut daemon = Daemon::spawn_command(cmd, dir.join("run.log"));
+    daemon.wait_log("core://core/process/inc0::increment_process");
+    daemon.stop();
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -457,7 +547,9 @@ fn run_http_broker_flags() {
         &dir,
         "http_off",
         "version: 0.1.0\n",
-        &format!("name: http_off_system\noption:\n  http_broker:\n    start: false\n    port: {port}\n"),
+        &format!(
+            "name: http_off_system\noption:\n  http_broker:\n    start: false\n    port: {port}\n"
+        ),
     );
     let spawn = |args: &[&str], log: &str| {
         let mut cmd = juiz();
@@ -504,7 +596,10 @@ fn run_http_broker_flags() {
     // conf で start: false でも --http なら立つ。--no-http と両方なら --http
     for (args, log) in [
         (vec![path_str(&off_pkg), "--http"], "off_http.log"),
-        (vec![path_str(&off_pkg), "--http", "--no-http"], "off_http_no_http.log"),
+        (
+            vec![path_str(&off_pkg), "--http", "--no-http"],
+            "off_http_no_http.log",
+        ),
     ] {
         let mut d = spawn(&args, log);
         d.wait_log(&bound);
@@ -523,7 +618,13 @@ fn run_http_broker_flags() {
         .current_dir(&dir)
         .env("JUIZ_CACHE_DIR", &cache)
         .env("JUIZ_DATA_DIR", dir.join("data"))
-        .args(["run", path_str(&app_pkg), "--no-http", "--depend", "some_base=http://127.0.0.1:1"])
+        .args([
+            "run",
+            path_str(&app_pkg),
+            "--no-http",
+            "--depend",
+            "some_base=http://127.0.0.1:1",
+        ])
         .output()
         .unwrap();
     assert!(!o.status.success(), "{o:?}");

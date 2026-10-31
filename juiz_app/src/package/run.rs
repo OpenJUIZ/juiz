@@ -45,6 +45,8 @@ pub(crate) struct Host {
     pub juiz_version: Version,
     pub target: String,
     pub rustc: String,
+    /// 読める Rust のプラグインの C ABI の版(rust-plugin-abi.md §9.2)
+    pub rust_abi: Vec<u32>,
 }
 
 impl Host {
@@ -53,6 +55,7 @@ impl Host {
             juiz_version: Version::parse(JUIZ_VERSION).expect("the crate version is semver"),
             target: juiz_core::HOST_TARGET.to_owned(),
             rustc: BuildInfo::current().rustc_str().to_owned(),
+            rust_abi: juiz_core::RUST_PLUGIN_ABI_VERSIONS.to_vec(),
         }
     }
 }
@@ -383,9 +386,28 @@ pub(crate) fn check_host(m: &Manifest, host: &Host) -> Result<()> {
     Ok(())
 }
 
-/// §9 の段 6(Rust のプラグインをビルドした rustc)
-pub(crate) fn check_rustc(m: &Manifest, host: &Host) -> Result<()> {
-    if m.has_language("rust") {
+/// §9 の段 6(Rust のプラグインのビルド情報)。C ABI のプラグインは ABI の版、Rust ABI のプラグインは rustc を比べる(§12.1)
+pub(crate) fn check_rust_build(m: &Manifest, host: &Host) -> Result<()> {
+    if !m.has_language("rust") {
+        return Ok(());
+    }
+    if let Some(abi) = m.rust_abi {
+        if !host.rust_abi.contains(&abi) {
+            let supported = host
+                .rust_abi
+                .iter()
+                .map(u32::to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
+            bail!(
+                "{} {} contains Rust plugins with plugin ABI {abi}, but this juiz supports ABI {supported}. Update juiz.",
+                m.name,
+                m.version
+            );
+        }
+    }
+    // 古い形のマニフェスト(rust.abi も rust.rustc も無い)は check_packed が止める。ここでは Rust ABI として扱う
+    if m.rust_rustc.is_some() || m.rust_abi.is_none() {
         let rustc = m.rust_rustc.as_deref().unwrap_or("unknown");
         if rustc != host.rustc {
             bail!(
@@ -418,7 +440,7 @@ pub(crate) fn prepare(file: &Path, cache_root: &Path, host: &Host) -> Result<Pre
     }
 
     // 6. ビルド情報
-    check_rustc(&m, host)?;
+    check_rust_build(&m, host)?;
     let dir = std::path::absolute(&dest)?;
     Ok(Prepared { manifest: m, dir })
 }
@@ -603,18 +625,33 @@ pub(crate) mod tests {
 
     #[test]
     fn http_broker_flag_follows_b_and_q() {
-        let o = |b, q| RunOptions { start_http_broker: b, stop_http_broker: q, ..Default::default() };
+        let o = |b, q| RunOptions {
+            start_http_broker: b,
+            stop_http_broker: q,
+            ..Default::default()
+        };
         // 指定なし: conf に従う。http でつなぐときは立てる
         assert_eq!(http_broker_flag(&o(false, false), false).unwrap(), None);
-        assert_eq!(http_broker_flag(&o(false, false), true).unwrap(), Some(true));
+        assert_eq!(
+            http_broker_flag(&o(false, false), true).unwrap(),
+            Some(true)
+        );
         // --http: 立てる
-        assert_eq!(http_broker_flag(&o(true, false), false).unwrap(), Some(true));
+        assert_eq!(
+            http_broker_flag(&o(true, false), false).unwrap(),
+            Some(true)
+        );
         // --no-http: 立てない。--http と両方なら --http
-        assert_eq!(http_broker_flag(&o(false, true), false).unwrap(), Some(false));
+        assert_eq!(
+            http_broker_flag(&o(false, true), false).unwrap(),
+            Some(false)
+        );
         assert_eq!(http_broker_flag(&o(true, true), false).unwrap(), Some(true));
         assert_eq!(http_broker_flag(&o(true, true), true).unwrap(), Some(true));
         // --no-http と http での接続は両立しない
-        let e = http_broker_flag(&o(false, true), true).unwrap_err().to_string();
+        let e = http_broker_flag(&o(false, true), true)
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("--no-http"), "{e}");
     }
 
@@ -623,6 +660,7 @@ pub(crate) mod tests {
             juiz_version: Version::parse("0.0.28").unwrap(),
             target: "x86_64-unknown-linux-gnu".to_owned(),
             rustc: "rustc 1.91.0 (f8297e351 2025-10-28)".to_owned(),
+            rust_abi: vec![1],
         }
     }
 
@@ -763,6 +801,29 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn rust_build_checks() {
+        let h = host();
+        let parse = |rust: &str| {
+            Manifest::parse_str(
+                &format!("format: 1\nname: app\nversion: 0.1.0\nlanguages: [rust]\nrust: {rust}"),
+                "t",
+            )
+            .unwrap()
+        };
+        // C ABI だけなら rustc は問わない
+        check_rust_build(&parse("{juiz_sdk: 0.0.30, abi: 1}"), &h).unwrap();
+        assert!(check_rust_build(&parse("{juiz_sdk: 0.0.30, abi: 9}"), &h).is_err());
+        // Rust ABI は rustc を比べる
+        check_rust_build(
+            &parse("{juiz_sdk: 0.0.30, rustc: rustc 1.91.0 (f8297e351 2025-10-28)}"),
+            &h,
+        )
+        .unwrap();
+        assert!(check_rust_build(&parse("{juiz_sdk: 0.0.30, rustc: x}"), &h).is_err());
+        assert!(check_rust_build(&parse("{juiz_sdk: 0.0.30, abi: 1, rustc: x}"), &h).is_err());
+    }
+
+    #[test]
     fn rejects_by_stage() {
         let conf: &[(&str, &[u8])] = &[("app.conf", b"name: a\n")];
         let h = host();
@@ -810,6 +871,34 @@ pub(crate) mod tests {
             e.contains("built with rustc 1.90.0, but this juiz was built with rustc 1.91.0"),
             "{e}"
         );
+        let e = prepare_err(
+            "abi",
+            "format: 1\nname: app\nversion: 0.1.0\njuiz: \">=0.0.28\"\nlanguages: [rust]\ntargets: [x86_64-unknown-linux-gnu]\nrust: {juiz_sdk: 0.0.28, abi: 2}",
+            conf,
+            None,
+            &h,
+        );
+        assert!(
+            e.contains("contains Rust plugins with plugin ABI 2, but this juiz supports ABI 1. Update juiz."),
+            "{e}"
+        );
+        // C ABI と Rust ABI の両方を含むときは、両方を比べる
+        let e = prepare_err(
+            "abiandrustc",
+            "format: 1\nname: app\nversion: 0.1.0\njuiz: \"=0.0.28\"\nlanguages: [rust]\ntargets: [x86_64-unknown-linux-gnu]\nrust: {juiz_sdk: 0.0.28, abi: 1, rustc: rustc 1.90.0}",
+            conf,
+            None,
+            &h,
+        );
+        assert!(e.contains("built with rustc 1.90.0"), "{e}");
+        let e = prepare_err(
+            "noabinorustc",
+            "format: 1\nname: app\nversion: 0.1.0\njuiz: \">=0.0.28\"\nlanguages: [rust]\ntargets: [x86_64-unknown-linux-gnu]\nrust: {juiz_sdk: 0.0.28}",
+            conf,
+            None,
+            &h,
+        );
+        assert!(e.contains("'rust.abi' or 'rust.rustc' are missing"), "{e}");
         let e = prepare_err(
             "missingfield",
             "format: 1\nname: app\nversion: 0.1.0",

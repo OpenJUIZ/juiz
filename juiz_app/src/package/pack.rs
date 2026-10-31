@@ -115,7 +115,7 @@ pub(crate) fn pack(opts: &PackOptions) -> Result<Packed> {
     }
 
     // 3. 各プラグインのファイル
-    let mut rust_files: Vec<String> = Vec::new();
+    let mut rust_files: Vec<RustFile> = Vec::new();
     let mut host_native: Vec<String> = Vec::new();
     for p in &plugins {
         let raw = &p.path;
@@ -153,7 +153,10 @@ pub(crate) fn pack(opts: &PackOptions) -> Result<Packed> {
                 host_native.push(rel.clone());
             }
             if p.language == "rust" {
-                rust_files.push(rel);
+                rust_files.push(RustFile {
+                    rel,
+                    forced_rust_abi: p.rust_abi_reason,
+                });
             }
         }
     }
@@ -188,37 +191,38 @@ pub(crate) fn pack(opts: &PackOptions) -> Result<Packed> {
         }
     }
 
-    // 6. Rust のプラグインのビルド情報
+    // 6. Rust のプラグインのビルド情報(C ABI か Rust ABI か、§12.1)
     m.rust_juiz_sdk = None;
+    m.rust_abi = None;
     m.rust_rustc = None;
     if !rust_files.is_empty() {
-        let mut found: Option<(String, BuildInfo)> = None;
-        for rel in &rust_files {
-            let info = read_build_info(&files[rel].abs)
-                .with_context(|| format!("cannot read the build information of {rel}"))?;
-            match &found {
-                None => found = Some((rel.clone(), info)),
-                Some((first, first_info)) if *first_info != info => bail!(
-                    "Rust plugins in the package must be built with the same juiz_sdk and rustc, but {first} is built with {first_info} and {rel} is built with {info}"
-                ),
-                _ => {}
+        let rust = classify_rust_plugins(&rust_files, |rel| files[rel].abs.clone())?;
+        m.rust_juiz_sdk = Some(rust.juiz_sdk.clone());
+        m.rust_abi = rust.abi;
+        if let Some((rustc, _)) = &rust.rust_abi {
+            let sdk = &rust.juiz_sdk;
+            match &m.juiz {
+                None => m.juiz = Some(format!("={sdk}")),
+                Some(j) => {
+                    let ok = exact_version(&parse_req("'juiz'", j)?)
+                        .is_some_and(|v| v.to_string() == *sdk);
+                    if !ok {
+                        bail!("the package has Rust plugins loaded through the Rust ABI ({}), built with juiz_sdk {sdk}, so 'juiz' in juizapp.yaml must be \"={sdk}\", but \"{j}\"", rust.rust_abi_files().join(", "));
+                    }
+                }
             }
-        }
-        let (_, info) = found.unwrap();
-        let sdk = info.juiz_sdk_str().to_owned();
-        let required = format!("={sdk}");
-        match &m.juiz {
-            None => m.juiz = Some(required),
-            Some(j) => {
-                let ok =
-                    exact_version(&parse_req("'juiz'", j)?).is_some_and(|v| v.to_string() == sdk);
-                if !ok {
-                    bail!("the package has Rust plugins built with juiz_sdk {sdk}, so 'juiz' in juizapp.yaml must be \"={sdk}\", but \"{j}\"");
+            m.rust_rustc = Some(rustc.clone());
+        } else {
+            match &m.juiz {
+                None => m.juiz = Some(format!(">={JUIZ_VERSION}")),
+                Some(j) => {
+                    let req = parse_req("'juiz'", j)?;
+                    if let Some(w) = old_juiz_warning(j, &req) {
+                        warn(&w);
+                    }
                 }
             }
         }
-        m.rust_juiz_sdk = Some(sdk);
-        m.rust_rustc = Some(info.rustc_str().to_owned());
     } else if m.juiz.is_none() {
         m.juiz = Some(format!(">={JUIZ_VERSION}"));
     }
@@ -281,6 +285,8 @@ struct PluginRef {
     language: String,
     path: String,
     native: bool,
+    /// Rust ABI で読まれる理由(EC・ブローカー、または conf の `abi: rust`)。無ければ印で決める(§6.3 の 6)
+    rust_abi_reason: Option<&'static str>,
 }
 
 /// entry の conf の plugins を並べる(§6.3 の 3)
@@ -336,11 +342,26 @@ fn push_plugin(
     if !LANGUAGES.contains(&language) {
         bail!("unknown language '{language}' of plugins.{kind}.{name} (one of {LANGUAGES:?})");
     }
+    let rust_abi_reason = if language != "rust" {
+        None
+    } else if matches!(kind, "broker_factories" | "ec_factories") {
+        Some("EC / broker plugin")
+    } else {
+        match v.get("abi") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(a)) if a == "c" => None,
+            Some(Value::String(a)) if a == "rust" => Some("'abi: rust' in the conf"),
+            Some(a) => bail!(
+                "'abi' of plugins.{kind}.{name} in the entry conf must be 'c' or 'rust', but {a}"
+            ),
+        }
+    };
     out.push(PluginRef {
         name: name.to_owned(),
         language: language.to_owned(),
         path: path.to_owned(),
         native: language != "python",
+        rust_abi_reason,
     });
     Ok(())
 }
@@ -442,8 +463,147 @@ fn command_output(cmd: &str, args: &[&str], file: &Path) -> Option<String> {
         .then(|| String::from_utf8_lossy(&o.stdout).into_owned())
 }
 
-pub(crate) fn read_build_info(path: &Path) -> Result<BuildInfo> {
+/// pack に入れる Rust のプラグインのファイル 1 つ
+#[derive(Debug, Clone)]
+struct RustFile {
+    rel: String,
+    /// Rust ABI で読まれる理由(印より優先する)
+    forced_rust_abi: Option<&'static str>,
+}
+
+/// Rust のプラグインを C ABI と Rust ABI に分けた結果(§6.3 の 6)
+#[derive(Debug)]
+struct RustPlugins {
+    juiz_sdk: String,
+    /// C ABI のプラグインの ABI の版(C ABI のものが無ければ None)
+    abi: Option<u32>,
+    /// Rust ABI のプラグインの rustc と、そのファイル(無ければ None)
+    rust_abi: Option<(String, Vec<String>)>,
+}
+
+impl RustPlugins {
+    fn rust_abi_files(&self) -> Vec<String> {
+        self.rust_abi
+            .as_ref()
+            .map(|(_, f)| f.clone())
+            .unwrap_or_default()
+    }
+}
+
+/// C ABI が入った juiz の版(rust-plugin-abi.md、#291)。これより前の juiz は C ABI のプラグインを読めない
+const RUST_CABI_SINCE: &str = "0.0.30";
+
+/// `juiz` の範囲が C ABI を読めない juiz を含むときの警告(§6.3 の 6)
+fn old_juiz_warning(written: &str, req: &semver::VersionReq) -> Option<String> {
+    let since = semver::Version::parse(RUST_CABI_SINCE).expect("semver");
+    let before = semver::Version::new(since.major, since.minor, since.patch - 1);
+    req.matches(&before).then(|| {
+        format!(
+            "'juiz: {written}' in juizapp.yaml includes juiz older than {RUST_CABI_SINCE}, which cannot load the Rust plugins of the package (they use the plugin C ABI). Consider 'juiz: \">={RUST_CABI_SINCE}\"'."
+        )
+    })
+}
+
+/// 各 Rust のプラグインのファイルを読み、ビルド情報と ABI の印から C ABI / Rust ABI に分ける(§6.3 の 6)
+fn classify_rust_plugins(
+    rust_files: &[RustFile],
+    abs: impl Fn(&str) -> PathBuf,
+) -> Result<RustPlugins> {
+    let mut sdk: Option<(String, String)> = None; // (版, 最初のファイル)
+    let mut abi: Option<(u32, String)> = None;
+    let mut rustc: Option<(String, String)> = None;
+    let mut rust_abi_files: Vec<String> = Vec::new();
+    for f in rust_files {
+        let rel = &f.rel;
+        let path = abs(rel);
+        let bytes =
+            std::fs::read(&path).with_context(|| format!("cannot read {}", path.display()))?;
+        let info = build_info_in(&bytes, &path)
+            .with_context(|| format!("cannot read the build information of {rel}"))?;
+        let this_sdk = info.juiz_sdk_str().to_owned();
+        match &sdk {
+            None => sdk = Some((this_sdk, rel.clone())),
+            Some((s, first)) if *s != this_sdk => bail!(
+                "Rust plugins in the package must be built with the same juiz_sdk, but {first} is built with juiz_sdk {s} and {rel} is built with juiz_sdk {this_sdk}"
+            ),
+            _ => {}
+        }
+        let marker = abi_marker_in(&bytes, &path)?;
+        match (f.forced_rust_abi, marker) {
+            (None, Some(v)) => match &abi {
+                None => abi = Some((v, rel.clone())),
+                Some((a, first)) if *a != v => bail!(
+                    "Rust plugins in the package must use the same plugin ABI, but {first} uses ABI {a} and {rel} uses ABI {v}"
+                ),
+                _ => {}
+            },
+            (forced, _) => {
+                let this_rustc = info.rustc_str().to_owned();
+                match &rustc {
+                    None => rustc = Some((this_rustc, rel.clone())),
+                    Some((r, first)) if *r != this_rustc => {
+                        let why = forced.unwrap_or("no plugin C ABI entry");
+                        bail!(
+                            "Rust plugins loaded through the Rust ABI must be built with the same rustc, but {first} is built with {r} and {rel} ({why}) is built with {this_rustc}"
+                        )
+                    }
+                    _ => {}
+                }
+                if !rust_abi_files.contains(rel) {
+                    rust_abi_files.push(rel.clone());
+                }
+            }
+        }
+    }
+    let (juiz_sdk, _) = sdk.expect("rust_files is not empty");
+    Ok(RustPlugins {
+        juiz_sdk,
+        abi: abi.map(|(a, _)| a),
+        rust_abi: rustc.map(|(r, _)| (r, rust_abi_files)),
+    })
+}
+
+/// ファイルのバイト列から ABI の印 `juiz_rust_abi=<版>;` を探す(rust-plugin-abi.md §9.3)
+fn abi_marker_in(bytes: &[u8], path: &Path) -> Result<Option<u32>> {
+    let needle = b"juiz_rust_abi=";
+    let mut found: Option<u32> = None;
+    let mut i = 0;
+    while let Some(pos) = find(&bytes[i..], needle) {
+        let start = i + pos + needle.len();
+        i = start;
+        let digits = bytes[start..]
+            .iter()
+            .take(10)
+            .take_while(|b| b.is_ascii_digit())
+            .count();
+        if digits == 0 || bytes.get(start + digits) != Some(&b';') {
+            continue;
+        }
+        let Ok(v) = std::str::from_utf8(&bytes[start..start + digits])
+            .unwrap_or("")
+            .parse::<u32>()
+        else {
+            continue;
+        };
+        match found {
+            None => found = Some(v),
+            Some(f) if f != v => bail!(
+                "{} has more than one plugin ABI marker (juiz_rust_abi={f} and juiz_rust_abi={v})",
+                path.display()
+            ),
+            _ => {}
+        }
+    }
+    Ok(found)
+}
+
+#[cfg(test)]
+fn read_build_info(path: &Path) -> Result<BuildInfo> {
     let bytes = std::fs::read(path)?;
+    build_info_in(&bytes, path)
+}
+
+fn build_info_in(bytes: &[u8], path: &Path) -> Result<BuildInfo> {
     let needle = b"juiz_sdk=";
     let mut found: Option<BuildInfo> = None;
     let mut i = 0;
@@ -644,6 +804,138 @@ mod tests {
         std::fs::write(&p, b"nothing").unwrap();
         assert!(read_build_info(&p).is_err());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn rust_file(dir: &Path, name: &str, bytes: &[u8], forced: Option<&'static str>) -> RustFile {
+        std::fs::write(dir.join(name), bytes).unwrap();
+        RustFile {
+            rel: name.to_owned(),
+            forced_rust_abi: forced,
+        }
+    }
+
+    #[test]
+    fn classifies_rust_plugins() {
+        let dir = std::env::temp_dir().join(format!("juiz_pack_cls_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let abs = |rel: &str| dir.join(rel);
+        let cabi_a = rust_file(
+            &dir,
+            "a",
+            b"juiz_sdk=0.0.30;rustc=rustc A\0juiz_rust_abi=1;\0",
+            None,
+        );
+        let cabi_b = rust_file(
+            &dir,
+            "b",
+            b"juiz_sdk=0.0.30;rustc=rustc B\0juiz_rust_abi=1;\0",
+            None,
+        );
+        // C ABI だけなら rustc が違ってもよい
+        let r = classify_rust_plugins(&[cabi_a.clone(), cabi_b.clone()], abs).unwrap();
+        assert_eq!(r.juiz_sdk, "0.0.30");
+        assert_eq!(r.abi, Some(1));
+        assert!(r.rust_abi.is_none());
+
+        // 印の無い古いプラグインと EC は Rust ABI
+        let old = rust_file(&dir, "old", b"juiz_sdk=0.0.30;rustc=rustc A\0", None);
+        let ec = rust_file(
+            &dir,
+            "ec",
+            b"juiz_sdk=0.0.30;rustc=rustc A\0juiz_rust_abi=1;\0",
+            Some("EC / broker plugin"),
+        );
+        let r = classify_rust_plugins(&[cabi_b.clone(), old.clone(), ec.clone()], abs).unwrap();
+        assert_eq!(r.abi, Some(1));
+        let (rustc, files) = r.rust_abi.unwrap();
+        assert_eq!(rustc, "rustc A");
+        assert_eq!(files, vec!["old".to_owned(), "ec".to_owned()]);
+
+        // Rust ABI 同士の rustc 違いはエラー
+        let ec_b = rust_file(
+            &dir,
+            "ec_b",
+            b"juiz_sdk=0.0.30;rustc=rustc B\0",
+            Some("EC / broker plugin"),
+        );
+        let e = classify_rust_plugins(&[old.clone(), ec_b], abs)
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("same rustc"), "{e}");
+        // juiz_sdk の違いはどちらでもエラー
+        let other_sdk = rust_file(
+            &dir,
+            "c",
+            b"juiz_sdk=0.0.31;rustc=rustc A\0juiz_rust_abi=1;\0",
+            None,
+        );
+        let e = classify_rust_plugins(&[cabi_a.clone(), other_sdk], abs)
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("same juiz_sdk"), "{e}");
+        // ABI の版の違いはエラー
+        let abi2 = rust_file(
+            &dir,
+            "d",
+            b"juiz_sdk=0.0.30;rustc=rustc A\0juiz_rust_abi=2;\0",
+            None,
+        );
+        let e = classify_rust_plugins(&[cabi_a, abi2], abs)
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("same plugin ABI"), "{e}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reads_abi_marker() {
+        let p = Path::new("x");
+        assert_eq!(
+            abi_marker_in(b"..juiz_rust_abi=1;\0..", p).unwrap(),
+            Some(1)
+        );
+        assert_eq!(
+            abi_marker_in(b"juiz_rust_abi=1;juiz_rust_abi=1;", p).unwrap(),
+            Some(1)
+        );
+        // 版の形でないものは印とみなさない
+        assert_eq!(
+            abi_marker_in(b"juiz_rust_abi=x; juiz_rust_abi=12", p).unwrap(),
+            None
+        );
+        assert!(abi_marker_in(b"juiz_rust_abi=1; juiz_rust_abi=2;", p).is_err());
+    }
+
+    #[test]
+    fn warns_old_juiz_range() {
+        let w = |j: &str| old_juiz_warning(j, &semver::VersionReq::parse(j).unwrap());
+        assert!(w(">=0.0.1").is_some());
+        assert!(w(">=0.0.30").is_none());
+        assert!(w("^0.0.30").is_none());
+    }
+
+    #[test]
+    fn rust_abi_reason_from_conf() {
+        let conf = yaml::parse(
+            r#"
+plugins:
+  ec_factories: { timer_ec: { path: "plugins/{target}" } }
+  process_factories:
+    a: { path: "plugins/{target}" }
+    b: { path: "plugins/{target}", abi: rust }
+    c: { path: "plugins/{target}", abi: c }
+"#,
+        )
+        .unwrap();
+        let ps = list_plugins(&conf).unwrap();
+        let get = |n: &str| ps.iter().find(|p| p.name == n).unwrap().rust_abi_reason;
+        assert!(get("timer_ec").is_some());
+        assert!(get("a").is_none());
+        assert!(get("b").is_some());
+        assert!(get("c").is_none());
+        let bad =
+            yaml::parse("plugins: { process_factories: { a: { path: p, abi: cpp } } }").unwrap();
+        assert!(list_plugins(&bad).is_err());
     }
 
     #[test]

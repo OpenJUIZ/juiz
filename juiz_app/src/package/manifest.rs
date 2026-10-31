@@ -38,6 +38,9 @@ pub(crate) struct Manifest {
     pub languages: Option<Vec<String>>,
     pub targets: Option<Vec<String>>,
     pub rust_juiz_sdk: Option<String>,
+    /// C ABI の Rust のプラグインの ABI の版(§4.1 `rust.abi`、rust-plugin-abi.md §9)
+    pub rust_abi: Option<u32>,
+    /// Rust ABI の Rust のプラグインをビルドした rustc(§4.1 `rust.rustc`、§12.1)
     pub rust_rustc: Option<String>,
     pub files: Option<BTreeMap<String, String>>,
     raw: Map<String, Value>,
@@ -236,12 +239,25 @@ impl Manifest {
             }
         }
         let targets = opt_str_list(&m, "targets")?;
-        let (rust_juiz_sdk, rust_rustc) = match opt_map(&m, "rust")? {
+        let (rust_juiz_sdk, rust_abi, rust_rustc) = match opt_map(&m, "rust")? {
             Some(r) => (
                 opt_str(r, "juiz_sdk")?.map(str::to_owned),
+                match r.get("abi") {
+                    None | Some(Value::Null) => None,
+                    Some(a) => Some(
+                        a.as_u64()
+                            .and_then(|a| u32::try_from(a).ok())
+                            .filter(|a| *a > 0)
+                            .ok_or_else(|| {
+                                anyhow!(
+                                    "'rust.abi' in juizapp.yaml must be a positive integer, but {a}"
+                                )
+                            })?,
+                    ),
+                },
                 opt_str(r, "rustc")?.map(str::to_owned),
             ),
-            None => (None, None),
+            None => (None, None, None),
         };
         let files = match opt_map(&m, "files")? {
             Some(f) => {
@@ -272,6 +288,7 @@ impl Manifest {
             languages,
             targets,
             rust_juiz_sdk,
+            rust_abi,
             rust_rustc,
             files,
             raw: m,
@@ -290,9 +307,11 @@ impl Manifest {
                 bail!("'{key}' is missing in juizapp.yaml of {file}. Make the package with 'juiz pack'.");
             }
         }
-        if self.has_language("rust") && (self.rust_juiz_sdk.is_none() || self.rust_rustc.is_none())
+        if self.has_language("rust")
+            && (self.rust_juiz_sdk.is_none()
+                || (self.rust_abi.is_none() && self.rust_rustc.is_none()))
         {
-            bail!("'rust.juiz_sdk' and 'rust.rustc' are missing in juizapp.yaml of {file}. Make the package with 'juiz pack'.");
+            bail!("'rust.juiz_sdk' and 'rust.abi' or 'rust.rustc' are missing in juizapp.yaml of {file}. Make the package with 'juiz pack'.");
         }
         Ok(())
     }
@@ -330,10 +349,15 @@ impl Manifest {
         if let Some(t) = &self.targets {
             items.push(("targets".into(), Value::from(t.clone())));
         }
-        if let (Some(sdk), Some(rustc)) = (&self.rust_juiz_sdk, &self.rust_rustc) {
+        if let Some(sdk) = &self.rust_juiz_sdk {
             let mut r = Map::new();
             r.insert("juiz_sdk".into(), Value::from(sdk.clone()));
-            r.insert("rustc".into(), Value::from(rustc.clone()));
+            if let Some(abi) = self.rust_abi {
+                r.insert("abi".into(), Value::from(abi));
+            }
+            if let Some(rustc) = &self.rust_rustc {
+                r.insert("rustc".into(), Value::from(rustc.clone()));
+            }
             items.push(("rust".into(), Value::Object(r)));
         }
         if let Some(f) = &self.files {
@@ -403,6 +427,35 @@ exclude: ["*.log"]
         assert_eq!(back.depends, m.depends);
         assert_eq!(back.kind, Kind::App);
         assert_eq!(back.juiz.as_deref(), Some("=0.0.28"));
+        assert_eq!(back.rust_abi, None);
+    }
+
+    #[test]
+    fn rust_abi_round_trips() {
+        let mut m = Manifest::parse_str(SAMPLE, "t").unwrap();
+        m.languages = Some(vec!["rust".into()]);
+        m.targets = Some(vec!["x86_64-unknown-linux-gnu".into()]);
+        m.rust_juiz_sdk = Some("0.0.30".into());
+        m.files = Some(BTreeMap::new());
+        // juiz_sdk だけでは足りない
+        assert!(m.check_packed("t").is_err());
+        m.rust_abi = Some(1);
+        m.check_packed("t").unwrap();
+        let text = m.to_yaml();
+        assert!(
+            text.contains("rust:\n  abi: 1\n  juiz_sdk: 0.0.30\n"),
+            "{text}"
+        );
+        assert!(!text.contains("rustc"), "{text}");
+        let back = Manifest::parse_str(&text, "t").unwrap();
+        back.check_packed("t").unwrap();
+        assert_eq!(back.rust_abi, Some(1));
+        assert_eq!(back.rust_rustc, None);
+        // 両方あってもよい(Rust ABI のプラグインも含むとき)
+        m.rust_rustc = Some("rustc 1.91.0".into());
+        let back = Manifest::parse_str(&m.to_yaml(), "t").unwrap();
+        assert_eq!(back.rust_abi, Some(1));
+        assert_eq!(back.rust_rustc.as_deref(), Some("rustc 1.91.0"));
     }
 
     #[test]
@@ -436,6 +489,10 @@ exclude: ["*.log"]
             (
                 "format: 1\nname: a\nversion: 0.1.0\nkind: base\nbase: {http_port: 70000}",
                 "port number",
+            ),
+            (
+                "format: 1\nname: a\nversion: 0.1.0\nrust: {juiz_sdk: 0.0.30, abi: one}",
+                "positive integer",
             ),
             (
                 "format: 1\nname: a\nversion: 0.1.0\nlanguages: [go]",
