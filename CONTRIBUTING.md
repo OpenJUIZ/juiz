@@ -84,7 +84,7 @@ cmake -S examples/cpp -B examples/cpp/build
 cmake --build examples/cpp/build
 ```
 
-Haskell のサンプル(`examples/haskell`)は cabal でビルドします。GHC 9.6 以降と cabal が必要です(Linux / macOS)。
+Haskell のサンプル(`examples/haskell`)は cabal でビルドします。GHC 9.6 以降と cabal が必要です(Linux / macOS / Windows)。
 先に `cargo build` で `target/debug` に libjuiz_sdk を作ってから実行すると、できた共有ライブラリが `target/` に置かれます。
 
 ```terminal
