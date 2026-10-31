@@ -10,4 +10,4 @@ pub(crate) use library::open_library;
 pub use target::{replace_target_in_plugin_paths, HOST_TARGET};
 pub use python::{python_check, PythonCheck, PYTHON_ENABLED};
 pub(crate) use rust::RustPlugin;
-pub use rust::{rust_cabi_native_encode_count, RustCabiNative};
+pub use rust::{rust_cabi_native_encode_count, RustCabiNative, SUPPORTED_ABI_VERSIONS};
