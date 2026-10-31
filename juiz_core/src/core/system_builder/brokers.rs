@@ -74,6 +74,13 @@ pub fn setup_brokers(system: &mut System, manifest: &Value) -> JuizResult<()> {
         let type_name = obj_get_str(p, "type_name")?;
         // ipc ブローカーは名前を省略できる (juiz になる)
         let name = obj_get_str(p, "name").unwrap_or("(default)");
+        let mut p = p.clone();
+        if type_name == "http" {
+            super::http_broker::resolve_static_filepaths(
+                &mut p,
+                system.get_working_dir().as_deref(),
+            );
+        }
         let _ = system.create_broker(&p)?;
         log::info!("Broker({:}:{:}) Created", name, type_name);
     }

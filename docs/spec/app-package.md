@@ -189,6 +189,14 @@ plugins:
 - 絶対パスはそのまま使う。
 - これは今の挙動を変えるので、#284 の PR と版上げの変更点に書く。
 
+### 5.4 HTTP ブローカーの静的ファイルのパス
+
+`option.http_broker.static_filepaths`(と `brokers` に書いた `type_name: http` のブローカーの `static_filepaths`)の相対パスは、0.0.29 まではカレントディレクトリからの相対で解決されていた。`juiz run` はカレントディレクトリを変えない(§7.1)ので、パッケージに入れた画面を配信できなかった。プラグインと同じく **conf の親ディレクトリからの相対** に揃える。
+
+- 絶対パスはそのまま使う。conf を使わずに `System` を作ったとき(親ディレクトリが無いとき)は今までどおり。
+- 古い conf のため、conf からの相対で見つからず、カレントディレクトリからの相対で見つかるときは、警告を出してカレントディレクトリからのパスを使う。
+- 実装は juiz_core の `system_builder::http_broker::resolve_static_filepaths`。
+
 ## 6. `juiz pack`(#285)
 
 ```
