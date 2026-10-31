@@ -195,7 +195,6 @@ Hackage への公開には、Hackage のアカウント(アップロード権限
 | `ecs` | 実行コンテキスト (TimerEC, OneShotEC, MainLoopEC) |
 | `bindings` | C (`cjuiz`: libjuiz_sdk の C の関数の宣言 `juiz_sdk.h`)、C++ (`cppjuiz`)、Haskell (`hsjuiz`)、Python (`pyjuiz`、pip で入れる `juiz` コマンドの `juiz_py`)、JavaScript 向けバインディング |
 | `examples` | Rust / C++ / Python / Haskell のサンプル |
-| `juiz_tutorial` | チュートリアル |
 | `webui` | ブラウザで系を確認する管理画面 (TypeScript + React)。[webui/README.md](webui/README.md) |
 | `docs/spec` | 実装の基準にする仕様書 (下の「仕様書」) |
 

@@ -12,7 +12,6 @@ on:
       # Rust のビルドとテストに影響しないファイルだけの変更ではジョブを走らせない。
       # examples/python と bindings/pyjuiz は Rust のテストから使われるので対象に含める。
       - "**.md"
-      - "juiz_tutorial/**"
       - "Dockerfile"
       - "compose.yml"
       - "build_docker.sh"
