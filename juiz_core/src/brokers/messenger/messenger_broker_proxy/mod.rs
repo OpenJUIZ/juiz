@@ -149,6 +149,10 @@ impl MessengerBrokerProxy {
                 log::trace!(
                     "MessengerBrokerProxy::send_recv_and() success. Calling post function callback"
                 );
+                // 応答の印は経路の情報なので、結果には残さない (HTTP とそろえる、issue #277)
+                let mut value = value;
+                value.remove_option("function_name")?;
+                value.remove_option("class_name")?;
                 func(value)
             }
         };

@@ -88,7 +88,6 @@ HTTP の時間の約 8 割が PNG の圧縮と展開なので、A で PNG をや
   "id": 17,
   "kind": "response",
   "result": {"body": 0},
-  "option": {"function_name": "call", "class_name": "process"},
   "bodies": [
     {"kind": "image", "width": 1280, "height": 720, "format": "rgb8", "stride": 3840}
   ]
@@ -112,7 +111,7 @@ HTTP の時間の約 8 割が PNG の圧縮と展開なので、A で PNG をや
 | `param` | 今の `CapsuleMap` の `__param__` と同じもの。`method_name`(`create` / `read` / `update` / `delete`、小文字)・`class_name`・`function_name` を必ず含む。値はすべて文字列 |
 | `map` | 今の `CapsuleMap` の `__map__` にあたる。キーは引数名、値はカプセルの表し方(§3.3) |
 | `result` | 応答のカプセル(§3.3) |
-| `option` | 応答のカプセルのオプション(`CapsulePtr::set_option` で付けたもの)。無ければ省いてよい |
+| `option` | 応答のカプセルのオプション(`CapsulePtr::set_option` で付けたもの)。無ければ省いてよい。要求の経路(`class_name`・`function_name` など)は入れない。結果は HTTP で受け取ったものと同じにする(#277) |
 | `bodies` | 本体の説明の配列(§3.4)。本体が無ければ省いてよい |
 | `error` | エラーの内容。受け手の BrokerProxy は `JuizError::BrokerProxyRemoteError { class_name, function_name, message }` にする(#231 と同じ) |
 

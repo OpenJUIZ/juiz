@@ -367,11 +367,8 @@ impl CRUDBroker {
             log::error!("CRUDBrokerクラスのコールバック(call_callback({class_name}, {function_name}))関数内でエラーが発生。エラーは({e})です。");
             Err(e)
         })
-        .and_then( |mut capsule|{
-            capsule.set_function_name(function_name)?;
-            capsule.set_class_name(class_name)?;
-            Ok(capsule)
-        })
+        // 結果のカプセルに要求の経路 (class_name / function_name) は付けない。
+        // HTTP 以外のブローカーでは option がそのまま利用者に届くため (issue #277)
     }
 }
 

@@ -100,6 +100,14 @@ pub fn int_of(c: JuizResult<CapsulePtr>) -> i64 {
         .unwrap()
 }
 
+/// 結果のカプセルに、要求の経路 (class_name / function_name など) が option として残っていない (#277)
+pub fn assert_no_options(c: JuizResult<CapsulePtr>) -> CapsulePtr {
+    let c = c.expect("call failed");
+    let options = c.lock_as_capsule(|c| c.get_options().clone()).unwrap();
+    assert!(options.is_empty(), "options should be empty: {options:?}");
+    c
+}
+
 /// qmp 経由で得た識別子は、アクセスした qmp ブローカーを指す
 pub fn check_processes(bp: &mut dyn BrokerProxy, broker_name: &str) -> JuizResult<()> {
     assert!(bp.system_profile_full()?.is_object());
@@ -118,6 +126,10 @@ pub fn check_processes(bp: &mut dyn BrokerProxy, broker_name: &str) -> JuizResul
     assert_eq!(bp.process_profile_full(inc0)?.name, "inc0");
     bp.process_p_apply(inc0, "arg1", jvalue!(1).into())?;
     assert_eq!(int_of(bp.process_execute(inc0)), 2);
+    // HTTP と同じく、結果の option は空 (#277)
+    assert_no_options(bp.process_call(inc0, args("arg1", 1)));
+    assert_no_options(bp.any_process_call(inc0, args("arg1", 1)));
+    assert_no_options(bp.process_execute(inc0));
     Ok(())
 }
 

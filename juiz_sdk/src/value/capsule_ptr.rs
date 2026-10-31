@@ -142,6 +142,15 @@ impl CapsulePtr {
         Ok(self)
     }
 
+    pub fn remove_option(&mut self, key: &str) -> JuizResult<Option<String>> {
+        match self.value.lock() {
+            Ok(mut c) => Ok(c.remove_option(key)),
+            Err(_e) => Err(anyhow::Error::from(JuizError::MutexLockFailedError {
+                error: "CapsulePtr.remove_option() lock error.".to_owned(),
+            })),
+        }
+    }
+
     pub fn get_option(&self, key: &str) -> JuizResult<String> {
         match self.value.lock() {
             Ok(c) => match c.get_option(key) {

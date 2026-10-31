@@ -417,6 +417,10 @@ impl Capsule {
         self
     }
 
+    pub fn remove_option(&mut self, key: &str) -> Option<String> {
+        self.option.remove(key)
+    }
+
     pub fn get_option(&self, key: &str) -> Option<&String> {
         self.option.get(&key.to_owned())
     }

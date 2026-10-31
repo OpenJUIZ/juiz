@@ -17,7 +17,7 @@ use juiz_core::prelude::*;
 use juiz_sdk::image::{ImageBuffer, Luma, LumaA, Rgb, Rgba};
 use juiz_sdk::process_identifier::ProcessIdentifier;
 
-use crate::broker_api::{find_process, int_of};
+use crate::broker_api::{assert_no_options, find_process, int_of};
 
 fn target_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target/debug")
@@ -206,6 +206,10 @@ fn check_processes(bp: &mut dyn BrokerProxy, ipc_name: &str) -> JuizResult<()> {
     bp.process_p_apply(inc0, "arg1", jvalue!(1).into())?;
     assert_eq!(int_of(bp.process_execute(inc0)), 2);
     assert_eq!(int_of(bp.process_push_by(inc0, "arg1".to_owned(), jvalue!(7).into())), 8);
+    // HTTP と同じく、結果の option は空 (#277)
+    assert_no_options(bp.process_call(inc0, args("arg1", 1)));
+    assert_no_options(bp.any_process_call(inc0, args("arg1", 1)));
+    assert_no_options(bp.process_execute(inc0));
 
     let brokers = bp.broker_list(false)?;
     assert!(
