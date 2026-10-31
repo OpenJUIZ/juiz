@@ -31,6 +31,8 @@ pub(crate) struct RunOptions {
     pub package: String,
     pub entry: Option<String>,
     pub start_http_broker: bool,
+    /// `-q` / `--no-http`(issue #306)
+    pub stop_http_broker: bool,
     pub ipc: Option<String>,
     pub namespace: Option<String>,
     /// `--depend <名前>=<URL>`(§10.2)
@@ -161,9 +163,8 @@ fn start(prepared: &Prepared, conf: &Path, opts: &RunOptions, data: &Path) -> Re
     let mut system = System::new(manifest)?
         .set_working_dir(working_dir)
         .set_subsystem_check(subsystem_check(m, deps, &installed));
-    // HTTP ブローカーは -d のように強制では立てず、conf と -b に従う。http で基礎につなぐときは立てる
-    if opts.start_http_broker || needs_http {
-        system = system.start_http_broker(true);
+    if let Some(flag) = http_broker_flag(opts, needs_http)? {
+        system = system.start_http_broker(flag);
     }
     let mut system = system.setup().map_err(|e| {
         // 依存のエラーは setup の文脈を付けずに見せる
@@ -173,6 +174,24 @@ fn start(prepared: &Prepared, conf: &Path, opts: &RunOptions, data: &Path) -> Re
         }
     })?;
     system.run_and_do(|_| Ok(()))
+}
+
+/// HTTP ブローカーを立てるかどうか(§7.1、issue #306)。None なら conf の `option.http_broker` に従う
+/// (書いていなければ立つ)。
+/// - `-b` は conf の `start: false` を上書きして立てる。`-q` と両方なら `-b`
+/// - `-q` は conf に書いていなくても、`start: true` でも立てない
+/// - http で基礎につなぐときは立てる。`-q` とは両立しないのでエラー
+fn http_broker_flag(opts: &RunOptions, needs_http: bool) -> Result<Option<bool>> {
+    if opts.start_http_broker {
+        return Ok(Some(true));
+    }
+    if opts.stop_http_broker {
+        if needs_http {
+            bail!("a dependency is connected over http, which needs the HTTP broker. Remove -q (--no-http) or connect it over ipc");
+        }
+        return Ok(Some(false));
+    }
+    Ok(needs_http.then_some(true))
 }
 
 /// depends の subsystem につなぐ前に、相手の profile の package を確かめる(§10.2、§10.3)
@@ -580,6 +599,23 @@ pub(crate) mod tests {
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[test]
+    fn http_broker_flag_follows_b_and_q() {
+        let o = |b, q| RunOptions { start_http_broker: b, stop_http_broker: q, ..Default::default() };
+        // 指定なし: conf に従う。http でつなぐときは立てる
+        assert_eq!(http_broker_flag(&o(false, false), false).unwrap(), None);
+        assert_eq!(http_broker_flag(&o(false, false), true).unwrap(), Some(true));
+        // -b: 立てる
+        assert_eq!(http_broker_flag(&o(true, false), false).unwrap(), Some(true));
+        // -q: 立てない。-b と両方なら -b
+        assert_eq!(http_broker_flag(&o(false, true), false).unwrap(), Some(false));
+        assert_eq!(http_broker_flag(&o(true, true), false).unwrap(), Some(true));
+        assert_eq!(http_broker_flag(&o(true, true), true).unwrap(), Some(true));
+        // -q と http での接続は両立しない
+        let e = http_broker_flag(&o(false, true), true).unwrap_err().to_string();
+        assert!(e.contains("--no-http"), "{e}");
     }
 
     pub(crate) fn host() -> Host {
