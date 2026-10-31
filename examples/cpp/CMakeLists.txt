@@ -14,7 +14,8 @@ endif ()
 
 set(JUIZ_HEADER_DIR bindings/cppjuiz/include)
 set(PROJECT_HOME ${PROJECT_SOURCE_DIR}/../../)
-include_directories(${PROJECT_HOME}/${JUIZ_HEADER_DIR})
+# C++ のヘッダは C のヘッダ juiz_sdk.h を #include "juiz_sdk.h" で読むので、両方を足す
+include_directories(${PROJECT_HOME}/${JUIZ_HEADER_DIR} ${PROJECT_HOME}/bindings/cjuiz/include)
 
 link_directories(${PROJECT_HOME}/target/debug)
 

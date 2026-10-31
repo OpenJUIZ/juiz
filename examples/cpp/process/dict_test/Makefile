@@ -10,9 +10,10 @@ AR=ar
 JUIZ_DIR=../../../..
 JUIZ_LIB_DIR=${JUIZ_DIR}/target/debug
 JUIZ_INCLUDE_DIR=${JUIZ_DIR}/bindings/cppjuiz/include
+JUIZ_C_INCLUDE_DIR=${JUIZ_DIR}/bindings/cjuiz/include
 
-CFLAGS=-Wall -O -I${JUIZ_INCLUDE_DIR} -c -fPIC -arch arm64 #-arch x86_64 -fPIC
-CXXFLAGS=-Wall -O -I${JUIZ_INCLUDE_DIR} -c -fPIC -arch arm64 -std=c++20 #-arch x86_64 -fPIC
+CFLAGS=-Wall -O -I${JUIZ_INCLUDE_DIR} -I${JUIZ_C_INCLUDE_DIR} -c -fPIC -arch arm64 #-arch x86_64 -fPIC
+CXXFLAGS=-Wall -O -I${JUIZ_INCLUDE_DIR} -I${JUIZ_C_INCLUDE_DIR} -c -fPIC -arch arm64 -std=c++20 #-arch x86_64 -fPIC
 ARFLAGS= rc
 CDYLIBFLAGS=-L${JUIZ_LIB_DIR} -ljuiz_core -dynamiclib -arch arm64 #-arch x86_64
 CXXDYLIBFLAGS=-L${JUIZ_LIB_DIR} -ljuiz_core -dynamiclib -arch arm64 #-arch x86_64
