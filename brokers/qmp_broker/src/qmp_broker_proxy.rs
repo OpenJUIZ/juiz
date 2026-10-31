@@ -147,6 +147,26 @@ impl QuicBrokerProxy {
     }
 }
 
+/// 閉じる知らせをサーバーへ送り終えるまで待つ上限
+const CLOSE_WAIT: Duration = Duration::from_secs(1);
+
+impl Drop for QuicBrokerProxy {
+    /// 接続を明示的に閉じる。閉じずに終わると、サーバー側はアイドルタイムアウトまで
+    /// 接続を持ち続け、最後に TimedOut を受け取る (#276)
+    fn drop(&mut self) {
+        self.connection.close(quinn::VarInt::from_u32(0), b"bye");
+        // 閉じる知らせは endpoint の駆動タスクが送るので、送り終えるまで待つ。
+        // tokio ランタイムの中から呼ばれても block_on できるよう、別スレッドで待つ (new と同じ)
+        let (rt, endpoint) = (self.rt.clone(), self.endpoint.clone());
+        let _ = std::thread::spawn(move || {
+            rt.block_on(async {
+                let _ = tokio::time::timeout(CLOSE_WAIT, endpoint.wait_idle()).await;
+            })
+        })
+        .join();
+    }
+}
+
 async fn make_endpoint_and_connection(
     name: &str,
     idle_timeout: Option<u64>,

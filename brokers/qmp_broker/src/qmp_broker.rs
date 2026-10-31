@@ -276,6 +276,17 @@ where
     }
 }
 
+/// 相手が閉じた・居なくなったことによる切断かどうか。
+/// CLI は応答を受け取るとすぐ終わるので、閉じ方によっては TimedOut (アイドルタイムアウト) や
+/// Reset になる。これらは正常な切断として扱い、ERROR にはしない (#276)
+fn is_peer_gone(e: &quinn::ConnectionError) -> bool {
+    use quinn::ConnectionError::*;
+    matches!(
+        e,
+        ApplicationClosed(_) | ConnectionClosed(_) | TimedOut | Reset | LocallyClosed
+    )
+}
+
 async fn handle_connection<F>(conn: Connection, callback: Arc<F>) -> anyhow::Result<()>
 where
     F: Fn(quinn::SendStream, quinn::RecvStream, &Connection) -> anyhow::Result<()>
@@ -287,8 +298,8 @@ where
     //async {
     loop {
         match conn.accept_bi().await {
-            Err(quinn::ConnectionError::ApplicationClosed { .. }) => {
-                log::info!("Connection Closed.");
+            Err(e) if is_peer_gone(&e) => {
+                log::info!("qmp_broker: connection from {} closed. {e}", conn.remote_address());
                 return Ok(());
             }
             Err(e) => {
@@ -312,4 +323,29 @@ where
         }
     }
     //}.instrument(make_span(&conn)).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_peer_gone;
+    use quinn::ConnectionError;
+
+    #[test]
+    fn peer_gone_errors_are_not_failures() {
+        assert!(is_peer_gone(&ConnectionError::TimedOut));
+        assert!(is_peer_gone(&ConnectionError::Reset));
+        assert!(is_peer_gone(&ConnectionError::LocallyClosed));
+        assert!(is_peer_gone(&ConnectionError::ApplicationClosed(
+            quinn::ApplicationClose {
+                error_code: quinn::VarInt::from_u32(0),
+                reason: Default::default(),
+            }
+        )));
+    }
+
+    #[test]
+    fn other_errors_are_failures() {
+        assert!(!is_peer_gone(&ConnectionError::VersionMismatch));
+        assert!(!is_peer_gone(&ConnectionError::CidsExhausted));
+    }
 }

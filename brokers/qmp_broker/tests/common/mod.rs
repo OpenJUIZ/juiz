@@ -241,6 +241,16 @@ impl Drop for ServerProcess {
 }
 
 pub fn spawn_server(port: i64, http_port: i64, use_plugin: bool) -> ServerProcess {
+    spawn_server_with_log(port, http_port, use_plugin, None)
+}
+
+/// log を渡すと、サーバーのログ (RUST_LOG=info) をそのファイルに書く
+pub fn spawn_server_with_log(
+    port: i64,
+    http_port: i64,
+    use_plugin: bool,
+    log: Option<&std::path::Path>,
+) -> ServerProcess {
     let juiz = target_dir().join(format!("juiz{}", std::env::consts::EXE_SUFFIX));
     assert!(
         juiz.exists(),
@@ -256,14 +266,16 @@ pub fn spawn_server(port: i64, http_port: i64, use_plugin: bool) -> ServerProces
         server_manifest("qmp_broker_test_server", port, http_port, use_plugin).to_string(),
     )
     .unwrap();
-    let child = Command::new(juiz)
-        .arg("-f")
-        .arg(&conf)
-        .arg("-d")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("failed to start juiz server");
+    let mut command = Command::new(juiz);
+    command.arg("-f").arg(&conf).arg("-d").stdout(Stdio::null());
+    match log {
+        Some(path) => {
+            let file = std::fs::File::create(path).expect("failed to create server log");
+            command.env("RUST_LOG", "info").stderr(file)
+        }
+        None => command.stderr(Stdio::null()),
+    };
+    let child = command.spawn().expect("failed to start juiz server");
     ServerProcess(child)
 }
 
