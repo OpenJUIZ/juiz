@@ -8,6 +8,8 @@
 //! - 戻り値: プラグインが渡すヘッダを読み、本体ごとに最終的な領域を確保して、そこへ直接書かせる (§5.3)
 //! - エラー: 負のコードと文は `RustPluginCallError`、表の版が読めなければ `RustPluginAbiVersionError` (§6.3)
 //! - コンテナ: プラグインの中の `ContainerImpl<T>` を不透明なポインタ (handle) で持ち、型タグで照合する (§8)
+//! - Native: プラグインが返す Native はプラグインの中に置いたまま、ハンドルと表を [`RustCabiNative`] で持つ。
+//!   同じプラグイン (`native_abi_tag` が同じ) へはハンドルのまま渡し、ほかへは encode する (§10)
 
 use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -17,8 +19,8 @@ use juiz_sdk::anyhow::{self, anyhow};
 use juiz_sdk::cabi::{
     error_code_name, JuizBytes, JuizBytesSink, JuizFrameIn, JuizFrameOut, JuizRustCallFn,
     JuizRustContainerCallFn, JuizRustCreateFn, JuizRustDestroyFn, JuizRustEntry,
-    JuizRustManifestFn, CABI_SYMBOL_SUFFIX, JUIZ_RUST_HOST_REFUSED, KIND_COMPONENT,
-    KIND_CONTAINER, KIND_CONTAINER_PROCESS, KIND_PROCESS,
+    JuizRustManifestFn, JuizRustNative, JuizRustNativeVtable, CABI_SYMBOL_SUFFIX,
+    JUIZ_RUST_HOST_REFUSED, KIND_COMPONENT, KIND_CONTAINER, KIND_CONTAINER_PROCESS, KIND_PROCESS,
 };
 use juiz_sdk::frame::{FrameLimits, FrameReceiver, OutgoingFrame};
 use libloading::Library;
@@ -59,6 +61,8 @@ pub struct CabiEntry {
     create: Option<JuizRustCreateFn>,
     destroy: Option<JuizRustDestroyFn>,
     container_call: Option<JuizRustContainerCallFn>,
+    /// info の native_abi_tag (§3.3)。Native をハンドルのまま渡してよいかに使う (§10.3)
+    native_abi_tag: Option<Arc<str>>,
 }
 
 impl std::fmt::Debug for CabiEntry {
@@ -174,7 +178,7 @@ impl CabiEntry {
             }
             _ => {}
         }
-        let entry = CabiEntry {
+        let mut entry = CabiEntry {
             lib: lib.clone(),
             plugin: plugin.to_owned(),
             symbol: name,
@@ -184,8 +188,13 @@ impl CabiEntry {
             create: e.create,
             destroy: e.destroy,
             container_call: e.container_call,
+            native_abi_tag: None,
         };
         let info = entry.info_json()?;
+        entry.native_abi_tag = info
+            .get("native_abi_tag")
+            .and_then(|v| v.as_str())
+            .map(Arc::from);
         log::debug!(
             "Rust plugin ({plugin}) '{}' is loaded through the C ABI {abi_version} (build_info: {})",
             entry.symbol,
@@ -242,7 +251,10 @@ impl CabiEntry {
         func: &str,
         f: impl FnOnce(*const JuizFrameOut) -> i64,
     ) -> JuizResult<Capsule> {
-        let mut out = HostOut::default();
+        let mut out = HostOut {
+            native_origin: self.native_origin(),
+            ..Default::default()
+        };
         let frame_out = out.frame_out();
         let code = f(&frame_out);
         if code < 0 {
@@ -257,32 +269,312 @@ impl CabiEntry {
             });
             return Err(self.error(func, code, message));
         }
-        match out.receiver.take() {
-            None => Ok(Capsule::empty()),
-            Some(r) => r
-                .finish()
-                .and_then(|frame| frame.into_capsule())
-                .map_err(|e| self.error(func, code, Some(format!("the result can not be read ({e:#})")))),
-        }
+        out.finish()
+            .map_err(|e| self.error(func, code, Some(format!("the result can not be read ({e:#})"))))
+    }
+
+    /// このプラグインが返す Native に付ける出どころ (§10.2)。native_abi_tag が無ければ Native を受け取らない
+    fn native_origin(&self) -> Option<NativeOrigin> {
+        self.native_abi_tag.as_ref().map(|abi| NativeOrigin {
+            _lib: self.lib.clone(),
+            plugin: self.plugin.clone(),
+            abi: abi.clone(),
+        })
     }
 
     /// Process (kind 1) を呼ぶ
-    fn call_process(&self, args: &CapsuleMap) -> JuizResult<Capsule> {
+    fn call_process(&self, args: CapsuleMap) -> JuizResult<Capsule> {
         let call = self.call.ok_or_else(|| self.error("call", 0, Some("is null".to_owned())))?;
-        with_frame_in(args, |frame_in| {
+        with_frame_in(self.native_abi_tag.as_deref(), args, |frame_in| {
             self.call_with_out("call", |out| call(frame_in, out))
         })
         .map_err(|e| self.error("call", 0, Some(format!("the arguments can not be passed ({e:#})"))))?
     }
 }
 
+// ---- Native (§10) ----
+
+/// RustCabiNative の encode (表の encode) を呼んだ回数。試験で「境界で encode しなかった」ことを確かめる
+static NATIVE_ENCODES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// C ABI のプラグインの Native を encode した回数 (プロセス全体、試験用)
+#[doc(hidden)]
+pub fn rust_cabi_native_encode_count() -> u64 {
+    NATIVE_ENCODES.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// Native を作ったプラグイン
+#[derive(Clone)]
+struct NativeOrigin {
+    /// destroy を呼ぶまでプラグインを外さない
+    _lib: Arc<Library>,
+    plugin: String,
+    /// そのプラグインの native_abi_tag (§3.3)
+    abi: Arc<str>,
+}
+
+/// プラグインの中に置いたままの Native (§10.2)。ホストは中身を見ず、要るときに表の encode を呼ぶ。
+/// Drop で表の destroy を呼ぶ
+pub struct RustCabiNative {
+    handle: *mut c_void,
+    encode: extern "C" fn(handle: *const c_void, out: *const JuizFrameOut) -> i64,
+    destroy: extern "C" fn(handle: *mut c_void),
+    vtable: *const JuizRustNativeVtable,
+    /// 受け取った型タグの JSON (引数で渡すときにそのまま返す)
+    type_tag_json: Vec<u8>,
+    type_name: String,
+    tag: Option<NativeTypeTag>,
+    kind: NativeKind,
+    origin: NativeOrigin,
+}
+
+// SAFETY: handle はプラグインの中の NativeCell (Send + Sync) を指し、表の関数はどのスレッドから呼んでもよい
+unsafe impl Send for RustCabiNative {}
+unsafe impl Sync for RustCabiNative {}
+
+impl std::fmt::Debug for RustCabiNative {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("RustCabiNative({} from {})", self.type_name, self.origin.plugin))
+    }
+}
+
+impl RustCabiNative {
+    /// プラグインが渡したものを包む。表が読めなければエラーの文 (そのときは包まず、解放もしない)
+    fn new(native: &JuizRustNative, origin: NativeOrigin) -> Result<Self, String> {
+        if native.handle.is_null() || native.vtable.is_null() {
+            return Err("the native value has a null handle or table".to_owned());
+        }
+        // SAFETY: 表はプラグインの中の static で、プラグインを外すまで有効。版と大きさを先に読む
+        let vt = native.vtable;
+        let abi_version = unsafe { std::ptr::addr_of!((*vt).abi_version).read() };
+        if !SUPPORTED_ABI_VERSIONS.contains(&abi_version) {
+            return Err(format!("the native table uses Rust plugin ABI {abi_version}"));
+        }
+        let struct_size = unsafe { std::ptr::addr_of!((*vt).struct_size).read() } as usize;
+        if struct_size < std::mem::size_of::<JuizRustNativeVtable>() {
+            return Err(format!("the native table is too small ({struct_size} bytes)"));
+        }
+        let vt = unsafe { &*vt };
+        let (Some(encode), Some(destroy)) = (vt.encode, vt.destroy) else {
+            return Err("the native table has no 'encode' or 'destroy'".to_owned());
+        };
+        let kind = match native.kind {
+            0 => NativeKind::Value,
+            1 => NativeKind::Image,
+            k => return Err(format!("unknown native kind {k}")),
+        };
+        let type_tag_json = unsafe { native.type_tag.as_slice() }
+            .ok_or_else(|| "the type tag is null".to_owned())?
+            .to_vec();
+        let tag_value: Value = if type_tag_json.is_empty() {
+            jvalue!({})
+        } else {
+            serde_json::from_slice(&type_tag_json)
+                .map_err(|e| format!("the type tag is not JSON ({e})"))?
+        };
+        let field = |k: &str| tag_value.get(k).and_then(|v| v.as_str()).map(|s| s.to_owned());
+        let tag = match (field("name"), field("fingerprint"), field("abi")) {
+            (Some(name), Some(fingerprint), Some(abi)) => Some(NativeTypeTag {
+                name,
+                fingerprint,
+                abi,
+            }),
+            _ => None,
+        };
+        Ok(RustCabiNative {
+            handle: native.handle,
+            encode,
+            destroy,
+            vtable: native.vtable,
+            type_tag_json,
+            type_name: field("name").unwrap_or_else(|| "unknown".to_owned()),
+            tag,
+            kind,
+            origin,
+        })
+    }
+
+    /// 作ったプラグインの native_abi_tag (§10.3)
+    pub fn native_abi_tag(&self) -> &str {
+        &self.origin.abi
+    }
+
+    /// 引数として渡す形にする。owned なら持ち主を渡すので、自分は destroy を呼ばずに消える
+    fn to_arg(&self, owned: bool) -> JuizRustNative {
+        JuizRustNative {
+            handle: self.handle,
+            vtable: self.vtable,
+            type_tag: JuizBytes::from_slice(&self.type_tag_json),
+            kind: match self.kind {
+                NativeKind::Value => 0,
+                NativeKind::Image => 1,
+            },
+            owned: owned as u32,
+        }
+    }
+}
+
+impl Drop for RustCabiNative {
+    fn drop(&mut self) {
+        if !self.handle.is_null() {
+            (self.destroy)(self.handle);
+            self.handle = std::ptr::null_mut();
+        }
+    }
+}
+
+impl NativeValue for RustCabiNative {
+    fn language(&self) -> &str {
+        "rust"
+    }
+    fn kind(&self) -> NativeKind {
+        self.kind
+    }
+    fn type_name(&self) -> String {
+        self.type_name.clone()
+    }
+    fn encode(&self) -> JuizResult<EncodedValue> {
+        NATIVE_ENCODES.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        // encode の結果に Native は来ない (native の口を渡さない)
+        let mut out = HostOut::default();
+        let frame_out = out.frame_out();
+        let code = (self.encode)(self.handle, &frame_out);
+        let error = |message: Option<String>| {
+            call_error(&self.origin.plugin, "native", "encode", code, message)
+        };
+        if code < 0 {
+            let message = out.error.take().or_else(|| {
+                out.refused
+                    .take()
+                    .map(|m| format!("the host refused the result ({m})"))
+            });
+            return Err(error(message));
+        }
+        let c = out
+            .finish()
+            .map_err(|e| error(Some(format!("the result can not be read ({e:#})"))))?;
+        if c.is_image() {
+            if let Some(img) = c.try_to_image()? {
+                return Ok(EncodedValue::Image(img));
+            }
+        } else if let Some(v) = c.try_to_value()? {
+            return Ok(EncodedValue::Value(v));
+        }
+        Err(error(Some("encode wrote neither a value nor an image".to_owned())))
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    fn type_tag(&self) -> Option<&NativeTypeTag> {
+        self.tag.as_ref()
+    }
+    fn into_any(self: Box<Self>) -> Option<Box<dyn std::any::Any>> {
+        Some(self)
+    }
+}
+
+/// 引数の Native のうち、渡す先のプラグインが作ったものを探す (§10.3)
+fn is_native_of(capsule: &CapsulePtr, target_abi: &str) -> JuizResult<bool> {
+    if !capsule.is_native()? {
+        return Ok(false);
+    }
+    capsule.lock_as_native(|n| {
+        n.as_any()
+            .downcast_ref::<RustCabiNative>()
+            .is_some_and(|r| r.native_abi_tag() == target_abi)
+    })
+}
+
+/// ハンドルのまま渡す引数の Native。呼び出しの間生かしておく
+enum ArgNative {
+    /// 持ち主を渡す (owned = 1)。渡せずに終わったら Drop で destroy する
+    Owned(Box<RustCabiNative>),
+    /// ホストが持ち続ける (owned = 0)。NativeCell を複製して持ち、呼び出しの間ハンドルを有効に保つ
+    Shared(NativeCell),
+}
+
+impl ArgNative {
+    /// カプセルから取り出す。ほかに参照が無ければ移し、あれば共有する
+    fn take(capsule: CapsulePtr) -> JuizResult<ArgNative> {
+        let shared = |cell: NativeCell| -> JuizResult<ArgNative> { Ok(ArgNative::Shared(cell)) };
+        let cell = match capsule.try_into_capsule() {
+            Err(ptr) => {
+                let cell = ptr
+                    .native_cell()?
+                    .ok_or_else(|| anyhow!("the argument is no longer a native value"))?;
+                return shared(cell);
+            }
+            Ok(c) => c
+                .into_native_cell()
+                .map_err(|_| anyhow!("the argument is no longer a native value"))?,
+        };
+        match cell.try_into_value() {
+            Err(cell) => shared(cell),
+            Ok(boxed) => match boxed.into_any().map(|a| a.downcast::<RustCabiNative>()) {
+                Some(Ok(n)) => Ok(ArgNative::Owned(n)),
+                _ => Err(anyhow!("the argument is not a native value of a Rust plugin")),
+            },
+        }
+    }
+
+    fn native(&self) -> &RustCabiNative {
+        match self {
+            ArgNative::Owned(n) => n,
+            ArgNative::Shared(cell) => cell
+                .value()
+                .as_any()
+                .downcast_ref::<RustCabiNative>()
+                .expect("checked by is_native_of"),
+        }
+    }
+
+    fn to_arg(&self) -> JuizRustNative {
+        self.native().to_arg(matches!(self, ArgNative::Owned(_)))
+    }
+
+    /// 持ち主をプラグインに渡し終えた。destroy を呼ばずに消える
+    fn forget_handle(&mut self) {
+        if let ArgNative::Owned(n) = self {
+            n.handle = std::ptr::null_mut();
+        }
+    }
+}
+
 // ---- 引数のフレーム (§5.2) ----
 
-/// 引数のフレームを作って f に渡す。画像はカプセルをロックしたまま、その画素を直接指す
-fn with_frame_in<R>(map: &CapsuleMap, f: impl FnOnce(&JuizFrameIn) -> R) -> JuizResult<R> {
-    let frame = OutgoingFrame::call_request(map)?;
+/// 引数のフレームを作って f に渡す。画像はカプセルをロックしたまま、その画素を直接指す。
+/// 渡す先のプラグイン (native_abi_tag が target_abi) が作った Native はハンドルのまま渡し (§10.3)、
+/// ほかの Native は encode する
+fn with_frame_in<R>(
+    target_abi: Option<&str>,
+    mut map: CapsuleMap,
+    f: impl FnOnce(&JuizFrameIn) -> R,
+) -> JuizResult<R> {
+    let mut natives: Vec<(String, ArgNative)> = Vec::new();
+    if let Some(abi) = target_abi {
+        let keys = map
+            .iter()
+            .filter_map(|(k, c)| match is_native_of(c, abi) {
+                Ok(true) => Some(Ok(k.clone())),
+                Ok(false) => None,
+                Err(e) => Some(Err(e)),
+            })
+            .collect::<JuizResult<Vec<_>>>()?;
+        for k in keys {
+            let c = map.take(&k)?;
+            natives.push((k, ArgNative::take(c)?));
+        }
+    }
+    let mut frame = OutgoingFrame::call_request(&map)?;
+    if !natives.is_empty() {
+        let header_map = frame.header_mut().map.get_or_insert_with(Default::default);
+        for (i, (k, _)) in natives.iter().enumerate() {
+            header_map.insert(k.clone(), jvalue!({ "native": i }));
+        }
+    }
     let header = frame.header_bytes()?;
-    frame.with_body_slices(|bodies| {
+    let args: Vec<JuizRustNative> = natives.iter().map(|(_, n)| n.to_arg()).collect();
+    let r = frame.with_body_slices(|bodies| {
         let descs: Vec<JuizBytes> = bodies.iter().map(|b| JuizBytes::from_slice(b)).collect();
         let frame_in = JuizFrameIn {
             header: JuizBytes::from_slice(&header),
@@ -292,11 +584,23 @@ fn with_frame_in<R>(map: &CapsuleMap, f: impl FnOnce(&JuizFrameIn) -> R) -> Juiz
                 descs.as_ptr()
             },
             body_count: descs.len(),
-            natives: std::ptr::null(),
-            native_count: 0,
+            natives: if args.is_empty() {
+                std::ptr::null()
+            } else {
+                args.as_ptr()
+            },
+            native_count: args.len(),
         };
-        f(&frame_in)
-    })
+        let r = f(&frame_in);
+        // 入口を呼んだら、owned = 1 のものの持ち主はプラグイン (どの値を返しても、§10.3)
+        for (_, n) in natives.iter_mut() {
+            n.forget_handle();
+        }
+        r
+    });
+    // 呼べなかったとき、owned = 1 のものは natives の Drop で destroy される
+    drop(natives);
+    r
 }
 
 // ---- 戻り値の書き込み口 (§5.3) ----
@@ -304,9 +608,13 @@ fn with_frame_in<R>(map: &CapsuleMap, f: impl FnOnce(&JuizFrameIn) -> R) -> Juiz
 #[derive(Default)]
 struct HostOut {
     receiver: Option<FrameReceiver>,
+    /// プラグインが native で渡した Native (§10.2)
+    natives: Vec<Capsule>,
+    /// Native を受け取るときの出どころ。None なら native の口を渡さない (プラグインは encode して書く)
+    native_origin: Option<NativeOrigin>,
     /// プラグインが error で渡した文
     error: Option<String>,
-    /// ホストが begin / body を断った理由
+    /// ホストが begin / body / native を断った理由
     refused: Option<String>,
 }
 
@@ -317,8 +625,21 @@ impl HostOut {
             ctx: self as *mut HostOut as *mut c_void,
             begin: Some(out_begin),
             body: Some(out_body),
-            native: None,
+            native: self.native_origin.as_ref().map(|_| out_native as _),
             error: Some(out_error),
+        }
+    }
+
+    /// 書かれた戻り値を Capsule にする。begin が呼ばれていなければ Empty
+    fn finish(&mut self) -> JuizResult<Capsule> {
+        let natives = std::mem::take(&mut self.natives);
+        match self.receiver.take() {
+            None => Ok(Capsule::empty()),
+            Some(r) => {
+                let mut frame = r.finish()?;
+                frame.set_natives(natives);
+                frame.into_capsule()
+            }
         }
     }
 }
@@ -374,6 +695,40 @@ extern "C" fn out_body(ctx: *mut c_void, index: usize, ptr: *mut *mut u8, len: *
     })
 }
 
+extern "C" fn out_native(ctx: *mut c_void, index: usize, native: JuizRustNative) -> i64 {
+    no_unwind(-1, || {
+        // SAFETY: ctx は frame_out が渡した HostOut で、呼び出しの間有効
+        let out = unsafe { &mut *(ctx as *mut HostOut) };
+        if out.receiver.is_none() {
+            out.refused = Some("native() was called before begin()".to_owned());
+            return -1;
+        }
+        let Some(origin) = out.native_origin.clone() else {
+            out.refused = Some("native() is not offered".to_owned());
+            return -1;
+        };
+        // 番号は 0 から順に渡す
+        if index != out.natives.len() {
+            out.refused = Some(format!(
+                "native {index} was passed, but native {} is expected next",
+                out.natives.len()
+            ));
+            return -1;
+        }
+        match RustCabiNative::new(&native, origin) {
+            Ok(n) => {
+                out.natives.push(Capsule::from_native(n));
+                0
+            }
+            Err(m) => {
+                // 受け取らない。持ち主はプラグインのまま (プラグインが解放する)
+                out.refused = Some(m);
+                -1
+            }
+        }
+    })
+}
+
 extern "C" fn out_error(ctx: *mut c_void, message: JuizBytes) {
     no_unwind((), || {
         // SAFETY: ctx は frame_out が渡した HostOut で、呼び出しの間有効
@@ -411,7 +766,7 @@ pub fn process_factory(entry: CabiEntry) -> JuizResult<ProcessFactoryPtr> {
     let manifest: ProcessManifest = entry.manifest_as()?;
     let entry = Arc::new(entry);
     crate::processes::process_factory_create_from_trait(manifest, move |args: CapsuleMap| {
-        entry.call_process(&args)
+        entry.call_process(args)
     })
 }
 
@@ -461,7 +816,7 @@ pub fn container_factory(entry: CabiEntry) -> JuizResult<ContainerFactoryPtr> {
             .ok_or_else(|| entry.error("destroy", 0, Some("is null".to_owned())))?;
         let manifest_json = serde_json::to_vec(&cm)?;
         let mut handle: *mut c_void = std::ptr::null_mut();
-        let (code, message) = with_frame_in(&args, |frame_in| {
+        let (code, message) = with_frame_in(entry.native_abi_tag.as_deref(), args, |frame_in| {
             collect_bytes(|error| {
                 create(
                     JuizBytes::from_slice(&manifest_json),
@@ -521,7 +876,7 @@ pub fn container_process_factory(entry: CabiEntry) -> JuizResult<ContainerProces
             }));
         }
         let handle = c.t.handle;
-        with_frame_in(&args, |frame_in| {
+        with_frame_in(entry.native_abi_tag.as_deref(), args, |frame_in| {
             entry.call_with_out("container_call", |out| container_call(handle, frame_in, out))
         })
         .map_err(|e| {

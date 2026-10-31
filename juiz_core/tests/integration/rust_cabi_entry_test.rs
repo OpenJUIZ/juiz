@@ -162,11 +162,76 @@ fn component_entries_and_native_results() {
     assert_eq!(m["type_name"], "native_pose_component", "{m}");
     assert!(info_json(comp).get("native_abi_tag").is_none());
 
-    // Pose2D はネイティブ値で返るが、この Step では encode して辞書で届く (§5.3 の 5)
+    // native の口を渡さないホストには、Pose2D は encode して辞書で届く (§5.3)
     let make = plugin.entry("native_pose_make_factory");
     assert_eq!(make.kind, KIND_PROCESS);
     let (code, result) = call(make, map_of(&[("x", jvalue!(1.5))]));
     assert_eq!(code, JUIZ_OK, "{:?}", result.error());
     let v = result.into_capsule_ptr().unwrap().extract_value().unwrap();
     assert_eq!(v["position"]["x"], jvalue!(1.5), "{v}");
+}
+
+/// native の口を渡すと、Pose2D はプラグインの中に置いたままハンドルで返り、同じプラグインへハンドルのまま渡せる (§10)
+#[test]
+fn native_results_pass_as_handles_between_entries_of_one_plugin() {
+    crate::common::logger::init();
+    let plugin = Plugin::open("native_pose_component");
+    let make = plugin.entry("native_pose_make_factory");
+    let mv = plugin.entry("native_pose_move_factory");
+    let native_abi_tag = info_json(make)["native_abi_tag"].as_str().unwrap().to_owned();
+    assert_eq!(info_json(mv)["native_abi_tag"], jvalue!(native_abi_tag));
+
+    let (made, tag) = call_native(make, FrameArgs::new(&map_of(&[("x", jvalue!(1.5))])).unwrap());
+    assert_eq!(tag["name"], "robot.geometry.Pose2D", "{tag}");
+    assert_eq!(tag["abi"], jvalue!(native_abi_tag), "{tag}");
+    assert_eq!(made.kind, 0);
+
+    // owned = 1 で渡す: 持ち主はプラグインに移る (ホストは destroy しない)
+    let args = FrameArgs::with_natives(
+        &map_of(&[("dx", jvalue!(2.0))]),
+        vec![("pose", JuizRustNative { owned: 1, ..made })],
+    )
+    .unwrap();
+    let (moved, _) = call_native(mv, args);
+    let v = juiz_sdk::cabi::host::encode_native(&moved).unwrap().extract_value().unwrap();
+    assert_eq!(v["position"]["x"], jvalue!(3.5), "{v}");
+
+    // owned = 0 で渡す: ホストが持ち続け、呼び出しの後も使える
+    let args = FrameArgs::with_natives(
+        &map_of(&[("dx", jvalue!(1.0))]),
+        vec![("pose", JuizRustNative { owned: 0, ..moved })],
+    )
+    .unwrap();
+    let (moved2, _) = call_native(mv, args);
+    let v = juiz_sdk::cabi::host::encode_native(&moved).unwrap().extract_value().unwrap();
+    assert_eq!(v["position"]["x"], jvalue!(3.5), "{v}");
+    let v = juiz_sdk::cabi::host::encode_native(&moved2).unwrap().extract_value().unwrap();
+    assert_eq!(v["position"]["x"], jvalue!(4.5), "{v}");
+    juiz_sdk::cabi::host::destroy_native(&moved);
+    juiz_sdk::cabi::host::destroy_native(&moved2);
+
+    // 別のプラグインの表で作った Native は受け付けない
+    let (made, _) = call_native(make, FrameArgs::new(&map_of(&[("x", jvalue!(0.0))])).unwrap());
+    let other = Plugin::open("native_pose_reader");
+    let reader = other.entry("process_factory");
+    let args = FrameArgs::with_natives(&CapsuleMap::new(), vec![("pose", JuizRustNative { owned: 0, ..made })])
+        .unwrap();
+    let mut result = FrameResult::accepting_natives();
+    let out = result.frame_out();
+    let code = (reader.call.unwrap())(&args.frame_in(), &out);
+    assert_eq!(code, JUIZ_RUST_FRAME_ERROR);
+    assert!(result.error().unwrap().contains("not made by this plugin"), "{:?}", result.error());
+    juiz_sdk::cabi::host::destroy_native(&made);
+}
+
+/// Native を受け取る口で呼び、返った Native を 1 つとその型タグを返す
+fn call_native(entry: &JuizRustEntry, args: FrameArgs) -> (JuizRustNative, Value) {
+    let mut result = FrameResult::accepting_natives();
+    let out = result.frame_out();
+    let code = (entry.call.unwrap())(&args.frame_in(), &out);
+    assert_eq!(code, JUIZ_OK, "{:?}", result.error());
+    assert_eq!(result.header_json().unwrap()["result"], jvalue!({ "native": 0 }));
+    assert_eq!(result.natives().len(), 1);
+    let tag = serde_json::from_slice(&result.native_type_tags()[0]).unwrap();
+    (result.natives()[0], tag)
 }

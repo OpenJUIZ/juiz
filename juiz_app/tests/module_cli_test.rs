@@ -160,12 +160,8 @@ fn component_module_execute() {
         out.contains("ComponentManifest(\"native_pose_component\""),
         "{out}"
     );
-    // C ABI で読むので、Native は境界で encode されて値で返る (docs/spec/rust-plugin-abi.md §10、
-    // Native を運ぶのは Step 3 #331。そこで Native(rust:robot.geometry.Pose2D) に戻す)
-    assert!(
-        out.contains(r#"Value(Object {"position": Object {"x": Number(1.0), "y": Number(0.0)}, "theta": Number(0.0)})"#),
-        "{out}"
-    );
+    // C ABI で読んでも Native はプラグインの中に置いたまま返る (docs/spec/rust-plugin-abi.md §10)
+    assert!(out.contains("Native(rust:robot.geometry.Pose2D)"), "{out}");
 
     // Container を含むコンポーネント (C++)
     let out = juiz_with(

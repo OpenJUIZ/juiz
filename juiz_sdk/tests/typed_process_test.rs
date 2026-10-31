@@ -394,3 +394,44 @@ fn typed_all_gives_schemas_to_every_argument() -> JuizResult<()> {
     .is_err());
     Ok(())
 }
+
+/// C ABI の入口 (docs/spec/rust-plugin-abi.md §10) を通しても、Pose2D は Native のまま返り、
+/// 同じプラグインへハンドルのまま渡せる。owned = 1 なら移し (clone しない)、owned = 0 なら clone 1 回
+#[test]
+fn native_values_pass_through_c_abi_entries() -> JuizResult<()> {
+    use juiz_sdk::cabi::host::{destroy_native, encode_native, FrameArgs, FrameResult};
+    use juiz_sdk::cabi::{JuizRustNative, JUIZ_OK};
+
+    let entry = unsafe { &*move_pose_factory_cabi() };
+    let call = |args: FrameArgs| -> JuizRustNative {
+        let mut r = FrameResult::accepting_natives();
+        let out = r.frame_out();
+        assert_eq!((entry.call.unwrap())(&args.frame_in(), &out), JUIZ_OK, "{:?}", r.error());
+        assert_eq!(r.natives().len(), 1, "the result is passed as a handle");
+        let tag: Value = serde_json::from_slice(&r.native_type_tags()[0]).unwrap();
+        assert_eq!(tag["name"], "robot.geometry.Pose2D");
+        assert_eq!(tag["abi"], rust_abi_tag());
+        r.natives()[0]
+    };
+    let dx = |v: f64| args(vec![("dx", jvalue!(v).into())]);
+
+    // 辞書で渡した引数から、Native が返る
+    let mut first = dx(1.0);
+    first.insert("pose".to_owned(), pose_value(1.0, 0.0, 0.0).into());
+    let a = call(FrameArgs::new(&first)?);
+
+    // owned = 1: 移すので clone しない
+    let before = clones();
+    let b = call(FrameArgs::with_natives(&dx(1.0), vec![("pose", JuizRustNative { owned: 1, ..a })])?);
+    assert_eq!(clones(), before);
+    assert_eq!(encode_native(&b)?.extract_value()?, pose_value(3.0, 0.0, 0.0));
+
+    // owned = 0: ホストが持ち続けるので clone 1 回
+    let c = call(FrameArgs::with_natives(&dx(1.0), vec![("pose", JuizRustNative { owned: 0, ..b })])?);
+    assert_eq!(clones(), before + 1);
+    assert_eq!(encode_native(&b)?.extract_value()?, pose_value(3.0, 0.0, 0.0));
+    assert_eq!(encode_native(&c)?.extract_value()?, pose_value(4.0, 0.0, 0.0));
+    destroy_native(&b);
+    destroy_native(&c);
+    Ok(())
+}
