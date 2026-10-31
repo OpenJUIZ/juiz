@@ -59,7 +59,8 @@ cargo build
 step "違う rustc でビルドしたことにした Rust のプラグインを作る (target/fake-rustc)"
 fake_rustc="$repo_root/target/debug/fake_rustc"
 case "$(uname -s)" in
-    MINGW* | MSYS* | CYGWIN*) fake_rustc="$(cygpath -m "$fake_rustc").exe" ;;
+    # .exe は付けない (cargo が付ける)。パスは Windows の形にする
+    MINGW* | MSYS* | CYGWIN*) fake_rustc="$(cygpath -m "$fake_rustc")" ;;
 esac
 RUSTC="$fake_rustc" cargo build --target-dir target/fake-rustc \
     -p increment_process -p example_container -p example_container_increment
