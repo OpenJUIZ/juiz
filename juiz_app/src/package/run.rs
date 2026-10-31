@@ -31,7 +31,7 @@ pub(crate) struct RunOptions {
     pub package: String,
     pub entry: Option<String>,
     pub start_http_broker: bool,
-    /// `-q` / `--no-http`(issue #306)
+    /// `--no-http`(issue #306)
     pub stop_http_broker: bool,
     pub ipc: Option<String>,
     pub namespace: Option<String>,
@@ -178,16 +178,16 @@ fn start(prepared: &Prepared, conf: &Path, opts: &RunOptions, data: &Path) -> Re
 
 /// HTTP ブローカーを立てるかどうか(§7.1、issue #306)。None なら conf の `option.http_broker` に従う
 /// (書いていなければ立つ)。
-/// - `-b` は conf の `start: false` を上書きして立てる。`-q` と両方なら `-b`
-/// - `-q` は conf に書いていなくても、`start: true` でも立てない
-/// - http で基礎につなぐときは立てる。`-q` とは両立しないのでエラー
+/// - `--http` は conf の `start: false` を上書きして立てる。`--no-http` と両方なら `--http`
+/// - `--no-http` は conf に書いていなくても、`start: true` でも立てない
+/// - http で基礎につなぐときは立てる。`--no-http` とは両立しないのでエラー
 fn http_broker_flag(opts: &RunOptions, needs_http: bool) -> Result<Option<bool>> {
     if opts.start_http_broker {
         return Ok(Some(true));
     }
     if opts.stop_http_broker {
         if needs_http {
-            bail!("a dependency is connected over http, which needs the HTTP broker. Remove -q (--no-http) or connect it over ipc");
+            bail!("a dependency is connected over http, which needs the HTTP broker. Remove --no-http or connect it over ipc");
         }
         return Ok(Some(false));
     }
@@ -607,13 +607,13 @@ pub(crate) mod tests {
         // 指定なし: conf に従う。http でつなぐときは立てる
         assert_eq!(http_broker_flag(&o(false, false), false).unwrap(), None);
         assert_eq!(http_broker_flag(&o(false, false), true).unwrap(), Some(true));
-        // -b: 立てる
+        // --http: 立てる
         assert_eq!(http_broker_flag(&o(true, false), false).unwrap(), Some(true));
-        // -q: 立てない。-b と両方なら -b
+        // --no-http: 立てない。--http と両方なら --http
         assert_eq!(http_broker_flag(&o(false, true), false).unwrap(), Some(false));
         assert_eq!(http_broker_flag(&o(true, true), false).unwrap(), Some(true));
         assert_eq!(http_broker_flag(&o(true, true), true).unwrap(), Some(true));
-        // -q と http での接続は両立しない
+        // --no-http と http での接続は両立しない
         let e = http_broker_flag(&o(false, true), true).unwrap_err().to_string();
         assert!(e.contains("--no-http"), "{e}");
     }

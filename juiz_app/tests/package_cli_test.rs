@@ -379,7 +379,7 @@ fn install_base_and_connect_app() {
         let plain = dir.join("plain.conf");
         std::fs::write(&plain, format!("name: plain\n{quiet}")).unwrap();
         let mut d = Daemon::spawn(
-            &["-d", "-q", "--ipc", &base, "-f", path_str(&plain)],
+            &["-d", "--no-http", "--ipc", &base, "-f", path_str(&plain)],
             dir.join("plain.log"),
         );
         let p = wait_profile(&base, |_| true);
@@ -439,7 +439,7 @@ fn install_base_and_connect_app() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// juiz run の HTTP ブローカー: 既定は立てる、-q で立てない、conf の start: false は -b で上書き (issue #306、§7.1)
+/// juiz run の HTTP ブローカー: 既定は立てる、--no-http で立てない、conf の start: false は --http で上書き (issue #306、§7.1)
 #[test]
 fn run_http_broker_flags() {
     let dir = temp_dir("package_http_flags");
@@ -483,21 +483,16 @@ fn run_http_broker_flags() {
     assert!(open());
     d.stop();
 
-    // -q: 立たない(--no-http も同じ。run の前に書いてもよい)
-    for (args, log) in [
-        (vec![path_str(&default_pkg), "-q"], "q.log"),
-        (vec![path_str(&default_pkg), "--no-http"], "no_http.log"),
-    ] {
-        let mut d = spawn(&args, log);
-        assert_closed(&d);
-        d.stop();
-    }
+    // --no-http: 立たない(run の前に書いてもよい)
+    let mut d = spawn(&[path_str(&default_pkg), "--no-http"], "no_http.log");
+    assert_closed(&d);
+    d.stop();
     let mut cmd = juiz();
     cmd.current_dir(&dir)
         .env("JUIZ_CACHE_DIR", &cache)
         .env("RUST_LOG", "info")
-        .args(["-q", "run", path_str(&default_pkg)]);
-    let mut d = Daemon::spawn_command(cmd, dir.join("q_before.log"));
+        .args(["--no-http", "run", path_str(&default_pkg)]);
+    let mut d = Daemon::spawn_command(cmd, dir.join("no_http_before.log"));
     assert_closed(&d);
     d.stop();
 
@@ -506,10 +501,10 @@ fn run_http_broker_flags() {
     assert_closed(&d);
     d.stop();
 
-    // conf で start: false でも -b なら立つ。-q と両方なら -b
+    // conf で start: false でも --http なら立つ。--no-http と両方なら --http
     for (args, log) in [
-        (vec![path_str(&off_pkg), "-b"], "off_b.log"),
-        (vec![path_str(&off_pkg), "-b", "-q"], "off_b_q.log"),
+        (vec![path_str(&off_pkg), "--http"], "off_http.log"),
+        (vec![path_str(&off_pkg), "--http", "--no-http"], "off_http_no_http.log"),
     ] {
         let mut d = spawn(&args, log);
         d.wait_log(&bound);
@@ -517,7 +512,7 @@ fn run_http_broker_flags() {
         d.stop();
     }
 
-    // -q と http での依存の接続は両立しないので、つなぐ前にエラーにする
+    // --no-http と http での依存の接続は両立しないので、つなぐ前にエラーにする
     let app_pkg = pack_conf_only(
         &dir,
         "http_dep_app",
@@ -528,7 +523,7 @@ fn run_http_broker_flags() {
         .current_dir(&dir)
         .env("JUIZ_CACHE_DIR", &cache)
         .env("JUIZ_DATA_DIR", dir.join("data"))
-        .args(["run", path_str(&app_pkg), "-q", "--depend", "some_base=http://127.0.0.1:1"])
+        .args(["run", path_str(&app_pkg), "--no-http", "--depend", "some_base=http://127.0.0.1:1"])
         .output()
         .unwrap();
     assert!(!o.status.success(), "{o:?}");

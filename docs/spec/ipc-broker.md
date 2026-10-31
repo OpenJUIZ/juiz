@@ -78,7 +78,7 @@ brokers:
 
 ### 4.2 CLI
 
-- サーバー: `juiz -d --ipc <name>` で IPC ブローカーを起動する。http ブローカーは今の `-d` の規則のまま(`-q` で止める)。
+- サーバー: `juiz -d --ipc <name>` で IPC ブローカーを起動する。http ブローカーは今の `-d` の規則のまま(`--no-http` で止める)。
 - クライアント: `juiz -s ipc://<name> process list` のように、`-s` に ID を渡す。
 
 ## 5. 接続

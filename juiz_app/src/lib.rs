@@ -70,14 +70,13 @@ struct Args {
     ratio: Option<f64>,
 
     #[arg(
-        short = 'q',
         long = "no-http",
         default_value = "false",
-        help = "Do not start HTTP Broker. Used with -d or run. If you use this with -b option, http server will start."
+        help = "Do not start HTTP Broker. Used with -d or run. If you use this with --http option, http server will start."
     )]
     stop_http_broker: bool,
 
-    #[arg(short = 'b', help = "Start HTTP Broker. Default(false)")]
+    #[arg(long = "http", help = "Start HTTP Broker. Default(false)")]
     start_http_broker: bool,
 
     #[arg(
@@ -261,13 +260,12 @@ enum SubCommands {
         #[arg(long = "entry")]
         entry: Option<String>,
 
-        #[arg(short = 'b', help = "Start HTTP Broker even if option.http_broker.start is false in the conf.")]
+        #[arg(long = "http", help = "Start HTTP Broker even if option.http_broker.start is false in the conf.")]
         start_http_broker: bool,
 
         #[arg(
-            short = 'q',
             long = "no-http",
-            help = "Do not start HTTP Broker even if the conf has no option.http_broker or says start: true. -b wins."
+            help = "Do not start HTTP Broker even if the conf has no option.http_broker or says start: true. --http wins."
         )]
         stop_http_broker: bool,
 
@@ -812,7 +810,7 @@ fn run(args: Args) -> JuizResult<()> {
         obj.remove("package");
     }
     let manifest = add_ipc_broker(manifest, args.ipc.as_deref())?;
-    // -d は HTTP ブローカーを立てる。-q で立てない。-b はどちらでも立てる (issue #306)
+    // -d は HTTP ブローカーを立てる。--no-http で立てない。--http はどちらでも立てる (issue #306)
     let flag_start = args.start_http_broker || (args.daemonize && !args.stop_http_broker);
     let manifest_filepath = PathBuf::from(args.filepath.as_str().to_string());
     let working_dir = manifest_filepath.parent().unwrap();
