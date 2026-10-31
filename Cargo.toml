@@ -130,6 +130,7 @@ members = [
     "juiz_sdk/test_packages/rust_abi_only_proc",
     "juiz_sdk/test_packages/panic_proc",
     "juiz_sdk/test_packages/cabi_image_proc",
+    "juiz_sdk/test_packages/image_echo_proc",
     "juiz_sdk/test_packages/fake_rustc",
 ]
 default-members = [
@@ -183,6 +184,7 @@ default-members = [
     "juiz_sdk/test_packages/rust_abi_only_proc",
     "juiz_sdk/test_packages/panic_proc",
     "juiz_sdk/test_packages/cabi_image_proc",
+    "juiz_sdk/test_packages/image_echo_proc",
     "juiz_sdk/test_packages/fake_rustc",
 ]
 

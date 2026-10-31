@@ -623,6 +623,12 @@ fn build_info_in(bytes: &[u8], path: &Path) -> Result<BuildInfo> {
             continue;
         }
         let info = BuildInfo::parse(s);
+        // 書式の断片 ("juiz_sdk=" と ";rustc=" が並んだだけの文字列など) はビルド情報ではない (#333)
+        let sdk_is_version = info.juiz_sdk.as_deref().is_some_and(|v| semver::Version::parse(v).is_ok());
+        let rustc_is_version = info.rustc.as_deref().is_some_and(|v| v.starts_with("rustc "));
+        if !sdk_is_version || !rustc_is_version {
+            continue;
+        }
         match &found {
             None => found = Some(info),
             Some(f) if *f != info => bail!(
@@ -799,8 +805,17 @@ mod tests {
         assert_eq!(info.juiz_sdk.as_deref(), Some("0.0.28"));
         assert_eq!(info.rustc.as_deref(), Some("rustc 1.91.0 (x)"));
 
-        std::fs::write(&p, b"juiz_sdk=1;rustc=a\0juiz_sdk=2;rustc=a\0").unwrap();
+        std::fs::write(&p, b"juiz_sdk=0.0.1;rustc=rustc a\0juiz_sdk=0.0.2;rustc=rustc a\0").unwrap();
         assert!(read_build_info(&p).is_err());
+        // 書式の断片 (format! の "juiz_sdk=" と ";rustc=" が並んだもの) は読み飛ばす (#333)
+        std::fs::write(
+            &p,
+            b"juiz_sdk=;rustc=native_abi_tagcontainer_tag\0juiz_sdk=0.0.30;rustc=rustc 1.88.0 (x)\0",
+        )
+        .unwrap();
+        let info = read_build_info(&p).unwrap();
+        assert_eq!(info.juiz_sdk.as_deref(), Some("0.0.30"));
+        assert_eq!(info.rustc.as_deref(), Some("rustc 1.88.0 (x)"));
         std::fs::write(&p, b"nothing").unwrap();
         assert!(read_build_info(&p).is_err());
         let _ = std::fs::remove_dir_all(&dir);

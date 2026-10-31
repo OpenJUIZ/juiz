@@ -642,10 +642,9 @@ pub fn container_tag<T: 'static>() -> String {
 /// info の JSON (§3.3)
 fn info_json(kind: u32, container_tag: Option<String>) -> serde_json::Value {
     let mut info = serde_json::Map::new();
-    let build = crate::build_info::BuildInfo::current();
     info.insert(
         "build_info".to_owned(),
-        format!("juiz_sdk={};rustc={}", build.juiz_sdk_str(), build.rustc_str()).into(),
+        crate::build_info::build_info_str().into(),
     );
     if kind != KIND_COMPONENT {
         info.insert(

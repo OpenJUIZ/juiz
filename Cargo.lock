@@ -1361,6 +1361,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "image_echo_proc"
+version = "0.1.0"
+dependencies = [
+ "juiz_sdk",
+]
+
+[[package]]
 name = "img_arg_proc"
 version = "0.1.0"
 dependencies = [

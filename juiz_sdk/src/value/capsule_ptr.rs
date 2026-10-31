@@ -188,10 +188,13 @@ impl CapsulePtr {
         match Arc::try_unwrap(self.value) {
             Ok(v) => {
                 let c = v.into_inner().unwrap_or_else(|e| e.into_inner());
-                let desc = format!("{:?}", c);
+                // エラーの文はここで作らない (画像の Debug 表示は画素を全部書くので、720p で数十 ms かかる。#333)
+                if !c.is_image() {
+                    return Err(not_image(&c));
+                }
                 c.try_to_image()?.ok_or_else(|| {
                     anyhow!(JuizError::ValueTypeError {
-                        message: format!("value must be image, but {desc}")
+                        message: "value must be image, but the native value is not encoded to an image".to_owned()
                     })
                 })
             }
@@ -583,3 +586,19 @@ impl TryInto<DynamicImage> for CapsulePtr {
 }
 /// Process::callが返すレスポンスを表す型。実体はCapsulePtrです。
 pub type ResponsePtr = CapsulePtr;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use image::{DynamicImage, RgbImage};
+
+    #[test]
+    fn extract_image_takes_the_image_and_rejects_other_values() {
+        let img = DynamicImage::ImageRgb8(RgbImage::from_pixel(4, 3, image::Rgb([1, 2, 3])));
+        let c: CapsulePtr = Capsule::from(img.clone()).into();
+        assert_eq!(c.extract_image().unwrap(), img);
+        let v: CapsulePtr = Capsule::from(serde_json::json!(1)).into();
+        let e = v.extract_image().unwrap_err();
+        assert!(format!("{e:#}").contains("value must be image"), "{e:#}");
+    }
+}
