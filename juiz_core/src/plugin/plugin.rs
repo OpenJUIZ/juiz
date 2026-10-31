@@ -7,7 +7,11 @@ use crate::{
     prelude::ProcessFactoryPtr,
 };
 
-use super::{cpp::CppPlugin, python::PythonPlugin, rust::RustPlugin};
+use super::{
+    cpp::CppPlugin,
+    python::PythonPlugin,
+    rust::{RustPlugin, RustPluginAbi},
+};
 
 #[derive(Clone, Debug)]
 pub enum JuizObjectPlugin {
@@ -86,8 +90,9 @@ impl JuizObjectPlugin {
     ) -> JuizResult<JuizObjectPlugin> {
         log::trace!("【呼出】JuizObjectPlugin::new({language}, {name}, {v}, {manifest_entry_point}, {option}");
         match language {
-            "rust" => Ok(JuizObjectPlugin::Rust(Rc::new(RustPlugin::load(
+            "rust" => Ok(JuizObjectPlugin::Rust(Rc::new(RustPlugin::load_with_abi(
                 plugin_path(name, v, working_dir)?,
+                RustPluginAbi::from_conf(v)?,
             )?))),
             "python" => {
                 let pythonpaths = match obj_get_array(option, "pythonpath") {

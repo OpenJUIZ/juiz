@@ -201,6 +201,8 @@ large-data.md §3.2 のヘッダの形をそのまま使う。違いは次だけ
 2. ホストは呼び出しのあいだ、引数のカプセルを読みのロックで持ち続ける(本体のポインタを有効に保つため)。
 3. プラグインのグルーはヘッダを読み、本体を自分の `DynamicImage` / `Vec` に複製して `CapsuleMap` を作る。**画像のコピーはここで 1 回。**
 
+ホストの実装(Step 2)は juiz_sdk の `OutgoingFrame::with_body_slices` を使う。画像の本体はカプセルをロックしたまま、その画素を直接指すバイト列で渡し、ロックは入口から戻るまで持つ。同じカプセルが 2 つの引数に出てくるときは、最初のロックを使い回す(同じ `Mutex` を 2 度ロックして止まらないため)。
+
 ### 5.3 戻り値(プラグイン → ホスト)
 
 1. 利用者の関数が `Capsule` を返したら、グルーはヘッダを作り、`out->begin(ctx, header)` を呼ぶ。
@@ -210,6 +212,8 @@ large-data.md §3.2 のヘッダの形をそのまま使う。違いは次だけ
 5. プラグインの戻り値の Native は、Step 2 までは encode してから書く(large-data.md §3.3 と同じ)。Step 3 からは §10。
 
 ホストが負の値を返したら、グルーは書くのをやめて `JUIZ_RUST_HOST_REFUSED`(§6.1)を返す(`error` は呼ばない)。
+
+ホストの実装(Step 2)は juiz_sdk の `FrameReceiver` を使う。`begin` でヘッダを読み、上限・`shm`・余白のある `stride` を確かめてから、画素の型ごとの最終的な `Vec<u8>` / `Vec<u16>` / `Vec<f32>`(数の配列は `Vec<i64>` / `Vec<f64>`)を確保し、`body` でその領域を渡す。書き終わったら複製せずに `DynamicImage` / `Value` にする。`JUIZ_RUST_HOST_REFUSED` のときは、ホストが断った理由を `RustPluginCallError` の文に入れる。
 
 ### 5.4 manifest
 
@@ -327,6 +331,7 @@ int64_t (*container_call)(void* handle, const juiz_frame_in* args, const juiz_fr
 - **別のプラグイン**(examples の `example_container` と `example_container_increment` のように、別々のクレート)にあるときは、2 つが同じ rustc と同じ juiz_sdk の版でビルドされ、`ContainerImpl<T>` の名前と大きさが同じときだけ呼べる。同じパッケージの中なら、作った人が同じ rustc でビルドするので問題にならない。
 - 型タグは依存クレートの版(`T` が持つ serde_json などの型の配置)までは見ない。2 つのクレートを同じワークスペース(同じ `Cargo.lock`)でビルドすることを勧める(サイトとサンプルに書く、Step 5)。
 - コンテナが C ABI で、コンテナプロセスが Rust ABI(またはその逆)のときは、ホスト側の入れ物の型が合わないので `ContainerDowncastingError` になる。エラーの文で、両方を同じ juiz_sdk でビルドし直すよう案内する。
+- コンテナスタック(§12)のコンテナプロセスが親コンテナの中身を `ContainerImpl<T>` として読む(examples の `example_container_stack_get`)ときは、親を C ABI で読むとホストからは中身が見えない。そのときは親とそのコンテナプロセスを conf の `abi: rust`(§11)で読む。
 
 ## 9. ABI の版
 
@@ -395,6 +400,10 @@ typedef struct juiz_rust_native {
 
 - ホストは各ファクトリについて、まず `<symbol>_cabi` を探す。あれば C ABI で読み、`BuildInfo` の検査(`check_build_info`)はしない。
 - 無ければ今の Rust ABI の `<symbol>` を、今の `BuildInfo` の検査付きで読む(古いプラグイン)。読み込めたら info で `loaded <path> through the Rust ABI. Rebuild it with juiz_sdk <ホストの版> or later to load it through the C ABI.` を一度出す。
+- conf のプラグインの項目に `abi: rust` を書くと、`_cabi` の入口があっても今の Rust ABI で読む(`BuildInfo` の検査も今のまま)。`abi: c`(または書かない)は上の既定の振る舞い、それ以外の値は `InvalidSettingError`。移行期間の逃げ道で、次の 2 つに使う(Step 2 で追加)。
+  - Native をハンドルのまま運ぶ L2 の性質(lazy-evaluation.md §9)が要るとき。C ABI で Native を運ぶのは Step 3(§10)で、それまでは C ABI で読むと Native は境界で encode される。`rust_native_test` は Step 3 まで `abi: rust` で読む
+  - コンテナスタックの親コンテナ(§8.3)
+- `abi` は、そのプラグインの項目(`process_factories` / `container_factories` とその `processes` / `components` の各項目)ごとに書く。コンテナとそのコンテナプロセスは同じ `abi` にしなければならない(§8.3)
 - juiz_macro は移行期間のあいだ両方の入口を生成する(§3.1)。新しい juiz_sdk でビルドしたプラグインは、古い juiz(同じ rustc)でも新しい juiz(違う rustc でも)でも読める。
 - Rust ABI の読み込みと、マクロの Rust ABI の入口の生成をいつやめるかは後で決める(別 issue)。やめるときは ABI の版は上げない(C ABI 側は変わらないため)。
 - EC・ブローカーのプラグインは移行の対象ではない(§12)。今の読み込みと、`BuildInfo` が無いときに警告だけで読む振る舞いも変えない。
@@ -428,7 +437,7 @@ EC・ブローカーのプラグインは今の `BuildInfo` の検査を続け�
 |---|---|---|
 | 0 仕様書 | #328 | 全体、app-package.md §4.1・§4.3・§6.3・§9・§12・§12.1 |
 | 1 SDK のグルーとマクロ | #329 | §3〜§5・§6.1・§6.2・§7・§8.1・§8.2・§9.2・§9.3。フレームを juiz_sdk に移す。グルーの単体テスト(フレームの往復、panic がコードになる、manifest の panic) |
-| 2 ホストの読み込み | #330 | §3.2・§6.3・§8・§9.2・§11。`_cabi` の検出、Rust ABI へのフォールバック、コンテナの型タグの照合、エラー。`-V` だけ偽の版を返す rustc でビルドしたプラグインが読めて呼べることを確かめるテスト |
+| 2 ホストの読み込み | #330 | §3.2・§6.3・§8・§9.2・§11。`_cabi` の検出、Rust ABI へのフォールバック、コンテナの型タグの照合、エラー。`-V` だけ偽の版を返す rustc でビルドしたプラグインが読めて呼べることを確かめるテスト。実装は juiz_core の `plugin/rust/cabi_host.rs`。偽の rustc は `juiz_sdk/test_packages/fake_rustc`、`scripts/test.sh` が `target/fake-rustc` にプラグインを作り、統合テスト `rust_cabi_load_test` が読む。conf の `abi: rust`(§11)を追加 |
 | 3 Native | #331 | §10。`rust_native_test` を C ABI で通す |
 | 4 .juizapp | #332 | app-package.md §4.1・§4.3・§6.3・§9・§12.1 |
 | 5 ベンチ・サンプル・サイト・リリース | #333 | 呼び出しのオーバーヘッドと 720p・4K 画像の数字(large-data.md §1.1 の「同じプロセス内の call」と比べる)、examples_rust、サイトの文 |

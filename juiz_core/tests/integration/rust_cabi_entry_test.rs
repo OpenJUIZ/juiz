@@ -1,8 +1,8 @@
 //! juiz_macro が生成する Rust プラグインの C ABI の入口 `<symbol>_cabi` を、ビルドしたプラグインから
 //! 直接呼んで確かめるテスト (docs/spec/rust-plugin-abi.md、issue #329)
 //!
-//! juiz_core の読み込み (Step 2、#330) はまだ C ABI を使わないので、ここでは libloading で開いて
-//! 入口の表を読み、juiz_sdk::cabi::host の道具でフレームを渡す。
+//! ここでは juiz_core の読み込みを通さず、libloading で開いて入口の表を読み、juiz_sdk::cabi::host の道具で
+//! フレームを渡す。juiz_core の読み込み (#330) を通したテストは rust_cabi_load_test にある。
 //! プラグインはワークスペースの cargo build で ../target/debug にできている前提 (scripts/test.sh)。
 
 use std::ffi::{c_void, CStr};

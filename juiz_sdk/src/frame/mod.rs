@@ -21,6 +21,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::prelude::*;
 
+mod parts;
+pub use parts::FrameReceiver;
+
 /// フレームの先頭の 4 バイト。形式とその版を表す
 pub const MAGIC: [u8; 4] = *b"JZF1";
 
@@ -947,6 +950,31 @@ pub fn read_frame<R: Read>(r: &mut R, limits: &FrameLimits) -> Result<IncomingFr
     Ok(IncomingFrame { header, bodies })
 }
 
+/// メモリ上で受け渡す本体の説明を確かめ、本体の長さを返す (Rust プラグインの C ABI、§5.1)。
+/// 共有メモリ (shm) の本体と、行の終わりに余白のある画像 (stride) はエラー
+fn check_part_desc(i: usize, desc: &BodyDesc) -> JuizResult<u64> {
+    if desc.shm().is_some() {
+        return Err(anyhow!("body {i}: a body in shared memory can not be used here"));
+    }
+    if let BodyDesc::Image {
+        width,
+        format,
+        stride,
+        ..
+    } = desc
+    {
+        let row = bytes_per_pixel(format)
+            .map(|bpp| *width as u64 * bpp)
+            .ok_or_else(|| anyhow!("body {i}: unknown image format '{format}'"))?;
+        if *stride != row {
+            return Err(anyhow!(
+                "body {i}: stride ({stride}) must be width x bytes per pixel ({row}) without padding"
+            ));
+        }
+    }
+    expected_body_len(desc).map_err(|m| anyhow!("body {i}: {m}"))
+}
+
 /// メモリ上のヘッダ (先頭の "JZF1" と長さの無い JSON) と本体からフレームを読む
 /// (Rust プラグインの C ABI、docs/spec/rust-plugin-abi.md §5.1)。
 ///
@@ -976,26 +1004,7 @@ pub fn read_frame_parts(
     let mut total = header.bodies.len() as u64;
     let mut incoming = Vec::with_capacity(bodies.len());
     for (i, (desc, bytes)) in header.bodies.iter().zip(bodies.iter()).enumerate() {
-        if desc.shm().is_some() {
-            return Err(anyhow!("body {i}: a body in shared memory can not be used here"));
-        }
-        if let BodyDesc::Image {
-            width,
-            format,
-            stride,
-            ..
-        } = desc
-        {
-            let row = bytes_per_pixel(format)
-                .map(|bpp| *width as u64 * bpp)
-                .ok_or_else(|| anyhow!("body {i}: unknown image format '{format}'"))?;
-            if *stride != row {
-                return Err(anyhow!(
-                    "body {i}: stride ({stride}) must be width x bytes per pixel ({row}) without padding"
-                ));
-            }
-        }
-        let expected = expected_body_len(desc).map_err(|m| anyhow!("body {i}: {m}"))?;
+        let expected = check_part_desc(i, desc)?;
         if expected != bytes.len() as u64 {
             return Err(anyhow!(
                 "body {i}: length {} does not match its description ({expected} bytes)",
@@ -1106,7 +1115,12 @@ impl IncomingFrame {
     }
 
     /// 応答のフレームをカプセルにする。エラー応答は BrokerProxyRemoteError にする
-    pub fn into_capsule_ptr(mut self) -> JuizResult<CapsulePtr> {
+    pub fn into_capsule_ptr(self) -> JuizResult<CapsulePtr> {
+        self.into_capsule().map(Into::into)
+    }
+
+    /// 応答のフレームを Capsule にする (into_capsule_ptr と同じ。CapsulePtr に包まない)
+    pub fn into_capsule(mut self) -> JuizResult<Capsule> {
         match self.header.kind {
             FrameKind::Response => {
                 let repr = self
@@ -1120,7 +1134,7 @@ impl IncomingFrame {
                         c.set_option(k, v);
                     }
                 }
-                Ok(c.into())
+                Ok(c)
             }
             FrameKind::Error => {
                 let e = self.header.error.take().unwrap_or_default();

@@ -340,6 +340,23 @@ pub enum JuizError {
     /// 型の登録所にない、または完全名だけでは決まらない (issue #193)
     #[error("Type({identifier}) is not found: {message}")]
     TypeNotFoundError { identifier: String, message: String },
+    /// C ABI の Rust プラグインの入口が失敗した (docs/spec/rust-plugin-abi.md §6.3)。
+    /// `symbol` は `<symbol>_cabi.<関数名>`、`message` はプラグインが渡した文 (panic なら `panicked: …`)
+    #[error("Rust plugin ({plugin}) failed in '{symbol}': {message}")]
+    RustPluginCallError {
+        plugin: String,
+        symbol: String,
+        message: String,
+    },
+    /// C ABI の Rust プラグインの入口の表の ABI の版を、この juiz が読めない (§6.3・§9.2)
+    #[error("Rust plugin ({plugin}) uses Rust plugin ABI {plugin_abi} in '{symbol}', but this juiz supports ABI {host_abi}. {hint}")]
+    RustPluginAbiVersionError {
+        plugin: String,
+        symbol: String,
+        plugin_abi: u32,
+        host_abi: String,
+        hint: String,
+    },
 }
 
 impl<T> From<PoisonError<T>> for JuizError {

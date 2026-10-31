@@ -127,6 +127,10 @@ members = [
     "juiz_sdk/test_packages/img_arg_proc",
     "juiz_sdk/test_packages/native_pose_component",
     "juiz_sdk/test_packages/native_pose_reader",
+    "juiz_sdk/test_packages/rust_abi_only_proc",
+    "juiz_sdk/test_packages/panic_proc",
+    "juiz_sdk/test_packages/cabi_image_proc",
+    "juiz_sdk/test_packages/fake_rustc",
 ]
 default-members = [
     ".",
@@ -176,6 +180,10 @@ default-members = [
     # "juiz_sdk/test_packages/img_arg_proc",
     "juiz_sdk/test_packages/native_pose_component",
     "juiz_sdk/test_packages/native_pose_reader",
+    "juiz_sdk/test_packages/rust_abi_only_proc",
+    "juiz_sdk/test_packages/panic_proc",
+    "juiz_sdk/test_packages/cabi_image_proc",
+    "juiz_sdk/test_packages/fake_rustc",
 ]
 
 
