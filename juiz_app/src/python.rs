@@ -16,8 +16,10 @@ use juiz_core::log;
 /// - Ctrl+C(SIGINT)は Rust 側で受ける。Python は起動時に SIGINT のハンドラを入れていて、
 ///   これは Python のコードが動くまで KeyboardInterrupt を起こさないため、そのままだと
 ///   juiz が止まらない。そこで実行中だけ SIGINT を既定の動作(プロセス終了)に戻し、
-///   ネイティブの `juiz` と同じく、待機中は `System::wait_for_singal` が受けて片付けてから終わり、
+///   ネイティブの `juiz` と同じく、待機中は `System::wait_for_signal` が受けて片付けてから終わり、
 ///   それ以外のときはそのまま終了するようにする。終わったら元のハンドラに戻す。
+/// - Windows の Ctrl+Break(SIGBREAK)は Python がハンドラを入れないので、何もしなくても
+///   ネイティブの `juiz` と同じく `System::wait_for_signal` が受ける (issue #307)。
 pub fn main_with_args<I, T>(py: Python<'_>, args: I) -> i32
 where
     I: IntoIterator<Item = T> + Send,
