@@ -12,7 +12,7 @@ endif ()
 
 set(JUIZ_HEADER_DIR bindings/cppjuiz/include)
 set(PROJECT_HOME ${PROJECT_SOURCE_DIR}/../../..)
-include_directories(${PROJECT_HOME}/${JUIZ_HEADER_DIR})
+include_directories(${PROJECT_HOME}/${JUIZ_HEADER_DIR} ${PROJECT_HOME}/bindings/cjuiz/include)
 link_directories(${PROJECT_HOME}/target/debug)
 
 include(../juiz.mk)

@@ -15,7 +15,7 @@
 #     bin/juiz_sdk.dll, lib/juiz_sdk.dll.lib    Windows は .so と .pc の代わりに DLL とインポートライブラリ(issue #273)
 #     lib/cmake/juiz_sdk/juiz_sdkConfig.cmake   CMake の find_package(juiz_sdk) 用(issue #162)
 #     cjuiz/include/juiz_sdk.h          C のヘッダ(Haskell の hsjuiz などが使う)
-#     cppjuiz/include/juiz/*.h          C++ のヘッダ(cjuiz のヘッダを相対パスで include するので、この配置のまま使う)
+#     cppjuiz/include/juiz/*.h          C++ のヘッダ(#include "juiz_sdk.h" で C のヘッダを読むので、cjuiz/include もインクルードパスに入れる)
 #     cppjuiz/cmake/juiz_idl.cmake      juiz-idl で IDL から C++ の型を作る CMake の関数(juiz_sdkConfig.cmake が読み込む)
 #     README.md, LICENSE-MIT, LICENSE-APACHE
 #
