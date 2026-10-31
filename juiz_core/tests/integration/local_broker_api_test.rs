@@ -82,6 +82,8 @@ fn check_processes(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
             8,
             "{name}"
         );
+        // 応答の印 (function_name / class_name) は受け取った側で外す (#277)
+        assert_no_options(bp.process_call(id, CapsuleMap::new()));
     }
     Ok(())
 }

@@ -103,6 +103,14 @@ pub fn int_of(c: JuizResult<CapsulePtr>) -> i64 {
         .unwrap()
 }
 
+/// 結果のカプセルに、要求の経路 (class_name / function_name など) が option として残っていない (#277)
+pub fn assert_no_options(c: JuizResult<CapsulePtr>) -> CapsulePtr {
+    let c = c.expect("call failed");
+    let options = c.lock_as_capsule(|c| c.get_options().clone()).unwrap();
+    assert!(options.is_empty(), "options should be empty: {options:?}");
+    c
+}
+
 /// get_output などでカプセルが Value でない場合も考えて、整数として取り出す
 pub fn try_int_of(c: &CapsulePtr) -> Option<i64> {
     c.lock_as_value(|v| v.as_i64()).ok().flatten()

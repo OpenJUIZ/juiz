@@ -138,7 +138,15 @@ fn handle_function_or_error_response(
 ) -> JuizResult<CapsulePtr> {
     let class_name = args.get_param("class_name").cloned().unwrap_or_default();
     let function_name = args.get_param("function_name").cloned().unwrap_or_default();
-    handle_function(crud_broker, args).or_else(|e| {
+    handle_function(crud_broker, args)
+    .and_then(|mut capsule| {
+        // MessengerBrokerProxy が応答の対応を確かめるための印。受け取った側で外す (issue #277)
+        capsule
+            .set_option("function_name", function_name.as_str())?
+            .set_option("class_name", class_name.as_str())?;
+        Ok(capsule)
+    })
+    .or_else(|e| {
         log::error!(
             "MessengerBroker failed to handle {class_name}/{function_name}. Error is {e:#}"
         );
