@@ -30,7 +30,7 @@ cppjuiz/cmake/juiz_idl.cmake
 `juiz_sdk::juiz_sdk` をリンクすると、C / C++ のヘッダの include パスと C++17 が付き、MSVC には `/utf-8` が付きます(ヘッダが UTF-8 の日本語のコメントを含むため)。
 
 ```cmake
-find_package(juiz_sdk 0.0.29 EXACT CONFIG REQUIRED)   # 版は juiz と同じものを指定する
+find_package(juiz_sdk 0.0.30 EXACT CONFIG REQUIRED)   # 版は juiz と同じものを指定する
 add_library(my_process SHARED my_process.cpp)
 target_link_libraries(my_process PRIVATE juiz_sdk::juiz_sdk)
 juiz_sdk_copy_runtime(my_process)   # Windows ではプラグインの隣に juiz_sdk.dll を写す (Linux / macOS では何もしない)
