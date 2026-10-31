@@ -131,7 +131,7 @@ pub struct FrameHeader {
 }
 
 impl FrameHeader {
-    fn new(id: u64, kind: FrameKind) -> Self {
+    pub fn new(id: u64, kind: FrameKind) -> Self {
         FrameHeader {
             id,
             kind,
@@ -478,6 +478,11 @@ impl OutgoingFrame {
         &self.header
     }
 
+    /// ヘッダを書き換える (Rust プラグインの C ABI で `{"native": <番号>}` を足すのに使う)
+    pub fn header_mut(&mut self) -> &mut FrameHeader {
+        &mut self.header
+    }
+
     /// Rust プラグインの C ABI の引数のフレーム (docs/spec/rust-plugin-abi.md §5.1)。
     /// id は 0、param は CapsuleMap に param があるときだけ入れる
     pub fn call_request(map: &CapsuleMap) -> JuizResult<Self> {
@@ -627,6 +632,9 @@ pub enum IncomingBody {
 pub struct IncomingFrame {
     pub header: FrameHeader,
     bodies: Vec<Option<IncomingBody>>,
+    /// `{"native": <番号>}` で指す Native (Rust プラグインの C ABI、docs/spec/rust-plugin-abi.md §10)。
+    /// フレームの外で渡され、[`IncomingFrame::set_natives`] で置く
+    natives: Vec<Option<Capsule>>,
 }
 
 /// u8 / u16 / f32 / i64 / f64 の Vec。どのビット列も正しい値になる型だけに使う
@@ -947,7 +955,11 @@ pub fn read_frame<R: Read>(r: &mut R, limits: &FrameLimits) -> Result<IncomingFr
     if let Some(error) = first_error {
         return Err(FrameReadError::Invalid { id, error });
     }
-    Ok(IncomingFrame { header, bodies })
+    Ok(IncomingFrame {
+        header,
+        bodies,
+        natives: Vec::new(),
+    })
 }
 
 /// メモリ上で受け渡す本体の説明を確かめ、本体の長さを返す (Rust プラグインの C ABI、§5.1)。
@@ -1023,6 +1035,7 @@ pub fn read_frame_parts(
     Ok(IncomingFrame {
         header,
         bodies: incoming,
+        natives: Vec::new(),
     })
 }
 
@@ -1033,6 +1046,12 @@ impl IncomingFrame {
 
     pub fn kind(&self) -> FrameKind {
         self.header.kind
+    }
+
+    /// `{"native": <番号>}` で指す Native を置く (Rust プラグインの C ABI、docs/spec/rust-plugin-abi.md §10)。
+    /// 番号は natives の添字。置かずに `{"native": …}` を読むとエラー
+    pub fn set_natives(&mut self, natives: Vec<Capsule>) {
+        self.natives = natives.into_iter().map(Some).collect();
     }
 
     /// 本体を取り出す (同じ本体を 2 度は使えない)
@@ -1062,6 +1081,13 @@ impl IncomingFrame {
         }
         if obj.get("empty").and_then(|v| v.as_bool()) == Some(true) {
             return Ok(Capsule::empty());
+        }
+        if let Some(index) = obj.get("native").and_then(|v| v.as_u64()) {
+            return self
+                .natives
+                .get_mut(index as usize)
+                .and_then(|n| n.take())
+                .ok_or_else(|| anyhow!("native {index} is not in the frame"));
         }
         if let Some(index) = obj.get("body").and_then(|v| v.as_u64()) {
             let body = self

@@ -6,7 +6,7 @@
 
 use std::ffi::c_void;
 
-use super::{JuizBytes, JuizBytesSink, JuizFrameIn, JuizFrameOut};
+use super::{JuizBytes, JuizBytesSink, JuizFrameIn, JuizFrameOut, JuizRustNative};
 use crate::frame::{read_frame_parts, FrameHeader, FrameLimits, OutgoingFrame};
 use crate::prelude::*;
 
@@ -15,6 +15,7 @@ pub struct FrameArgs {
     header: Vec<u8>,
     _bodies: Vec<Vec<u8>>,
     descs: Vec<JuizBytes>,
+    natives: Vec<JuizRustNative>,
 }
 
 impl FrameArgs {
@@ -31,7 +32,32 @@ impl FrameArgs {
             header: frame.header_bytes()?,
             _bodies: bodies,
             descs,
+            natives: Vec::new(),
         })
+    }
+
+    /// map と、ハンドルのまま渡す Native (§10.3) で引数を作る。natives の名前はヘッダの
+    /// `{"native": <番号>}` になる。owned などは呼ぶ側が決める
+    pub fn with_natives(map: &CapsuleMap, natives: Vec<(&str, JuizRustNative)>) -> JuizResult<Self> {
+        let mut frame = OutgoingFrame::call_request(map)?;
+        if !natives.is_empty() {
+            let header_map = frame.header_mut().map.get_or_insert_with(Default::default);
+            for (i, (k, _)) in natives.iter().enumerate() {
+                header_map.insert((*k).to_owned(), jvalue!({ "native": i }));
+            }
+        }
+        let mut args = Self::new(&CapsuleMap::new())?;
+        let mut bodies = Vec::with_capacity(frame.body_count());
+        for i in 0..frame.body_count() {
+            let mut b = vec![0u8; frame.body_len(i).unwrap_or_default() as usize];
+            frame.copy_body_into(i, &mut b)?;
+            bodies.push(b);
+        }
+        args.descs = bodies.iter().map(|b| JuizBytes::from_slice(b)).collect();
+        args._bodies = bodies;
+        args.header = frame.header_bytes()?;
+        args.natives = natives.into_iter().map(|(_, n)| n).collect();
+        Ok(args)
     }
 
     pub fn frame_in(&self) -> JuizFrameIn {
@@ -43,8 +69,12 @@ impl FrameArgs {
                 self.descs.as_ptr()
             },
             body_count: self.descs.len(),
-            natives: std::ptr::null(),
-            native_count: 0,
+            natives: if self.natives.is_empty() {
+                std::ptr::null()
+            } else {
+                self.natives.as_ptr()
+            },
+            native_count: self.natives.len(),
         }
     }
 }
@@ -55,6 +85,11 @@ pub struct FrameResult {
     header: Option<Vec<u8>>,
     bodies: Vec<Vec<u8>>,
     error: Option<String>,
+    /// Native を受け取るか (§10.2)。受け取らなければ native の口を渡さない (プラグインは encode して書く)
+    accept_natives: bool,
+    /// 受け取った Native。type_tag は呼び出しの間だけ有効なので空にし、複製を native_type_tags に置く
+    natives: Vec<JuizRustNative>,
+    native_type_tags: Vec<Vec<u8>>,
 }
 
 extern "C" fn result_begin(ctx: *mut c_void, header: JuizBytes) -> i64 {
@@ -89,6 +124,20 @@ extern "C" fn result_body(ctx: *mut c_void, index: usize, ptr: *mut *mut u8, len
     0
 }
 
+extern "C" fn result_native(ctx: *mut c_void, index: usize, native: JuizRustNative) -> i64 {
+    let r = unsafe { &mut *(ctx as *mut FrameResult) };
+    if index != r.natives.len() {
+        return -1;
+    }
+    r.native_type_tags
+        .push(unsafe { native.type_tag.as_slice() }.unwrap_or_default().to_vec());
+    r.natives.push(JuizRustNative {
+        type_tag: JuizBytes::empty(),
+        ..native
+    });
+    0
+}
+
 extern "C" fn result_error(ctx: *mut c_void, message: JuizBytes) {
     let r = unsafe { &mut *(ctx as *mut FrameResult) };
     let bytes = unsafe { message.as_slice() }.unwrap_or_default();
@@ -100,13 +149,41 @@ impl FrameResult {
         Self::default()
     }
 
+    /// Native をハンドルのまま受け取る書き込み口 (§10.2)。受け取った Native は [`FrameResult::natives`] で見る。
+    /// 解放 (表の destroy) は呼ぶ側がする
+    pub fn accepting_natives() -> Self {
+        FrameResult {
+            accept_natives: true,
+            ..Self::default()
+        }
+    }
+
+    /// 受け取った Native (type_tag は空。型タグは [`FrameResult::native_type_tags`])
+    pub fn natives(&self) -> &[JuizRustNative] {
+        &self.natives
+    }
+
+    /// 受け取った Native の型タグの JSON (複製)
+    pub fn native_type_tags(&self) -> &[Vec<u8>] {
+        &self.native_type_tags
+    }
+
+    /// 書かれたヘッダの JSON
+    pub fn header_json(&self) -> Option<Value> {
+        self.header.as_ref().and_then(|h| serde_json::from_slice(h).ok())
+    }
+
     /// 書き込み口。self を動かさず、呼び出しの間生かしておくこと
     pub fn frame_out(&mut self) -> JuizFrameOut {
         JuizFrameOut {
             ctx: self as *mut FrameResult as *mut c_void,
             begin: Some(result_begin),
             body: Some(result_body),
-            native: None,
+            native: if self.accept_natives {
+                Some(result_native)
+            } else {
+                None
+            },
             error: Some(result_error),
         }
     }
@@ -140,4 +217,29 @@ pub fn collect_bytes(f: impl FnOnce(*const JuizBytesSink) -> i64) -> (i64, Optio
     };
     let code = f(&sink);
     (code, got)
+}
+
+/// Native の表の encode を呼び、共通形式のカプセルにする (§10.1)
+pub fn encode_native(native: &JuizRustNative) -> JuizResult<CapsulePtr> {
+    if native.vtable.is_null() {
+        anyhow::bail!("the native value has no table");
+    }
+    let encode = unsafe { (*native.vtable).encode }.ok_or_else(|| anyhow::anyhow!("no encode"))?;
+    let mut r = FrameResult::new();
+    let out = r.frame_out();
+    let code = encode(native.handle, &out);
+    if code < 0 {
+        anyhow::bail!("encode returned {code} ({})", r.error().unwrap_or(""));
+    }
+    r.into_capsule_ptr()
+}
+
+/// Native の表の destroy を呼ぶ (§10.1)。1 回だけ呼ぶこと
+pub fn destroy_native(native: &JuizRustNative) {
+    if native.vtable.is_null() {
+        return;
+    }
+    if let Some(destroy) = unsafe { (*native.vtable).destroy } {
+        destroy(native.handle);
+    }
 }

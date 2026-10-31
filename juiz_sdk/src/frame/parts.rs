@@ -272,6 +272,7 @@ impl FrameReceiver {
         Ok(IncomingFrame {
             header,
             bodies: incoming,
+            natives: Vec::new(),
         })
     }
 }

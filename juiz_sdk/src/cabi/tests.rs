@@ -288,7 +288,7 @@ fn bad_frames_are_frame_errors() {
         assert_eq!(host.error_calls, 1, "{name}");
     }
 
-    // Native の引数は Step 3 まで受け付けない
+    // このプラグインの表で作っていない Native の引数は受け付けない (§10.3)
     let args = HostArgs::new(&CapsuleMap::new());
     let mut frame_in = args.frame_in();
     let native = JuizRustNative {
@@ -546,3 +546,275 @@ fn body_desc_len_is_used_by_host() {
     };
     assert_eq!(d.body_len().unwrap(), 24);
 }
+
+// ---- Native (§10) ----
+
+static NATIVE_DROPS: AtomicUsize = AtomicUsize::new(0);
+static NATIVE_ENCODES: AtomicUsize = AtomicUsize::new(0);
+
+/// テスト用の Native。encode と drop を数える
+#[derive(Debug)]
+struct Counted(i64);
+
+impl Drop for Counted {
+    fn drop(&mut self) {
+        NATIVE_DROPS.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+impl NativeValue for Counted {
+    fn language(&self) -> &str {
+        "rust"
+    }
+    fn kind(&self) -> NativeKind {
+        NativeKind::Value
+    }
+    fn type_name(&self) -> String {
+        "test.Counted".to_owned()
+    }
+    fn encode(&self) -> JuizResult<EncodedValue> {
+        NATIVE_ENCODES.fetch_add(1, Ordering::SeqCst);
+        Ok(EncodedValue::Value(jvalue!({ "n": self.0 })))
+    }
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn into_any(self: Box<Self>) -> Option<Box<dyn Any>> {
+        Some(self)
+    }
+}
+
+/// native の口も持つ書き込み口の代わり
+#[derive(Default)]
+struct NativeHost {
+    inner: HostOut,
+    natives: Vec<JuizRustNative>,
+    tags: Vec<Vec<u8>>,
+    refuse_native: bool,
+}
+
+extern "C" fn host_native(ctx: *mut c_void, index: usize, native: JuizRustNative) -> i64 {
+    let host = unsafe { &mut *(ctx as *mut NativeHost) };
+    if host.refuse_native || index != host.natives.len() {
+        return -1;
+    }
+    host.tags.push(unsafe { native.type_tag.as_slice() }.unwrap().to_vec());
+    host.natives.push(native);
+    0
+}
+
+extern "C" fn native_host_begin(ctx: *mut c_void, header: JuizBytes) -> i64 {
+    let host = unsafe { &mut *(ctx as *mut NativeHost) };
+    host_begin(&mut host.inner as *mut HostOut as *mut c_void, header)
+}
+
+extern "C" fn native_host_body(ctx: *mut c_void, index: usize, ptr: *mut *mut u8, len: *mut usize) -> i64 {
+    let host = unsafe { &mut *(ctx as *mut NativeHost) };
+    host_body(&mut host.inner as *mut HostOut as *mut c_void, index, ptr, len)
+}
+
+extern "C" fn native_host_error(ctx: *mut c_void, message: JuizBytes) {
+    let host = unsafe { &mut *(ctx as *mut NativeHost) };
+    host_error(&mut host.inner as *mut HostOut as *mut c_void, message)
+}
+
+fn native_frame_out(host: &mut NativeHost) -> JuizFrameOut {
+    JuizFrameOut {
+        ctx: host as *mut NativeHost as *mut c_void,
+        begin: Some(native_host_begin),
+        body: Some(native_host_body),
+        native: Some(host_native),
+        error: Some(native_host_error),
+    }
+}
+
+fn make_counted(_m: CapsuleMap) -> JuizResult<Capsule> {
+    let mut c = Capsule::from_native(Counted(7));
+    c.set_option("note", "native");
+    Ok(c)
+}
+
+/// make_counted を native の口付きで呼び、受け取った Native を返す
+fn call_native_result() -> (NativeHost, JuizRustNative) {
+    let args = HostArgs::new(&CapsuleMap::new());
+    let mut host = NativeHost::default();
+    let out = native_frame_out(&mut host);
+    assert_eq!(call_process(&args.frame_in(), &out, make_counted), JUIZ_OK);
+    assert_eq!(host.natives.len(), 1);
+    let n = host.natives[0];
+    (host, n)
+}
+
+fn encode_native(n: &JuizRustNative) -> CapsulePtr {
+    let mut host = HostOut::default();
+    let out = frame_out(&mut host);
+    let encode = unsafe { (*n.vtable).encode }.unwrap();
+    assert_eq!(encode(n.handle, &out), JUIZ_OK);
+    host_result(&host)
+}
+
+fn destroy_native(n: &JuizRustNative) {
+    let destroy = unsafe { (*n.vtable).destroy }.unwrap();
+    destroy(n.handle);
+}
+
+#[test]
+fn native_results_are_passed_as_handles_and_encoded_through_the_table() {
+    let _guard = NATIVE_LOCK.lock().unwrap();
+    let drops = NATIVE_DROPS.load(Ordering::SeqCst);
+    let (host, n) = call_native_result();
+    // ヘッダは result: {"native": 0}、オプションも付く
+    let header: serde_json::Value =
+        serde_json::from_slice(host.inner.header.as_ref().unwrap()).unwrap();
+    assert_eq!(header["result"], jvalue!({ "native": 0 }));
+    assert_eq!(header["option"]["note"], "native");
+    assert_eq!(n.kind, 0);
+    assert_eq!(n.owned, 1);
+    let tag: serde_json::Value = serde_json::from_slice(&host.tags[0]).unwrap();
+    assert_eq!(tag, jvalue!({ "name": "test.Counted" }));
+    let vt = unsafe { &*n.vtable };
+    assert_eq!(vt.abi_version, ABI_VERSION);
+    assert_eq!(vt.struct_size as usize, std::mem::size_of::<JuizRustNativeVtable>());
+
+    // encode は共通形式のフレームを書く。プラグインの側では結果を覚えない
+    let encodes = NATIVE_ENCODES.load(Ordering::SeqCst);
+    assert_eq!(encode_native(&n).extract_value().unwrap(), jvalue!({ "n": 7 }));
+    assert_eq!(encode_native(&n).extract_value().unwrap(), jvalue!({ "n": 7 }));
+    assert_eq!(NATIVE_ENCODES.load(Ordering::SeqCst), encodes + 2);
+    assert_eq!(NATIVE_DROPS.load(Ordering::SeqCst), drops);
+    destroy_native(&n);
+    assert_eq!(NATIVE_DROPS.load(Ordering::SeqCst), drops + 1);
+}
+
+#[test]
+fn native_result_is_encoded_without_native_slot_and_freed_when_refused() {
+    let _guard = NATIVE_LOCK.lock().unwrap();
+    // native の口が無いホストには encode して書く
+    let args = HostArgs::new(&CapsuleMap::new());
+    let mut host = HostOut::default();
+    assert_eq!(call_with(&args, &mut host, make_counted), JUIZ_OK);
+    assert_eq!(host_result(&host).extract_value().unwrap(), jvalue!({ "n": 7 }));
+
+    // ホストが native を断ったら、プラグインが解放する
+    let drops = NATIVE_DROPS.load(Ordering::SeqCst);
+    let mut host = NativeHost {
+        refuse_native: true,
+        ..Default::default()
+    };
+    let out = native_frame_out(&mut host);
+    assert_eq!(call_process(&args.frame_in(), &out, make_counted), JUIZ_RUST_HOST_REFUSED);
+    assert_eq!(NATIVE_DROPS.load(Ordering::SeqCst), drops + 1);
+}
+
+/// 引数に Native を 1 つ渡して f を呼ぶ
+fn call_with_native_arg(
+    native: JuizRustNative,
+    f: impl Fn(CapsuleMap) -> JuizResult<Capsule>,
+) -> (i64, HostOut) {
+    let header = serde_json::to_vec(&jvalue!({
+        "id": 0, "kind": "request", "map": { "v": { "native": 0 } }
+    }))
+    .unwrap();
+    let args = HostArgs::raw(header, vec![]);
+    let mut frame_in = args.frame_in();
+    frame_in.natives = &native;
+    frame_in.native_count = 1;
+    let mut host = HostOut::default();
+    let out = frame_out(&mut host);
+    let code = call_process(&frame_in, &out, f);
+    (code, host)
+}
+
+/// 引数の Native が Counted のまま届き、ほかに参照が無ければ移せることを返す
+fn read_counted(mut m: CapsuleMap) -> JuizResult<Capsule> {
+    let c = m.take("v")?;
+    let cell = c.native_cell()?.expect("the argument is native");
+    assert!(cell.value().as_any().is::<Counted>());
+    drop(cell);
+    let moved = match c.try_into_capsule() {
+        Ok(c) => c.into_native_cell().ok().map(|cell| cell.try_into_value().is_ok()),
+        Err(_) => None,
+    };
+    Ok(jvalue!(moved == Some(true)).into())
+}
+
+#[test]
+fn owned_native_arguments_move_and_shared_ones_are_cloned() {
+    let _guard = NATIVE_LOCK.lock().unwrap();
+    let drops = NATIVE_DROPS.load(Ordering::SeqCst);
+    let encodes = NATIVE_ENCODES.load(Ordering::SeqCst);
+
+    // owned = 1: 持ち主がプラグインに移り、ほかに参照が無いので移せる。呼び出しの後に解放される
+    let (_, n) = call_native_result();
+    let (code, host) = call_with_native_arg(JuizRustNative { owned: 1, ..n }, read_counted);
+    assert_eq!(code, JUIZ_OK);
+    assert_eq!(host_result(&host).extract_value().unwrap(), jvalue!(true));
+    assert_eq!(NATIVE_DROPS.load(Ordering::SeqCst), drops + 1);
+
+    // owned = 0: ホストが持ち続けるので、プラグインは複製 (Arc) して使い、移せない
+    let (_, n) = call_native_result();
+    let (code, host) = call_with_native_arg(JuizRustNative { owned: 0, ..n }, read_counted);
+    assert_eq!(code, JUIZ_OK);
+    assert_eq!(host_result(&host).extract_value().unwrap(), jvalue!(false));
+    assert_eq!(NATIVE_DROPS.load(Ordering::SeqCst), drops + 1);
+    destroy_native(&n);
+    assert_eq!(NATIVE_DROPS.load(Ordering::SeqCst), drops + 2);
+    // どちらも encode しない
+    assert_eq!(NATIVE_ENCODES.load(Ordering::SeqCst), encodes);
+}
+
+#[test]
+fn owned_native_arguments_are_freed_when_the_call_fails() {
+    let _guard = NATIVE_LOCK.lock().unwrap();
+    let drops = NATIVE_DROPS.load(Ordering::SeqCst);
+    // 利用者の関数がエラー
+    let (_, n) = call_native_result();
+    let (code, _) = call_with_native_arg(JuizRustNative { owned: 1, ..n }, |_| {
+        Err(anyhow::anyhow!("fails"))
+    });
+    assert_eq!(code, JUIZ_RUST_CALL_ERROR);
+    assert_eq!(NATIVE_DROPS.load(Ordering::SeqCst), drops + 1);
+
+    // ヘッダが読めない (Native を受け取ってからフレームを読む)
+    let (_, n) = call_native_result();
+    let native = JuizRustNative { owned: 1, ..n };
+    let args = HostArgs::raw(b"not json".to_vec(), vec![]);
+    let mut frame_in = args.frame_in();
+    frame_in.natives = &native;
+    frame_in.native_count = 1;
+    let mut host = HostOut::default();
+    let out = frame_out(&mut host);
+    assert_eq!(call_process(&frame_in, &out, never_called), JUIZ_RUST_FRAME_ERROR);
+    assert_eq!(NATIVE_DROPS.load(Ordering::SeqCst), drops + 2);
+
+    // 別の表 (別のプラグイン) の Native は受け付けず、owned = 1 ならその表の destroy で解放する
+    static FOREIGN_DESTROYS: AtomicUsize = AtomicUsize::new(0);
+    extern "C" fn foreign_destroy(_h: *mut c_void) {
+        FOREIGN_DESTROYS.fetch_add(1, Ordering::SeqCst);
+    }
+    static FOREIGN: JuizRustNativeVtable = JuizRustNativeVtable {
+        abi_version: ABI_VERSION,
+        struct_size: std::mem::size_of::<JuizRustNativeVtable>() as u32,
+        encode: None,
+        destroy: Some(foreign_destroy),
+    };
+    let mut dummy = 0u8;
+    let foreign = JuizRustNative {
+        handle: &mut dummy as *mut u8 as *mut c_void,
+        vtable: &FOREIGN,
+        type_tag: JuizBytes::empty(),
+        kind: 0,
+        owned: 1,
+    };
+    let (code, host) = call_with_native_arg(foreign, never_called);
+    assert_eq!(code, JUIZ_RUST_FRAME_ERROR);
+    assert!(host.error.unwrap().contains("not made by this plugin"));
+    assert_eq!(FOREIGN_DESTROYS.load(Ordering::SeqCst), 1);
+}
+
+fn never_called(_m: CapsuleMap) -> JuizResult<Capsule> {
+    panic!("must not be called")
+}
+
+/// Native の数を数えるテストを同時に走らせない
+static NATIVE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());

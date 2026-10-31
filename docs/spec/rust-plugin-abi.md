@@ -129,7 +129,7 @@ typedef struct juiz_frame_in {
     juiz_bytes header;                 /* ヘッダの JSON(UTF-8) */
     const juiz_bytes* bodies;          /* 本体の配列。ヘッダの bodies と同じ順 */
     size_t body_count;
-    const juiz_rust_native* natives;   /* Native の配列(§10)。Step 2 までは NULL, 0 */
+    const juiz_rust_native* natives;   /* Native の配列(§10.3)。無ければ NULL, 0 */
     size_t native_count;
 } juiz_frame_in;
 
@@ -140,7 +140,7 @@ typedef struct juiz_frame_out {
     int64_t (*begin)(void* ctx, juiz_bytes header);
     /* 本体 index の書き込み先を受け取る。長さはヘッダの説明から決まる */
     int64_t (*body)(void* ctx, size_t index, uint8_t** ptr, size_t* len);
-    /* Native を渡す(§10)。Step 2 までは null */
+    /* Native をハンドルのまま渡す(§10.2)。null なら、プラグインは Native を encode して書く */
     int64_t (*native)(void* ctx, size_t index, juiz_rust_native native);
     /* エラー文(UTF-8)。入口が負の値を返すときに 1 回だけ呼ぶ */
     void (*error)(void* ctx, juiz_bytes message);
@@ -188,7 +188,7 @@ large-data.md §3.2 のヘッダの形をそのまま使う。違いは次だけ
 }
 ```
 
-- カプセルの表し方は large-data.md §3.3(`value` / `empty` / `body`)に、Step 3 で `{"native": <番号>}`(§10)を足す。
+- カプセルの表し方は large-data.md §3.3(`value` / `empty` / `body`)に、`{"native": <番号>}`(§10)を足す。番号は、引数では `juiz_frame_in` の `natives` の添字、戻り値では `native` で渡した順の番号。
 - 本体の種類と規則は large-data.md §3.4(`image` / `array`)と同じ。数の配列を本体に出す規則(要素 1024 以上で、整数だけか小数だけ)も同じで、出すかどうかは送り手が決めてよい。受け手は両方を必ず受け付ける。
 - 画像の `stride` は `width × 1 画素のバイト数` でなければならない(余白なし)。Rust の送り手は `DynamicImage::as_bytes()` をそのまま渡すので余白は無い。余白があればエラー(受け手で余白を取るともう 1 回コピーが要るため)。
 - 戻り値の `option` は `CapsulePtr::set_option` で付けたもの。無ければ省く。引数のオプションは運ばない(IPC 越しと同じ)。
@@ -209,7 +209,7 @@ large-data.md §3.2 のヘッダの形をそのまま使う。違いは次だけ
 2. ホストはヘッダを読み、本体ごとに最終的な `DynamicImage` / `Vec` の領域を確保する(large-data.md §3.6 の「最終的な領域へ直接読む」と同じ考え)。ヘッダが読めない、上限を超えるときは負の値を返す。
 3. グルーは本体ごとに `out->body(ctx, i, &ptr, &len)` を呼び、`len` がヘッダの説明と同じことを確かめ、`ptr` に書く。**画像のコピーはここで 1 回。**
 4. グルーが 0 を返したら、ホストは確保した領域から `Capsule` を組み立てる。`begin` を呼ばずに 0 を返したら `Capsule::Empty` とする。
-5. プラグインの戻り値の Native は、Step 2 までは encode してから書く(large-data.md §3.3 と同じ)。Step 3 からは §10。
+5. プラグインの戻り値の Native は §10.2 のとおりハンドルのまま渡す。ホストが `native` の口を持たない(null)ときは encode してから書く(large-data.md §3.3 と同じ)。
 
 ホストが負の値を返したら、グルーは書くのをやめて `JUIZ_RUST_HOST_REFUSED`(§6.1)を返す(`error` は呼ばない)。
 
@@ -351,9 +351,9 @@ int64_t (*container_call)(void* handle, const juiz_frame_in* args, const juiz_fr
 - 表の `abi_marker` は `"juiz_rust_abi=<版>;"` の C 文字列で、表から参照されるのでリンカに消されない。
 - `juiz pack` はプラグインを読み込まずに、ファイルのバイト列から `juiz_rust_abi=` を探して版を読む(今の `juiz_sdk=…;rustc=…` を探すのと同じやり方、app-package.md §6.3)。別ターゲットのバイナリでも読める。
 
-## 10. Native(遅延評価 L2)を運ぶ(Step 3)
+## 10. Native(遅延評価 L2)を運ぶ(Step 3 #331)
 
-Step 2 までは、Native は境界で encode して Value / Image として運ぶ(決めごと C。正しく動くが、Composite の中間値の受け渡しで encode が起きて遅い)。Step 3 で次の形にする。
+Native(`RustNative<T>` など)はプラグインの中に置いたまま、ハンドルと関数の表をホストに渡す。C++ の L3(datatype.md §21)と同じく、表は値と一緒に運ぶ。これで Composite の中間値を同じプラグインへ渡すときに encode が起きない。Step 2 までは境界で encode していた(決めごと C)。
 
 ### 10.1 構造体
 
@@ -376,32 +376,41 @@ typedef struct juiz_rust_native {
 } juiz_rust_native;
 ```
 
-- 表(vtable)は値と一緒に運び、登録所には入れない(C++ の L3 と同じ、lazy-evaluation.md §8)。
-- `type_tag` の `abi` はプラグインの `native_abi_tag`(§3.3)。
+- 表(vtable)は値と一緒に運び、登録所には入れない(C++ の L3 と同じ、lazy-evaluation.md §8)。juiz_sdk の `juiz_sdk::cabi` が static に 1 つ持ち、juiz_sdk はプラグインごとに静的にリンクされるので、表のアドレスはプラグインごとに違う。
+- `handle` はプラグインの中の `Box<NativeCell>`。`NativeCell` は `Arc` なので、複製しても値は共有する。
+- `type_tag` は `{"name": …, "fingerprint": …, "abi": …}` の JSON。`abi` はプラグインの `native_abi_tag`(§3.3)。型タグを持たない Native は `{"name": <表示用の型名>}` だけにする。ほかの `juiz_bytes` と同じく呼び出しの間だけ有効で、受け取った側は複製する。
+- 表の `encode` は、`kind: response` で `result` がその値のヘッダと本体を `out` に書く(§5.3 と同じ書き方。`out->native` は null で渡す)。プラグインの側では結果を覚えない(ホストの `NativeCell` が覚えるので二重にしない)。すでに覚えている(プラグインの中で encode 済みの)ときはそれを使う。
+- 表の関数も `catch_unwind` で囲む(§6.2)。`destroy` の panic はログに出して握りつぶす。
 
 ### 10.2 戻り値の Native
 
-- 利用者の関数が `Capsule::Native`(`RustNative<T>`)を返したら、グルーはヘッダの `result` を `{"native": 0}` にし、`out->native(ctx, 0, native)` で渡す。`handle` は `Box::into_raw(Box::new(native_cell))`。
-- ホストは受け取ったものを `RustCabiNative { handle, vtable, tag, kind, lib }` に包み、`NativeValue` として `Capsule::Native` に入れる。`language()` は `rust`、`kind()` は受け取った `kind`、`type_tag()` は `type_tag`、`encode()` は `vtable->encode` を呼んでフレームを読む。`Drop` で `destroy` を呼ぶ。`Arc<Library>` を持つ。
-- ホスト自身やブローカー・ほかの言語が値を要るときは、今までどおり encode する(lazy-evaluation.md §5)。
+- 利用者の関数が `Capsule::Native`(`RustNative<T>`)を返し、ホストが `out->native` を持つ(null でない)なら、グルーはヘッダの `result` を `{"native": 0}` にして `out->begin` を呼び、`out->native(ctx, 0, native)` で渡す。`handle` は `Box::into_raw(Box::new(native_cell))`、`owned` は 1。カプセルのオプションはヘッダの `option` に入れる。
+- `native` が 0 を返したら、持ち主はホストに移る。負の値を返したら持ち主はプラグインのままで、グルーが解放して `JUIZ_RUST_HOST_REFUSED` を返す。
+- 番号は 0 から順に渡す(ホストは順でない番号を断る)。今のグルーが渡すのは戻り値の 1 つだけ。
+- ホストは受け取ったものを `RustCabiNative`(juiz_core の `plugin/rust/cabi_host.rs`)に包み、`NativeValue` として `Capsule::Native` に入れる。`language()` は `rust`、`kind()` は受け取った `kind`、`type_name()` は型タグの `name`、`type_tag()` は型タグ(3 つ揃っているときだけ)、`encode()` は `vtable->encode` を呼んでフレームを読む。`Drop` で `destroy` を呼ぶ。作ったプラグインの `native_abi_tag` と `Arc<Library>` を持つ。
+- ホストは受け取る前に表を確かめる(`abi_version` が読める版、`struct_size` が足りる、`encode` と `destroy` が null でない、`kind` が 0 か 1)。合わなければ断る(負の値を返す)。
+- ホスト自身やブローカー・ほかの言語・Rust ABI で読んだプラグインが値を要るときは、今までどおり encode する(lazy-evaluation.md §5)。encode の結果はホストの `NativeCell` が覚えるので、表の `encode` は値ごとに高々 1 回。
 
 ### 10.3 引数の Native
 
-ホストは引数の Native ごとに、渡す先のプラグインの `native_abi_tag` と比べる。
+ホストは引数の Native ごとに、渡す先のプラグインの `native_abi_tag` と比べる。比べるのは、値を作ったプラグインの `native_abi_tag`(`RustCabiNative` が持つもの)で、型タグの `abi` ではない(型タグを持たない Native もあるため。型タグを持つときは同じ値になる)。
 
-- 値が `RustCabiNative` で、`tag.abi` が渡す先の `native_abi_tag` と同じ(= 同じプラグインが作った値): ハンドルのまま渡す。ヘッダの値は `{"native": <番号>}`、`args->natives[<番号>]` にその値を入れる。
+- 値が `RustCabiNative` で、作ったプラグインの `native_abi_tag` が渡す先のものと同じ(= 同じプラグインが作った値): ハンドルのまま渡す。ヘッダの値は `{"native": <番号>}`、`args->natives[<番号>]` にその値を入れる。
   - ホストがほかに参照を持たない(`NativeCell::try_into_value` が成功する。Composite の中間値)なら `owned = 1` にし、ホストの入れ物は `destroy` を呼ばずに捨てる。プラグインのグルーは `Box::from_raw` して自分の `NativeCell` を取り戻す。`native_extract` が値を**移す**(clone も encode もしない)。
   - 参照を持つ(接続の memo を共有している)なら `owned = 0` にし、ホストが持ち続ける。グルーは `handle` の `NativeCell` を `clone`(`Arc` の複製)して使い、`native_extract` が `T` を `clone` する。呼び出しの後は `handle` に触らない。
-- それ以外(別のプラグイン、ほかの言語、ホストが作った値): encode して Value / Image として渡す。
+- それ以外(別のプラグイン、ほかの言語、ホストが作った値、Rust ABI で読んだプラグインの値): encode して Value / Image として渡す。
+- `owned = 1` の Native は、ホストが入口を呼んだ時点で持ち主がプラグインに移る。入口がどの値を返しても(エラー・panic・`JUIZ_RUST_NULL_ARGUMENT` でも)、プラグインが解放する。そのためグルーは、ほかの検査より先に Native を受け取る。入口を呼べなかった(フレームを作れなかった)ときは、ホストが `destroy` を呼ぶ。
+- グルーは、受け取った Native の `vtable` が自分の表(同じプラグインの static)と同じことを確かめる。違えば `JUIZ_RUST_FRAME_ERROR`(`native <番号> was not made by this plugin`)にし、`owned = 1` のものはその表の `destroy` で解放する。ホストの照合が正しければ起きない。
+- Process・コンテナの作成・コンテナプロセスの 3 つの入口で同じ。
 
-これで今の L2 の性質(Composite で移しても encode しない、接続では clone 1 回、別のプラグインへは辞書)を C ABI でも保つ(`rust_native_test` を C ABI で通す、Step 3)。
+これで今の L2 の性質(Composite で移しても encode しない、接続では clone 1 回、別のプラグインへは辞書)を C ABI でも保つ。`rust_native_test` は C ABI と Rust ABI(`abi: rust`)の両方で同じことを確かめ、表の `encode` を呼んだ回数(`juiz_core::rust_cabi_native_encode_count()`、試験用)で、Composite と接続で encode が起きないことも確かめる。
 
 ## 11. 移行(決めごと A)
 
 - ホストは各ファクトリについて、まず `<symbol>_cabi` を探す。あれば C ABI で読み、`BuildInfo` の検査(`check_build_info`)はしない。
 - 無ければ今の Rust ABI の `<symbol>` を、今の `BuildInfo` の検査付きで読む(古いプラグイン)。読み込めたら info で `loaded <path> through the Rust ABI. Rebuild it with juiz_sdk <ホストの版> or later to load it through the C ABI.` を一度出す。
 - conf のプラグインの項目に `abi: rust` を書くと、`_cabi` の入口があっても今の Rust ABI で読む(`BuildInfo` の検査も今のまま)。`abi: c`(または書かない)は上の既定の振る舞い、それ以外の値は `InvalidSettingError`。移行期間の逃げ道で、次の 2 つに使う(Step 2 で追加)。
-  - Native をハンドルのまま運ぶ L2 の性質(lazy-evaluation.md §9)が要るとき。C ABI で Native を運ぶのは Step 3(§10)で、それまでは C ABI で読むと Native は境界で encode される。`rust_native_test` は Step 3 まで `abi: rust` で読む
+  - Step 2 までは、Native をハンドルのまま運ぶ L2 の性質(lazy-evaluation.md §9)が要るときにも使った。Step 3(§10)からは C ABI でも Native をハンドルのまま運ぶので要らない
   - コンテナスタックの親コンテナ(§8.3)
 - `abi` は、そのプラグインの項目(`process_factories` / `container_factories` とその `processes` / `components` の各項目)ごとに書く。コンテナとそのコンテナプロセスは同じ `abi` にしなければならない(§8.3)
 - juiz_macro は移行期間のあいだ両方の入口を生成する(§3.1)。新しい juiz_sdk でビルドしたプラグインは、古い juiz(同じ rustc)でも新しい juiz(違う rustc でも)でも読める。
@@ -438,7 +447,7 @@ EC・ブローカーのプラグインは今の `BuildInfo` の検査を続け�
 | 0 仕様書 | #328 | 全体、app-package.md §4.1・§4.3・§6.3・§9・§12・§12.1 |
 | 1 SDK のグルーとマクロ | #329 | §3〜§5・§6.1・§6.2・§7・§8.1・§8.2・§9.2・§9.3。フレームを juiz_sdk に移す。グルーの単体テスト(フレームの往復、panic がコードになる、manifest の panic) |
 | 2 ホストの読み込み | #330 | §3.2・§6.3・§8・§9.2・§11。`_cabi` の検出、Rust ABI へのフォールバック、コンテナの型タグの照合、エラー。`-V` だけ偽の版を返す rustc でビルドしたプラグインが読めて呼べることを確かめるテスト。実装は juiz_core の `plugin/rust/cabi_host.rs`。偽の rustc は `juiz_sdk/test_packages/fake_rustc`、`scripts/test.sh` が `target/fake-rustc` にプラグインを作り、統合テスト `rust_cabi_load_test` が読む。conf の `abi: rust`(§11)を追加 |
-| 3 Native | #331 | §10。`rust_native_test` を C ABI で通す |
+| 3 Native | #331 | §10。グルーの Native の表・`{"native": <番号>}`、ホストの `RustCabiNative` と引数の受け渡し。`rust_native_test` を C ABI と Rust ABI の両方で通す。`rust_cabi_entry_test` と `typed_process_test` で入口を直接呼んで、ハンドルの受け渡しと所有権を確かめる。試験用のホスト `juiz_sdk::cabi::host` に Native の受け渡しを足した |
 | 4 .juizapp | #332 | app-package.md §4.1・§4.3・§6.3・§9・§12.1 |
 | 5 ベンチ・サンプル・サイト・リリース | #333 | 呼び出しのオーバーヘッドと 720p・4K 画像の数字(large-data.md §1.1 の「同じプロセス内の call」と比べる)、examples_rust、サイトの文 |
 
@@ -450,3 +459,5 @@ EC・ブローカーのプラグインは今の `BuildInfo` の検査を続け�
 - **画像の `stride` の余白は認めない。** 境界の両側が Rust の `DynamicImage` なので余白は生まれず、認めると余白を取るコピーが増えるため。
 - **コンテナの handle はプラグインの中の `ContainerImpl<T>`。** 利用者の関数が `&mut ContainerImpl<T>` を取る形を変えないため。そのぶん、プラグインの中の `ContainerImpl` はホストの Process の一覧を持たない(§8.1)。
 - **Rust ABI の入口も当面生成し続ける。** 古い juiz でも新しいプラグインが(同じ rustc なら)読めるようにするため(§11)。
+- **Native の照合はプラグインの `native_abi_tag` で行う。** 型タグの `abi` は型タグを持つ Native にしか無いため、作ったプラグインの `native_abi_tag`(info、§3.3)をホストが値と一緒に覚えて比べる(§10.3)。
+- **`owned = 1` の Native は入口を呼んだ時点で持ち主が移る。** 戻り値のコードで持ち主が変わると、エラーの道筋ごとに解放の責任が分かれて漏れやすいため(§10.3)。戻り値の Native も同じく、`native` が 0 を返した時点でホストに移る(§10.2)。
