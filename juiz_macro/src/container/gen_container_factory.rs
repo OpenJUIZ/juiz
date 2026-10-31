@@ -1,12 +1,19 @@
 use quote::{format_ident, quote};
 
-use crate::util::build_info_tokenstream;
+use crate::util::{build_info_tokenstream, cabi_entry_tokenstream, CabiKind};
 
 pub(crate) fn factory_tokenstream(function_ident: syn::Ident) -> proc_macro::TokenStream {
     let build_info = build_info_tokenstream("container_factory");
+    let cabi = cabi_entry_tokenstream(
+        "container_factory",
+        CabiKind::Container,
+        quote! { manifest2() },
+        Some(&function_ident),
+    );
     // まず土台となる関数定義
     quote! {
         #build_info
+        #cabi
 
         #[no_mangle]
         pub unsafe extern "Rust" fn container_factory() -> JuizResult<ContainerFactoryStruct> {
@@ -26,9 +33,16 @@ pub(crate) fn component_factory_tokenstream(
         format_ident!("{}", function_ident.to_string() + "_manifest");
 
     let build_info = build_info_tokenstream(&factory_name);
+    let cabi = cabi_entry_tokenstream(
+        &factory_name,
+        CabiKind::Container,
+        quote! { #manifest_function_name_ident() },
+        Some(&function_ident),
+    );
     // まず土台となる関数定義
     quote!{
         #build_info
+        #cabi
 
         #[no_mangle]
         pub unsafe extern "Rust" fn #factory_name_ident() -> JuizResult<ContainerFactoryStruct> {

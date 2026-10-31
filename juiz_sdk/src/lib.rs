@@ -157,10 +157,12 @@
 //! ```
 
 pub mod build_info;
+pub mod cabi;
 pub mod connection_identifier;
 pub mod connections;
 pub mod containers;
 pub mod factory;
+pub mod frame;
 pub mod geometry;
 pub mod identifier;
 pub mod manifests;

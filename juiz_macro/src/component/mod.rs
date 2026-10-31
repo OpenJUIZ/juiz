@@ -3,7 +3,7 @@ use quote::{format_ident, quote};
 use serde_json::{Map, Value};
 use syn::{parse_macro_input, ItemFn, Stmt};
 
-use crate::util::{build_info_tokenstream, parse_attr};
+use crate::util::{build_info_tokenstream, cabi_entry_tokenstream, parse_attr, CabiKind};
 
 pub(crate) fn juiz_component_manifest_inner(attr: TokenStream) -> TokenStream {
     let manifest_attr = parse_attr(attr);
@@ -124,8 +124,15 @@ pub(crate) fn juiz_component_manifest_inner(attr: TokenStream) -> TokenStream {
 
     // 最後の最後に全部の関数を並べる。
     let build_info = build_info_tokenstream("component_manifest");
+    let cabi = cabi_entry_tokenstream(
+        "component_manifest",
+        CabiKind::Component,
+        quote! { unsafe { component_manifest() } },
+        None,
+    );
     let ts = quote! {
         #build_info
+        #cabi
 
         #item_fn
     };

@@ -215,6 +215,7 @@ large-data.md §3.2 のヘッダの形をそのまま使う。違いは次だけ
 
 - `manifest` は今の manifest の関数(`manifest()` / `<関数名>_manifest()` / `component_manifest()`)の結果を `serde_json` で JSON にして `out->write` に渡す。ホストは自分の juiz_sdk の `ProcessManifest` / `ContainerManifest` / `ComponentManifest` に読む。C++ のプラグインの manifest と同じ道筋になる。
 - manifest を作るときのエラー(既定値が型に合わないなど、datatype.md §17)は今は panic している。C ABI では `catch_unwind` で捕まえ、`JUIZ_RUST_PANIC` で返す(§6.2)。ホストはプラグインの読み込みを、関数の名前を付けたエラーにする。
+- `manifest` と `info` には `error` の口が無いので、負の値を返すときは **同じ `out` にエラー文を書く**(`write` は成功でも失敗でも高々 1 回)。ホストは戻り値が負なら、受け取ったバイト列を JSON ではなくエラー文として読む。`JUIZ_RUST_NULL_ARGUMENT` のときは書かない。
 
 ## 6. エラーと panic
 
@@ -231,7 +232,7 @@ large-data.md §3.2 のヘッダの形をそのまま使う。違いは次だけ
 | `-804` | `JUIZ_RUST_HOST_REFUSED` | ホストの `begin` / `body` / `native` が負の値を返した | 呼ばない(ホストは理由を知っている) |
 | `-805` | `JUIZ_RUST_NULL_ARGUMENT` | 必要なポインタが null だった | 呼ばない |
 
-- 戻り値が負のとき、プラグインは `error`(作成では `error` の sink)を高々 1 回呼ぶ。呼ばなくてもよい。
+- 戻り値が負のとき、プラグインは `error`(作成では `error` の sink、`manifest` / `info` では `out`、§5.4)を高々 1 回呼ぶ。呼ばなくてもよい。
 - 知らない負の値は、ホストはそのまま `RustPluginCallError` の文に数字を入れる。
 
 ### 6.2 panic
@@ -278,7 +279,10 @@ extern "C" fn process_factory_cabi_call(args: *const JuizFrameIn, out: *const Ju
 }
 ```
 
-- フレームの読み書き(今の `juiz_core/src/brokers/frame`)は juiz_sdk に移し、ホストのブローカーとグルーで同じものを使う。メモリ上のヘッダと本体(`juiz_frame_in`)から読む関数と、書き込み口(`juiz_frame_out`)へ書く関数を足す。
+- フレームの読み書きは `juiz_sdk::frame` に移した(Step 1。`juiz_core::frame` はその再公開)。ホストのブローカーとグルーで同じものを使う。メモリ上のヘッダと本体から読む `read_frame_parts`(`shm` と余白のある `stride` はエラー)、引数を作る `OutgoingFrame::call_request`(`id` 0、param は空なら省く)、`header_bytes` / `body_len` / `copy_body_into`(書き込み口へ本体を直接写す)、param を要らない `IncomingFrame::into_call_map` を足した。
+- グルーの公開関数: `write_manifest`・`process_info`・`container_info`・`container_process_info`・`component_info`・`call_process`・`create_container`・`destroy_container`・`call_container_process`・`container_tag`。コンテナの型 `T` は利用者の関数の型から推論する(マクロは `T` を書かない)。
+- `juiz_sdk::cabi::host` に、ホストの代わりにフレームを渡して入口を呼ぶ試験用の道具(`FrameArgs`・`FrameResult`・`collect_bytes`)を置く。引数の本体を複製するので、juiz_core の読み込み(Step 2)には使わない。
+- Rust の表では、null になりうる関数ポインタは `Option<extern "C" fn(…)>`(null と同じ表現になる)で表す。
 - グルーは呼ぶたびに `CapsuleMap` を新しく作る。利用者の関数の型(`fn(CapsuleMap) -> JuizResult<Capsule>`、`&mut ContainerImpl<T>` を取る関数、`JuizResult<T>` を返す型付きの関数)は変えない。
 - プラグインの中の `log` は、今までどおりプラグイン自身の logger(`env_logger::try_init()`)に出る。ホストの logger につなぐのはこの文書の範囲外(§13)。
 - 入口の関数は複数のスレッドから同時に呼ばれてよい。今の Rust ABI と同じく、利用者の Process の関数は `Send + Sync` 相当でなければならない。コンテナプロセスは、ホストがコンテナのロックを持って呼ぶので同時には呼ばれない(§8.3)。
@@ -292,11 +296,11 @@ int64_t (*create)(juiz_bytes manifest_json, const juiz_frame_in* args, void** ha
 void (*destroy)(void* handle);
 ```
 
-- `manifest_json` はホストが作るコンテナの `ContainerManifest`(名前などを埋めたもの)の JSON。グルーは自分の juiz_sdk の `ContainerManifest` に読む。
+- `manifest_json` はホストが作るコンテナの `ContainerManifest`(名前などを埋めたもの)の JSON。グルーは自分の juiz_sdk の `ContainerManifest` に読む。読めなければ `JUIZ_RUST_FRAME_ERROR`。
 - グルーは利用者の作成関数(`fn(CapsuleMap) -> JuizResult<Box<T>>`)を呼び、**プラグインの中で** `ContainerImpl<T>` を作り、`Box::into_raw` したものを `*handle` に入れて 0 を返す。
 - `handle` は不透明なポインタで、ホストは中身を見ない。ホストは自分の側に入れ物(`RustCabiContainer { handle, destroy, container_tag, lib }`)を作り、今の C++ の `CppContainerStruct` と同じく `ContainerImpl<RustCabiContainer>` として登録する。ホスト側のコンテナの profile・Process の一覧はこの入れ物が持つ。
 - ホストはコンテナを消すとき、`destroy(handle)` を 1 回だけ呼ぶ。`destroy` は `Box::from_raw` して落とす。入れ物は `Arc<Library>` を持ち、`destroy` を呼ぶまでプラグインを外さない。
-- プラグインの中の `ContainerImpl<T>` の、ホストの状態を映す部分(`processes()`・`process()`・`parent_container`)は空になる。コンテナプロセスの中からそれらを使っていた利用者のコードは、C ABI では空を見る。今の examples には無い(Step 1 で確かめる)。
+- プラグインの中の `ContainerImpl<T>` の、ホストの状態を映す部分(`processes()`・`process()`・`parent_container`)は空になる。コンテナプロセスの中からそれらを使っていた利用者のコードは、C ABI では空を見る。juiz の examples・test_packages と juiz_examples_rust には無いことを Step 1 で確かめた。
 
 ### 8.2 コンテナの型タグ
 
@@ -335,7 +339,7 @@ int64_t (*container_call)(void* handle, const juiz_frame_in* args, const juiz_fr
 
 - ホストは自分が読める ABI の版の集合を持つ。最初は `{1}`。
 - 読み込むとき、`<symbol>_cabi` の表の `abi_version` が集合に無ければ `RustPluginAbiVersionError` にする。rustc・juiz_sdk の版は比べず、`info` の `build_info` をログ(debug)に出す。
-- `juiz_rust_abi_version() -> u32`(`#[no_mangle] extern "C"`、juiz_sdk の `juiz_sdk::cabi`)は、そのプラグインが作る表の版を返す。ホストの読み込みには使わず(表の `abi_version` を見る)、道具(将来の `juiz plugin info` など)と試験のために置く。cdylib から依存クレートの `#[no_mangle]` の関数が外に見えることは Step 1 で確かめる。見えなければ、マクロの代わりに `juiz_sdk::export_rust_abi!()` を利用者がクレートに 1 回書く形にする。
+- `juiz_rust_abi_version() -> u32`(`#[no_mangle] extern "C"`、juiz_sdk の `juiz_sdk::cabi`)は、そのプラグインが作る表の版を返す。ホストの読み込みには使わず(表の `abi_version` を見る)、道具(将来の `juiz plugin info` など)と試験のために置く。cdylib から依存クレートの `#[no_mangle]` の関数が外に見えることは Step 1 で確かめた(Linux の `nm -D` と、juiz_core の統合テスト `rust_cabi_entry_test` で libloading から引けること。macOS・Windows も同じテストが CI で確かめる)。
 
 ### 9.3 ファイルの中の印
 
