@@ -421,9 +421,14 @@ Windows(GHC 9.6、x86_64)では、できるライブラリは lib の付かな�
 - **DLL ごとに RTS が別になります。** そのため、ある DLL の Container を別の DLL の ContainerProcess に渡すことはできません
   (`JUIZ_HASKELL_CONTAINER_TYPE_ERROR`(-602)になります)。Container とその ContainerProcess は `juizComponent` で
   一つの Component(一つの DLL)にまとめてください。別の GHC でビルドした DLL を同じ juiz に読み込むことはできます。
+  別々の DLL にできるようにすることは issue #348 で検討しています。
 - **構成子が 8 個以上ある型の値で枝分かれする `case`(`deriving Show` の `show` を含む)を実行すると、プロセスが落ちます**(issue #262、
   原因を調査中)。`==`(`deriving Eq`)や `fromEnum` は使えるので、たとえば `PixelFormat` の名前は `fromEnum` で表を引いて作ります
   (`examples/haskell/src/ImageComponent.hs` の `formatName`)。
+
+- **プロジェクトは浅い場所に置いてください。** cabal の `foreign-library` の中間ファイルはライブラリ名を 3 回含むパス
+  (`dist-newstyle/build/…/f/<名前>/build/<名前>/<名前>-tmp/…`)に作られ、深い場所では 260 文字を超えて GHC のファイルのコピーが
+  `does not exist` で失敗します。OS の長いパスの設定(LongPathsEnabled)を有効にしても同じです(issue #279)。
 
 `examples/haskell/build.sh` は Git Bash(MSYS2)で動き、上の手順を行います。
 

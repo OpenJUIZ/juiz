@@ -31,6 +31,7 @@ examples/haskell/build.sh
 
 `target/libincrement_process_hs.so`、`target/libexample_container_hs.so`(macOS は `.dylib`、Windows は `target/increment_process_hs.dll` など)ができます。
 Windows の DLL は公開するシンボルを `def/<名前>.def` に並べています(`bindings/hsjuiz/README.md` の「Windows」)。
+Windows では、リポジトリを浅い場所(`C:\Users\<名前>\juiz` など)に置いてください。深い場所では、GHC の中間ファイル(`dist-newstyle/build/x86_64-windows/ghc-<版>/…/f/<名前>/build/<名前>/<名前>-tmp/…` のようにライブラリ名を 3 回含む)のパスが 260 文字を超え、名前の長いライブラリ(`example_container_hs_increment` など)だけが `copyFile … does not exist` で失敗します。OS の長いパスの設定(LongPathsEnabled)を有効にしても同じです(issue #279)。
 
 ## 動かす
 
