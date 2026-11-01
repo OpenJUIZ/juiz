@@ -1,6 +1,6 @@
 name: Test (macOS)
 
-# macOS での Haskell のプラグインのテストと macOS の wheel。
+# macOS での Haskell のプラグインと Rust のプラグインの C ABI のテストと、macOS の wheel。
 # macOS は Linux の 10 倍、Windows は 2 倍で数えられ、PR のたびに動かすと Actions の
 # 実行時間の大半を占めていたため、PR では動かさず main への push と手動実行でだけ動かす。
 # PR で確かめたいときは、Actions の画面から PR のブランチを指定して手動実行する。
@@ -37,9 +37,11 @@ env:
 jobs:
   # macOS での Haskell のプラグインのビルドとテスト(issue #143)。macos-latest は Xcode 26 に
   # Command Line Tools 27 (MacOSX27.0.sdk) が入っていて、GHC のリンクでその SDK を読む組み合わせを確かめる。
-  # examples/haskell/build.sh が DEVELOPER_DIR を切り替える。Haskell 以外のテストは Linux のジョブで確かめる。
+  # examples/haskell/build.sh が DEVELOPER_DIR を切り替える。
+  # Rust のプラグインの C ABI(#291、rust-plugin-abi.md)のテストも、ここで macOS の dylib について確かめる(#343)。
+  # それ以外のテストは Linux のジョブで確かめる。
   haskell-macos:
-    name: Haskell plugin test (macOS)
+    name: Haskell & Rust C ABI test (macOS)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -84,28 +86,43 @@ jobs:
           path: ${{ steps.ghcup.outputs.dir }}/ghc/${{ env.GHC_VERSION }}
           key: ${{ steps.ghc-cache.outputs.cache-primary-key }}
 
-      # C++ の例のビルドと Haskell の型付きの例 (gen/ の型) に juiz-idl も使う。
-      # haskell_typed_test は Rust の native_pose_component・native_pose_reader も読み込む
-      - name: Build libjuiz_sdk and juiz-idl
-        run: cargo build -p juiz_sdk -p juiz_idl -p native_pose_component -p native_pose_reader
+      # Rust のワークスペースと例(C ABI のテストが読む fake_rustc のプラグインも)、C++ の例、Haskell の例をビルドする。
+      # haskell_container_test は C++ の Container (example_container_cpp)、haskell_typed_test は
+      # Rust の native_pose_component・native_pose_reader も読み込む
+      - name: Prepare tests (build examples, check Python packages)
+        id: prepare
+        env:
+          # Haskell の例が無いときにテストを飛ばさない
+          JUIZ_REQUIRE_HASKELL: "1"
+        run: scripts/test.sh --prepare-only
 
-      # haskell_container_test は C++ の Container (example_container_cpp) も読み込む
-      - name: Build C++ examples
-        run: |
-          cmake -S examples/cpp -B examples/cpp/build -DCMAKE_BUILD_TYPE=Debug
-          cmake --build examples/cpp/build --config Debug --parallel
-
-      - name: Build Haskell examples
-        run: examples/haskell/build.sh
-
-      - name: Test
+      - name: Test (Haskell)
         env:
           PYTHONPATH: ${{ github.workspace }}/bindings/pyjuiz
-          # Haskell の例が無いときにテストを飛ばさない
           JUIZ_REQUIRE_HASKELL: "1"
         run: >-
           cargo test -p juiz_core --no-fail-fast --test integration
           -- --test-threads=1 haskell_
+
+      # Rust のプラグインの C ABI(#343): juiz_sdk のフレームと入口、juiz_core の読み込み(別の rustc のプラグインを含む)、
+      # .juizapp の pack / run(rust.abi・rust.rustc)。Haskell のテストが失敗しても動かす
+      - name: Test (Rust C ABI, juiz_sdk)
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        run: cargo test -p juiz_sdk --no-fail-fast -- --test-threads=1
+
+      - name: Test (Rust C ABI, juiz_core)
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        env:
+          PYTHONPATH: ${{ github.workspace }}/bindings/pyjuiz
+        run: >-
+          cargo test -p juiz_core --no-fail-fast --test integration
+          -- --test-threads=1 rust_cabi_ rust_native_test
+
+      - name: Test (Rust C ABI, .juizapp)
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        env:
+          PYTHONPATH: ${{ github.workspace }}/bindings/pyjuiz
+        run: cargo test -p juiz_app --no-fail-fast --test package_cli_test -- --test-threads=1
 
   # pip で入れる juiz(bindings/juiz_py、issue #88)の wheel を macOS でビルドし、
   # インストールした juiz コマンドで Python の Process とサンプルを動かす(juiz-wheels.yml)

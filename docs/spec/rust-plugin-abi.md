@@ -356,7 +356,7 @@ int64_t (*container_call)(void* handle, const juiz_frame_in* args, const juiz_fr
 
 - ホストは自分が読める ABI の版の集合を持つ。最初は `{1}`。
 - 読み込むとき、`<symbol>_cabi` の表の `abi_version` が集合に無ければ `RustPluginAbiVersionError` にする。rustc・juiz_sdk の版は比べず、`info` の `build_info` をログ(debug)に出す。
-- `juiz_rust_abi_version() -> u32`(`#[no_mangle] extern "C"`、juiz_sdk の `juiz_sdk::cabi`)は、そのプラグインが作る表の版を返す。ホストの読み込みには使わず(表の `abi_version` を見る)、道具(将来の `juiz plugin info` など)と試験のために置く。cdylib から依存クレートの `#[no_mangle]` の関数が外に見えることは Step 1 で確かめた(Linux の `nm -D` と、juiz_core の統合テスト `rust_cabi_entry_test` で libloading から引けること。macOS・Windows も同じテストが CI で確かめる)。
+- `juiz_rust_abi_version() -> u32`(`#[no_mangle] extern "C"`、juiz_sdk の `juiz_sdk::cabi`)は、そのプラグインが作る表の版を返す。ホストの読み込みには使わず(表の `abi_version` を見る)、道具(将来の `juiz plugin info` など)と試験のために置く。cdylib から依存クレートの `#[no_mangle]` の関数が外に見えることは Step 1 で確かめた(Linux の `nm -D` と、juiz_core の統合テスト `rust_cabi_entry_test` で libloading から引けること。macOS・Windows も同じテストが CI で確かめる。macOS は test-macos.yml の「Test (Rust C ABI, …)」で、main への push のときに動く、#343)。
 
 ### 9.3 ファイルの中の印
 
