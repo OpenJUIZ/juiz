@@ -204,10 +204,31 @@ mod tests {
         assert_eq!(r.missing, vec!["surely-not-installed-juiz-package>=1"]);
 
         // 埋め込みの Python でも、案内する実行ファイルは juiz 自身や PATH 頼みの名前ではなく、実在するパスにする (#321)。
-        // python_check を別のテストから同時に呼ぶと止まることがあるので、同じテストの中で確かめる
         let exe = std::path::Path::new(&r.executable);
         assert!(exe.is_absolute() && exe.is_file(), "{}", r.executable);
         let name = exe.file_name().unwrap().to_string_lossy().to_lowercase();
         assert!(name.starts_with("python"), "{}", r.executable);
+    }
+
+    /// 複数のスレッドから同時に呼んでも止まらない (#346)。
+    /// 以前は venv の site-packages を一度だけ足す Once を、GIL を持ったまま待っていたので、
+    /// 最初の呼び出しが中で GIL を手放すと、待つ側と互いに待ち合って止まった。
+    #[test]
+    fn can_be_called_from_threads_at_the_same_time() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        for _ in 0..8 {
+            let tx = tx.clone();
+            std::thread::spawn(move || {
+                let r = python_check(&[], None).map(|r| r.version_ok);
+                let _ = tx.send(r.map_err(|e| e.to_string()));
+            });
+        }
+        drop(tx);
+        for _ in 0..8 {
+            let r = rx
+                .recv_timeout(std::time::Duration::from_secs(60))
+                .expect("python_check did not return within 60 seconds (deadlock?)");
+            assert_eq!(r, Ok(true));
+        }
     }
 }
