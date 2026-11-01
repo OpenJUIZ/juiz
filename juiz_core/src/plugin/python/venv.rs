@@ -73,31 +73,52 @@ fn add_virtualenv_site_packages(py: Python, venv: Option<&str>) -> PyResult<Stri
 
 /// VIRTUAL_ENV の venv の site-packages を、プロセスの中で一度だけ sys.path に足す。
 /// 失敗してもプラグインの読み込みは止めず、ログに残すだけにする。
+///
+/// 複数のスレッドから同時に呼ばれることがある(`python_check` や Python のプラグインの読み込み)。
+/// `Once::call_once` を GIL を持ったまま待つと、先に入ったスレッドが中の Python のコードで GIL を
+/// 手放したときに GIL を取り戻せず、互いに待ち合って止まる (#346)。そこで、待つ間は GIL を手放す
+/// pyo3 の `call_once_py_attached` を使う。
 pub(super) fn add_virtualenv_once(py: Python) {
     #[cfg(feature = "embed-python")]
     {
         static ONCE: std::sync::Once = std::sync::Once::new();
-        ONCE.call_once(|| {
-            let venv = std::env::var("VIRTUAL_ENV").ok();
-            match add_virtualenv_site_packages(py, venv.as_deref()) {
-                Ok(msg) if msg.starts_with("warning: ") => {
-                    log::warn!("{}", &msg["warning: ".len()..])
-                }
-                Ok(msg) if !msg.is_empty() => log::info!("Python: {msg} (VIRTUAL_ENV)"),
-                Ok(_) => {}
-                Err(e) => log::warn!(
-                    "Python: failed to add the site-packages of VIRTUAL_ENV ({venv:?}): {e}"
-                ),
-            }
-        });
+        add_virtualenv_once_with(py, &ONCE, || std::env::var("VIRTUAL_ENV").ok());
     }
     #[cfg(not(feature = "embed-python"))]
     let _ = py;
 }
 
+/// `add_virtualenv_once` の本体。テストで新しい `Once` と venv を渡せるよう分けている。
+#[cfg(feature = "embed-python")]
+fn add_virtualenv_once_with(
+    py: Python,
+    once: &std::sync::Once,
+    venv: impl FnOnce() -> Option<String>,
+) {
+    use pyo3::sync::OnceExt;
+    once.call_once_py_attached(py, || {
+        let venv = venv();
+        match add_virtualenv_site_packages(py, venv.as_deref()) {
+            Ok(msg) if msg.starts_with("warning: ") => {
+                log::warn!("{}", &msg["warning: ".len()..])
+            }
+            Ok(msg) if !msg.is_empty() => log::info!("Python: {msg} (VIRTUAL_ENV)"),
+            Ok(_) => {}
+            Err(e) => {
+                log::warn!("Python: failed to add the site-packages of VIRTUAL_ENV ({venv:?}): {e}")
+            }
+        }
+    });
+}
+
 #[cfg(all(test, feature = "embed-python"))]
 mod tests {
     use super::*;
+
+    /// sys.path を書き換えるテストどうしを並べて動かさないためのロック。
+    /// add() は sys.path を読んでから足し直すので、別のスレッドと同時に動くと足した場所を見失う。
+    /// GIL を持つ前に取ること(GIL を持ったまま待つと、#346 と同じく止まる)。
+    static SYS_PATH_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     /// venv の形のディレクトリを作る(pyvenv.cfg と、モジュールを 1 つ入れた site-packages)
     fn fake_venv(name: &str, version: (u8, u8), module: &str) -> std::path::PathBuf {
@@ -123,6 +144,7 @@ mod tests {
 
     #[test]
     fn adds_site_packages_of_the_venv() {
+        let _lock = SYS_PATH_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         Python::attach(|py| {
             let v = py.version_info();
             let dir = fake_venv("ok", (v.major, v.minor), "juiz_venv_test_module_ok");
@@ -158,5 +180,36 @@ mod tests {
         Python::attach(|py| {
             assert_eq!(add_virtualenv_site_packages(py, None).unwrap(), "");
         });
+    }
+
+    /// 複数のスレッドから同時に呼んでも止まらない (#346)。
+    /// venv がある(Python のコードが長めに動き、途中で GIL を手放す)と、以前の実装ではほぼ毎回止まった。
+    #[test]
+    fn once_does_not_deadlock_with_threads() {
+        let _lock = SYS_PATH_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let v = Python::attach(|py| {
+            let v = py.version_info();
+            (v.major, v.minor)
+        });
+        let dir = fake_venv("threads", v, "juiz_venv_test_module_threads");
+        let once = std::sync::Arc::new(std::sync::Once::new());
+        let (tx, rx) = std::sync::mpsc::channel();
+        for _ in 0..8 {
+            let (tx, once, dir) = (tx.clone(), once.clone(), dir.clone());
+            std::thread::spawn(move || {
+                Python::attach(|py| {
+                    add_virtualenv_once_with(py, &once, || Some(dir.to_string_lossy().into_owned()))
+                });
+                let _ = tx.send(());
+            });
+        }
+        drop(tx);
+        for _ in 0..8 {
+            rx.recv_timeout(std::time::Duration::from_secs(30))
+                .expect("add_virtualenv_once did not return within 30 seconds (deadlock?)");
+        }
+        assert!(once.is_completed());
+        Python::attach(|py| assert!(py.import("juiz_venv_test_module_threads").is_ok()));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
