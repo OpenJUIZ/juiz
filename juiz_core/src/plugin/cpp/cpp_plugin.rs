@@ -368,15 +368,14 @@ impl CppPlugin {
 /// プラグインが読み込んだ libjuiz_sdk の版を、この juiz の juiz_sdk と比べる (issue #136)。
 ///
 /// C ABI のプラグインは libjuiz_sdk の C 関数で Capsule などを読み書きするので、libjuiz_sdk の構造体は
-/// juiz と同じでなければならない。ライブラリのハンドルで探す dlsym はライブラリが依存する共有ライブラリも探すので、
-/// プラグインが実際に読み込んだ libjuiz_sdk の `juiz_sdk_build_info` が見つかる。
+/// juiz と同じでなければならない。プラグインが実際に読み込んだ libjuiz_sdk の `juiz_sdk_build_info` を
+/// `sdk_build_info` で探して呼ぶ。
 /// juiz_sdk の版が違えばエラー、Rust コンパイラの版だけが違えば警告にする (構造体の配置はコンパイラの版で
 /// 変わりうるが、実際に変わることはまれで、配布している libjuiz_sdk と手元でビルドした juiz では版がそろわないため)。
 /// `juiz_sdk_build_info` が無い (0.0.20 以前の libjuiz_sdk) ときは確かめずに続ける。
 unsafe fn check_sdk_build_info(path: &PathBuf, lib: &Library) -> JuizResult<()> {
-    type BuildInfoFunction = unsafe extern "C" fn() -> *const std::os::raw::c_char;
     let host_info = BuildInfo::current();
-    let Ok(func) = lib.get::<BuildInfoFunction>(SDK_BUILD_INFO_SYMBOL.as_bytes()) else {
+    let Some(ptr) = sdk_build_info(lib) else {
         log::warn!(
             "CppPlugin({}) uses a libjuiz_sdk without '{SDK_BUILD_INFO_SYMBOL}', so its version can not be checked. \
              Rebuild the plugin with libjuiz_sdk {} to enable the check.",
@@ -385,12 +384,40 @@ unsafe fn check_sdk_build_info(path: &PathBuf, lib: &Library) -> JuizResult<()> 
         );
         return Ok(());
     };
-    let ptr = func();
     if ptr.is_null() {
         return Ok(());
     }
     let plugin_info = BuildInfo::parse(&std::ffi::CStr::from_ptr(ptr).to_string_lossy());
     compare_sdk_build_info(&path.display().to_string(), &plugin_info, &host_info)
+}
+
+type BuildInfoFunction = unsafe extern "C" fn() -> *const std::os::raw::c_char;
+
+/// プラグインが読み込んだ libjuiz_sdk の `juiz_sdk_build_info()` を呼ぶ。見つからなければ None。
+/// ライブラリのハンドルで探す dlsym はライブラリが依存する共有ライブラリも探すので、プラグインのハンドルで探せばよい。
+#[cfg(not(windows))]
+unsafe fn sdk_build_info(lib: &Library) -> Option<*const std::os::raw::c_char> {
+    let func = lib
+        .get::<BuildInfoFunction>(SDK_BUILD_INFO_SYMBOL.as_bytes())
+        .ok()?;
+    Some(func())
+}
+
+/// プラグインが読み込んだ libjuiz_sdk の `juiz_sdk_build_info()` を呼ぶ。見つからなければ None。
+/// Windows の GetProcAddress は渡した DLL 自身が公開する関数しか探さないので (issue #344)、プラグインの DLL に
+/// 無ければ、読み込み済みの juiz_sdk.dll から探す。Windows のローダーは同じ名前の DLL が読み込み済みなら
+/// どのディレクトリのものでもそれを使うので、プロセスの中の juiz_sdk.dll は一つで、プラグインが使っているものになる。
+#[cfg(windows)]
+unsafe fn sdk_build_info(lib: &Library) -> Option<*const std::os::raw::c_char> {
+    if let Ok(func) = lib.get::<BuildInfoFunction>(SDK_BUILD_INFO_SYMBOL.as_bytes()) {
+        return Some(func());
+    }
+    // プラグインが juiz_sdk.dll を読み込んでいるので、ここで閉じても (参照数が減るだけで) 外れない
+    let sdk = libloading::os::windows::Library::open_already_loaded("juiz_sdk.dll").ok()?;
+    let func = sdk
+        .get::<BuildInfoFunction>(SDK_BUILD_INFO_SYMBOL.as_bytes())
+        .ok()?;
+    Some(func())
 }
 
 fn compare_sdk_build_info(
@@ -519,6 +546,31 @@ mod tests {
                 assert_eq!(host_juiz_sdk, "0.0.21");
             }
             other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    /// ビルドした C++ の例から、プラグインが読み込んだ libjuiz_sdk の juiz_sdk_build_info が見つかる。
+    /// Windows ではプラグインの DLL 自身には無いので、juiz_sdk.dll から探す (issue #344)。
+    /// C++ の例は scripts/test.sh (CI も同じ) で ../target にビルドされている前提。無ければ飛ばす。
+    #[test]
+    fn sdk_build_info_is_found_through_plugin() {
+        #[cfg(target_os = "macos")]
+        let file = "../target/libincrement_process_cpp.dylib";
+        #[cfg(target_os = "linux")]
+        let file = "../target/libincrement_process_cpp.so";
+        #[cfg(target_os = "windows")]
+        let file = "../target/increment_process_cpp.dll";
+        let path = PathBuf::from(file);
+        if !path.exists() {
+            eprintln!("skip: C++ の例がビルドされていません ({path:?})");
+            return;
+        }
+        unsafe {
+            let lib = open_library(&path).unwrap();
+            let ptr = sdk_build_info(&lib).expect("juiz_sdk_build_info が見つからない");
+            assert!(!ptr.is_null());
+            let info = BuildInfo::parse(&std::ffi::CStr::from_ptr(ptr).to_string_lossy());
+            assert_eq!(info.juiz_sdk_str(), BuildInfo::current().juiz_sdk_str());
         }
     }
 }
