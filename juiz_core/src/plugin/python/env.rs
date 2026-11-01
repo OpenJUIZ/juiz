@@ -18,6 +18,10 @@ pub struct PythonCheck {
     pub missing: Vec<String>,
     /// pip を案内するときに使う Python の実行ファイル
     pub executable: String,
+    /// その Python が externally-managed(PEP 668)で、pip で直接入れられないか(Homebrew の Python など、#321)
+    pub externally_managed: bool,
+    /// Python のプラグインに要る `juiz` モジュール(pyjuiz)が見つからないか(#321)
+    pub pyjuiz_missing: bool,
 }
 
 #[cfg(feature = "python")]
@@ -93,11 +97,42 @@ def check(requires_json, python_version):
             ok = (not spec) or _simple_match(spec, installed)
         if not ok:
             missing.append(r)
+    exe, in_venv = _executable()
+    import importlib.util
+    return json.dumps({'version': version, 'version_ok': version_ok, 'missing': missing, 'executable': exe,
+                       'externally_managed': (not in_venv) and _externally_managed(),
+                       'pyjuiz_missing': importlib.util.find_spec('juiz') is None})
+
+def _executable():
+    # pip を案内する Python の実行ファイルと、それが venv の中のものか (#321)
     exe = sys.executable or ''
-    if not os.path.basename(exe).lower().startswith('python'):
-        # 埋め込みの Python では sys.executable が juiz 自身になることがある
-        exe = 'python' if os.name == 'nt' else 'python3'
-    return json.dumps({'version': version, 'version_ok': version_ok, 'missing': missing, 'executable': exe})
+    if os.path.basename(exe).lower().startswith('python'):
+        return exe, sys.prefix != sys.base_prefix
+    # 埋め込みの Python では sys.executable が juiz 自身になる。
+    # 有効にした venv があれば、juiz はその site-packages を使う (#296) ので、venv の python を案内する
+    venv = os.environ.get('VIRTUAL_ENV')
+    if venv:
+        p = os.path.join(venv, 'Scripts', 'python.exe') if os.name == 'nt' else os.path.join(venv, 'bin', 'python')
+        if os.path.isfile(p):
+            return p, True
+    # それ以外は、埋め込んでいる Python と同じ場所の実行ファイル
+    if os.name == 'nt':
+        candidates = [os.path.join(sys.base_prefix, 'python.exe')]
+    else:
+        candidates = [os.path.join(sys.base_prefix, 'bin', 'python%d.%d' % sys.version_info[:2]),
+                      os.path.join(sys.base_prefix, 'bin', 'python3')]
+    for p in candidates:
+        if os.path.isfile(p):
+            return p, False
+    return ('python' if os.name == 'nt' else 'python3'), False
+
+def _externally_managed():
+    # PEP 668: 標準ライブラリの場所に EXTERNALLY-MANAGED があれば、pip はそこに入れられない
+    try:
+        import sysconfig
+        return os.path.isfile(os.path.join(sysconfig.get_path('stdlib'), 'EXTERNALLY-MANAGED'))
+    except Exception:
+        return False
 "#;
 
 /// Python の版と `requires`(PEP 508 の要求の列)を調べる。
@@ -133,6 +168,8 @@ pub fn python_check(requires: &[String], python_version: Option<&str>) -> JuizRe
             })
             .unwrap_or_default(),
         executable: v["executable"].as_str().unwrap_or("python3").to_owned(),
+        externally_managed: v["externally_managed"].as_bool().unwrap_or(false),
+        pyjuiz_missing: v["pyjuiz_missing"].as_bool().unwrap_or(false),
     })
 }
 
@@ -165,5 +202,12 @@ mod tests {
         let reqs = vec!["surely-not-installed-juiz-package>=1".to_owned()];
         let r = python_check(&reqs, None).unwrap();
         assert_eq!(r.missing, vec!["surely-not-installed-juiz-package>=1"]);
+
+        // 埋め込みの Python でも、案内する実行ファイルは juiz 自身や PATH 頼みの名前ではなく、実在するパスにする (#321)。
+        // python_check を別のテストから同時に呼ぶと止まることがあるので、同じテストの中で確かめる
+        let exe = std::path::Path::new(&r.executable);
+        assert!(exe.is_absolute() && exe.is_file(), "{}", r.executable);
+        let name = exe.file_name().unwrap().to_string_lossy().to_lowercase();
+        assert!(name.starts_with("python"), "{}", r.executable);
     }
 }
