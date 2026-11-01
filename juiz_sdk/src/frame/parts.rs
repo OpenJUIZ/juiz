@@ -68,7 +68,29 @@ fn visit_bodies<R, F: FnOnce(&[&[u8]]) -> R>(
     }
 }
 
-/// 最終的な領域。画像の画素と数の配列の要素の型ごと
+/// 使い回すために取っておく画像の数の上限 (スレッドごと、issue #339)
+pub const SPARE_IMAGES_MAX: usize = 2;
+
+/// カプセルの中身が、ほかから参照されていない普通の画像 (Native でない) なら、取り出して返す。
+/// 使い終わった引数・戻り値の画素の領域を、次の受け取りに使い回すため (issue #339)。複製はしない
+pub fn take_spare_image(c: CapsulePtr) -> Option<DynamicImage> {
+    let c = c.try_into_capsule().ok()?;
+    if c.is_native() || !c.is_image() {
+        return None;
+    }
+    c.to_image()
+}
+
+/// 使い回す画像を spares に足す。SPARE_IMAGES_MAX を超えたら古いものから捨てる
+pub fn keep_spare_image(spares: &mut Vec<DynamicImage>, img: DynamicImage) {
+    if spares.len() >= SPARE_IMAGES_MAX {
+        spares.remove(0);
+    }
+    spares.push(img);
+}
+
+/// 最終的な領域。画像の画素と数の配列の要素の型ごと。
+/// 新しく確保した領域は 0 で埋めない (長さ 0、容量だけ確保する)。相手に書かせてから長さを決める (§5.3)
 enum BodyBuffer {
     U8(Vec<u8>),
     U16(Vec<u16>),
@@ -89,42 +111,122 @@ fn swap_all<T: PlainScalar>(v: &mut [T]) {
     }
 }
 
+/// 画像の形式の、1 画素の要素の数と要素の型 (0 u8 / 1 u16 / 2 f32)
+fn image_layout(format: &str) -> JuizResult<(usize, u8)> {
+    Ok(match format {
+        "l8" => (1, 0),
+        "la8" => (2, 0),
+        "rgb8" => (3, 0),
+        "rgba8" => (4, 0),
+        "l16" => (1, 1),
+        "la16" => (2, 1),
+        "rgb16" => (3, 1),
+        "rgba16" => (4, 1),
+        "rgb32f" => (3, 2),
+        "rgba32f" => (4, 2),
+        _ => return Err(anyhow!("unknown image format '{format}'")),
+    })
+}
+
+/// 本体の領域の状態
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BodyState {
+    /// 容量だけ確保した (中身は決まっていない)
+    Reserved,
+    /// 書き込み先を渡した。相手が全部書く約束 ([`FrameReceiver::body_ptr`])
+    Lent,
+    /// 使い回した領域。中身は前の画像のまま (まだ書き込み先を渡していない)
+    Spare,
+    /// 書き込み先を渡し、中身が決まっている
+    Ready,
+}
+
+struct Body {
+    buf: BodyBuffer,
+    /// 要素の数
+    elems: usize,
+    state: BodyState,
+}
+
 impl BodyBuffer {
-    fn alloc(desc: &BodyDesc) -> JuizResult<Self> {
-        Ok(match desc {
-            BodyDesc::Image {
-                width,
-                height,
-                format,
-                ..
-            } => {
-                let pixels = *width as usize * *height as usize;
-                let (channels, kind) = match format.as_str() {
-                    "l8" => (1, 0),
-                    "la8" => (2, 0),
-                    "rgb8" => (3, 0),
-                    "rgba8" => (4, 0),
-                    "l16" => (1, 1),
-                    "la16" => (2, 1),
-                    "rgb16" => (3, 1),
-                    "rgba16" => (4, 1),
-                    "rgb32f" => (3, 2),
-                    "rgba32f" => (4, 2),
-                    _ => return Err(anyhow!("unknown image format '{format}'")),
-                };
-                let n = pixels * channels;
-                match kind {
-                    0 => BodyBuffer::U8(vec![0; n]),
-                    1 => BodyBuffer::U16(vec![0; n]),
-                    _ => BodyBuffer::F32(vec![0.0; n]),
-                }
-            }
-            BodyDesc::Array { dtype, count, .. } => match dtype.as_str() {
-                "i64le" => BodyBuffer::I64(vec![0; *count as usize]),
-                "f64le" => BodyBuffer::F64(vec![0.0; *count as usize]),
-                _ => return Err(anyhow!("unknown array dtype '{dtype}'")),
-            },
-        })
+    /// 容量 elems の空の Vec
+    fn reserve(kind: u8, elems: usize) -> Self {
+        match kind {
+            0 => BodyBuffer::U8(Vec::with_capacity(elems)),
+            1 => BodyBuffer::U16(Vec::with_capacity(elems)),
+            2 => BodyBuffer::F32(Vec::with_capacity(elems)),
+            3 => BodyBuffer::I64(Vec::with_capacity(elems)),
+            _ => BodyBuffer::F64(Vec::with_capacity(elems)),
+        }
+    }
+
+    /// 使い終わった画像の画素の領域。形式と要素の数が合わなければ None
+    fn from_spare(img: DynamicImage, format: &str, elems: usize) -> Option<Self> {
+        use DynamicImage::*;
+        let buf = match (format, img) {
+            ("l8", ImageLuma8(b)) => BodyBuffer::U8(b.into_raw()),
+            ("la8", ImageLumaA8(b)) => BodyBuffer::U8(b.into_raw()),
+            ("rgb8", ImageRgb8(b)) => BodyBuffer::U8(b.into_raw()),
+            ("rgba8", ImageRgba8(b)) => BodyBuffer::U8(b.into_raw()),
+            ("l16", ImageLuma16(b)) => BodyBuffer::U16(b.into_raw()),
+            ("la16", ImageLumaA16(b)) => BodyBuffer::U16(b.into_raw()),
+            ("rgb16", ImageRgb16(b)) => BodyBuffer::U16(b.into_raw()),
+            ("rgba16", ImageRgba16(b)) => BodyBuffer::U16(b.into_raw()),
+            ("rgb32f", ImageRgb32F(b)) => BodyBuffer::F32(b.into_raw()),
+            ("rgba32f", ImageRgba32F(b)) => BodyBuffer::F32(b.into_raw()),
+            _ => return None,
+        };
+        (buf.len() == elems).then_some(buf)
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            BodyBuffer::U8(v) => v.len(),
+            BodyBuffer::U16(v) => v.len(),
+            BodyBuffer::F32(v) => v.len(),
+            BodyBuffer::I64(v) => v.len(),
+            BodyBuffer::F64(v) => v.len(),
+        }
+    }
+
+    /// 要素 elems 個ぶんの先頭のポインタとバイト数 (容量の中、初期化されているとは限らない)
+    fn raw_parts(&mut self, elems: usize) -> (*mut u8, usize) {
+        fn raw<T>(v: &mut Vec<T>, elems: usize) -> (*mut u8, usize) {
+            debug_assert!(v.capacity() >= elems);
+            (v.as_mut_ptr() as *mut u8, elems * std::mem::size_of::<T>())
+        }
+        match self {
+            BodyBuffer::U8(v) => raw(v, elems),
+            BodyBuffer::U16(v) => raw(v, elems),
+            BodyBuffer::F32(v) => raw(v, elems),
+            BodyBuffer::I64(v) => raw(v, elems),
+            BodyBuffer::F64(v) => raw(v, elems),
+        }
+    }
+
+    /// 長さを elems にする
+    ///
+    /// # Safety
+    /// 容量の先頭 elems 個の要素が書き込まれていること (どの要素の型も、どのビットの並びでも正しい値)
+    unsafe fn assume_written(&mut self, elems: usize) {
+        match self {
+            BodyBuffer::U8(v) => v.set_len(elems),
+            BodyBuffer::U16(v) => v.set_len(elems),
+            BodyBuffer::F32(v) => v.set_len(elems),
+            BodyBuffer::I64(v) => v.set_len(elems),
+            BodyBuffer::F64(v) => v.set_len(elems),
+        }
+    }
+
+    /// 0 で埋めて長さを elems にする
+    fn fill_zero(&mut self, elems: usize) {
+        match self {
+            BodyBuffer::U8(v) => v.resize(elems, 0),
+            BodyBuffer::U16(v) => v.resize(elems, 0),
+            BodyBuffer::F32(v) => v.resize(elems, 0.0),
+            BodyBuffer::I64(v) => v.resize(elems, 0),
+            BodyBuffer::F64(v) => v.resize(elems, 0.0),
+        }
     }
 
     fn as_mut_bytes(&mut self) -> &mut [u8] {
@@ -208,17 +310,30 @@ impl BodyBuffer {
 }
 
 /// 戻り値を受け取る側 (§5.3)。ヘッダを読んで本体ごとに最終的な `DynamicImage` / `Vec` の領域を確保し、
-/// 相手は [`FrameReceiver::body_mut`] の領域へ直接書く。書き終わったら [`FrameReceiver::finish`] でフレームにする。
-/// 画像のコピーは相手が書く 1 回だけ
+/// 相手は [`FrameReceiver::body_ptr`] (または [`FrameReceiver::body_mut`]) の領域へ直接書く。
+/// 書き終わったら [`FrameReceiver::finish`] でフレームにする。画像のコピーは相手が書く 1 回だけ。
+///
+/// 新しく確保した領域は 0 で埋めない。同じ大きさ・形式の使い終わった画像を渡せば、その領域を使い回す
+/// ([`FrameReceiver::begin_reusing`]、新しい領域のページフォールトを避ける、issue #339)
 pub struct FrameReceiver {
     header: FrameHeader,
-    bodies: Vec<BodyBuffer>,
+    bodies: Vec<Body>,
 }
 
 impl FrameReceiver {
     /// ヘッダ (先頭の "JZF1" と長さの無い JSON) を読み、本体の領域を確保する。
     /// 共有メモリの本体、余白のある画像、上限を超える大きさはエラー
     pub fn begin(header: &[u8], limits: &FrameLimits) -> JuizResult<Self> {
+        Self::begin_reusing(header, limits, &mut Vec::new())
+    }
+
+    /// begin と同じ。画像の本体は、spares の中に同じ大きさ・形式の画像があれば、その領域を使う
+    /// (使ったものは spares から取り除く。合わないものには触らない)
+    pub fn begin_reusing(
+        header: &[u8],
+        limits: &FrameLimits,
+        spares: &mut Vec<DynamicImage>,
+    ) -> JuizResult<Self> {
         if header.len() as u64 > limits.max_header_bytes {
             return Err(anyhow!(
                 "frame header is too large ({} bytes > {} bytes)",
@@ -241,9 +356,55 @@ impl FrameReceiver {
         let bodies = header
             .bodies
             .iter()
-            .map(BodyBuffer::alloc)
+            .map(|d| Self::alloc(d, spares))
             .collect::<JuizResult<Vec<_>>>()?;
         Ok(FrameReceiver { header, bodies })
+    }
+
+    fn alloc(desc: &BodyDesc, spares: &mut Vec<DynamicImage>) -> JuizResult<Body> {
+        match desc {
+            BodyDesc::Image {
+                width,
+                height,
+                format,
+                ..
+            } => {
+                let (channels, kind) = image_layout(format)?;
+                let elems = *width as usize * *height as usize * channels;
+                let found = spares.iter().position(|img| {
+                    img.width() == *width
+                        && img.height() == *height
+                        && super::image_format_of(img).is_ok_and(|f| f.0 == format)
+                });
+                if let Some(i) = found {
+                    if let Some(buf) = BodyBuffer::from_spare(spares.swap_remove(i), format, elems) {
+                        return Ok(Body {
+                            buf,
+                            elems,
+                            state: BodyState::Spare,
+                        });
+                    }
+                }
+                Ok(Body {
+                    buf: BodyBuffer::reserve(kind, elems),
+                    elems,
+                    state: BodyState::Reserved,
+                })
+            }
+            BodyDesc::Array { dtype, count, .. } => {
+                let kind = match dtype.as_str() {
+                    "i64le" => 3,
+                    "f64le" => 4,
+                    _ => return Err(anyhow!("unknown array dtype '{dtype}'")),
+                };
+                let elems = *count as usize;
+                Ok(Body {
+                    buf: BodyBuffer::reserve(kind, elems),
+                    elems,
+                    state: BodyState::Reserved,
+                })
+            }
+        }
     }
 
     /// 読んだヘッダ
@@ -256,18 +417,54 @@ impl FrameReceiver {
         self.bodies.len()
     }
 
-    /// 本体 index の書き込み先 (長さはヘッダの説明どおり)
-    pub fn body_mut(&mut self, index: usize) -> Option<&mut [u8]> {
-        self.bodies.get_mut(index).map(|b| b.as_mut_bytes())
+    /// 本体 index の書き込み先の先頭とバイト数 (長さはヘッダの説明どおり)。中身は 0 で埋めていない
+    ///
+    /// # Safety
+    /// 受け取った側は、[`FrameReceiver::finish`] を呼ぶまでに、その領域の全バイトを書かなければならない。
+    /// 領域は self を動かしても変わらないが、self を落とすと無効になる
+    pub unsafe fn body_ptr(&mut self, index: usize) -> Option<(*mut u8, usize)> {
+        let body = self.bodies.get_mut(index)?;
+        body.state = match body.state {
+            BodyState::Reserved => BodyState::Lent,
+            BodyState::Spare => BodyState::Ready,
+            s => s,
+        };
+        Some(body.buf.raw_parts(body.elems))
     }
 
-    /// 書き終わった本体とヘッダからフレームを作る
+    /// 本体 index の書き込み先 (長さはヘッダの説明どおり)。まだ中身が決まっていなければ 0 で埋める
+    pub fn body_mut(&mut self, index: usize) -> Option<&mut [u8]> {
+        let body = self.bodies.get_mut(index)?;
+        match body.state {
+            BodyState::Reserved => body.buf.fill_zero(body.elems),
+            // SAFETY: body_ptr を受け取った側が全部書く約束をしている
+            BodyState::Lent => unsafe { body.buf.assume_written(body.elems) },
+            BodyState::Spare | BodyState::Ready => {}
+        }
+        body.state = BodyState::Ready;
+        Some(body.buf.as_mut_bytes())
+    }
+
+    /// 書き終わった本体とヘッダからフレームを作る。書き込み先を渡していない本体があればエラー
+    /// (使い回した領域の古い中身や、決まっていない中身を戻り値にしない)
     pub fn finish(self) -> JuizResult<IncomingFrame> {
         let FrameReceiver { header, bodies } = self;
         let incoming = bodies
             .into_iter()
             .zip(header.bodies.iter())
-            .map(|(b, desc)| b.into_body(desc).map(Some))
+            .enumerate()
+            .map(|(i, (mut b, desc))| {
+                match b.state {
+                    BodyState::Reserved | BodyState::Spare => {
+                        return Err(anyhow!("body {i} was not written"));
+                    }
+                    // SAFETY: body_ptr を受け取った側が全部書く約束をしている
+                    BodyState::Lent => unsafe { b.buf.assume_written(b.elems) },
+                    BodyState::Ready => {}
+                }
+                debug_assert_eq!(b.buf.len(), b.elems);
+                b.buf.into_body(desc).map(Some)
+            })
             .collect::<JuizResult<Vec<_>>>()?;
         Ok(IncomingFrame {
             header,
@@ -349,5 +546,74 @@ mod tests {
             max_frame_bytes: 100,
         };
         assert!(FrameReceiver::begin(big, &limits).is_err());
+    }
+
+    fn rgb_response(w: u32, h: u32) -> (CapsulePtr, Vec<u8>) {
+        let img = DynamicImage::ImageRgb8(ImageBuffer::from_fn(w, h, |x, y| Rgb([x as u8, y as u8, 9])));
+        let c: CapsulePtr = Capsule::from(img).into();
+        let header = OutgoingFrame::response(0, &c).unwrap().header_bytes().unwrap();
+        (c, header)
+    }
+
+    /// 書き込み先を渡していない本体は、0 で埋めた中身にも使い回した中身にもせず、エラーにする (#339)
+    #[test]
+    fn unwritten_bodies_are_errors() {
+        let (_, header) = rgb_response(4, 2);
+        let r = FrameReceiver::begin(&header, &FrameLimits::default()).unwrap();
+        assert!(format!("{:#}", r.finish().unwrap_err()).contains("body 0 was not written"));
+        let spare = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(4, 2, Rgb([1, 2, 3])));
+        let mut spares = vec![spare];
+        let r = FrameReceiver::begin_reusing(&header, &FrameLimits::default(), &mut spares).unwrap();
+        assert!(spares.is_empty());
+        assert!(r.finish().is_err());
+    }
+
+    /// body_ptr で渡した領域に書けば、0 で埋めずにそのまま戻り値になる
+    #[test]
+    fn body_ptr_is_written_without_zero_filling() {
+        let (c, header) = rgb_response(5, 3);
+        let src = c.lock_as_image(|i| i.as_bytes().to_vec()).unwrap();
+        let mut r = FrameReceiver::begin(&header, &FrameLimits::default()).unwrap();
+        let (p, n) = unsafe { r.body_ptr(0) }.unwrap();
+        assert_eq!(n, src.len());
+        unsafe { std::ptr::copy_nonoverlapping(src.as_ptr(), p, n) };
+        let got = r.finish().unwrap().into_capsule_ptr().unwrap();
+        assert_eq!(got.extract_image().unwrap().as_bytes(), &src[..]);
+    }
+
+    /// 同じ大きさ・形式の画像があればその領域を使い、合わないものには触らない
+    #[test]
+    fn spare_images_are_reused_when_they_match() {
+        let (c, header) = rgb_response(6, 4);
+        let src = c.lock_as_image(|i| i.as_bytes().to_vec()).unwrap();
+        let same = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(6, 4, Rgb([7, 7, 7])));
+        let same_ptr = same.as_bytes().as_ptr() as usize;
+        let other_size = DynamicImage::ImageRgb8(ImageBuffer::from_pixel(4, 6, Rgb([7, 7, 7])));
+        let other_format = DynamicImage::ImageRgba8(ImageBuffer::from_pixel(6, 4, Rgba([7, 7, 7, 7])));
+        let mut spares = vec![other_size.clone(), same, other_format.clone()];
+        let mut r = FrameReceiver::begin_reusing(&header, &FrameLimits::default(), &mut spares).unwrap();
+        assert_eq!(spares.len(), 2);
+        assert!(spares.contains(&other_size) && spares.contains(&other_format));
+        let dst = r.body_mut(0).unwrap();
+        assert_eq!(dst.as_ptr() as usize, same_ptr);
+        dst.copy_from_slice(&src);
+        let got = r.finish().unwrap().into_capsule_ptr().unwrap().extract_image().unwrap();
+        assert_eq!(got.as_bytes().as_ptr() as usize, same_ptr);
+        assert_eq!(got.as_bytes(), &src[..]);
+    }
+
+    #[test]
+    fn take_spare_image_only_takes_unshared_plain_images() {
+        let (c, _) = rgb_response(2, 2);
+        let other = c.clone();
+        assert!(take_spare_image(c).is_none(), "still referenced");
+        assert!(take_spare_image(other).is_some());
+        assert!(take_spare_image(jvalue!(1).into()).is_none());
+        let mut spares = Vec::new();
+        for i in 0..SPARE_IMAGES_MAX + 1 {
+            keep_spare_image(&mut spares, DynamicImage::new_rgb8(i as u32 + 1, 1));
+        }
+        assert_eq!(spares.len(), SPARE_IMAGES_MAX);
+        assert_eq!(spares[0].width(), 2, "the oldest is dropped");
     }
 }

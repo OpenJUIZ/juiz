@@ -95,6 +95,11 @@ impl CapsuleMap {
         self.map.iter()
     }
 
+    /// 値を取り出す (キーとパラメータは捨てる)
+    pub fn into_values(self) -> std::collections::hash_map::IntoValues<String, CapsulePtr> {
+        self.map.into_values()
+    }
+
     pub fn get_int(&self, key: &str) -> JuizResult<i64> {
         Ok(self
             .get(key)?
