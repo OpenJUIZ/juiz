@@ -11,4 +11,7 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-juiz_core = { path="../../juiz_core" }
+# 既定の feature のうち embed-python だけを外す(EC のプラグインが libpython にリンクしないように、#322)。
+# ほかは cargo の juiz と同じにする(ipc-broker・webui は構造体のフィールドを変えるので、Rust ABI で渡す型の形を揃える)。
+# ワークスペース全体の cargo build では juiz_app の feature と合わさるので、配るときは cargo build -p timer_ec でビルドする
+juiz_core = { workspace = true, features = ["swagger-ui", "webui", "ipc-broker"] }

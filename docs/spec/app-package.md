@@ -467,6 +467,7 @@ Rust のプラグインには 2 種類ある(rust-plugin-abi.md、#291 で C ABI
 - C ABI のプラグインだけのパッケージは、`cargo install juiz_app` で自分の rustc でビルドした juiz や、Homebrew の rustc でビルドした juiz でも動く。`juiz` の版の範囲も `>=作った版` でよい(§4.3)。
 - Rust ABI のプラグインを含むパッケージは、今までどおり作った人と同じ rustc でビルドされた juiz でしか動かない。配る相手が多いアプリは、EC・ブローカーを自分で書かずに juiz に入っているものを使うか、配布用の juiz の rustc を揃える運用が要る。
 - コンテナとそのコンテナプロセスを別のクレートで作るときは、同じ rustc・同じ juiz_sdk でビルドしなければならない(rust-plugin-abi.md §8.3)。同じパッケージの中なら作った人が同じ環境でビルドするので普通は満たされる。pack はこれを検査しない(合わなければ呼び出し時に `ContainerTypeMismatchError`)。
+- EC のプラグインは juiz_core に依存する。juiz_core の既定の feature には `embed-python` があり、そのままでは EC のプラグインが libpython にリンクして、パッケージの外の Python に依存する(pack が警告する、#322)。EC のプラグインは `juiz_core = { version = "…", default-features = false, features = ["swagger-ui", "webui", "ipc-broker"] }` のように `embed-python` だけを外して依存し(ほかの feature は構造体のフィールドを変えるので、Rust ABI で渡す型の形をホストの juiz と揃える)、`cargo build -p <EC のクレート>` のように単独でビルドする。同じワークスペースで juiz_app などと一緒にビルドすると、Cargo が feature を合わせるので `embed-python` が入る(ecs/ の EC もワークスペース全体の `cargo build` では libpython にリンクする)。
 
 ### 12.2 C++ / Haskell(#287)
 
