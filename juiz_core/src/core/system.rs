@@ -180,6 +180,9 @@ impl System {
     }
 
     fn cleanup(&mut self) -> JuizResult<()> {
+        // spin の関数は EC (main_loop_ec など) が置いたもので、EC がプラグインならその中のコードを指す。
+        // プラグインを閉じた後に System と一緒に drop すると落ちるので、先に捨てる (#323)
+        self.spin_callback = None;
         system_builder::cleanup_objects(self)
     }
 

@@ -58,6 +58,11 @@ where
         Ok(pf)
     }
 
+    /// 同じ type_name のファクトリが登録済みか
+    pub fn has_factory(&self, type_name: &str) -> bool {
+        self.factories.contains_key(type_name)
+    }
+
     pub fn factory(&self, type_name: &str) -> JuizResult<&Arc<Mutex<TF>>> {
         match self.factories.get(type_name) {
             None => {

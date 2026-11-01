@@ -50,16 +50,22 @@ pub(super) fn setup_execution_context_factories(
     Ok(())
 }
 
+/// 組み込みの main_loop_ec のファクトリを登録する。
+/// conf の ec_factories で同じ type_name のプラグインを読み込み済みなら、ブローカーと同じく
+/// そちらを優先して組み込みは登録しない (#323)。
 pub(super) fn setup_main_loop_ec_factory(system: &mut System) -> JuizResult<()> {
     log::trace!("【呼出】setup_main_loop_ec()");
     let ecf = crate::ecs::main_loop_ec::execution_context_factory()?;
-    system
-        .core_broker()
-        .lock_mut()?
-        .worker_mut()
-        .store_mut()
-        .ecs
-        .register_factory(ExecutionContextHolderFactory::new(None, ecf)?)?;
+    let type_name = juiz_lock(&ecf)?.type_name().to_string();
+    let core_broker = system.core_broker().clone();
+    let mut cb = core_broker.lock_mut()?;
+    let ecs = &mut cb.worker_mut().store_mut().ecs;
+    if ecs.has_factory(&type_name) {
+        log::info!("ExecutionContextFactory(type_name={type_name:}) is already loaded as a plugin. The builtin one is not used.");
+        return Ok(());
+    }
+    ecs.register_factory(ExecutionContextHolderFactory::new(None, ecf)?)?;
+    log::info!("ExecutionContextFactory(type_name={type_name:}) (builtin) Loaded");
     Ok(())
 }
 
