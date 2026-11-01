@@ -22,7 +22,9 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use serde::Serialize;
 
 use crate::containers::ContainerImpl;
-use crate::frame::{read_frame_parts, FrameLimits, OutgoingFrame};
+use crate::frame::{
+    keep_spare_image, read_frame_parts_reusing, take_spare_image, FrameLimits, OutgoingFrame,
+};
 use crate::prelude::*;
 
 pub mod host;
@@ -402,6 +404,12 @@ fn take_natives(args: &JuizFrameIn) -> Result<Vec<Capsule>, Failure> {
     }
 }
 
+thread_local! {
+    /// 使い終わった戻り値の画像 (§5.5、issue #339)。次に引数の画像を読むとき、同じ大きさ・形式ならその領域に読む。
+    /// 大きな領域を確保・解放するたびのページフォールトを避ける
+    static SPARE_IMAGES: std::cell::RefCell<Vec<DynamicImage>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
 /// 引数のフレームを CapsuleMap にする (§5.2)。画像のコピーはここで 1 回。
 /// Native (§10.3) は複製も encode もせずに受け取る
 fn read_args(args: *const JuizFrameIn) -> Result<CapsuleMap, Failure> {
@@ -424,7 +432,10 @@ fn read_args(args: *const JuizFrameIn) -> Result<CapsuleMap, Failure> {
     for b in descs.iter() {
         bodies.push(unsafe { b.as_slice() }.ok_or(Failure::Null)?);
     }
-    read_frame_parts(header, &bodies, &FrameLimits::default())
+    let mut spares = SPARE_IMAGES.with(|s| std::mem::take(&mut *s.borrow_mut()));
+    let frame = read_frame_parts_reusing(header, &bodies, &FrameLimits::default(), &mut spares);
+    SPARE_IMAGES.with(|s| *s.borrow_mut() = spares);
+    frame
         .and_then(|mut f| {
             f.set_natives(natives);
             f.into_call_map()
@@ -597,6 +608,11 @@ fn write_frame(out: &JuizFrameOut, result: Capsule) -> Result<(), Failure> {
         // SAFETY: ホストは len バイトの書ける領域を渡し、呼び出しの間有効に保つ
         let dst = unsafe { std::slice::from_raw_parts_mut(dst, len) };
         frame.copy_body_into(i, dst).map_err(call_failure)?;
+    }
+    // 書き終わった画像は、ほかから参照されていなければ次の引数の受け取りに使い回す
+    drop(frame);
+    if let Some(img) = take_spare_image(ptr) {
+        SPARE_IMAGES.with(|s| keep_spare_image(&mut s.borrow_mut(), img));
     }
     Ok(())
 }

@@ -7,6 +7,9 @@
 //! の 1 回あたりの時間を測る。C ABI は引数と戻り値を JZF1 のフレームで運ぶので、画像は行きと帰りで 1 回ずつ複製される。
 //! 目安として、画像を 1 回複製するだけの時間も出す。
 //!
+//! glibc の malloc は、それまでに確保・解放した大きさで振る舞いを変えるので、C ABI・Rust ABI・複製は
+//! それぞれ子のプロセス (このテストのバイナリを起こし直す) で測る (#339)。
+//!
 //! 時間がかかるので `#[ignore]` にしてある。次のように release で実行する。
 //!
 //! ```sh
@@ -110,13 +113,15 @@ fn measure(abi: &str) -> JuizResult<Row> {
     Ok(row.expect("measured"))
 }
 
-#[test]
-#[ignore = "ベンチマーク。release で --ignored を付けて実行する"]
-fn rust_abi_bench() -> JuizResult<()> {
-    crate::common::logger::init();
-    let c = measure("c")?;
-    let rust = measure("rust")?;
-    let clone: Vec<Duration> = SIZES
+/// 子のプロセスで測るときに、何を測るかを渡す環境変数 ("c" / "rust" / "clone")
+const CHILD_ENV: &str = "JUIZ_RUST_ABI_BENCH_CHILD";
+
+/// 子のプロセスが結果を書く行の頭
+const RESULT_PREFIX: &str = "rust_abi_bench_result:";
+
+/// 画像を 1 回複製する時間
+fn measure_clone() -> Vec<Duration> {
+    SIZES
         .iter()
         .map(|(_, w, h, n)| {
             let img = image(*w, *h);
@@ -126,7 +131,62 @@ fn rust_abi_bench() -> JuizResult<()> {
             })
             .unwrap()
         })
-        .collect();
+        .collect()
+}
+
+/// 自分 (このテストのバイナリ) を子のプロセスとして起こし、what を測らせる。
+/// glibc の malloc は、それまでに確保・解放した大きさで振る舞い (mmap にするか、OS に返すか) を変えるので、
+/// 同じプロセスで続けて測ると、前に測ったものの影響を受ける (#339)。測るものごとにプロセスを分ける
+fn measure_in_child(what: &str) -> Vec<Duration> {
+    let out = std::process::Command::new(std::env::current_exe().expect("the test binary"))
+        .args([
+            "rust_abi_bench::rust_abi_bench",
+            "--exact",
+            "--ignored",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(CHILD_ENV, what)
+        .output()
+        .expect("run the benchmark in a child process");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let line = stdout
+        .lines()
+        .find_map(|l| l.split_once(RESULT_PREFIX).map(|(_, r)| r))
+        .unwrap_or_else(|| {
+            panic!(
+                "the child ({what}) did not write the result\n{stdout}\n{}",
+                String::from_utf8_lossy(&out.stderr)
+            )
+        });
+    line.split_whitespace()
+        .map(|n| Duration::from_nanos(n.parse().expect("nanoseconds")))
+        .collect()
+}
+
+#[test]
+#[ignore = "ベンチマーク。release で --ignored を付けて実行する"]
+fn rust_abi_bench() -> JuizResult<()> {
+    crate::common::logger::init();
+    if let Ok(what) = std::env::var(CHILD_ENV) {
+        let durations = match what.as_str() {
+            "clone" => measure_clone(),
+            abi => {
+                let row = measure(abi)?;
+                std::iter::once(row.small).chain(row.images).collect()
+            }
+        };
+        let ns: Vec<String> = durations.iter().map(|d| d.as_nanos().to_string()).collect();
+        println!("{RESULT_PREFIX}{}", ns.join(" "));
+        return Ok(());
+    }
+    let row = |v: Vec<Duration>| Row {
+        small: v[0],
+        images: v[1..].to_vec(),
+    };
+    let c = row(measure_in_child("c"));
+    let rust = row(measure_in_child("rust"));
+    let clone = measure_in_child("clone");
 
     println!("\n## Rust プラグインの呼び出し (CoreBroker の process_call、{ROUNDS} 回中の最短の 1 回あたり)\n");
     println!("|  | C ABI | Rust ABI | 差 | 画像の複製 1 回 |");

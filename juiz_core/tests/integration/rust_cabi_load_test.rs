@@ -253,3 +253,48 @@ fn images_pass_through_c_abi() -> JuizResult<()> {
         Ok(())
     })
 }
+
+/// 画像の領域を使い回しても (§5.5、#339)、毎回の戻り値は正しく、呼び手が持ち続ける引数は書き換わらない
+#[test]
+fn reused_image_buffers_keep_results_and_held_arguments_intact() -> JuizResult<()> {
+    use juiz_sdk::image::{ImageBuffer, Rgb, Rgba};
+    let (plugins, processes) = process_conf("cabi_image_proc", HOST, jvalue!({}));
+    with_system(system_conf(plugins, processes, jvalue!([])), |system| {
+        let id: ProcessIdentifier = "core://core/process/cabi_image_proc0::cabi_image_proc".try_into()?;
+        let rgb = |seed: u32| {
+            DynamicImage::ImageRgb8(ImageBuffer::from_fn(40, 30, move |x, y| {
+                Rgb([(x + seed) as u8, (y * seed) as u8, (x ^ y ^ seed) as u8])
+            }))
+        };
+        let rgba = |seed: u32| {
+            DynamicImage::ImageRgba8(ImageBuffer::from_fn(40, 30, move |x, y| {
+                Rgba([(x * seed) as u8, y as u8, seed as u8, (x + y) as u8])
+            }))
+        };
+        // 同じ大きさ・形式の続け、形式の違うものとの交互
+        let inputs = [rgb(1), rgb(2), rgb(3), rgba(4), rgb(5), rgba(6), rgba(7), rgb(8)];
+        let mut held = Vec::new();
+        let mut results = Vec::new();
+        for (i, img) in inputs.iter().enumerate() {
+            let arg: CapsulePtr = Capsule::from(img.clone()).into();
+            if i % 2 == 0 {
+                // 呼び手も持ち続ける引数 (使い回してはいけない)
+                held.push((arg.clone(), img.clone()));
+            }
+            let mut args = CapsuleMap::new();
+            args.insert("img".to_owned(), arg);
+            let result = system.core_broker().lock_mut()?.process_call(&id, args)?;
+            let mut expected = img.clone();
+            expected.invert();
+            result.lock_as_image(|r| assert_eq!(r, &expected, "result {i}"))?;
+            results.push((result, expected));
+        }
+        for (i, (result, expected)) in results.iter().enumerate() {
+            result.lock_as_image(|r| assert_eq!(r, expected, "result {i} after the other calls"))?;
+        }
+        for (arg, img) in held.iter() {
+            arg.lock_as_image(|a| assert_eq!(a, img, "an argument the caller holds"))?;
+        }
+        Ok(())
+    })
+}

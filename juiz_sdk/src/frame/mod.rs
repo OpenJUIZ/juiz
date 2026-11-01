@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use crate::prelude::*;
 
 mod parts;
-pub use parts::FrameReceiver;
+pub use parts::{keep_spare_image, take_spare_image, FrameReceiver, SPARE_IMAGES_MAX};
 
 /// フレームの先頭の 4 バイト。形式とその版を表す
 pub const MAGIC: [u8; 4] = *b"JZF1";
@@ -1017,6 +1017,17 @@ pub fn read_frame_parts(
     bodies: &[&[u8]],
     limits: &FrameLimits,
 ) -> JuizResult<IncomingFrame> {
+    read_frame_parts_reusing(header, bodies, limits, &mut Vec::new())
+}
+
+/// read_frame_parts と同じ。画像の本体は、spares の中に同じ大きさ・形式の画像があれば、その領域に読む
+/// (使ったものは spares から取り除く。新しい領域のページフォールトを避ける、issue #339)
+pub fn read_frame_parts_reusing(
+    header: &[u8],
+    bodies: &[&[u8]],
+    limits: &FrameLimits,
+    spares: &mut Vec<DynamicImage>,
+) -> JuizResult<IncomingFrame> {
     if header.len() as u64 > limits.max_header_bytes {
         return Err(anyhow!(
             "frame header is too large ({} bytes > {} bytes)",
@@ -1050,7 +1061,27 @@ pub fn read_frame_parts(
                 limits.max_frame_bytes
             ));
         }
-        incoming.push(Some(read_body(&mut &bytes[..], desc, &mut None)?));
+        let mut spare = match desc {
+            BodyDesc::Image {
+                width,
+                height,
+                format,
+                ..
+            } => spares
+                .iter()
+                .position(|img| {
+                    img.width() == *width
+                        && img.height() == *height
+                        && image_format_of(img).is_ok_and(|f| f.0 == format)
+                })
+                .map(|i| spares.swap_remove(i)),
+            _ => None,
+        };
+        let body = read_body(&mut &bytes[..], desc, &mut spare);
+        if let Some(img) = spare {
+            spares.push(img);
+        }
+        incoming.push(Some(body?));
     }
     Ok(IncomingFrame {
         header,
@@ -1312,6 +1343,30 @@ mod tests {
         assert!(floats_v.as_array().unwrap().iter().all(|v| v.is_f64()));
         assert_eq!(floats_v, jvalue!(floats));
         assert_eq!(got.get("mixed").unwrap().extract_value().unwrap(), jvalue!(mixed));
+    }
+
+    /// read_frame_parts_reusing は、合う画像だけを spares から取り、その領域に読む (#339)
+    #[test]
+    fn read_frame_parts_reusing_takes_matching_spares() {
+        let img = DynamicImage::ImageRgb8(ImageBuffer::from_fn(6, 3, |x, y| image::Rgb([x as u8, y as u8, 5])));
+        let c: CapsulePtr = Capsule::from(img.clone()).into();
+        let frame = OutgoingFrame::response(0, &c).unwrap();
+        let header = frame.header_bytes().unwrap();
+        let mut body = vec![0u8; frame.body_len(0).unwrap() as usize];
+        frame.copy_body_into(0, &mut body).unwrap();
+        let blank = DynamicImage::new_rgb8(6, 3);
+        let ptr = blank.as_bytes().as_ptr();
+        let other = DynamicImage::new_rgb8(3, 6);
+        let mut spares = vec![other.clone(), blank];
+        let got = read_frame_parts_reusing(&header, &[&body], &FrameLimits::default(), &mut spares)
+            .unwrap()
+            .into_capsule_ptr()
+            .unwrap()
+            .extract_image()
+            .unwrap();
+        assert_eq!(got, img);
+        assert_eq!(got.as_bytes().as_ptr(), ptr);
+        assert_eq!(spares, vec![other]);
     }
 
     #[test]

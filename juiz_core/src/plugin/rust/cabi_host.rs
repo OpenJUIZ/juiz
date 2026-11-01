@@ -22,7 +22,9 @@ use juiz_sdk::cabi::{
     JuizRustManifestFn, JuizRustNative, JuizRustNativeVtable, CABI_SYMBOL_SUFFIX,
     JUIZ_RUST_HOST_REFUSED, KIND_COMPONENT, KIND_CONTAINER, KIND_CONTAINER_PROCESS, KIND_PROCESS,
 };
-use juiz_sdk::frame::{FrameLimits, FrameReceiver, OutgoingFrame};
+use juiz_sdk::frame::{
+    keep_spare_image, take_spare_image, FrameLimits, FrameReceiver, OutgoingFrame,
+};
 use libloading::Library;
 
 use crate::prelude::*;
@@ -600,7 +602,20 @@ fn with_frame_in<R>(
     });
     // 呼べなかったとき、owned = 1 のものは natives の Drop で destroy される
     drop(natives);
+    // 渡し終えた引数の画像は、ほかから参照されていなければ次の戻り値の受け取りに使い回す (§5.5)
+    drop(frame);
+    for c in map.into_values() {
+        if let Some(img) = take_spare_image(c) {
+            SPARE_IMAGES.with(|s| keep_spare_image(&mut s.borrow_mut(), img));
+        }
+    }
     r
+}
+
+thread_local! {
+    /// 使い終わった引数の画像 (§5.5、issue #339)。次に戻り値の画像を受け取るとき、同じ大きさ・形式なら
+    /// その領域を使う。大きな領域を確保・解放するたびのページフォールトを避ける
+    static SPARE_IMAGES: std::cell::RefCell<Vec<DynamicImage>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 // ---- 戻り値の書き込み口 (§5.3) ----
@@ -657,7 +672,10 @@ extern "C" fn out_begin(ctx: *mut c_void, header: JuizBytes) -> i64 {
             out.refused = Some("the header is null".to_owned());
             return -1;
         };
-        match FrameReceiver::begin(bytes, &FrameLimits::default()) {
+        let mut spares = SPARE_IMAGES.with(|s| std::mem::take(&mut *s.borrow_mut()));
+        let r = FrameReceiver::begin_reusing(bytes, &FrameLimits::default(), &mut spares);
+        SPARE_IMAGES.with(|s| *s.borrow_mut() = spares);
+        match r {
             Ok(r) => {
                 out.receiver = Some(r);
                 0
@@ -682,14 +700,15 @@ extern "C" fn out_body(ctx: *mut c_void, index: usize, ptr: *mut *mut u8, len: *
             out.refused = Some("body() was called before begin()".to_owned());
             return -1;
         };
-        let Some(dst) = receiver.body_mut(index) else {
+        // SAFETY: プラグインは渡した領域の全バイトを書く約束 (§5.3)。書かずに 0 を返す入口は仕様に反する
+        let Some((dst, n)) = (unsafe { receiver.body_ptr(index) }) else {
             out.refused = Some(format!("body {index} is not in the header"));
             return -1;
         };
         // SAFETY: ptr と len は null でないことを確かめた。領域は receiver が持ち、呼び出しの間動かない
         unsafe {
-            *ptr = dst.as_mut_ptr();
-            *len = dst.len();
+            *ptr = dst;
+            *len = n;
         }
         0
     })

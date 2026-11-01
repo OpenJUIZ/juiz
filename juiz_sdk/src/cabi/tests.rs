@@ -2,7 +2,7 @@
 //! ホストの代わりに、引数のフレームを作り、戻り値の書き込み口を用意して入口を呼ぶ
 
 use super::*;
-use crate::frame::{BodyDesc, FrameHeader};
+use crate::frame::{read_frame_parts, BodyDesc, FrameHeader, SPARE_IMAGES_MAX};
 use image::{ImageBuffer, Rgb};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -818,3 +818,60 @@ fn never_called(_m: CapsuleMap) -> JuizResult<Capsule> {
 
 /// Native の数を数えるテストを同時に走らせない
 static NATIVE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn echo_image(mut map: CapsuleMap) -> JuizResult<Capsule> {
+    Ok(map.take("image")?.extract_image()?.into())
+}
+
+thread_local! {
+    static SEEN_ARG_PTR: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// 引数の画像の画素の先頭を覚えてから返す
+fn echo_image_recording_ptr(mut map: CapsuleMap) -> JuizResult<Capsule> {
+    let img = map.take("image")?.extract_image()?;
+    SEEN_ARG_PTR.with(|p| p.set(img.as_bytes().as_ptr() as usize));
+    Ok(img.into())
+}
+
+fn spare_ptrs() -> Vec<(u32, u32, usize)> {
+    SPARE_IMAGES.with(|s| {
+        s.borrow()
+            .iter()
+            .map(|i| (i.width(), i.height(), i.as_bytes().as_ptr() as usize))
+            .collect()
+    })
+}
+
+/// 書き終わった戻り値の画像を取っておき、次に同じ大きさ・形式の引数を読むときにその領域を使う (§5.5、#339)
+#[test]
+fn result_image_buffer_is_reused_for_the_next_argument() {
+    SPARE_IMAGES.with(|s| s.borrow_mut().clear());
+    let call = |img: DynamicImage, f: fn(CapsuleMap) -> JuizResult<Capsule>| {
+        let mut map = CapsuleMap::new();
+        map.insert("image".to_owned(), img.into());
+        let args = HostArgs::new(&map);
+        let mut host = HostOut::default();
+        assert_eq!(call_with(&args, &mut host, f), JUIZ_OK);
+        host_result(&host).extract_image().unwrap()
+    };
+    assert_eq!(call(image(16, 8), echo_image), image(16, 8));
+    let spares = spare_ptrs();
+    assert_eq!(spares.len(), 1);
+    assert_eq!((spares[0].0, spares[0].1), (16, 8));
+
+    // 中身の違う同じ大きさの画像: 取っておいた領域に読み、正しい中身を返す
+    let other = DynamicImage::ImageRgb8(ImageBuffer::from_fn(16, 8, |x, y| Rgb([200, x as u8, y as u8])));
+    assert_eq!(call(other.clone(), echo_image_recording_ptr), other);
+    assert_eq!(SEEN_ARG_PTR.with(|p| p.get()), spares[0].2, "the spare buffer is used");
+
+    // 大きさが違えば新しく確保し、取っておいたものは上限まで残す
+    assert_eq!(call(image(8, 4), echo_image), image(8, 4));
+    assert_eq!(spare_ptrs().len(), 2);
+    for i in 0..SPARE_IMAGES_MAX + 2 {
+        let img = image(4 + i as u32, 4);
+        assert_eq!(call(img.clone(), echo_image), img);
+    }
+    assert_eq!(spare_ptrs().len(), SPARE_IMAGES_MAX);
+    SPARE_IMAGES.with(|s| s.borrow_mut().clear());
+}
