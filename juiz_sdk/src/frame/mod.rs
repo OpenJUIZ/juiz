@@ -640,6 +640,12 @@ pub struct IncomingFrame {
 /// u8 / u16 / f32 / i64 / f64 の Vec。どのビット列も正しい値になる型だけに使う
 trait PlainScalar: Copy + Default {
     fn swap_from_le(self) -> Self;
+
+    /// 余白の無い count 個を、0 で埋めずに新しい領域へ読む (できる型だけ。できなければ None)。
+    /// 大きな画像では、0 で埋めるだけで複製 1 回分の時間がかかる (#333)
+    fn read_exact_vec<R: Read>(_r: &mut R, _count: usize) -> io::Result<Option<Vec<Self>>> {
+        Ok(None)
+    }
 }
 macro_rules! plain_scalar {
     ($($t:ty => $bits:ty),*) => {$(
@@ -653,6 +659,15 @@ macro_rules! plain_scalar {
 impl PlainScalar for u8 {
     fn swap_from_le(self) -> Self {
         self
+    }
+
+    fn read_exact_vec<R: Read>(r: &mut R, count: usize) -> io::Result<Option<Vec<u8>>> {
+        let mut v = Vec::with_capacity(count);
+        r.take(count as u64).read_to_end(&mut v)?;
+        if v.len() != count {
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "frame body is too short"));
+        }
+        Ok(Some(v))
     }
 }
 impl PlainScalar for u16 {
@@ -682,6 +697,11 @@ fn read_rows<T: PlainScalar, R: Read>(
     stride: usize,
     rows: usize,
 ) -> io::Result<Vec<T>> {
+    if stride == row_bytes && row_bytes * rows == count * std::mem::size_of::<T>() {
+        if let Some(v) = T::read_exact_vec(r, count)? {
+            return Ok(v);
+        }
+    }
     let mut v: Vec<T> = vec![T::default(); count];
     fill_rows(r, &mut v, row_bytes, stride, rows)?;
     Ok(v)
@@ -1413,6 +1433,16 @@ mod tests {
             read_frame(&mut buf.as_slice(), &limits),
             Err(FrameReadError::Fatal { .. })
         ));
+    }
+
+    #[test]
+    fn truncated_image_body_is_an_error() {
+        // 0 で埋めずに読む (read_exact_vec) 経路でも、本体が足りなければエラーになる
+        let c: CapsulePtr = Capsule::from(images()[1].clone()).into();
+        let mut buf = Vec::new();
+        OutgoingFrame::response(1, &c).unwrap().write_to(&mut buf).unwrap();
+        buf.truncate(buf.len() - 1);
+        assert!(read_frame(&mut buf.as_slice(), &FrameLimits::default()).is_err());
     }
 
     #[test]

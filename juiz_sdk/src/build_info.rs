@@ -24,6 +24,13 @@ const BUILD_INFO: &str = concat!(
     "\0"
 );
 
+/// この juiz_sdk のビルド情報の文字列 (末尾の NUL なし)。
+/// `format!("juiz_sdk={}...")` で作り直すと、ファイルの中に `juiz_sdk=` で始まる別の文字列が残り、
+/// juiz pack がビルド情報を探すときに紛らわしいので、これを使う (#333)
+pub fn build_info_str() -> &'static str {
+    BUILD_INFO.trim_end_matches('\0')
+}
+
 /// ビルド情報を C 文字列で返す。juiz_macro が生成する `*_build_info` 関数から呼ばれる。
 pub fn build_info_ptr() -> *const c_char {
     BUILD_INFO.as_ptr() as *const c_char
@@ -48,7 +55,7 @@ pub struct BuildInfo {
 impl BuildInfo {
     /// この juiz_sdk(を使うホストまたはプラグイン)自身のビルド情報
     pub fn current() -> BuildInfo {
-        BuildInfo::parse(BUILD_INFO.trim_end_matches('\0'))
+        BuildInfo::parse(build_info_str())
     }
 
     /// `key=value;key=value` 形式の文字列を読む。知らないキーは無視する。
