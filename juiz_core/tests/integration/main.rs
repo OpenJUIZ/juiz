@@ -61,6 +61,7 @@ mod pyjuiz_ipc_proxy_test;
 mod python_image_test;
 mod pyjuiz_proxy_test;
 mod python_datatype_test;
+mod python_example_conf_test;
 mod python_plugin_path_test;
 mod python_plugin_test;
 mod rust_abi_bench;
