@@ -48,6 +48,7 @@ mod ipc_broker_api_test;
 #[cfg(feature = "ipc-broker")]
 mod ipc_shared_memory_test;
 mod lazy_eval_test;
+mod main_loop_ec_plugin_test;
 mod local_broker_api_test;
 mod messenger_broker_proxy_test;
 mod namespace_broker_test;
