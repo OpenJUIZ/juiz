@@ -260,6 +260,11 @@ fn check_python(m: &Manifest) -> Result<()> {
     }
     if !r.missing.is_empty() {
         let virtual_env = std::env::var("VIRTUAL_ENV").ok();
+        // 新しく作った venv などで juiz モジュールも無ければ、一緒に入れるよう案内する(無いと Python のプラグインを読めない、#321)
+        let mut to_install = r.missing.clone();
+        if r.pyjuiz_missing {
+            to_install.insert(0, "pyjuiz".to_owned());
+        }
         bail!(
             "{} {} needs Python packages that are not installed: {}\n{}",
             m.name,
@@ -267,8 +272,9 @@ fn check_python(m: &Manifest) -> Result<()> {
             r.missing.join(", "),
             pip_install_hint(
                 &r.executable,
-                &r.missing,
+                &to_install,
                 virtual_env.as_deref(),
+                r.externally_managed,
                 cfg!(windows)
             )
         );
@@ -279,12 +285,15 @@ fn check_python(m: &Manifest) -> Result<()> {
 /// 足りない Python のパッケージを入れる pip のコマンドを、貼り付けてそのまま通る形で作る (#304)。
 ///
 /// - 有効にした venv の中の Python なら `python -m pip ...`(venv の python が PATH の先頭にあるので、どのシェルでも通る)
+/// - externally-managed(PEP 668、Homebrew の Python など)なら pip で直接入れられないので、
+///   venv を作って入れ、有効にしたまま juiz を動かす手順を示す (#321)
 /// - パスに空白などが無ければ、そのパスのまま
 /// - 空白などがあれば、Windows は PowerShell(`& "..."`)と cmd(`"..."`)の両方を、それ以外は `'...'` で囲んだ形を示す
 fn pip_install_hint(
     executable: &str,
     packages: &[String],
     virtual_env: Option<&str>,
+    externally_managed: bool,
     windows: bool,
 ) -> String {
     let args = packages
@@ -306,19 +315,46 @@ fn pip_install_hint(
     if in_venv {
         return format!("Install them with: python -m pip install {args}");
     }
-    let needs_quote = executable
-        .chars()
-        .any(|c| c.is_whitespace() || "\"'&()^%!;,$`".contains(c));
-    if !needs_quote {
-        return format!("Install them with: {executable} -m pip install {args}");
+    if externally_managed {
+        let activate = if windows {
+            r".venv\Scripts\activate"
+        } else {
+            "source .venv/bin/activate"
+        };
+        return format!(
+            "{executable} is externally managed (PEP 668), so pip cannot install into it.\n\
+             Make a venv, install them there, and run juiz again with the venv activated:\n  \
+             {} -m venv .venv\n  \
+             {activate}\n  \
+             python -m pip install {args}",
+            shell_word(executable, windows)
+        );
     }
-    if windows {
-        format!(
+    if windows && needs_quote(executable) {
+        return format!(
             "Install them with:\n  PowerShell: & \"{executable}\" -m pip install {args}\n  cmd:        \"{executable}\" -m pip install {args}"
-        )
+        );
+    }
+    format!(
+        "Install them with: {} -m pip install {args}",
+        shell_word(executable, windows)
+    )
+}
+
+fn needs_quote(executable: &str) -> bool {
+    executable
+        .chars()
+        .any(|c| c.is_whitespace() || "\"'&()^%!;,$`".contains(c))
+}
+
+/// 実行ファイルのパスを、シェルにそのまま貼れる形にする(空白などがあれば囲む。Windows は PowerShell の形)
+fn shell_word(executable: &str, windows: bool) -> String {
+    if !needs_quote(executable) {
+        executable.to_owned()
+    } else if windows {
+        format!("& \"{executable}\"")
     } else {
-        let quoted = executable.replace('\'', "'\\''");
-        format!("Install them with: '{quoted}' -m pip install {args}")
+        format!("'{}'", executable.replace('\'', "'\\''"))
     }
 }
 
@@ -701,7 +737,7 @@ pub(crate) mod tests {
         let pkgs = vec!["six>=1.16".to_owned(), "numpy".to_owned()];
         // パスに空白が無ければ、そのまま
         assert_eq!(
-            pip_install_hint(r"C:\Python310\python.exe", &pkgs, None, true),
+            pip_install_hint(r"C:\Python310\python.exe", &pkgs, None, false, true),
             r#"Install them with: C:\Python310\python.exe -m pip install "six>=1.16" "numpy""#
         );
         // 有効にした venv の中の Python なら python -m pip(大文字小文字と区切りの違いは Windows では無視する)
@@ -710,6 +746,7 @@ pub(crate) mod tests {
                 r"C:\Users\Taro Yamada\app\.venv\Scripts\python.exe",
                 &pkgs,
                 Some(r"c:/users/taro yamada/app/.venv"),
+                false,
                 true
             ),
             r#"Install them with: python -m pip install "six>=1.16" "numpy""#
@@ -719,17 +756,18 @@ pub(crate) mod tests {
                 "/home/me/my app/.venv/bin/python3",
                 &pkgs,
                 Some("/home/me/my app/.venv/"),
+                false,
                 false
             ),
             r#"Install them with: python -m pip install "six>=1.16" "numpy""#
         );
         // venv の外の Python で、パスに空白があれば囲む(Windows は PowerShell と cmd の両方)
         assert_eq!(
-            pip_install_hint(r"C:\Users\Taro Yamada\AppData\Local\Programs\Python\Python310\python.exe", &pkgs, Some(r"C:\other\.venv"), true),
+            pip_install_hint(r"C:\Users\Taro Yamada\AppData\Local\Programs\Python\Python310\python.exe", &pkgs, Some(r"C:\other\.venv"), false, true),
             "Install them with:\n  PowerShell: & \"C:\\Users\\Taro Yamada\\AppData\\Local\\Programs\\Python\\Python310\\python.exe\" -m pip install \"six>=1.16\" \"numpy\"\n  cmd:        \"C:\\Users\\Taro Yamada\\AppData\\Local\\Programs\\Python\\Python310\\python.exe\" -m pip install \"six>=1.16\" \"numpy\""
         );
         assert_eq!(
-            pip_install_hint("/opt/my python/bin/python3", &pkgs, None, false),
+            pip_install_hint("/opt/my python/bin/python3", &pkgs, None, false, false),
             r#"Install them with: '/opt/my python/bin/python3' -m pip install "six>=1.16" "numpy""#
         );
         // venv の名前で始まる別のディレクトリは venv の中とみなさない
@@ -738,9 +776,31 @@ pub(crate) mod tests {
                 "/home/me/.venv2/bin/python3",
                 &pkgs,
                 Some("/home/me/.venv"),
+                false,
                 false
             ),
             r#"Install them with: /home/me/.venv2/bin/python3 -m pip install "six>=1.16" "numpy""#
+        );
+        // externally-managed(Homebrew の Python など)なら、venv を作って入れる手順 (#321)
+        let homebrew = "/opt/homebrew/opt/python@3.14/Frameworks/Python.framework/Versions/3.14/bin/python3.14";
+        assert_eq!(
+            pip_install_hint(homebrew, &pkgs, None, true, false),
+            format!(
+                "{homebrew} is externally managed (PEP 668), so pip cannot install into it.\n\
+                 Make a venv, install them there, and run juiz again with the venv activated:\n  \
+                 {homebrew} -m venv .venv\n  \
+                 source .venv/bin/activate\n  \
+                 python -m pip install \"six>=1.16\" \"numpy\""
+            )
+        );
+        assert!(pip_install_hint("/opt/my python/bin/python3", &pkgs, None, true, false)
+            .contains("\n  '/opt/my python/bin/python3' -m venv .venv\n"));
+        assert!(pip_install_hint(r"C:\Python 3\python.exe", &pkgs, None, true, true)
+            .contains("\n  & \"C:\\Python 3\\python.exe\" -m venv .venv\n  .venv\\Scripts\\activate\n"));
+        // venv の中なら externally-managed かどうかによらず python -m pip
+        assert_eq!(
+            pip_install_hint("/home/me/.venv/bin/python", &pkgs, Some("/home/me/.venv"), true, false),
+            r#"Install them with: python -m pip install "six>=1.16" "numpy""#
         );
     }
 

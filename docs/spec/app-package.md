@@ -352,7 +352,7 @@ juiz packages
 | 5. ファイル | §11 の zip の安全規則と、`files` との照合(§9.1) | 規則・ファイルごとの文(§11、§9.1) |
 | 6. ビルド情報 | `rust.abi` があれば、ホストがその C ABI の版を読める。`rust.rustc` があれば、ホストの rustc と一致する(§12.1) | `<name> <ver> contains Rust plugins with plugin ABI <n>, but this juiz supports ABI <版の並び>. Update juiz.` / `<name> <ver> contains Rust plugins built with <rustc>, but this juiz was built with <rustc>.` |
 | 7. 言語 | `python` を含むなら、ホストが Python を埋め込める(embed-python)。`python.version` に合う | `<name> needs Python, but this juiz was built without Python support. Install juiz with: pip install juiz-cli` など |
-| 8. Python の依存 | `python.requires` の各要求を、ホストが埋め込む Python の `importlib.metadata` で満たせる | 足りないものを並べ、`<その Python の実行ファイル> -m pip install "numpy>=1.26" …` を案内 |
+| 8. Python の依存 | `python.requires` の各要求を、ホストが埋め込む Python の `importlib.metadata` で満たせる | 足りないものを並べ、`<その Python の実行ファイル> -m pip install "numpy>=1.26" …` を案内。有効にした venv があれば `python -m pip install …`。埋め込みの Python では実行ファイルを `sys.base_prefix` から求める。その Python が externally-managed(PEP 668、Homebrew の Python など)なら、`<実行ファイル> -m venv .venv` → venv を有効にする → `python -m pip install …` → 有効にしたまま juiz を動かす、の手順を案内。Python のプラグインに要る `juiz` モジュールも無ければ、入れるものに `pyjuiz` を足す(#321) |
 | 9. 依存 | §10.2 | §10.3 |
 | 10. 読み込み | 今までどおり、プラグインを読むときの検査(Rust の C ABI は表の ABI の版(rust-plugin-abi.md §9.2)、Rust ABI は `check_build_info`、C++ / Haskell は `juiz_sdk_build_info`)と、接続時の型の指紋(datatype.md §8・§19) | 既存のエラー |
 
