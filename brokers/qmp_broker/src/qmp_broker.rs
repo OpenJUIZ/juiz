@@ -128,9 +128,13 @@ fn handle_request(
     mut cm: CapsuleMap,
     remote_addr: SocketAddr,
 ) -> JuizResult<CapsulePtr> {
-    let crud = juiz_lock(crud_broker)?;
-    localize_request(&mut cm, crud.name().as_str());
-    crud.on_capsule_map_request(cm, Some(remote_addr))
+    // ロックは名前と dispatcher を取り出す間だけ握り、Process の実行中は外しておく (issue #356)
+    let (name, dispatcher) = {
+        let crud = juiz_lock(crud_broker)?;
+        (crud.name(), crud.dispatcher())
+    };
+    localize_request(&mut cm, name.as_str());
+    dispatcher.on_capsule_map_request(cm, Some(remote_addr))
 }
 
 /// 1 つのストリームで、要求のフレームを読み、処理して、応答のフレームを書く。

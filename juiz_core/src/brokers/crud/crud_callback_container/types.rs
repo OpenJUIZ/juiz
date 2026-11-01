@@ -9,11 +9,11 @@ use super::CallbackContainerType;
 
 pub(crate) fn create_read_callbacks() -> CallbackContainerType {
     let mut cbs = CallbackContainerType::new();
-    cbs.insert("list", |_crud, cb, _args| {
+    cbs.insert("list", |cb, _args| {
         log::debug!("[READ  ] type/list called");
         Ok(serde_json::to_value(cb.lock()?.type_list()?)?.into())
     });
-    cbs.insert("schema", |_crud, cb, args| {
+    cbs.insert("schema", |cb, args| {
         log::debug!("[READ  ] type/schema called");
         let identifier = args.get_param("identifier").cloned().ok_or_else(|| {
             anyhow!(JuizError::CRUDBrokerCanNotParameterFunctionError {

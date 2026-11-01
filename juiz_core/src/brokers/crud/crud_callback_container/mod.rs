@@ -12,7 +12,7 @@ mod topic;
 
 use std::collections::HashMap;
 
-use super::{super::core_broker::CoreBrokerPtr, CRUDBroker};
+use super::super::core_broker::CoreBrokerPtr;
 use crate::prelude::*;
 
 /// list で返す識別子のうち core を指すものを、呼び出しに使われたブローカー (http なら host:port) を指す形に書き換える。
@@ -66,7 +66,7 @@ impl NamespaceFilter {
     }
 }
 
-pub type CBFnType = fn(&CRUDBroker, CoreBrokerPtr, CapsuleMap) -> JuizResult<CapsulePtr>;
+pub type CBFnType = fn(CoreBrokerPtr, CapsuleMap) -> JuizResult<CapsulePtr>;
 pub type CallbackContainerType = HashMap<&'static str, CBFnType>;
 pub type ClassCallbackContainerType = HashMap<&'static str, CallbackContainerType>;
 

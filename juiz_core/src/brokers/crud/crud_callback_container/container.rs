@@ -9,7 +9,7 @@ use crate::core::container_profile_value;
 
 pub(crate) fn create_create_callbacks() -> CallbackContainerType {
     let mut container_callbacks = CallbackContainerType::new();
-    container_callbacks.insert("create", |_crud, cb, args| {
+    container_callbacks.insert("create", |cb, args| {
         log::debug!("[CREATE] container/create called");
         let manifest: ContainerManifest =
             serde_json::from_value(args.get("__manifest__")?.extract_value()?)?;
@@ -21,7 +21,7 @@ pub(crate) fn create_create_callbacks() -> CallbackContainerType {
 
 pub(crate) fn create_read_callbacks() -> CallbackContainerType {
     let mut cont_cbs = CallbackContainerType::new();
-    cont_cbs.insert("profile_full", |_crud, cb, args| {
+    cont_cbs.insert("profile_full", |cb, args| {
         log::debug!("[READ  ] container/profile_full called");
         let container_id: ContainerIdentifier = args
             .get_param("identifier")
@@ -35,7 +35,7 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
         let profile: ContainerProfile = cb.lock()?.container_profile_full(&container_id)?;
         Ok(container_profile_value(&profile)?.into())
     });
-    cont_cbs.insert("list", |_crud, cb, args| {
+    cont_cbs.insert("list", |cb, args| {
         log::debug!("[READ  ] container/list called");
         let recursive: bool = bool::from_str(
             args.get_param("recursive")
@@ -61,7 +61,7 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
 
 pub(crate) fn create_delete_callbacks() -> CallbackContainerType {
     let mut cont_cbs = CallbackContainerType::new();
-    cont_cbs.insert("destroy", |_crud, cb, args| {
+    cont_cbs.insert("destroy", |cb, args| {
         log::debug!("[UPDATE] container/destroy called");
         let id: ContainerIdentifier = args
             .get_param("identifier")

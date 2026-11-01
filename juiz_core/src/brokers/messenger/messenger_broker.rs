@@ -110,18 +110,20 @@ fn handle_function(
     let class_name = extract_class_name(&args)?;
     let function_name = extract_function_name(&args)?.to_owned();
 
+    // ロックは dispatcher を取り出す間だけ握り、Process の実行中は外しておく (issue #356)
+    let dispatcher = juiz_lock(&crud_broker)?.dispatcher();
     match extract_method_name(&args)?.as_str() {
         "CREATE" => {
-            juiz_lock(&crud_broker)?.create_class(class_name.as_str(), function_name.as_str(), args)
+            dispatcher.create_class(class_name.as_str(), function_name.as_str(), args)
         }
         "READ" => {
-            juiz_lock(&crud_broker)?.read_class(class_name.as_str(), function_name.as_str(), args)
+            dispatcher.read_class(class_name.as_str(), function_name.as_str(), args)
         }
         "UPDATE" => {
-            juiz_lock(&crud_broker)?.update_class(class_name.as_str(), function_name.as_str(), args)
+            dispatcher.update_class(class_name.as_str(), function_name.as_str(), args)
         }
         "DELETE" => {
-            juiz_lock(&crud_broker)?.delete_class(class_name.as_str(), function_name.as_str(), args)
+            dispatcher.delete_class(class_name.as_str(), function_name.as_str(), args)
         }
         _ => Err(anyhow::Error::from(
             JuizError::CRUDBRokerCanNotFindMethodError {

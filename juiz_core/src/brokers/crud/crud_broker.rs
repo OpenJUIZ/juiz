@@ -7,6 +7,7 @@ use crate::prelude::*;
 use juiz_sdk::anyhow::anyhow;
 use juiz_sdk::manifests::BrokerIdentifier;
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 //#[derive(Debug)]
 pub struct CRUDBroker {
@@ -15,10 +16,7 @@ pub struct CRUDBroker {
     _name: String,
     _type_name: String,
     manifest: Value,
-    create_callback_container: ClassCallbackContainerType, //HashMap<&'static str, FnType>
-    read_callback_container: ClassCallbackContainerType,   //HashMap<&'static str, FnType>
-    update_callback_container: ClassCallbackContainerType, //HashMap<&'static str, FnType>
-    delete_callback_container: ClassCallbackContainerType, //HashMap<&'static str, FnType>
+    dispatcher: CRUDDispatcher,
     is_started: bool,
     profile: BrokerProfile,
 }
@@ -65,14 +63,11 @@ impl CRUDBroker {
         };
         let id = BrokerIdentifier::new(broker_name, broker_type, "core", "core");
         Ok(CRUDBroker {
+            dispatcher: CRUDDispatcher::new(core_broker.clone()),
             core_broker,
             identifier: id,
             _type_name: broker_type.to_owned(),
             _name: broker_name.to_owned(),
-            create_callback_container: create_callback_container(),
-            read_callback_container: read_callback_container(),
-            update_callback_container: update_callback_container(),
-            delete_callback_container: delete_callback_container(),
             manifest,
             is_started: false,
             profile,
@@ -152,6 +147,81 @@ impl CRUDBroker {
         self.core_broker
             .lock_mut()?
             .reserve_master_broker(master_info)
+    }
+
+    /// 要求を処理する [`CRUDDispatcher`] を取り出す (issue #356)。
+    ///
+    /// Process の実行は時間がかかることがあるので、ブローカーは `Mutex<CRUDBroker>` のロックの中で
+    /// 要求を処理してはいけない。ロックの中ではこれを取り出すだけにして、ロックを外してから
+    /// `CRUDDispatcher` で処理する。そうしないと別の Process への同時の呼び出しまで 1 本ずつになる。
+    pub fn dispatcher(&self) -> CRUDDispatcher {
+        self.dispatcher.clone()
+    }
+
+    pub fn on_value_request(&self, val: Value, opt_requesting_host_addr: Option<SocketAddr>) -> JuizResult<CapsulePtr> {
+        self.dispatcher.on_value_request(val, opt_requesting_host_addr)
+    }
+
+    pub fn on_capsule_map_request(&self, cp: CapsuleMap, opt_requesting_host_addr: Option<SocketAddr>) -> JuizResult<CapsulePtr> {
+        self.dispatcher.on_capsule_map_request(cp, opt_requesting_host_addr)
+    }
+
+    pub fn create_class(&self, class_name: &str, function_name: &str, args: CapsuleMap) -> JuizResult<CapsulePtr> {
+        self.dispatcher.create_class(class_name, function_name, args)
+    }
+
+    pub fn read_class(&self, class_name: &str, function_name: &str, args: CapsuleMap) -> JuizResult<CapsulePtr> {
+        self.dispatcher.read_class(class_name, function_name, args)
+    }
+
+    pub fn update_class(&self, class_name: &str, function_name: &str, args: CapsuleMap) -> JuizResult<CapsulePtr> {
+        self.dispatcher.update_class(class_name, function_name, args)
+    }
+
+    pub fn delete_class(&self, class_name: &str, function_name: &str, args: CapsuleMap) -> JuizResult<CapsulePtr> {
+        self.dispatcher.delete_class(class_name, function_name, args)
+    }
+
+    pub fn read_class_value2cap(&self, class_name: &str, function_name: &str, args: Value) -> JuizResult<CapsulePtr> {
+        self.dispatcher.read_class_value2cap(class_name, function_name, args)
+    }
+
+    pub fn update_class_value2cap(&self, class_name: &str, function_name: &str, args: Value) -> JuizResult<CapsulePtr> {
+        self.dispatcher.update_class_value2cap(class_name, function_name, args)
+    }
+
+    pub fn delete_class_value2cap(&self, class_name: &str, function_name: &str, args: Value) -> JuizResult<CapsulePtr> {
+        self.dispatcher.delete_class_value2cap(class_name, function_name, args)
+    }
+}
+
+/// CRUD の要求を、コールバックの表に従って CoreBroker の処理へ振り分ける (issue #356)。
+///
+/// 中身は `Arc` と `CoreBrokerPtr` だけなので clone は安い。`Mutex<CRUDBroker>` の外で使える。
+#[derive(Clone)]
+pub struct CRUDDispatcher {
+    core_broker: CoreBrokerPtr,
+    callbacks: Arc<CRUDCallbacks>,
+}
+
+struct CRUDCallbacks {
+    create: ClassCallbackContainerType,
+    read: ClassCallbackContainerType,
+    update: ClassCallbackContainerType,
+    delete: ClassCallbackContainerType,
+}
+
+impl CRUDDispatcher {
+    fn new(core_broker: CoreBrokerPtr) -> Self {
+        CRUDDispatcher {
+            core_broker,
+            callbacks: Arc::new(CRUDCallbacks {
+                create: create_callback_container(),
+                read: read_callback_container(),
+                update: update_callback_container(),
+                delete: delete_callback_container(),
+            }),
+        }
     }
 
     fn on_update(
@@ -259,7 +329,7 @@ impl CRUDBroker {
         args: CapsuleMap,
     ) -> JuizResult<CapsulePtr> {
         self.call_callback(
-            &self.create_callback_container,
+            &self.callbacks.create,
             class_name,
             function_name,
             args,
@@ -273,7 +343,7 @@ impl CRUDBroker {
         args: Value,
     ) -> JuizResult<CapsulePtr> {
         self.call_callback(
-            &self.read_callback_container,
+            &self.callbacks.read,
             class_name,
             function_name,
             args.try_into()?,
@@ -287,7 +357,7 @@ impl CRUDBroker {
         args: Value,
     ) -> JuizResult<CapsulePtr> {
         self.call_callback(
-            &self.update_callback_container,
+            &self.callbacks.update,
             class_name,
             function_name,
             args.try_into()?,
@@ -301,7 +371,7 @@ impl CRUDBroker {
         args: Value,
     ) -> JuizResult<CapsulePtr> {
         self.call_callback(
-            &self.delete_callback_container,
+            &self.callbacks.delete,
             class_name,
             function_name,
             args.try_into()?,
@@ -315,7 +385,7 @@ impl CRUDBroker {
         args: CapsuleMap,
     ) -> JuizResult<CapsulePtr> {
         self.call_callback(
-            &self.read_callback_container,
+            &self.callbacks.read,
             class_name,
             function_name,
             args,
@@ -329,7 +399,7 @@ impl CRUDBroker {
         args: CapsuleMap,
     ) -> JuizResult<CapsulePtr> {
         self.call_callback(
-            &self.update_callback_container,
+            &self.callbacks.update,
             class_name,
             function_name,
             args,
@@ -343,7 +413,7 @@ impl CRUDBroker {
         args: CapsuleMap,
     ) -> JuizResult<CapsulePtr> {
         self.call_callback(
-            &self.delete_callback_container,
+            &self.callbacks.delete,
             class_name,
             function_name,
             args,
@@ -362,7 +432,7 @@ impl CRUDBroker {
         .and_then(|cbs| { cbs.get(function_name)})
         .ok_or(anyhow!(JuizError::CRUDBrokerCanNotFindFunctionError { class_name: class_name.to_owned(), function_name: function_name.to_owned()}))
         .and_then(|cb|{
-            cb(self, self.core_broker.clone(), args)
+            cb(self.core_broker.clone(), args)
         }).or_else(|e| {
             log::error!("CRUDBrokerクラスのコールバック(call_callback({class_name}, {function_name}))関数内でエラーが発生。エラーは({e})です。");
             Err(e)

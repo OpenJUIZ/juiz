@@ -125,7 +125,9 @@ fn handle_request(
     mut cm: CapsuleMap,
 ) -> JuizResult<CapsulePtr> {
     localize_request(&mut cm, own_name);
-    juiz_lock(crud_broker)?.on_capsule_map_request(cm, None)
+    // ロックは dispatcher を取り出す間だけ握り、Process の実行中は外しておく (issue #356)
+    let dispatcher = juiz_lock(crud_broker)?.dispatcher();
+    dispatcher.on_capsule_map_request(cm, None)
 }
 
 fn write_error(stream: &mut Stream, id: u64, class_name: &str, function_name: &str, e: &juiz_sdk::anyhow::Error) -> JuizResult<()> {

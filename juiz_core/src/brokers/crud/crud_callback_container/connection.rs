@@ -9,7 +9,7 @@ use super::CallbackContainerType;
 
 pub(crate) fn create_create_callbacks() -> CallbackContainerType {
     let mut connection_callbacks = CallbackContainerType::new();
-    connection_callbacks.insert("create", |_crud, cb, args| {
+    connection_callbacks.insert("create", |cb, args| {
         log::debug!("[CREATE] connection/create called");
         // 識別子は struct でも文字列でも受け付ける
         let value = args.get("__manifest__")?.extract_value()?;
@@ -25,7 +25,7 @@ pub(crate) fn create_create_callbacks() -> CallbackContainerType {
 
 pub(crate) fn create_read_callbacks() -> CallbackContainerType {
     let mut con_cbs = CallbackContainerType::new();
-    con_cbs.insert("profile_full", |_crud, cb, args| {
+    con_cbs.insert("profile_full", |cb, args| {
         log::debug!("[READ  ] connection/profile_full called");
         let id: ConnectionIdentifier = args
             .get_param("identifier")
@@ -39,7 +39,7 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
         let profile: ConnectionProfile = cb.lock()?.connection_profile_full(&id)?;
         Ok(serde_json::to_value(profile)?.into())
     });
-    con_cbs.insert("list", |_crud, cb, args| {
+    con_cbs.insert("list", |cb, args| {
         log::debug!("[READ  ] connection/list called");
         let recursive_str = args
             .get_param("recursive")
@@ -61,7 +61,7 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
 
 pub(crate) fn create_delete_callbacks() -> CallbackContainerType {
     let mut con_cbs = CallbackContainerType::new();
-    con_cbs.insert("destroy", |_crud, cb, args| {
+    con_cbs.insert("destroy", |cb, args| {
         log::debug!("[DELETE] connection/destroy called");
         let id: ConnectionIdentifier = args
             .get_param("identifier")
