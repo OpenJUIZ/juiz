@@ -75,6 +75,13 @@ jobs:
       - name: Build (default workspace members)
         run: cargo build --verbose
 
+      # Rust のプラグインの C ABI のテスト (rust_cabi_load_test、package_cli_test) が読む、
+      # 違う rustc でビルドしたことにしたプラグイン。scripts/test.sh と同じ手順 (issue #330・#333)
+      - name: Build plugins with a fake rustc (target/fake-rustc)
+        run: |
+          RUSTC="$PWD/target/debug/fake_rustc" cargo build --verbose --target-dir target/fake-rustc \
+            -p increment_process -p example_container -p example_container_increment
+
       - name: Build C++ examples
         run: |
           cmake -S examples/cpp -B examples/cpp/build -DCMAKE_BUILD_TYPE=Debug
