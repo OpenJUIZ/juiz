@@ -17,6 +17,9 @@ build-type:         Simple
 -- 公開するシンボル (juiz が探す関数) は def/<名前>.def に並べる (mod-def-file)。
 -- 書かないと、リンカがすべてのシンボルを公開しようとして DLL が公開できる数 (65535) を超えるか、
 -- GHC がモジュールをアーカイブにするためにプラグインのコードが DLL に入らない (bindings/hsjuiz/README.md)。
+-- また Windows では -fno-PIC を付ける。cabal は foreign-library を -fPIC でコンパイルし、Windows の -fPIC の
+-- ジャンプテーブルは飛び先の差を 32 bit しか書けないので、構成子が 7 個以上の型の case や show が落ちる
+-- (issue #262、GHC の不具合 https://gitlab.haskell.org/ghc/ghc/-/issues/24016)。
 
 common plugin
     default-language: Haskell2010
@@ -24,6 +27,8 @@ common plugin
                     , hsjuiz
     hs-source-dirs:   src
     ghc-options:      -Wall -threaded
+    if os(windows)
+        ghc-options:  -fno-PIC
 
 foreign-library increment_process_hs
     import:           plugin

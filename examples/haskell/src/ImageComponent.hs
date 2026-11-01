@@ -42,15 +42,9 @@ infoManifest = processManifest "image_info_hs"
 
 info :: Image -> Text -> Text
 info img label = T.concat
-  [ label, ":", tshow (imageWidth img), "x", tshow (imageHeight img), ":", formatName (imageFormat img) ]
+  [ label, ":", tshow (imageWidth img), "x", tshow (imageHeight img), ":", T.toLower (tshow (imageFormat img)) ]
   where tshow :: Show a => a -> Text
         tshow = T.pack . show
-
--- 形式名 (la16 など)。Windows の DLL では構成子が 8 個以上の型の show や case が落ちるので (issue #262)、
--- fromEnum で表を引く
-formatName :: PixelFormat -> Text
-formatName f = names !! fromEnum f
-  where names = ["l8", "la8", "rgb8", "rgba8", "l16", "la16", "rgb16", "rgba16", "rgb32f", "rgba32f", "bgr8", "bgra8"]
 
 -- 最後に受け取った画像を持つ Container
 storeManifest :: ContainerManifest
