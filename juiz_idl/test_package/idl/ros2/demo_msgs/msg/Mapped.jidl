@@ -14,4 +14,6 @@ record Mapped {
   juiz_std.geometry.Point3D point = {"x":0.0,"y":0.0,"z":0.0};
   juiz_std.common.Time stamp = {"nanosec":0,"sec":0};
   juiz_std.common.Duration period = {"nanosec":0,"sec":0};
+  juiz_std.geometry.Transform transform = {"rotation":{"w":1.0,"x":0.0,"y":0.0,"z":0.0},"translation":{"x":0.0,"y":0.0,"z":0.0}};
+  juiz_std.geometry.TransformStamped transform_stamped = {"child_frame_id":"","header":{"frame_id":"","stamp":{"nanosec":0,"sec":0}},"transform":{"rotation":{"w":1.0,"x":0.0,"y":0.0,"z":0.0},"translation":{"x":0.0,"y":0.0,"z":0.0}}};
 }

@@ -6,3 +6,5 @@ geometry_msgs/Twist twist
 geometry_msgs/Point point
 builtin_interfaces/Time stamp
 builtin_interfaces/Duration period
+geometry_msgs/Transform transform
+geometry_msgs/TransformStamped transform_stamped

@@ -198,6 +198,8 @@ fn standard_messages_are_replaced_with_juiz_std() {
         ("point", "juiz_std.geometry.Point3D"),
         ("stamp", "juiz_std.common.Time"),
         ("period", "juiz_std.common.Duration"),
+        ("transform", "juiz_std.geometry.Transform"),
+        ("transform_stamped", "juiz_std.geometry.TransformStamped"),
     ] {
         assert_eq!(
             m.get_field(field).unwrap().data_type.full_name().as_deref(),

@@ -79,3 +79,22 @@ record PoseStamped {
   juiz_std.common.Header header = {"stamp": {"sec": 0, "nanosec": 0}, "frame_id": ""};
   Pose pose = {"position": {"x": 0.0, "y": 0.0, "z": 0.0}, "orientation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}};
 }
+
+/**
+ * 座標変換 (ROS 2 の geometry_msgs/Transform と同じ形)。
+ * 子の座標を親の座標へ写す: p_親 = rotation · p_子 + translation (docs/spec/transformations.md)
+ */
+record Transform {
+  Vector3 translation = {"x": 0.0, "y": 0.0, "z": 0.0};
+  Quaternion rotation = {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0};
+}
+
+/**
+ * 時刻と座標系つきの座標変換 (ROS 2 の geometry_msgs/TransformStamped と同じ形)。
+ * header.frame_id が親 (始点)、child_frame_id が子 (終点)
+ */
+record TransformStamped {
+  juiz_std.common.Header header = {"stamp": {"sec": 0, "nanosec": 0}, "frame_id": ""};
+  string child_frame_id = "";
+  Transform transform = {"translation": {"x": 0.0, "y": 0.0, "z": 0.0}, "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}};
+}
