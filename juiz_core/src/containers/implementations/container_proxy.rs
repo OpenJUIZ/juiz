@@ -1,5 +1,5 @@
 use std::fmt::Display;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 
 use juiz_sdk::manifests::ContainerIdentifier;
 
@@ -8,7 +8,7 @@ use crate::prelude::*;
 #[allow(unused)]
 pub struct ContainerProxy {
     // core: ObjectCore,
-    broker_proxy: Arc<Mutex<dyn BrokerProxy>>,
+    broker_proxy: Arc<RwLock<dyn BrokerProxy>>,
     identifier: ContainerIdentifier,
     class_name_str: String,
 }
@@ -27,7 +27,7 @@ impl ContainerProxy {
     pub fn new(
         class_name: JuizObjectClass,
         identifier: ContainerIdentifier,
-        broker_proxy: Arc<Mutex<dyn BrokerProxy>>,
+        broker_proxy: Arc<RwLock<dyn BrokerProxy>>,
     ) -> JuizResult<Self> {
         log::trace!("ContainerProxy::new({class_name:?}, {identifier}, broker_proxy) called");
         let class_name_str = "container";
@@ -93,6 +93,6 @@ impl Container for ContainerProxy {
     /// 相手のブローカーから profile を取る (`juiz container list --long` / `info` で使う、issue #170)
     fn profile(&self) -> JuizResult<juiz_sdk::manifests::ContainerProfile> {
         log::trace!("ContainerProxy({})::profile() called", self.identifier);
-        juiz_lock(&self.broker_proxy)?.container_profile_full(&self.identifier)
+        juiz_borrow(&self.broker_proxy)?.container_profile_full(&self.identifier)
     }
 }

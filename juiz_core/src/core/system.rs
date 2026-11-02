@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
+    Arc, Mutex, RwLock,
 };
 use std::time::{self, Duration};
 
@@ -430,7 +430,7 @@ impl System {
         Ok(())
     }
 
-    // pub fn broker_proxy(&self, manifest: &Value, create_when_not_found: bool) -> JuizResult<Arc<Mutex<dyn BrokerProxy>>> {
+    // pub fn broker_proxy(&self, manifest: &Value, create_when_not_found: bool) -> JuizResult<Arc<RwLock<dyn BrokerProxy>>> {
     //     log::trace!("System::broker_proxy({}) called", manifest);
     //     self.core_broker.lock_mut()?.broker_proxy_from_manifest(manifest, create_when_not_found)
     // }
@@ -519,7 +519,7 @@ impl System {
     pub fn create_broker_proxy(
         &mut self,
         manifest: &Value,
-    ) -> JuizResult<Arc<Mutex<dyn BrokerProxy>>> {
+    ) -> JuizResult<Arc<RwLock<dyn BrokerProxy>>> {
         log::trace!("【呼出】System::create_broker_proxy({manifest:}) called");
         //self.core_broker().lock_mut().cre
         let bp = self
@@ -531,9 +531,9 @@ impl System {
 
     pub(crate) fn register_broker_proxy(
         &mut self,
-        broker_proxy: Arc<Mutex<dyn BrokerProxy>>,
-    ) -> JuizResult<Arc<Mutex<dyn BrokerProxy>>> {
-        let type_name = juiz_lock(&broker_proxy)
+        broker_proxy: Arc<RwLock<dyn BrokerProxy>>,
+    ) -> JuizResult<Arc<RwLock<dyn BrokerProxy>>> {
+        let type_name = juiz_borrow(&broker_proxy)
             .context("Locking broker to get type_name failed.")?
             .type_name()
             .to_string();
@@ -563,7 +563,7 @@ impl System {
             {
                 // log::trace!("process_list for proxy ()");
                 log::debug!("BrokerProxyに対してprocess_listを試みます。");
-                for v in juiz_lock(proxy)?.process_list(recursive, None)?.iter() {
+                for v in juiz_borrow(proxy)?.process_list(recursive, None)?.iter() {
                     log::debug!(" - {v} が追加されます");
                     local_processes.push(v.clone());
                 }
@@ -586,7 +586,7 @@ impl System {
                 .objects()
                 .iter()
             {
-                for c in juiz_lock(proxy)?.container_list(recursive, None)?.iter() {
+                for c in juiz_borrow(proxy)?.container_list(recursive, None)?.iter() {
                     local_containers.push(c.clone());
                 }
             }
@@ -612,7 +612,7 @@ impl System {
             .objects()
             .iter()
         {
-            for v in juiz_lock(proxy)?
+            for v in juiz_borrow(proxy)?
                 .container_process_list(recursive, None)?
                 .iter()
             {
@@ -651,7 +651,7 @@ impl System {
                 .iter()
             {
                 log::trace!("ec_list for proxy ()");
-                for v in get_array(&juiz_lock(proxy)?.ec_list(recursive)?)?.iter() {
+                for v in get_array(&juiz_borrow(proxy)?.ec_list(recursive)?)?.iter() {
                     local_ecs.push(v.clone());
                 }
             }

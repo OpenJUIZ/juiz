@@ -40,7 +40,7 @@ fn qmp_broker_api_in_same_process() -> JuizResult<()> {
                 .lock()?
                 .worker()
                 .broker_proxy("qmp", broker_name.as_str(), true)?;
-            let mut bp = juiz_lock(&proxy)?;
+            let mut bp = juiz_write(&proxy)?;
             check_processes(&mut *bp, broker_name.as_str())?;
             check_containers(&mut *bp)?;
             check_error_keeps_connection(&mut *bp, broker_name.as_str())?;
@@ -78,7 +78,7 @@ fn qmp_broker_api_between_processes() -> JuizResult<()> {
                     }
                 }
             };
-            let mut bp = juiz_lock(&proxy)?;
+            let mut bp = juiz_write(&proxy)?;
             check_processes(&mut *bp, broker_name.as_str())?;
             check_containers(&mut *bp)?;
             check_error_keeps_connection(&mut *bp, broker_name.as_str())?;
@@ -122,7 +122,7 @@ fn qmp_broker_sends_images_and_arrays() -> JuizResult<()> {
             .lock()?
             .worker()
             .broker_proxy("qmp", broker_name.as_str(), true)?;
-        let mut bp = juiz_lock(&proxy)?;
+        let mut bp = juiz_write(&proxy)?;
         check_remote_error(&mut *bp)?;
         check_images(&mut *bp)?;
         check_arrays(&mut *bp)?;

@@ -1,8 +1,6 @@
 use std::{
-    cell::RefCell,
     collections::HashMap,
-    rc::Rc,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
 use crate::prelude::*;
@@ -14,7 +12,9 @@ where
 {
     name: String,
     factories: HashMap<String, Arc<Mutex<TF>>>,
-    objects: Rc<RefCell<HashMap<Identifier, Arc<Mutex<T>>>>>,
+    /// 登録したオブジェクト。CoreBroker は複数のスレッドから同時に読まれる (HTTP ブローカーの各ハンドラ、
+    /// issue #356) ので、`&self` で足すこの表も RwLock で守る (以前の Rc<RefCell> は同時に触ると壊れた。issue #362)
+    objects: RwLock<HashMap<Identifier, Arc<RwLock<T>>>>,
 }
 
 impl<T, TF> BufferObjectCollection<T, TF>
@@ -26,18 +26,27 @@ where
         Box::new(Self {
             name: name.to_string(),
             factories: HashMap::new(),
-            objects: Rc::new(RefCell::new(HashMap::new())),
+            objects: RwLock::new(HashMap::new()),
         })
     }
 
     pub fn clear(&mut self) -> JuizResult<()> {
-        self.objects.borrow_mut().clear();
+        self.write_objects().clear();
         self.factories.clear();
         Ok(())
     }
 
-    pub fn objects(&self) -> std::cell::Ref<HashMap<String, Arc<Mutex<T>>>> {
-        self.objects.borrow()
+    pub fn objects(&self) -> RwLockReadGuard<'_, HashMap<String, Arc<RwLock<T>>>> {
+        self.read_objects()
+    }
+
+    fn read_objects(&self) -> RwLockReadGuard<'_, HashMap<String, Arc<RwLock<T>>>> {
+        // 表を書き換える途中で panic しても表そのものは壊れないので、毒は無視する
+        self.objects.read().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn write_objects(&self) -> RwLockWriteGuard<'_, HashMap<String, Arc<RwLock<T>>>> {
+        self.objects.write().unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn register_factory(&mut self, pf: Arc<Mutex<TF>>) -> JuizResult<Arc<Mutex<TF>>> {
@@ -69,34 +78,36 @@ where
         }
     }
 
-    pub fn register(&self, p: Arc<Mutex<T>>) -> JuizResult<Arc<Mutex<T>>> {
-        let id = juiz_lock(&p)?.identifier().clone();
+    pub fn register(&self, p: Arc<RwLock<T>>) -> JuizResult<Arc<RwLock<T>>> {
+        let id = juiz_borrow(&p)?.identifier().clone();
         log::trace!(
             "StoreWorker({})::register(Object(id={:?})) called",
             self.name,
             id
         );
-        self.objects.borrow_mut().insert(id.clone(), p);
+        self.write_objects().insert(id.clone(), p);
         self.get(&id)
     }
 
     /// id のオブジェクトを外す。無ければ None
-    pub fn deregister_by_id(&self, id: &Identifier) -> Option<Arc<Mutex<T>>> {
+    pub fn deregister_by_id(&self, id: &Identifier) -> Option<Arc<RwLock<T>>> {
         log::trace!(
             "StoreWorker({})::deregister_by_id(id={:?}) called",
             self.name,
             id
         );
-        self.objects.borrow_mut().remove(id)
+        self.write_objects().remove(id)
     }
 
-    pub fn get_with_error_ignore(&self, id: &Identifier) -> JuizResult<Arc<Mutex<T>>> {
-        match self.objects.borrow().get(id) {
-            Some(p) => Ok(Arc::clone(p)),
+    pub fn get_with_error_ignore(&self, id: &Identifier) -> JuizResult<Arc<RwLock<T>>> {
+        // 読み込みロックを match の外で離す (None の枝でもう一度読むので、同じスレッドで二重に取らない)
+        let found = self.read_objects().get(id).cloned();
+        match found {
+            Some(p) => Ok(p),
             None => {
                 log::trace!("StoreWorker({})::get_with_error_ignore(id={:?})が失敗しました。オブジェクトが見つかりません。", self.name, id);
                 log::trace!(" - CoreStore includes objects[");
-                for (k, _v) in self.objects.borrow().iter() {
+                for (k, _v) in self.read_objects().iter() {
                     log::trace!("    - {:?}", k);
                 }
                 log::trace!("]");
@@ -107,9 +118,11 @@ where
         }
     }
 
-    pub fn get(&self, id: &Identifier) -> JuizResult<Arc<Mutex<T>>> {
-        match self.objects.borrow().get(id) {
-            Some(p) => Ok(Arc::clone(p)),
+    pub fn get(&self, id: &Identifier) -> JuizResult<Arc<RwLock<T>>> {
+        // 読み込みロックを match の外で離す (None の枝でもう一度読むので、同じスレッドで二重に取らない)
+        let found = self.read_objects().get(id).cloned();
+        match found {
+            Some(p) => Ok(p),
             None => {
                 log::error!(
                     "StoreWorker({})::get(id={:?})が失敗しました。オブジェクトが見つかりません。",
@@ -117,7 +130,7 @@ where
                     id
                 );
                 log::trace!(" - CoreStore includes objects[");
-                for (k, _v) in self.objects.borrow().iter() {
+                for (k, _v) in self.read_objects().iter() {
                     log::trace!("    - {:?}", k);
                 }
                 log::trace!("]");
@@ -131,8 +144,7 @@ where
     pub fn list_ids(&self) -> JuizResult<Value> {
         let mut prof = jvalue!([]);
         let o_array = get_array_mut(&mut prof)?;
-        self.objects
-            .borrow()
+        self.read_objects()
             .iter()
             .for_each(|(identifier, _arc_obj)| {
                 /*match juiz_lock(&arc_obj) {

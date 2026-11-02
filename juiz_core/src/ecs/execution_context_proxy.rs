@@ -1,7 +1,7 @@
 use juiz_sdk::anyhow;
 use juiz_sdk::object::JuizObject;
 use juiz_sdk::process_identifier::ProcessIdentifier;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use crate::brokers::BrokerProxy;
 use crate::prelude::*;
@@ -11,7 +11,7 @@ use super::execution_context_function::ExecutionContextFunction;
 #[allow(unused)]
 pub struct ExecutionContextProxy {
     core: ObjectCore,
-    broker_proxy: Arc<Mutex<dyn BrokerProxy>>,
+    broker_proxy: Arc<RwLock<dyn BrokerProxy>>,
     identifier: Identifier,
     class_name_str: String,
 }
@@ -20,7 +20,7 @@ impl ExecutionContextProxy {
     pub fn new(
         class_name: JuizObjectClass,
         identifier: &Identifier,
-        broker_proxy: Arc<Mutex<dyn BrokerProxy>>,
+        broker_proxy: Arc<RwLock<dyn BrokerProxy>>,
     ) -> JuizResult<Arc<Mutex<dyn ExecutionContextFunction>>> {
         log::trace!("ECProxy::new({class_name:?}, {identifier}, broker_proxy) called");
         let id_struct = IdentifierStruct::try_from(identifier.clone())?;
@@ -59,7 +59,7 @@ impl JuizObject for ExecutionContextProxy {
     fn profile_full(&self) -> JuizResult<Value> {
         let id = self.identifier();
         log::trace!("ProcessProxy({id})::profile_full() called");
-        juiz_lock(&self.broker_proxy)?.ec_profile_full(&self.identifier())
+        juiz_borrow(&self.broker_proxy)?.ec_profile_full(&self.identifier())
     }
 }
 
@@ -67,13 +67,13 @@ impl ExecutionContextFunction for ExecutionContextProxy {
     fn start(&mut self) -> JuizResult<Value> {
         let id = self.identifier();
         log::trace!("ExecutionContextProxy({id})::start() called");
-        juiz_lock(&self.broker_proxy)?.ec_start(&self.identifier())
+        juiz_write(&self.broker_proxy)?.ec_start(&self.identifier())
     }
 
     fn stop(&mut self) -> JuizResult<Value> {
         let id = self.identifier();
         log::trace!("ExecutionContextProxy({id})::stop() called");
-        juiz_lock(&self.broker_proxy)?.ec_stop(&self.identifier())
+        juiz_write(&self.broker_proxy)?.ec_stop(&self.identifier())
     }
 
     fn get_state(&self) -> JuizResult<super::execution_context_core::ExecutionContextState> {

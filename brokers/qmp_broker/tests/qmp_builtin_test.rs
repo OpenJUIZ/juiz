@@ -45,7 +45,7 @@ fn qmp_builtin_in_same_process() -> JuizResult<()> {
                 broker_name.as_str(),
                 true,
             )?;
-            let mut bp = juiz_lock(&proxy)?;
+            let mut bp = juiz_write(&proxy)?;
             check_processes(&mut *bp, broker_name.as_str())?;
             check_containers(&mut *bp)?;
             check_connections(&mut *bp)?;
@@ -81,7 +81,7 @@ fn qmp_builtin_between_processes() -> JuizResult<()> {
                     }
                 }
             };
-            let mut bp = juiz_lock(&proxy)?;
+            let mut bp = juiz_write(&proxy)?;
             check_processes(&mut *bp, broker_name.as_str())?;
             check_containers(&mut *bp)?;
             Ok(())
@@ -106,7 +106,7 @@ fn qmp_builtin_with_plugin() -> JuizResult<()> {
             broker_name.as_str(),
             true,
         )?;
-        let mut bp = juiz_lock(&proxy)?;
+        let mut bp = juiz_write(&proxy)?;
         check_processes(&mut *bp, broker_name.as_str())?;
         Ok(())
     })

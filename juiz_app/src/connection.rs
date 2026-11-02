@@ -166,7 +166,7 @@ fn connection_identifier_from_args(args: Vec<String>) -> JuizResult<ConnectionId
 fn server_broker_proxy(
     system: &mut System,
     server: String,
-) -> JuizResult<std::sync::Arc<std::sync::Mutex<dyn BrokerProxy>>> {
+) -> JuizResult<std::sync::Arc<std::sync::RwLock<dyn BrokerProxy>>> {
     let id_struct = IdentifierStruct::new_broker_id(server.clone())?;
     system.create_broker_proxy(&serde_json::json!({
         "identifier": server,
@@ -182,7 +182,7 @@ fn on_connection_delete(
 ) -> JuizResult<()> {
     log::info!("Connection delete {id}");
     let proxy = server_broker_proxy(system, server)?;
-    juiz_lock(&proxy)?.connection_destroy(&id)?;
+    juiz_write(&proxy)?.connection_destroy(&id)?;
     Ok(())
 }
 
@@ -194,7 +194,7 @@ fn on_connection_list(
 ) -> JuizResult<()> {
     log::info!("Connection list");
     let proxy = server_broker_proxy(system, server)?;
-    let con_list = juiz_lock(&proxy)?.connection_list(true)?;
+    let con_list = juiz_borrow(&proxy)?.connection_list(true)?;
     // 同じ接続は接続元と接続先の両方から返ってくるので 1 つにまとめる
     let mut ids: Vec<ConnectionIdentifier> = Vec::new();
     for id in con_list.into_iter() {

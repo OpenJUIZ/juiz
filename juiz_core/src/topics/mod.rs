@@ -165,7 +165,7 @@ impl TopicPtr {
                     // 送れない転送先(止まったサブシステムなど)があっても、残りの転送先には送る (issue #67)
                     for subsystem in t.subsystem_proxies.iter() {
                         log::trace!("- broker_proxy: subsystem={:?}", subsystem.uuid());
-                        let r = juiz_lock(&subsystem.broker_proxy()).and_then(|bp| {
+                        let r = juiz_borrow(&subsystem.broker_proxy()).and_then(|bp| {
                             #[cfg(feature = "ipc-broker")]
                             if let Some(shm) = t.shared_memory.as_ref() {
                                 if bp.supports_shared_memory() {
@@ -436,10 +436,10 @@ impl TopicPtr {
             Ok(mut t) => {
                 // 同じ UUID、または同じアドレスで登録済みの転送先は置き換える。
                 // 同じアドレスで UUID が違うのは、止まって再起動する前の古いサブシステム (issue #67)
-                let new_bp_id = juiz_lock(&subsystem_proxy.broker_proxy())?.identifier();
+                let new_bp_id = juiz_borrow(&subsystem_proxy.broker_proxy())?.identifier();
                 t.subsystem_proxies.retain(|ssp| {
                     let same = ssp.uuid() == subsystem_proxy.uuid()
-                        || juiz_lock(&ssp.broker_proxy())
+                        || juiz_borrow(&ssp.broker_proxy())
                             .map(|b| b.identifier() == new_bp_id)
                             .unwrap_or(false);
                     if same {

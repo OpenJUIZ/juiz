@@ -6,7 +6,7 @@
 //!
 //! 仕様は docs/spec/composition.md の §9。
 //! プラグイン (increment_process、example_container とその ContainerProcess) は ../target/debug から読む。
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 
 use juiz_core::prelude::*;
 use juiz_sdk::{manifests::CompositeManifest, process_identifier::ProcessIdentifier};
@@ -81,7 +81,7 @@ fn error_text<T: std::fmt::Debug>(r: JuizResult<T>) -> String {
     format!("{:#}", r.expect_err("must fail"))
 }
 
-fn http_proxy(system: &mut System) -> JuizResult<Arc<Mutex<dyn BrokerProxy>>> {
+fn http_proxy(system: &mut System) -> JuizResult<Arc<RwLock<dyn BrokerProxy>>> {
     let host = format!("localhost:{PORT}");
     system
         .core_broker()
@@ -257,7 +257,7 @@ fn composite_can_be_defined_at_runtime() -> JuizResult<()> {
         .setup()?
         .run_and_do_once(|system| {
             let proxy = http_proxy(system)?;
-            let mut bp = juiz_lock(&proxy)?;
+            let mut bp = juiz_write(&proxy)?;
             check_create_and_use(system, &mut *bp)?;
             check_create_errors(&mut *bp)?;
             check_destroy(&mut *bp)?;

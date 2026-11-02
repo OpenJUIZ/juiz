@@ -66,7 +66,7 @@ pub(crate) fn on_composite(
         .setup()?
         .run_and_do_once(|system| {
             let proxy = server_proxy(system, &server)?;
-            let mut proxy = juiz_lock(&proxy)?;
+            let mut proxy = juiz_write(&proxy)?;
             match subcommand {
                 CompositeSubCommands::Create { file } => on_composite_create(&mut *proxy, &file),
                 CompositeSubCommands::List { long } => on_composite_list(&*proxy, long),
@@ -89,7 +89,7 @@ pub(crate) fn on_composite(
 pub(crate) fn server_proxy(
     system: &mut System,
     server: &str,
-) -> JuizResult<std::sync::Arc<std::sync::Mutex<dyn BrokerProxy>>> {
+) -> JuizResult<std::sync::Arc<std::sync::RwLock<dyn BrokerProxy>>> {
     let id_struct = IdentifierStruct::new_broker_id(server.to_owned())?;
     system.create_broker_proxy(&jvalue!({
         "identifier": server,

@@ -549,7 +549,7 @@ fn bench_image_transfer() -> JuizResult<()> {
                 .unwrap_or_else(|| panic!("{name} not found in {ids:?}"))
                 .clone()
         };
-        let http_ids = juiz_lock(&http)?.process_list(false, None)?;
+        let http_ids = juiz_borrow(&http)?.process_list(false, None)?;
         let remote_source = find(&http_ids, "source0");
         let remote_sink = find(&http_ids, "sink0");
         let ipc = system
@@ -557,7 +557,7 @@ fn bench_image_transfer() -> JuizResult<()> {
             .lock()?
             .worker()
             .broker_proxy("ipc", SERVER_IPC_NAME, true)?;
-        let ipc_ids = juiz_lock(&ipc)?.process_list(false, None)?;
+        let ipc_ids = juiz_borrow(&ipc)?.process_list(false, None)?;
         let ipc_source = find(&ipc_ids, "source0");
         let ipc_sink = find(&ipc_ids, "sink0");
         let qmp = system
@@ -565,12 +565,12 @@ fn bench_image_transfer() -> JuizResult<()> {
             .lock()?
             .worker()
             .broker_proxy("qmp", &format!("127.0.0.1:{SERVER_QMP_PORT}"), true)?;
-        let qmp_ids = juiz_lock(&qmp)?.process_list(false, None)?;
+        let qmp_ids = juiz_borrow(&qmp)?.process_list(false, None)?;
         let qmp_source = find(&qmp_ids, "source0");
         let qmp_sink = find(&qmp_ids, "sink0");
         let topic_count = find(&ipc_ids, "topic_count");
         let topic_sources = setup_topic_sources(system)?;
-        let local_ids = juiz_lock(&local)?.process_list(false, None)?;
+        let local_ids = juiz_borrow(&local)?.process_list(false, None)?;
         let local_source = find(&local_ids, "source0");
         let core_source = source.identifier();
 
@@ -599,7 +599,7 @@ fn bench_image_transfer() -> JuizResult<()> {
                 Ok(())
             })?;
             let local_call = time_per_call(width, |seed| {
-                let out = juiz_lock(&local)?
+                let out = juiz_borrow(&local)?
                     .process_call(&local_source, source_args(width, height, seed))?;
                 assert!(out.is_image()?);
                 Ok(())
@@ -615,12 +615,12 @@ fn bench_image_transfer() -> JuizResult<()> {
 
             // (1) call の戻り値: 別プロセスが PNG にして、こちらで展開する
             let http_return = time_per_call(width, |seed| {
-                let out = juiz_lock(&http)?
+                let out = juiz_borrow(&http)?
                     .process_call(&remote_source, source_args(width, height, seed))?;
                 out.lock_as_image(|img| assert_eq!(img.width(), width))?;
                 Ok(())
             })?;
-            let returned = juiz_lock(&http)?
+            let returned = juiz_borrow(&http)?
                 .process_call(&remote_source, source_args(width, height, 1))?
                 .lock_as_image(mean_of)?;
             assert_eq!(
@@ -661,19 +661,19 @@ fn bench_image_transfer() -> JuizResult<()> {
 
             // IPC: 画像は PNG にせず、生バイトのフレームで送る
             let ipc_return = time_per_call(width, |seed| {
-                let out = juiz_lock(&ipc)?
+                let out = juiz_borrow(&ipc)?
                     .process_call(&ipc_source, source_args(width, height, seed))?;
                 out.lock_as_image(|img| assert_eq!(img.width(), width))?;
                 Ok(())
             })?;
-            let returned = juiz_lock(&ipc)?
+            let returned = juiz_borrow(&ipc)?
                 .process_call(&ipc_source, source_args(width, height, 1))?
                 .lock_as_image(mean_of)?;
             assert_eq!(returned, expected, "{label}: IPC で画素が変わってはいけない");
             let ipc_send = |img: &DynamicImage| -> JuizResult<f64> {
                 let mut args = CapsuleMap::new();
                 args.insert("img".to_owned(), img.clone().into());
-                let out = juiz_lock(&ipc)?.process_call(&ipc_sink, args)?;
+                let out = juiz_borrow(&ipc)?.process_call(&ipc_sink, args)?;
                 Ok(out.extract_value()?.as_f64().expect("mean must be a number"))
             };
             assert!((ipc_send(&image)? - expected).abs() < 1e-9, "{label}: IPC の引数の画像が届く");
@@ -682,19 +682,19 @@ fn bench_image_transfer() -> JuizResult<()> {
 
             // qmp: IPC と同じフレームを QUIC (ループバック) で送る
             let qmp_return = time_per_call(width, |seed| {
-                let out = juiz_lock(&qmp)?
+                let out = juiz_borrow(&qmp)?
                     .process_call(&qmp_source, source_args(width, height, seed))?;
                 out.lock_as_image(|img| assert_eq!(img.width(), width))?;
                 Ok(())
             })?;
-            let returned = juiz_lock(&qmp)?
+            let returned = juiz_borrow(&qmp)?
                 .process_call(&qmp_source, source_args(width, height, 1))?
                 .lock_as_image(mean_of)?;
             assert_eq!(returned, expected, "{label}: qmp で画素が変わってはいけない");
             let qmp_send = |img: &DynamicImage| -> JuizResult<f64> {
                 let mut args = CapsuleMap::new();
                 args.insert("img".to_owned(), img.clone().into());
-                let out = juiz_lock(&qmp)?.process_call(&qmp_sink, args)?;
+                let out = juiz_borrow(&qmp)?.process_call(&qmp_sink, args)?;
                 Ok(out.extract_value()?.as_f64().expect("mean must be a number"))
             };
             assert!((qmp_send(&image)? - expected).abs() < 1e-9, "{label}: qmp の引数の画像が届く");
@@ -704,7 +704,7 @@ fn bench_image_transfer() -> JuizResult<()> {
 
             // Topic (別プロセス): publish が返るまでと、受け手の Process に届くまで
             let received = |i: usize| -> JuizResult<u64> {
-                let v = juiz_lock(&ipc)?
+                let v = juiz_borrow(&ipc)?
                     .process_call(&topic_count, CapsuleMap::new())?
                     .extract_value()?;
                 Ok(v[i].as_u64().expect("count must be a number"))
@@ -713,7 +713,7 @@ fn bench_image_transfer() -> JuizResult<()> {
             let mut topic_delivered = [Duration::ZERO; 2];
             let mut topic_b_receive = ReceiveBreakdown::default();
             let remote_shm_stats = || -> JuizResult<Value> {
-                let profile = juiz_lock(&ipc)?.system_profile_full()?;
+                let profile = juiz_borrow(&ipc)?.system_profile_full()?;
                 Ok(find_shm_stats(&profile, TOPIC_B).unwrap_or(Value::Null))
             };
             for (i, source) in topic_sources.iter().enumerate() {
