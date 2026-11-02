@@ -2,7 +2,8 @@ name: WebUI
 
 on:
   push:
-    branches: [main]
+    # release/* は保守用の枝(例: release/0.1)。cherry-pick した修正も main と同じテストにかける
+    branches: [main, "release/**"]
     paths: &webui-paths
       - "webui/**"
       - ".github/workflows/webui.yml"

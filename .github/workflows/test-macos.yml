@@ -2,12 +2,13 @@ name: Test (macOS)
 
 # macOS での Haskell のプラグインと Rust のプラグインの C ABI のテストと、macOS の wheel。
 # macOS は Linux の 10 倍、Windows は 2 倍で数えられ、PR のたびに動かすと Actions の
-# 実行時間の大半を占めていたため、PR では動かさず main への push と手動実行でだけ動かす。
+# 実行時間の大半を占めていたため、PR では動かさず main・release/* への push と手動実行でだけ動かす。
 # PR で確かめたいときは、Actions の画面から PR のブランチを指定して手動実行する。
 # Linux のジョブは test-linux.yml。
 on:
   push:
-    branches: [main]
+    # release/* は保守用の枝(例: release/0.1)。cherry-pick した修正も main と同じテストにかける
+    branches: [main, "release/**"]
     paths-ignore:
       # Rust のビルドとテストに影響しないファイルだけの変更ではジョブを走らせない。
       # examples/python と bindings/pyjuiz は Rust のテストから使われるので対象に含める。

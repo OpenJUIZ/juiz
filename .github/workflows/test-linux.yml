@@ -1,13 +1,14 @@
 name: Test (Linux)
 
 # Linux でのビルドとテスト(rust・opencv・Linux の wheel・coverage)。
-# PR と main への push と手動実行で動く。coverage と linux-aarch64 の wheel は PR では動かさない。
-# macOS・Windows は test-macos.yml・test-windows.yml に分けてあり、main への push と手動実行でだけ動く。
+# PR と main・release/* への push と手動実行で動く。coverage と linux-aarch64 の wheel は PR では動かさない。
+# macOS・Windows は test-macos.yml・test-windows.yml に分けてあり、main・release/* への push と手動実行でだけ動く。
 # README のバッジを OS ごとに分けるため、ワークフローを OS ごとに分けている。
 # draft の PR では何も動かさない(ready for review にしたときに動く)。
 on:
   push:
-    branches: [main]
+    # release/* は保守用の枝(例: release/0.1)。cherry-pick した修正も main と同じテストにかける
+    branches: [main, "release/**"]
     paths-ignore: &rust-ignore
       # Rust のビルドとテストに影響しないファイルだけの変更ではジョブを走らせない。
       # examples/python と bindings/pyjuiz は Rust のテストから使われるので対象に含める。
