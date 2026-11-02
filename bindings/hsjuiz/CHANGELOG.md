@@ -3,6 +3,10 @@
 hsjuiz の版は juiz(crates.io の juiz_app、PyPI の pyjuiz / juiz-cli)と同じ番号にそろえています。
 使う libjuiz_sdk も同じ版にしてください。
 
+## 0.1.0
+
+- 0.0 系を締めくくる版。hsjuiz の API は 0.0.30 から変えていない(juiz 本体の Windows の Haskell DLL の修正 #262、libjuiz_sdk の版照合 #344、HTTP ブローカーの並行化 #356・#362 などに版をそろえた)。
+
 ## 0.0.30
 
 - 対応する GHC を全 OS で 9.6 以降にそろえた。`tested-with` から 9.4.7 を外し、`base` の下限を 4.18(GHC 9.6)に上げた(issue #310)。
