@@ -24,7 +24,7 @@ fn manifest_arg(args: &CapsuleMap) -> JuizResult<Value> {
 
 pub(crate) fn create_create_callbacks() -> CallbackContainerType {
     let mut cbs = CallbackContainerType::new();
-    cbs.insert("create", |_crud, cb, args| {
+    cbs.insert("create", |cb, args| {
         log::debug!("[CREATE] composite/create called");
         let value = manifest_arg(&args)?;
         let manifest: CompositeManifest = serde_json::from_value(value.clone()).map_err(|e| {
@@ -40,7 +40,7 @@ pub(crate) fn create_create_callbacks() -> CallbackContainerType {
 
 pub(crate) fn create_container_create_callbacks() -> CallbackContainerType {
     let mut cbs = CallbackContainerType::new();
-    cbs.insert("create", |_crud, cb, args| {
+    cbs.insert("create", |cb, args| {
         log::debug!("[CREATE] composite_container/create called");
         let profile = cb
             .lock_mut()?
@@ -53,11 +53,11 @@ pub(crate) fn create_container_create_callbacks() -> CallbackContainerType {
 
 pub(crate) fn create_read_callbacks() -> CallbackContainerType {
     let mut cbs = CallbackContainerType::new();
-    cbs.insert("list", |_crud, cb, _args| {
+    cbs.insert("list", |cb, _args| {
         log::debug!("[READ  ] composite/list called");
         Ok(serde_json::to_value(cb.lock()?.composite_list()?)?.into())
     });
-    cbs.insert("profile_full", |_crud, cb, args| {
+    cbs.insert("profile_full", |cb, args| {
         log::debug!("[READ  ] composite/profile_full called");
         let manifest = cb
             .lock()?
@@ -69,7 +69,7 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
 
 pub(crate) fn create_delete_callbacks() -> CallbackContainerType {
     let mut cbs = CallbackContainerType::new();
-    cbs.insert("destroy", |_crud, cb, args| {
+    cbs.insert("destroy", |cb, args| {
         log::debug!("[DELETE] composite/destroy called");
         let manifest = cb.lock_mut()?.composite_destroy(&type_name_param(&args)?)?;
         Ok(serde_json::to_value(manifest)?.into())

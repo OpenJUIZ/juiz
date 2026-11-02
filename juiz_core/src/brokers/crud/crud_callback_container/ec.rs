@@ -6,7 +6,7 @@ use super::{CallbackContainerType, NamespaceFilter};
 
 pub(crate) fn create_create_callbacks() -> CallbackContainerType {
     let mut ec_callbacks = CallbackContainerType::new();
-    ec_callbacks.insert("create", |_crud, cb, args| {
+    ec_callbacks.insert("create", |cb, args| {
         log::debug!("[CREATE] ec/create called");
         let manifest = args.get("__manifest__")?.extract_value()?;
         Ok(cb.lock_mut()?.ec_create(&manifest)?.into())
@@ -16,7 +16,7 @@ pub(crate) fn create_create_callbacks() -> CallbackContainerType {
 
 pub(crate) fn create_read_callbacks() -> CallbackContainerType {
     let mut ec_cbs = CallbackContainerType::new();
-    ec_cbs.insert("profile_full", |_crud, cb, args| {
+    ec_cbs.insert("profile_full", |cb, args| {
         log::debug!("[READ  ] ec/profile_full called");
         let id = args.get_param("identifier").ok_or_else(|| {
             anyhow!(JuizError::CRUDBrokerCanNotParameterFunctionError {
@@ -25,7 +25,7 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
         })?;
         Ok(value_to_capsule(cb.lock()?.ec_profile_full(id)?))
     });
-    ec_cbs.insert("list", |_crud, cb, args| {
+    ec_cbs.insert("list", |cb, args| {
         log::debug!("[READ  ] ec/list called");
         let recursive_str = args
             .get_param("recursive")
@@ -47,7 +47,7 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
             .collect::<Vec<Value>>();
         Ok(value_to_capsule(Value::from(ids)))
     });
-    ec_cbs.insert("get_state", |_crud, cb, args| {
+    ec_cbs.insert("get_state", |cb, args| {
         log::debug!("[READ  ] ec/get_state called");
         let id = args.get_param("identifier").ok_or_else(|| {
             anyhow!(JuizError::CRUDBrokerCanNotParameterFunctionError {
@@ -61,7 +61,7 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
 
 pub(crate) fn create_update_callbacks() -> CallbackContainerType {
     let mut ec_cbs = CallbackContainerType::new();
-    ec_cbs.insert("start", |_crud, cb, args| {
+    ec_cbs.insert("start", |cb, args| {
         log::debug!("[UPDATE] ec/start called");
         let id = args.get_param("identifier").ok_or_else(|| {
             anyhow!(JuizError::CRUDBrokerCanNotParameterFunctionError {
@@ -70,7 +70,7 @@ pub(crate) fn create_update_callbacks() -> CallbackContainerType {
         })?;
         Ok(value_to_capsule(cb.lock_mut()?.ec_start(id)?))
     });
-    ec_cbs.insert("stop", |_crud, cb, args| {
+    ec_cbs.insert("stop", |cb, args| {
         log::debug!("[UPDATE] ec/stop called");
         let id = args.get_param("identifier").ok_or_else(|| {
             anyhow!(JuizError::CRUDBrokerCanNotParameterFunctionError {
@@ -84,7 +84,7 @@ pub(crate) fn create_update_callbacks() -> CallbackContainerType {
 
 pub(crate) fn create_delete_callbacks() -> CallbackContainerType {
     let mut ec_cbs = CallbackContainerType::new();
-    ec_cbs.insert("destroy", |_crud, cb, args| {
+    ec_cbs.insert("destroy", |cb, args| {
         log::debug!("[DELETE] ec/destroy called");
         let id = args.get_param("identifier").ok_or_else(|| {
             anyhow!(JuizError::CRUDBrokerCanNotParameterFunctionError {

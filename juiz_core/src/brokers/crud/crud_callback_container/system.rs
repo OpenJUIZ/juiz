@@ -12,7 +12,7 @@ use super::CallbackContainerType;
 
 pub(crate) fn create_read_callbacks() -> CallbackContainerType {
     let mut system_callbacks = CallbackContainerType::new();
-    system_callbacks.insert("profile_full", |_crud, cb, args| {
+    system_callbacks.insert("profile_full", |cb, args| {
         log::debug!("[READ  ] system/profile_full called");
         let recursive = args.get_param("recursive").is_some_and(|v| v == "true");
         if recursive {
@@ -23,11 +23,11 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
             Ok(value_to_capsule(cb.lock()?.system_profile_full()?))
         }
     });
-    system_callbacks.insert("uuid", |_crud, cb, _args| {
+    system_callbacks.insert("uuid", |cb, _args| {
         log::debug!("[READ  ] system/uuid called");
         Ok(value_to_capsule(cb.lock()?.system_uuid()?))
     });
-    system_callbacks.insert("filesystem_list", |_crud, cb, _args| {
+    system_callbacks.insert("filesystem_list", |cb, _args| {
         log::debug!("[READ  ] system/filesystem_list called");
         let param = _args.get_params();
         let mut path = ".".to_owned();
@@ -43,7 +43,7 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
 
 pub(crate) fn create_update_callbacks() -> CallbackContainerType {
     let mut system_callbacks = CallbackContainerType::new();
-    system_callbacks.insert("add_subsystem", |_crud, cb, args| {
+    system_callbacks.insert("add_subsystem", |cb, args| {
         log::debug!("[UPDATE] system/add_subsystem called");
         let param = args.get_params();
         let mut manif: Value = args.get("profile")?.extract_value()?;
@@ -69,7 +69,7 @@ pub(crate) fn create_update_callbacks() -> CallbackContainerType {
             }?,
         ))
     });
-    system_callbacks.insert("add_mastersystem", |_crud, cb, args| {
+    system_callbacks.insert("add_mastersystem", |cb, args| {
         log::debug!("[UPDATE] system/add_mastersystem called");
         let param = args.get_params();
         let mut manif: Value = args.get("profile")?.extract_value()?;
@@ -86,7 +86,7 @@ pub(crate) fn create_update_callbacks() -> CallbackContainerType {
         }
         Ok(value_to_capsule(cb.system_add_mastersystem(manif)?))
     });
-    system_callbacks.insert("remove_subsystem", |_crud, cb, args| {
+    system_callbacks.insert("remove_subsystem", |cb, args| {
         log::debug!("[UPDATE] system/remove_subsystem called");
         let uuid = match args.get("uuid")?.extract_value()?.as_str() {
             Some(s) => Ok(uuid::Uuid::parse_str(s)?),
@@ -98,7 +98,7 @@ pub(crate) fn create_update_callbacks() -> CallbackContainerType {
             cb.lock_mut()?.system_remove_subsystem(uuid)?,
         ))
     });
-    system_callbacks.insert("load_process", |_crud, cb, args| {
+    system_callbacks.insert("load_process", |cb, args| {
         log::debug!("[UPDATE] system/load_process called");
         let filepath = match args.get("filepath")?.extract_value()?.as_str() {
             Some(fp_str) => Ok(fp_str.to_owned()),
@@ -116,7 +116,7 @@ pub(crate) fn create_update_callbacks() -> CallbackContainerType {
             cb.lock_mut()?.system_load_process(language, filepath)?,
         ))
     });
-    system_callbacks.insert("load_container", |_crud, cb, args| {
+    system_callbacks.insert("load_container", |cb, args| {
         log::debug!("[UPDATE] system/load_container called");
         let filepath = match args.get("filepath")?.extract_value()?.as_str() {
             Some(fp_str) => Ok(fp_str.to_owned()),
@@ -134,7 +134,7 @@ pub(crate) fn create_update_callbacks() -> CallbackContainerType {
             cb.lock_mut()?.system_load_container(language, filepath)?,
         ))
     });
-    system_callbacks.insert("load_container_process", |_crud, cb, args| {
+    system_callbacks.insert("load_container_process", |cb, args| {
         log::debug!("[UPDATE] system/load_container_process called");
         let filepath = match args.get("filepath")?.extract_value()?.as_str() {
             Some(fp_str) => Ok(fp_str.to_owned()),
@@ -153,7 +153,7 @@ pub(crate) fn create_update_callbacks() -> CallbackContainerType {
                 .system_load_container_process(language, filepath)?,
         ))
     });
-    system_callbacks.insert("load_component", |_crud, cb, args| {
+    system_callbacks.insert("load_component", |cb, args| {
         log::debug!("[UPDATE] system/load_component called");
         let filepath = match args.get("filepath")?.extract_value()?.as_str() {
             Some(fp_str) => Ok(fp_str.to_owned()),

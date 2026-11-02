@@ -10,7 +10,7 @@ use crate::core::process_profile_value;
 
 pub(crate) fn create_create_callbacks() -> CallbackContainerType {
     let mut container_process_callbacks = CallbackContainerType::new();
-    container_process_callbacks.insert("create", |_crud, cb, args| {
+    container_process_callbacks.insert("create", |cb, args| {
         log::debug!("[CREATE] container_process/create called");
         let container_id: ContainerIdentifier = args
             .get_param("identifier")
@@ -33,7 +33,7 @@ pub(crate) fn create_create_callbacks() -> CallbackContainerType {
 
 pub(crate) fn create_read_callbacks() -> CallbackContainerType {
     let mut cpro_cbs = CallbackContainerType::new();
-    cpro_cbs.insert("profile_full", |_crud, cb, args| {
+    cpro_cbs.insert("profile_full", |cb, args| {
         log::debug!("[READ  ] container_process/profile_full called");
         let id: ProcessIdentifier = args
             .get_param("identifier")
@@ -47,7 +47,7 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
         let profile: ProcessProfile = cb.lock()?.container_process_profile_full(&id)?;
         Ok(process_profile_value(&profile)?.into())
     });
-    cpro_cbs.insert("list", |_crud, cb, args| {
+    cpro_cbs.insert("list", |cb, args| {
         log::debug!("[READ  ] container_process/list called");
         let recursive: bool = bool::from_str(
             args.get_param("recursive")
@@ -69,7 +69,7 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
             .collect::<serde_json::Result<Value>>()?
             .into())
     });
-    cpro_cbs.insert("openapi_spec", |_crud, cb, args| {
+    cpro_cbs.insert("openapi_spec", |cb, args| {
         log::debug!("[READ  ] container_process/openapi_spec");
         let process_id: ProcessIdentifier = args
             .get_param("identifier")
@@ -90,7 +90,7 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
 
 pub(crate) fn create_update_callbacks() -> CallbackContainerType {
     let mut cont_proc_cbs = CallbackContainerType::new();
-    cont_proc_cbs.insert("call", |_crud, cb, args| {
+    cont_proc_cbs.insert("call", |cb, args| {
         log::debug!("[UPDATE] container_process/call called");
         let id: ProcessIdentifier = args
             .get_param("identifier")
@@ -103,7 +103,7 @@ pub(crate) fn create_update_callbacks() -> CallbackContainerType {
             .try_into()?;
         cb.lock()?.container_process_call(&id, args)
     });
-    cont_proc_cbs.insert("execute", |_crud, cb, args| {
+    cont_proc_cbs.insert("execute", |cb, args| {
         log::debug!("[UPDATE] container_process/execute called");
         let id: ProcessIdentifier = args
             .get_param("identifier")
@@ -116,7 +116,7 @@ pub(crate) fn create_update_callbacks() -> CallbackContainerType {
             .try_into()?;
         cb.lock()?.container_process_execute(&id)
     });
-    cont_proc_cbs.insert("p_apply", |_crud, cb, args| {
+    cont_proc_cbs.insert("p_apply", |cb, args| {
         log::debug!("[UPDATE] container_process/p_apply called");
         let id: ProcessIdentifier = args
             .get_param("identifier")
@@ -144,7 +144,7 @@ pub(crate) fn create_update_callbacks() -> CallbackContainerType {
 
 pub(crate) fn create_delete_callbacks() -> CallbackContainerType {
     let mut cont_proc_cbs = CallbackContainerType::new();
-    cont_proc_cbs.insert("destroy", |_crud, cb, args| {
+    cont_proc_cbs.insert("destroy", |cb, args| {
         log::debug!("[UPDATE] container_process/destroy called");
         let id: ProcessIdentifier = args
             .get_param("identifier")

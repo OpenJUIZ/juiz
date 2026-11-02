@@ -14,7 +14,7 @@ use super::CallbackContainerType;
 
 pub(crate) fn create_read_calbacks() -> CallbackContainerType {
     let mut topic_cbs = CallbackContainerType::new();
-    topic_cbs.insert("list", |_crud, cb, _args| {
+    topic_cbs.insert("list", |cb, _args| {
         log::debug!("[READ  ] topic/list called");
         let topics: Vec<TopicIdentifier> = cb.lock()?.topic_list()?;
         Ok(topics
@@ -28,7 +28,7 @@ pub(crate) fn create_read_calbacks() -> CallbackContainerType {
 
 pub(crate) fn create_update_calbacks() -> CallbackContainerType {
     let mut topic_cbs = CallbackContainerType::new();
-    topic_cbs.insert("push", |_crud, cb, args| {
+    topic_cbs.insert("push", |cb, args| {
         log::debug!("[UPDATE] topic/push called");
         let topic_name = args.get_param("topic_name").ok_or_else(|| {
             anyhow!(JuizError::CRUDBrokerCanNotParameterFunctionError {
@@ -49,7 +49,7 @@ pub(crate) fn create_update_calbacks() -> CallbackContainerType {
             .topic_push(topic_name.as_str(), input, system_uuid)
             .and(Ok(CapsulePtr::new()))
     });
-    topic_cbs.insert("request_subscribe", |_crud, cb, args| {
+    topic_cbs.insert("request_subscribe", |cb, args| {
         log::debug!("[UPDATE] topic/request_subscribe called");
         let topic_name = args.get_param("topic_name").ok_or_else(|| {
             anyhow!(JuizError::CRUDBrokerCanNotParameterFunctionError {
@@ -69,7 +69,7 @@ pub(crate) fn create_update_calbacks() -> CallbackContainerType {
             .topic_request_subscribe(topic_name.as_str(), system_uuid)
             .and_then(|v| Ok(v.into()))
     });
-    topic_cbs.insert("request_publish", |_crud, cb, args| {
+    topic_cbs.insert("request_publish", |cb, args| {
         log::debug!("[UPDATE] topic/request_publish called");
         let topic_name = args.get_param("topic_name").ok_or_else(|| {
             anyhow!(JuizError::CRUDBrokerCanNotParameterFunctionError {

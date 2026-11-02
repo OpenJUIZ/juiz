@@ -10,7 +10,7 @@ use crate::core::process_profile_value;
 
 pub(crate) fn create_create_callbacks() -> CallbackContainerType {
     let mut process_callbacks = CallbackContainerType::new();
-    process_callbacks.insert("create", |_crud, cb, args| {
+    process_callbacks.insert("create", |cb, args| {
         log::debug!("[CREATE] process/create called");
         let manifest: ProcessManifest =
             serde_json::from_value(args.get("__manifest__")?.extract_value()?)?;
@@ -23,7 +23,7 @@ pub(crate) fn create_create_callbacks() -> CallbackContainerType {
 
 pub(crate) fn create_read_callbacks() -> CallbackContainerType {
     let mut proc_cbs = CallbackContainerType::new();
-    proc_cbs.insert("profile_full", |_crud, cb, args| {
+    proc_cbs.insert("profile_full", |cb, args| {
         log::debug!("[READ  ] process/profile_full called");
         let process_id: ProcessIdentifier = args
             .get_param("identifier")
@@ -37,7 +37,7 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
         let profile: ProcessProfile = cb.lock()?.process_profile_full(&process_id)?;
         Ok(process_profile_value(&profile)?.into())
     });
-    proc_cbs.insert("is_in_charge", |_crud, cb, args| {
+    proc_cbs.insert("is_in_charge", |cb, args| {
         log::debug!("[READ  ] process/is_in_charge called");
         let id = args.get_param("identifier").ok_or_else(|| {
             anyhow!(JuizError::CRUDBrokerCanNotParameterFunctionError {
@@ -46,7 +46,7 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
         })?;
         Ok(jvalue!(cb.lock()?.is_in_charge_for_process(id)?).into())
     });
-    proc_cbs.insert("list", |_crud, cb, args| {
+    proc_cbs.insert("list", |cb, args| {
         let accessed_broker_id = args.get_param("accessed_broker_id");
         log::debug!(
             "[READ  ] process/listが呼ばれました。accessed_broker_idは{accessed_broker_id:?}です。"
@@ -86,7 +86,7 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
 
         // Ok(Value::from(profiles.into_iter().map(|id| { serde_json::to_value(id) }).collect::<serde_json::Result<Value>>()?).into())
     });
-    proc_cbs.insert("openapi_spec", |_crud, cb, args| {
+    proc_cbs.insert("openapi_spec", |cb, args| {
         log::debug!("[READ  ] process/openapi_spec");
         let process_id: ProcessIdentifier = args
             .get_param("identifier")
@@ -104,7 +104,7 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
 
 pub(crate) fn create_update_callbacks() -> CallbackContainerType {
     let mut proc_cbs = CallbackContainerType::new();
-    proc_cbs.insert("call", |_crud, cb, args| {
+    proc_cbs.insert("call", |cb, args| {
         log::debug!("[UPDATE] process/call called");
         let id: ProcessIdentifier = args
             .get_param("identifier")
@@ -117,7 +117,7 @@ pub(crate) fn create_update_callbacks() -> CallbackContainerType {
             .try_into()?;
         cb.lock()?.process_call(&id, args)
     });
-    proc_cbs.insert("execute", |_crud, cb, args| {
+    proc_cbs.insert("execute", |cb, args| {
         log::debug!("[UPDATE] process/execute called");
         let id: ProcessIdentifier = args
             .get_param("identifier")
@@ -130,7 +130,7 @@ pub(crate) fn create_update_callbacks() -> CallbackContainerType {
             .try_into()?;
         cb.lock()?.process_execute(&id)
     });
-    proc_cbs.insert("p_apply", |_crud, cb, args| {
+    proc_cbs.insert("p_apply", |cb, args| {
         log::debug!("[UPDATE] process/p_apply called");
         let id: ProcessIdentifier = args
             .get_param("identifier")
@@ -153,7 +153,7 @@ pub(crate) fn create_update_callbacks() -> CallbackContainerType {
         cb.lock_mut()?
             .process_p_apply(&id, arg_name.as_str(), value)
     });
-    proc_cbs.insert("try_connect_to", |_crud, cb, args| {
+    proc_cbs.insert("try_connect_to", |cb, args| {
         log::debug!("[UPDATE] process/try_connect_toが呼ばれました");
         let cm: ConnectionManifest = match args.try_into() {
             Ok(cm) => Ok(cm),
@@ -165,7 +165,7 @@ pub(crate) fn create_update_callbacks() -> CallbackContainerType {
         let cm2 = cb.lock_mut()?.process_try_connect_to(&cm)?;
         Ok(serde_json::to_value(cm2)?.into())
     });
-    proc_cbs.insert("notify_connected_from", |_crud, cb, args| {
+    proc_cbs.insert("notify_connected_from", |cb, args| {
         log::debug!("【呼出】process/notify_connected_from({args:})");
         let cm: ConnectionManifest = match args.try_into() {
             Ok(cm) => Ok(cm),
@@ -180,7 +180,7 @@ pub(crate) fn create_update_callbacks() -> CallbackContainerType {
         let cp = cb.lock_mut()?.process_notify_connected_from(&cm)?;
         Ok(serde_json::to_value(cp)?.into())
     });
-    proc_cbs.insert("push_by", |_crud, cb, args| {
+    proc_cbs.insert("push_by", |cb, args| {
         log::debug!("[UPDATE] process/push_by called");
         let id: ProcessIdentifier = args
             .get_param("identifier")
@@ -205,7 +205,7 @@ pub(crate) fn create_update_callbacks() -> CallbackContainerType {
 
 pub(crate) fn create_delete_callbacks() -> CallbackContainerType {
     let mut proc_cbs = CallbackContainerType::new();
-    proc_cbs.insert("destroy", |_crud, cb, args| {
+    proc_cbs.insert("destroy", |cb, args| {
         log::debug!("[UPDATE] process/destroy called");
         let id: ProcessIdentifier = args
             .get_param("identifier")

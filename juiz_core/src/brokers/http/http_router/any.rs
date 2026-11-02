@@ -44,7 +44,9 @@ pub async fn object_post_handler(
     let map = full_query_to_map(&query);
     log::trace!("[POST] HTTPBroker/object_post_handler({class_name}, {function_name}, {body}, {map:?}) called");
     let v = tokio::task::spawn_blocking(move || {
-        juiz_lock(&crud_broker).unwrap().create_class(
+        // ロックは dispatcher を取り出す間だけ握り、Process の実行中は外しておく (issue #356)
+        let dispatcher = juiz_lock(&crud_broker).unwrap().dispatcher();
+        dispatcher.create_class(
             class_name.as_str(),
             function_name.as_str(),
             construct_capsule_map(
@@ -191,7 +193,9 @@ pub async fn object_patch_handler(
     let map = full_query_to_map(&query);
     log::trace!("[PATCH] ({class_name}, {function_name}, {body}, {map:?})が呼ばれました");
     let v = tokio::task::spawn_blocking(move || {
-        juiz_lock(&crud_broker).unwrap().update_class(
+        // ロックは dispatcher を取り出す間だけ握り、Process の実行中は外しておく (issue #356)
+        let dispatcher = juiz_lock(&crud_broker).unwrap().dispatcher();
+        dispatcher.update_class(
             class_name.as_str(),
             function_name.as_str(),
             construct_capsule_map(
@@ -237,7 +241,9 @@ pub async fn object_put_handler(
     match multipart_to_capsule_map(multipart).await {
         Ok(capsule_map) => {
             let v = tokio::task::spawn_blocking(move || {
-                juiz_lock(&crud_broker).unwrap().update_class(
+                // ロックは dispatcher を取り出す間だけ握り、Process の実行中は外しておく (issue #356)
+                let dispatcher = juiz_lock(&crud_broker).unwrap().dispatcher();
+                dispatcher.update_class(
                     class_name.as_str(),
                     function_name.as_str(),
                     construct_capsule_map(
@@ -290,7 +296,9 @@ pub async fn object_get_handler(
         return system::system_openapi_handler().into_response();
     } else {
         let v = tokio::task::spawn_blocking(move || {
-            juiz_lock(&crud_broker).unwrap().read_class(
+            // ロックは dispatcher を取り出す間だけ握り、Process の実行中は外しておく (issue #356)
+            let dispatcher = juiz_lock(&crud_broker).unwrap().dispatcher();
+            dispatcher.read_class(
                 class_name.as_str(),
                 function_name.as_str(),
                 construct_capsule_map(
@@ -330,7 +338,9 @@ pub async fn object_delete_handler(
     let map = full_query_to_map(&query);
     log::trace!("HTTPBroker/object_delete_handler({class_name}, {map:?}) called");
     let v = tokio::task::spawn_blocking(move || {
-        juiz_lock(&crud_broker).unwrap().delete_class(
+        // ロックは dispatcher を取り出す間だけ握り、Process の実行中は外しておく (issue #356)
+        let dispatcher = juiz_lock(&crud_broker).unwrap().dispatcher();
+        dispatcher.delete_class(
             class_name.as_str(),
             function_name.as_str(),
             construct_capsule_map(
