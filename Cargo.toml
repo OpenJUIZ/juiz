@@ -30,7 +30,6 @@ juiz_qmp_broker = {version="0.1.0", path="brokers/qmp_broker"}
 juiz_webui = {version="0.1.0", path="juiz_webui"}
 
 anyhow = "1.0.89"
-approx = "0.5.1"
 axum = {version="0.7.7", features = ["multipart"]}
 base64 = "0.22.1"
 
@@ -46,8 +45,6 @@ libloading = "0.8.5"
 litrs = "0.4.1"
 log = "0.4.20"
 mopa = "0.2.2"
-num-traits = "0.2.19"
-nalgebra = "0.33.0"
 
 
 
@@ -57,7 +54,6 @@ proc-macro2 = {version = "1.0.89"}
 pyo3 = {version = "0.30"}
 
 quote = "1.0.37"
-quaternion-core = "0.5.2"
 regex = "1.10.6"
 # TLS は rustls を使う(qmp_broker の quinn と ring を共有し、OpenSSL のビルドを省く)
 reqwest = {version="0.12.8", default-features = false, features = ["blocking", "json", "rustls-tls-native-roots", "charset", "http2", "system-proxy"]}

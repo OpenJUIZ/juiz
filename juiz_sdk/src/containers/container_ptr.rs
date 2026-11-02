@@ -1,12 +1,18 @@
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use crate::prelude::*;
+use crate::{
+    geometry::{Pose, PoseStamped},
+    prelude::*,
+    transformations::{ContainerPoseHandle, ContainerPoseReader, PoseStatePtr, TransformationsRegistry},
+};
 use anyhow::anyhow;
 
 #[derive(Clone)]
 pub struct ContainerPtr {
     identifier: ContainerIdentifier,
     ptr: Arc<RwLock<dyn Container>>,
+    /// ContainerImpl と同じ ContainerPose の口。Container のロックを取らずに使える (§9.1)
+    pose: ContainerPoseHandle,
 }
 
 impl std::fmt::Debug for ContainerPtr {
@@ -21,8 +27,47 @@ impl ContainerPtr {
     pub fn new(container: impl Container) -> Self {
         ContainerPtr {
             identifier: container.identifier().clone(),
+            pose: container.pose_handle(),
             ptr: Arc::new(RwLock::new(container)),
         }
+    }
+
+    /// ContainerPose の口 (ContainerImpl と同じものを指す)。Container のロックは取らない
+    pub fn pose_handle(&self) -> ContainerPoseHandle {
+        self.pose.clone()
+    }
+
+    /// この Container の PoseState。Container のロックは取らない
+    pub fn pose_state(&self) -> PoseStatePtr {
+        self.pose.state()
+    }
+
+    /// ContainerPose の読み出しだけの口 (§14)
+    pub fn pose_reader(&self) -> ContainerPoseReader {
+        self.pose.reader()
+    }
+
+    /// System に登録したときに Transformations 登録所への口をつなぐ (§9.1)。Container のロックは取らない
+    pub fn attach_transformations(
+        &self,
+        registry: std::sync::Weak<dyn TransformationsRegistry>,
+    ) -> JuizResult<()> {
+        self.pose.attach(registry)
+    }
+
+    /// Transformations 登録所から外す
+    pub fn detach_transformations(&self) -> JuizResult<()> {
+        self.pose.detach()
+    }
+
+    /// 基準 `reference` から見たこの Container の ContainerPose (§7.1)。Container のロックは取らない
+    pub fn pose(&self, reference: &str) -> JuizResult<PoseStamped> {
+        self.pose.pose(reference)
+    }
+
+    /// この Container を基準 `reference` から見て `pose` にする (§7.2)。Container のロックは取らない
+    pub fn set_pose(&self, reference: &str, pose: &Pose) -> JuizResult<PoseStamped> {
+        self.pose.set_pose(reference, pose)
     }
 
     pub fn identifier(&self) -> ContainerIdentifier {

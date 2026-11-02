@@ -15,10 +15,10 @@ pub use crate::{
     image::DynamicImage,
     log,
     manifests::{
-        ArgumentManifest, ArgumentType, BrokerIdentifier, BrokerManifest, BrokerProfile,
+        AnchorManifest, ArgumentManifest, ArgumentType, BrokerIdentifier, BrokerManifest, BrokerProfile,
         ComponentManifest, CompositeManifest, ContainerIdentifier, ContainerManifest,
-        ContainerProfile, Description, ProcessManifest, ProcessProfile, TopicManifest,
-        TopicProfile,
+        ContainerProfile, Description, PoseListenerManifest, ProcessManifest, ProcessProfile,
+        TopicManifest, TopicProfile, TransformManifest,
     },
     object::{JuizObject, JuizObjectClass, JuizObjectCoreHolder, ObjectCore},
     result::{JuizError, JuizResult},

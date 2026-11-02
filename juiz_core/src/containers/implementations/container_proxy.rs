@@ -11,6 +11,9 @@ pub struct ContainerProxy {
     broker_proxy: Arc<RwLock<dyn BrokerProxy>>,
     identifier: ContainerIdentifier,
     class_name_str: String,
+    /// 別 System の Container。システムをまたぐ Transformations は対象外 (spec §15) なので、
+    /// 登録所につながらない口を持つだけ
+    pose: juiz_sdk::transformations::ContainerPoseHandle,
 }
 
 impl std::fmt::Debug for ContainerProxy {
@@ -34,6 +37,7 @@ impl ContainerProxy {
         Ok(ContainerProxy {
             //core: ObjectCore::new(identifier.to_string(), class_name, identifier.type_name.as_str(), identifier.name.as_str(), identifier.broker_name.as_str(), identifier.broker_type_name.as_str()),
             broker_proxy,
+            pose: juiz_sdk::transformations::ContainerPoseHandle::new(identifier.clone()),
             identifier,
             class_name_str: class_name_str.to_owned(),
         })
@@ -88,6 +92,10 @@ impl Container for ContainerProxy {
 
     fn identifier(&self) -> ContainerIdentifier {
         self.identifier.clone()
+    }
+
+    fn pose_handle(&self) -> juiz_sdk::transformations::ContainerPoseHandle {
+        self.pose.clone()
     }
 
     /// 相手のブローカーから profile を取る (`juiz container list --long` / `info` で使う、issue #170)

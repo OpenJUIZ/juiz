@@ -174,6 +174,9 @@ mod tests {
         fn clear(&mut self) -> JuizResult<()> {
             self.0.clear()
         }
+        fn pose_handle(&self) -> crate::transformations::ContainerPoseHandle {
+            self.0.pose_handle()
+        }
         fn container_type_info(&self) -> ContainerTypeInfo {
             REPORTED_INFO.with(|i| i.borrow().clone().unwrap())
         }

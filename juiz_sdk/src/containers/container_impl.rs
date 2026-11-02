@@ -1,4 +1,10 @@
-use crate::{manifests::ContainerProfile, prelude::*, processes::ProcessPtr};
+use crate::{
+    geometry::{Pose, PoseStamped},
+    manifests::ContainerProfile,
+    prelude::*,
+    processes::ProcessPtr,
+    transformations::{ContainerPoseHandle, ContainerPoseReader, PoseStatePtr},
+};
 ///
 ///
 ///
@@ -16,6 +22,8 @@ pub struct ContainerImpl<S: 'static> {
     pub t: Box<S>,
     processes: HashMap<String, ProcessPtr>,
     parent_container: Option<ContainerPtr>,
+    /// ContainerPose (利用者の状態とは別のロック、docs/spec/transformations.md §9)
+    pose: ContainerPoseHandle,
 }
 
 impl<S: 'static> std::fmt::Debug for ContainerImpl<S> {
@@ -26,6 +34,7 @@ impl<S: 'static> std::fmt::Debug for ContainerImpl<S> {
             .field("t", &"User object.".to_owned())
             .field("processes", &self.processes)
             .field("parent_container", &self.parent_container)
+            .field("pose", &self.pose)
             .finish()
     }
 }
@@ -40,9 +49,11 @@ fn _identifier_from_manifest(manifest: &Value) -> Identifier {
 impl<S: 'static> ContainerImpl<S> {
     pub fn new(manifest: ContainerManifest, t: Box<S>) -> JuizResult<Self> {
         //println!("new(manifest:{manifest:?}");
+        let identifier = manifest.identifier()?;
         Ok(ContainerImpl {
             // core: ObjectCore::create(JuizObjectClass::Container("ContainerImpl"), manifest.type_name.to_owned(), manifest.name.as_ref().unwrap().to_owned()),
-            identifier: manifest.identifier()?,
+            pose: ContainerPoseHandle::new(identifier.clone()),
+            identifier,
             profile: manifest.try_into()?,
             t,
             processes: HashMap::new(),
@@ -57,8 +68,10 @@ impl<S: 'static> ContainerImpl<S> {
     ) -> JuizResult<Self> {
         //let type_name = obj_get_str(&manifest, "type_name")?;
         //let object_name = obj_get_str(&manifest, "name")?;
+        let identifier = manifest.identifier()?;
         Ok(ContainerImpl {
-            identifier: manifest.identifier()?,
+            pose: ContainerPoseHandle::new(identifier.clone()),
+            identifier,
             profile: manifest.try_into()?,
             t,
             processes: HashMap::new(),
@@ -69,6 +82,42 @@ impl<S: 'static> ContainerImpl<S> {
     /// profile を書き換える。CompositeContainer がスロットを profile に載せるのに使う (issue #168)
     pub fn profile_mut(&mut self) -> &mut ContainerProfile {
         &mut self.profile
+    }
+
+    /// 基準 Container `reference` (ID か名前) から見たこの Container の ContainerPose を読む
+    /// (docs/spec/transformations.md §7.1)。戻り値の `header.frame_id` は基準の名前。
+    ///
+    /// 読み出しなので `&self` (§14)。計算は System の Transformations 登録所が行い、
+    /// 登録所につながっていない (System に登録されていない) Container ではエラーになる。
+    ///
+    /// ```ignore
+    /// #[juiz_component_container_process(container_type = "mobile_base")]
+    /// fn mobile_base_update(c: &mut ContainerImpl<MobileBase>) -> JuizResult<Capsule> {
+    ///     let p = c.pose("map")?;
+    ///     Ok(p.into())
+    /// }
+    /// ```
+    pub fn pose(&self, reference: &str) -> JuizResult<PoseStamped> {
+        self.pose.pose(reference)
+    }
+
+    /// この Container を、基準 Container `reference` から見て `pose` の位置姿勢にする
+    /// (docs/spec/transformations.md §7.2)。書き込みなので `&mut self` (§14)。
+    ///
+    /// 実際に書き換わるのは親 → この Container の Transform。どの Anchor の木にも入っていない
+    /// Container ではエラーになり、Transform は自動では作られない。戻り値は書いた後の `pose(reference)`。
+    pub fn set_pose(&mut self, reference: &str, pose: Pose) -> JuizResult<PoseStamped> {
+        self.pose.set_pose(reference, &pose)
+    }
+
+    /// ContainerPose の読み出しだけの口 (§14)
+    pub fn pose_reader(&self) -> ContainerPoseReader {
+        self.pose.reader()
+    }
+
+    /// この Container の PoseState (Anchor の ID → 値)
+    pub fn pose_state(&self) -> PoseStatePtr {
+        self.pose.state()
     }
 }
 
@@ -175,6 +224,10 @@ impl<S: 'static> Container for ContainerImpl<S> {
         }
         self.processes.clear();
         Ok(())
+    }
+
+    fn pose_handle(&self) -> ContainerPoseHandle {
+        self.pose.clone()
     }
 }
 

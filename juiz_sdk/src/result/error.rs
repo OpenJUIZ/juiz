@@ -357,6 +357,42 @@ pub enum JuizError {
         host_abi: String,
         hint: String,
     },
+    // --- Transformations (docs/spec/transformations.md §17、issue #366) ---
+    /// 長さ 0 の四元数、NaN・無限大を含む位置姿勢
+    #[error("Invalid pose value: {message}")]
+    InvalidPoseValueError { message: String },
+    /// 基準 R と Container C の両方を木に含む Anchor がない
+    #[error("No anchor contains both Container({container}) and reference({reference}).")]
+    NoCommonAnchorError { container: String, reference: String },
+    /// 根の Anchor・基準自身・基準が子孫の Container への書き込み、readonly からの書き込み
+    #[error("Pose of Container({container}) can not be written with reference({reference}): {message}")]
+    PoseNotWritableError {
+        container: String,
+        reference: String,
+        message: String,
+    },
+    /// 同じ (source, destination) の Transform がもうある
+    #[error("Transform({identifier}) already exists.")]
+    TransformAlreadyExistsError { identifier: String },
+    /// Anchor ごとに届く範囲が木であるという規則 (§5.2) を破る変更
+    #[error("Transform tree of Anchor({anchor}) is broken at Container({container}): {message}")]
+    TransformTreeError {
+        anchor: String,
+        container: String,
+        message: String,
+    },
+    /// 指定の Transform がない
+    #[error("Transform({identifier}) is not found.")]
+    TransformNotFoundError { identifier: String },
+    /// Pose 通知の登録の不備 (引数・型・二重登録)
+    #[error("Pose listener error: {message}")]
+    PoseListenerError { message: String },
+    /// Transform の manifest (conf の transforms:) の不備
+    #[error("TransformManifest is invalid: {message}")]
+    TransformManifestInvalidError { message: String },
+    /// Container が System の Transformations 登録所につながっていない (§9.1)
+    #[error("Container({container}) is not attached to Transformations of any System.")]
+    TransformationsNotAttachedError { container: String },
 }
 
 impl<T> From<PoisonError<T>> for JuizError {
