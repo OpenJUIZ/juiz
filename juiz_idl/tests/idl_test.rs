@@ -1074,6 +1074,8 @@ fn std_type_fingerprints_are_fixed() {
         "juiz_std.geometry.Twist@sha256:c3e30253ede4220d30edb2f93352d9fdbbd1de87734d2e6adfde97cc5ab449ab",
         "juiz_std.geometry.Pose2DStamped@sha256:d12b13d35378b5b4e1c58c69d0127163a8a44eced88a9370d3e92a4fe285b2ac",
         "juiz_std.geometry.PoseStamped@sha256:baf659705a5670baebc612b2f6685f8e7eb55778805845519b775682e46a35f3",
+        "juiz_std.geometry.Transform@sha256:a866b61bf295cf936bbe1be7972b1409c7a67ffecad8cda77494da54ff854fb0",
+        "juiz_std.geometry.TransformStamped@sha256:6e78b3aaccc73862f6ac42082b07a3c84dd6853845160babcbc4fffe322713d9",
         "juiz_std.sensor.ImageInfo@sha256:2d1c807bbde404a420583f01a3914e1ffde48c71dd64ab570139e377b5baa109",
         "juiz_std.sensor.Imu@sha256:462c7a2a736c262fcc206f6cfd599cf83434eff4741f11fce12281a0cb66c61d",
         "juiz_std.sensor.LaserScan@sha256:0a22cd83b68752d02353ecceecc0204c2150155a2947a4d8b5faa08031fbca74",

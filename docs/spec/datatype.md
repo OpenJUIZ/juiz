@@ -830,7 +830,7 @@ juiz-idl(`juiz_idl/std/juiz_std/*.jidl`)に組み込み、どこからでも `im
 | ファイル | 名前空間 | 型 |
 |---|---|---|
 | `juiz_std/common.jidl` | `juiz_std.common` | `Time {sec, nanosec}`、`Duration {sec, nanosec}`、`Header {stamp, frame_id}` |
-| `juiz_std/geometry.jidl` | `juiz_std.geometry` | `Point2D`、`Point3D`、`Vector2`、`Vector3`、`Quaternion`(既定は回転なし `w = 1`)、`Pose2D {position, theta}`、`Pose {position, orientation}`、`Twist2D {linear: Vector2, angular}`、`Twist {linear, angular}`、`Pose2DStamped`、`PoseStamped` |
+| `juiz_std/geometry.jidl` | `juiz_std.geometry` | `Point2D`、`Point3D`、`Vector2`、`Vector3`、`Quaternion`(既定は回転なし `w = 1`)、`Pose2D {position, theta}`、`Pose {position, orientation}`、`Twist2D {linear: Vector2, angular}`、`Twist {linear, angular}`、`Pose2DStamped`、`PoseStamped`、`Transform {translation: Vector3, rotation: Quaternion}`・`TransformStamped {header, child_frame_id, transform}`(0.2 系で追加、[transformations.md](transformations.md)) |
 | `juiz_std/sensor.jidl` | `juiz_std.sensor` | `ImageInfo {header, width, height, encoding}`(画像のメタ情報。画素は `image` 型で別に渡す、§3.3)、`Imu`、`LaserScan`、`Range`(この 3 つは ROS 2 の `sensor_msgs` と同じフィールドを持つ、§25.2) |
 
 - 名前とフィールドは ROS 2 の `std_msgs`・`builtin_interfaces`・`geometry_msgs`・`sensor_msgs` に寄せた(Step 13 の取り込みで対応を付けやすくするため)。ただし juiz の型として別に定義したもので、`ros2.*` の型とは指紋が違う。ROS 2 の型を取り込むと、辞書の形が同じものは juiz_std に置き換わる(§25.2)。
@@ -885,7 +885,7 @@ juiz-idl -I idl -g rust,python idl/ros2/my_msgs/msg/Status.jidl
 | `builtin_interfaces/Time`・`Duration` | `juiz_std.common.Time`・`Duration`(ROS 2 の `int32 sec` / `uint32 nanosec` と幅は違うが辞書は同じ) |
 | `std_msgs/Header` | `juiz_std.common.Header` |
 | `geometry_msgs/Point` | `juiz_std.geometry.Point3D` |
-| `geometry_msgs/Vector3`・`Quaternion`・`Pose`・`Twist`・`PoseStamped` | `juiz_std.geometry` の同じ名前の型 |
+| `geometry_msgs/Vector3`・`Quaternion`・`Pose`・`Twist`・`PoseStamped`・`Transform`・`TransformStamped` | `juiz_std.geometry` の同じ名前の型(`Transform`・`TransformStamped` は 0.2 系から) |
 | `sensor_msgs/Imu`・`LaserScan`・`Range` | `juiz_std.sensor` の同じ名前の型(0.0.26 で ROS 2 のフィールドを足した、§24.4) |
 
 - 置き換える型そのものを入力に書いたときは、警告して書き出さない。

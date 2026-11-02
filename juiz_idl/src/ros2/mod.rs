@@ -31,7 +31,7 @@ pub const ROS2_NAMESPACE: &str = "ros2";
 
 /// juiz_std に置き換える ROS 2 の型 (パッケージ、名前、組み込みの JIDL、juiz_std の完全名)。
 /// フィールドの名前と辞書の形が同じものだけ (整数の幅は違ってもよい)
-pub const STD_MAP: [(&str, &str, &str, &str); 12] = [
+pub const STD_MAP: [(&str, &str, &str, &str); 14] = [
     (
         "builtin_interfaces",
         "Time",
@@ -85,6 +85,18 @@ pub const STD_MAP: [(&str, &str, &str, &str); 12] = [
         "PoseStamped",
         "juiz_std/geometry.jidl",
         "juiz_std.geometry.PoseStamped",
+    ),
+    (
+        "geometry_msgs",
+        "Transform",
+        "juiz_std/geometry.jidl",
+        "juiz_std.geometry.Transform",
+    ),
+    (
+        "geometry_msgs",
+        "TransformStamped",
+        "juiz_std/geometry.jidl",
+        "juiz_std.geometry.TransformStamped",
     ),
     (
         "sensor_msgs",

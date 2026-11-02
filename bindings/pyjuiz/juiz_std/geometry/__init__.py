@@ -983,3 +983,312 @@ _jt.define_record(
         ("pose", "pose", _jt.Record(lambda: Pose), {"orientation": {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0}, "position": {"x": 0.0, "y": 0.0, "z": 0.0}}),
     ],
 )
+
+
+@_dataclasses.dataclass(kw_only=True)
+class Transform:
+    """座標変換 (ROS 2 の geometry_msgs/Transform と同じ形)。
+    子の座標を親の座標へ写す: p_親 = rotation · p_子 + translation (docs/spec/transformations.md)
+    """
+
+    translation: Vector3 = _dataclasses.field(default_factory=lambda: _jt.field_default(Transform, "translation"))
+    rotation: Quaternion = _dataclasses.field(default_factory=lambda: _jt.field_default(Transform, "rotation"))
+
+    def to_value(self) -> dict:
+        """辞書 (仕様 §4 の表し方) にする"""
+        return _jt.record_to_value(self)
+
+    @classmethod
+    def from_value(cls, value, path: str = "") -> Transform:
+        """辞書を読む。足りないフィールドは既定値で埋め、型にないキーは無視する (仕様 §4)"""
+        return _jt.record_from_value(cls, value, path)
+
+    @classmethod
+    def type_schema(cls) -> dict:
+        """型参照 {name, fingerprint, avro} (仕様 §6)"""
+        return _jt.type_schema(cls)
+
+
+_jt.define_record(
+    Transform,
+    schema={
+        "name": "juiz_std.geometry.Transform",
+        "fingerprint": "sha256:a866b61bf295cf936bbe1be7972b1409c7a67ffecad8cda77494da54ff854fb0",
+        "avro": {
+            "type": "record",
+            "name": "Transform",
+            "namespace": "juiz_std.geometry",
+            "doc": "座標変換 (ROS 2 の geometry_msgs/Transform と同じ形)。\n子の座標を親の座標へ写す: p_親 = rotation · p_子 + translation (docs/spec/transformations.md)",
+            "fields": [
+                {
+                    "name": "translation",
+                    "type": {
+                        "type": "record",
+                        "name": "Vector3",
+                        "namespace": "juiz_std.geometry",
+                        "doc": "空間のベクトル",
+                        "fields": [
+                            {
+                                "name": "x",
+                                "type": "double",
+                                "default": 0.0,
+                            },
+                            {
+                                "name": "y",
+                                "type": "double",
+                                "default": 0.0,
+                            },
+                            {
+                                "name": "z",
+                                "type": "double",
+                                "default": 0.0,
+                            },
+                        ],
+                    },
+                    "default": {
+                        "x": 0.0,
+                        "y": 0.0,
+                        "z": 0.0,
+                    },
+                },
+                {
+                    "name": "rotation",
+                    "type": {
+                        "type": "record",
+                        "name": "Quaternion",
+                        "namespace": "juiz_std.geometry",
+                        "doc": "回転を表す四元数 (既定値は回転なし)",
+                        "fields": [
+                            {
+                                "name": "x",
+                                "type": "double",
+                                "default": 0.0,
+                            },
+                            {
+                                "name": "y",
+                                "type": "double",
+                                "default": 0.0,
+                            },
+                            {
+                                "name": "z",
+                                "type": "double",
+                                "default": 0.0,
+                            },
+                            {
+                                "name": "w",
+                                "type": "double",
+                                "default": 1.0,
+                            },
+                        ],
+                    },
+                    "default": {
+                        "w": 1.0,
+                        "x": 0.0,
+                        "y": 0.0,
+                        "z": 0.0,
+                    },
+                },
+            ],
+        },
+    },
+    fields=lambda: [
+        ("translation", "translation", _jt.Record(lambda: Vector3), {"x": 0.0, "y": 0.0, "z": 0.0}),
+        ("rotation", "rotation", _jt.Record(lambda: Quaternion), {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0}),
+    ],
+)
+
+
+@_dataclasses.dataclass(kw_only=True)
+class TransformStamped:
+    """時刻と座標系つきの座標変換 (ROS 2 の geometry_msgs/TransformStamped と同じ形)。
+    header.frame_id が親 (始点)、child_frame_id が子 (終点)
+    """
+
+    header: _ns_juiz_std_common.Header = _dataclasses.field(default_factory=lambda: _jt.field_default(TransformStamped, "header"))
+    child_frame_id: str = ""
+    transform: Transform = _dataclasses.field(default_factory=lambda: _jt.field_default(TransformStamped, "transform"))
+
+    def to_value(self) -> dict:
+        """辞書 (仕様 §4 の表し方) にする"""
+        return _jt.record_to_value(self)
+
+    @classmethod
+    def from_value(cls, value, path: str = "") -> TransformStamped:
+        """辞書を読む。足りないフィールドは既定値で埋め、型にないキーは無視する (仕様 §4)"""
+        return _jt.record_from_value(cls, value, path)
+
+    @classmethod
+    def type_schema(cls) -> dict:
+        """型参照 {name, fingerprint, avro} (仕様 §6)"""
+        return _jt.type_schema(cls)
+
+
+_jt.define_record(
+    TransformStamped,
+    schema={
+        "name": "juiz_std.geometry.TransformStamped",
+        "fingerprint": "sha256:6e78b3aaccc73862f6ac42082b07a3c84dd6853845160babcbc4fffe322713d9",
+        "avro": {
+            "type": "record",
+            "name": "TransformStamped",
+            "namespace": "juiz_std.geometry",
+            "doc": "時刻と座標系つきの座標変換 (ROS 2 の geometry_msgs/TransformStamped と同じ形)。\nheader.frame_id が親 (始点)、child_frame_id が子 (終点)",
+            "fields": [
+                {
+                    "name": "header",
+                    "type": {
+                        "type": "record",
+                        "name": "Header",
+                        "namespace": "juiz_std.common",
+                        "doc": "データの時刻と座標系",
+                        "fields": [
+                            {
+                                "name": "stamp",
+                                "type": {
+                                    "type": "record",
+                                    "name": "Time",
+                                    "namespace": "juiz_std.common",
+                                    "doc": "時刻 (1970-01-01T00:00:00Z からの経過時間)",
+                                    "fields": [
+                                        {
+                                            "name": "sec",
+                                            "type": "long",
+                                            "doc": "秒",
+                                            "default": 0,
+                                        },
+                                        {
+                                            "name": "nanosec",
+                                            "type": "int",
+                                            "doc": "秒未満 [ns] (0〜999999999)",
+                                            "default": 0,
+                                        },
+                                    ],
+                                },
+                                "doc": "データを取った時刻",
+                                "default": {
+                                    "nanosec": 0,
+                                    "sec": 0,
+                                },
+                            },
+                            {
+                                "name": "frame_id",
+                                "type": "string",
+                                "doc": "座標系の名前",
+                                "default": "",
+                            },
+                        ],
+                    },
+                    "default": {
+                        "frame_id": "",
+                        "stamp": {
+                            "nanosec": 0,
+                            "sec": 0,
+                        },
+                    },
+                },
+                {
+                    "name": "child_frame_id",
+                    "type": "string",
+                    "default": "",
+                },
+                {
+                    "name": "transform",
+                    "type": {
+                        "type": "record",
+                        "name": "Transform",
+                        "namespace": "juiz_std.geometry",
+                        "doc": "座標変換 (ROS 2 の geometry_msgs/Transform と同じ形)。\n子の座標を親の座標へ写す: p_親 = rotation · p_子 + translation (docs/spec/transformations.md)",
+                        "fields": [
+                            {
+                                "name": "translation",
+                                "type": {
+                                    "type": "record",
+                                    "name": "Vector3",
+                                    "namespace": "juiz_std.geometry",
+                                    "doc": "空間のベクトル",
+                                    "fields": [
+                                        {
+                                            "name": "x",
+                                            "type": "double",
+                                            "default": 0.0,
+                                        },
+                                        {
+                                            "name": "y",
+                                            "type": "double",
+                                            "default": 0.0,
+                                        },
+                                        {
+                                            "name": "z",
+                                            "type": "double",
+                                            "default": 0.0,
+                                        },
+                                    ],
+                                },
+                                "default": {
+                                    "x": 0.0,
+                                    "y": 0.0,
+                                    "z": 0.0,
+                                },
+                            },
+                            {
+                                "name": "rotation",
+                                "type": {
+                                    "type": "record",
+                                    "name": "Quaternion",
+                                    "namespace": "juiz_std.geometry",
+                                    "doc": "回転を表す四元数 (既定値は回転なし)",
+                                    "fields": [
+                                        {
+                                            "name": "x",
+                                            "type": "double",
+                                            "default": 0.0,
+                                        },
+                                        {
+                                            "name": "y",
+                                            "type": "double",
+                                            "default": 0.0,
+                                        },
+                                        {
+                                            "name": "z",
+                                            "type": "double",
+                                            "default": 0.0,
+                                        },
+                                        {
+                                            "name": "w",
+                                            "type": "double",
+                                            "default": 1.0,
+                                        },
+                                    ],
+                                },
+                                "default": {
+                                    "w": 1.0,
+                                    "x": 0.0,
+                                    "y": 0.0,
+                                    "z": 0.0,
+                                },
+                            },
+                        ],
+                    },
+                    "default": {
+                        "rotation": {
+                            "w": 1.0,
+                            "x": 0.0,
+                            "y": 0.0,
+                            "z": 0.0,
+                        },
+                        "translation": {
+                            "x": 0.0,
+                            "y": 0.0,
+                            "z": 0.0,
+                        },
+                    },
+                },
+            ],
+        },
+    },
+    fields=lambda: [
+        ("header", "header", _jt.Record(lambda: _ns_juiz_std_common.Header), {"frame_id": "", "stamp": {"nanosec": 0, "sec": 0}}),
+        ("child_frame_id", "child_frame_id", _jt.String, ""),
+        ("transform", "transform", _jt.Record(lambda: Transform), {"rotation": {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0}, "translation": {"x": 0.0, "y": 0.0, "z": 0.0}}),
+    ],
+)

@@ -5,7 +5,7 @@
 | 名前空間 | 型 |
 |---|---|
 | `juiz_std.common` | `Time`、`Duration`、`Header` |
-| `juiz_std.geometry` | `Point2D`、`Point3D`、`Vector2`、`Vector3`、`Quaternion`、`Pose2D`、`Pose`、`Twist2D`、`Twist`、`Pose2DStamped`、`PoseStamped` |
+| `juiz_std.geometry` | `Point2D`、`Point3D`、`Vector2`、`Vector3`、`Quaternion`、`Pose2D`、`Pose`、`Twist2D`、`Twist`、`Pose2DStamped`、`PoseStamped`、`Transform`、`TransformStamped` |
 | `juiz_std.sensor` | `ImageInfo` (画像のメタ情報)、`Imu`、`LaserScan`、`Range` |
 
 すべてのフィールドに既定値があります。中身は [juiz_idl/std/juiz_std](https://github.com/OpenJUIZ/juiz/tree/main/juiz_idl/std/juiz_std) の .jidl を見てください。
