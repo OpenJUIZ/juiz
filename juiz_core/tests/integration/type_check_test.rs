@@ -6,7 +6,7 @@
 //! - 呼び出し時の検査: conf の option.type_check.on_call で入れる (既定はオフ)
 //!
 //! 仕様は docs/spec/datatype.md の §8 と §19。プラグインは使わず、型付きの manifest の Factory をテストの中で登録する。
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 
 use juiz_core::{prelude::*, types::TypeEntry};
 use juiz_sdk::{
@@ -397,13 +397,13 @@ fn type_registry_api() -> JuizResult<()> {
 
         // HTTP の BrokerProxy から
         let host = format!("localhost:{PORT}");
-        let bp: Arc<Mutex<dyn BrokerProxy>> =
+        let bp: Arc<RwLock<dyn BrokerProxy>> =
             system
                 .core_broker()
                 .lock()?
                 .worker()
                 .broker_proxy("http", host.as_str(), true)?;
-        check_registry(&*bp.lock().unwrap())?;
+        check_registry(&*bp.read().unwrap())?;
 
         // JSON そのもの
         let schema: Value = reqwest::blocking::get(format!(

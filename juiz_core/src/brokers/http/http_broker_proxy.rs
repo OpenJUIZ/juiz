@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     io::Read,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, RwLock},
 };
 
 use juiz_sdk::anyhow;
@@ -327,7 +327,7 @@ fn image_png_response_to_capsule_ptr(mut response: Response) -> JuizResult<Capsu
 fn create_broker_proxy_function(
     _core_broker: &CoreWorker,
     manifest: Value,
-) -> JuizResult<Arc<Mutex<dyn BrokerProxy>>> {
+) -> JuizResult<Arc<RwLock<dyn BrokerProxy>>> {
     let name = obj_get_str(&manifest, "name")?;
     Ok(CRUDBrokerProxyHolder::new(
         "HTTPBrokerProxy",

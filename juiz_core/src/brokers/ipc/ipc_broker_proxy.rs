@@ -4,6 +4,7 @@
 //! 要求は 1 つずつ送る (応答を受け取るまで次を送らない)。
 
 use std::collections::{HashMap, HashSet};
+use std::sync::RwLock;
 use std::io::BufReader;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -341,7 +342,7 @@ impl CRUDBrokerProxy for IpcBrokerProxy {
 fn create_broker_proxy_function(
     _core_broker: &CoreWorker,
     manifest: Value,
-) -> JuizResult<Arc<Mutex<dyn BrokerProxy>>> {
+) -> JuizResult<Arc<RwLock<dyn BrokerProxy>>> {
     let proxy = IpcBrokerProxy::new(&manifest)?;
     let name = proxy.name.clone();
     Ok(CRUDBrokerProxyHolder::new(

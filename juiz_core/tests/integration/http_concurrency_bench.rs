@@ -10,8 +10,8 @@
 //!     (サーバーが自分の HTTPBrokerProxy で自分を呼び直す)、その影響を外した値
 //!   - `h2c-conns core://`: HTTP/2 (h2c prior knowledge)。同時に投げる本数と同じ数の接続を張る (識別子は core://)
 //!   - `proxy`: juiz の `HTTPBrokerProxy` を System のストアから取り、同じものを全スレッドで使う
-//!     (System の中の ProcessProxy と同じ使い方。`Arc<Mutex<dyn BrokerProxy>>` のロックを取って呼ぶ)
-//!   - `blocking-conns`: `reqwest::blocking::Client` をスレッドごとに持つ (proxy のロックが無い場合の目安)
+//!     (System の中の ProcessProxy と同じ使い方。`Arc<RwLock<dyn BrokerProxy>>` の読み込みロックを取って呼ぶ。#362 で並行に走るようになった)
+//!   - `blocking-conns`: `reqwest::blocking::Client` をスレッドごとに持つ (#362 の前の proxy の Mutex が無い場合の目安)
 //! - 同時に投げる本数: 1, 4, 16, 64
 //! - Process の重さ: すぐ返る (`fast`)、20ms 眠る (`sleep20`)、720p の画像を返す (`img720`)
 //!
@@ -247,7 +247,7 @@ fn http_concurrency_bench() -> JuizResult<()> {
             format!("localhost:{PORT}").as_str(),
             true,
         )?;
-        let ids = juiz_lock(&proxy)?.process_list(false, None)?;
+        let ids = juiz_borrow(&proxy)?.process_list(false, None)?;
 
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(4)
@@ -336,7 +336,7 @@ fn http_concurrency_bench() -> JuizResult<()> {
                     c,
                     load.per_stream,
                     Arc::new(move |_| {
-                        let r = juiz_lock(&proxy_c)
+                        let r = juiz_borrow(&proxy_c)
                             .unwrap()
                             .any_process_call(&pid_c, CapsuleMap::new())
                             .expect("proxy call");

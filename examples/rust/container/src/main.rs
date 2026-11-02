@@ -66,7 +66,7 @@ fn main() -> JuizResult<()> {
             println!("JuizSystem started!!");
             let v = system
                 .broker_proxy(&jvalue!({"type_name":"local"}))?
-                .lock()
+                .read()
                 .unwrap()
                 .system_profile_full()?;
             println!("System: {:#}", v);

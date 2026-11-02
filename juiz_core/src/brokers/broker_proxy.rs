@@ -338,6 +338,7 @@ pub trait TypeBrokerProxy {
 
 pub trait BrokerProxy:
     Send
+    + Sync
     + JuizObject
     + SystemBrokerProxy
     + ProcessBrokerProxy

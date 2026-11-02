@@ -94,7 +94,7 @@ fn check_other_apis(master: &mut System) -> JuizResult<()> {
         "type_name": "http",
         "name": format!("localhost:{SUB_PORT}")
     }))?;
-    assert_eq!(juiz_lock(&bp)?.process_list(false, None)?.len(), 1);
+    assert_eq!(juiz_borrow(&bp)?.process_list(false, None)?.len(), 1);
 
     let profile = master.profile_full()?;
     assert!(profile["core_broker"].is_object(), "{profile:?}");

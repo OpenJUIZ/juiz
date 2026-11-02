@@ -14,7 +14,7 @@ use super::CoreWorker;
 pub struct SystemStore {
     pub broker_factories: HashMap<String, Arc<Mutex<BrokerFactoriesWrapper>>>,
     pub brokers: HashMap<String, BrokerPtr>,
-    pub broker_proxies: HashMap<String, Arc<Mutex<dyn BrokerProxy>>>,
+    pub broker_proxies: HashMap<String, Arc<RwLock<dyn BrokerProxy>>>,
     pub uuid: Uuid,
 }
 
@@ -80,7 +80,7 @@ impl SystemStorePtr {
         &self,
         core_broker: &CoreWorker,
         manifest: &Value,
-    ) -> JuizResult<Arc<Mutex<dyn BrokerProxy>>> {
+    ) -> JuizResult<Arc<RwLock<dyn BrokerProxy>>> {
         log::trace!("create_broker_proxy({manifest:}) called");
         let type_name = obj_get_str(manifest, "type_name")?;
         match self.lock()?.broker_factories.get(type_name) {

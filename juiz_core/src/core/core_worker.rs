@@ -2,7 +2,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     env::current_dir,
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, RwLock},
 };
 
 use juiz_sdk::{
@@ -159,7 +159,7 @@ impl CoreWorker {
         broker_type_name: &str,
         broker_name: &str,
         create_when_not_found: bool,
-    ) -> JuizResult<Arc<Mutex<dyn BrokerProxy>>> {
+    ) -> JuizResult<Arc<RwLock<dyn BrokerProxy>>> {
         log::trace!("broker_proxy({broker_type_name}, {broker_name}, {create_when_not_found})が呼ばれました。");
         let mut type_name = broker_type_name;
         if type_name == "core" {
@@ -219,7 +219,7 @@ impl CoreWorker {
         &mut self,
         manifest: &Value,
         create_when_not_found: bool,
-    ) -> JuizResult<Arc<Mutex<dyn BrokerProxy>>> {
+    ) -> JuizResult<Arc<RwLock<dyn BrokerProxy>>> {
         let mut type_name = obj_get_str(manifest, "type_name")?;
         if type_name == "core" {
             type_name = "local";

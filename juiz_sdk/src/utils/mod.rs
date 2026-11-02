@@ -14,5 +14,5 @@ pub use manifest_util::{
     get_array, get_array_mut, get_hashmap, get_hashmap_mut, get_str, get_value, when_contains_do,
     when_contains_do_mut,
 };
-pub use sync_util::{juiz_borrow, juiz_borrow_mut, juiz_lock, juiz_try_lock};
+pub use sync_util::{juiz_borrow, juiz_borrow_mut, juiz_lock, juiz_try_lock, juiz_write};
 pub use yaml_conf_load::yaml_conf_load;

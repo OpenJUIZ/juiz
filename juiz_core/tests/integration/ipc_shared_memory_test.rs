@@ -331,13 +331,13 @@ fn shm_topic_between_processes() -> JuizResult<()> {
         };
 
         let proxy = system.core_broker().lock()?.worker().broker_proxy("ipc", &server_name, true)?;
-        let report_id: ProcessIdentifier = juiz_lock(&proxy)?
+        let report_id: ProcessIdentifier = juiz_borrow(&proxy)?
             .process_list(false, None)?
             .into_iter()
             .find(|id| id.name == "report0")
             .expect("report0");
         let report = || -> JuizResult<Value> {
-            juiz_lock(&proxy)?.process_call(&report_id, CapsuleMap::new())?.extract_value()
+            juiz_borrow(&proxy)?.process_call(&report_id, CapsuleMap::new())?.extract_value()
         };
         let wait_until = |what: &str, f: &dyn Fn(&Value) -> bool| -> JuizResult<Value> {
             let deadline = Instant::now() + Duration::from_secs(60);
@@ -402,7 +402,7 @@ fn shm_topic_between_processes() -> JuizResult<()> {
         assert_eq!(stat(&shm_stats(&profile, TOPIC_SLOW), "sent"), n_slow);
 
         // 数え上げ: 受け手。届いた数 + 捨てた数 = 送った数
-        let remote = juiz_lock(&proxy)?.system_profile_full()?;
+        let remote = juiz_borrow(&proxy)?.system_profile_full()?;
         let slow_stats = shm_stats(&remote, TOPIC_SLOW);
         assert_eq!(
             slow.len() as u64 + stat(&slow_stats, "dropped") + stat(&slow_stats, "overwritten"),

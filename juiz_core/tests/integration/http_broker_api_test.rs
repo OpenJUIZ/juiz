@@ -308,7 +308,7 @@ fn check_ec_proxy(system: &mut System) -> JuizResult<()> {
             format!("localhost:{PORT}").as_str(),
             false,
         )?;
-        let v = juiz_lock(&proxy)?.ec_get_state(&id)?;
+        let v = juiz_borrow(&proxy)?.ec_get_state(&id)?;
         Ok(v["__value__"].clone())
     };
     let wait_for = |system: &mut System, expected: &str| -> JuizResult<bool> {
@@ -356,7 +356,7 @@ fn http_broker_api_with_rust_python_cpp_plugins() -> JuizResult<()> {
                 format!("localhost:{PORT}").as_str(),
                 true,
             )?;
-            let mut bp = juiz_lock(&proxy)?;
+            let mut bp = juiz_write(&proxy)?;
             check_system(&mut *bp)?;
             check_processes(&mut *bp)?;
             check_call_with_own_http_identifier(&mut *bp)?;

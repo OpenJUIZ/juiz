@@ -8,7 +8,7 @@ use juiz_sdk::process_identifier::ProcessIdentifier;
 use juiz_sdk::topic_identifier::TopicIdentifier;
 use juiz_sdk::utils::check_corebroker_manifest;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use uuid::Uuid;
 
 use crate::brokers::broker_proxy::{
@@ -114,7 +114,7 @@ impl CoreBrokerPtr {
                 "System({})に、このシステム({my_uuid})の登録を外すよう伝えます。",
                 peer.uuid()
             );
-            let result = juiz_lock(&peer.broker_proxy())
+            let result = juiz_write(&peer.broker_proxy())
                 .and_then(|mut bp| bp.system_remove_subsystem(my_uuid));
             match result {
                 Ok(_) => log::info!(
@@ -202,7 +202,7 @@ impl CoreBroker {
     pub fn create_broker_proxy(
         &self,
         broker_manifest: Value,
-    ) -> JuizResult<Arc<Mutex<dyn BrokerProxy>>> {
+    ) -> JuizResult<Arc<RwLock<dyn BrokerProxy>>> {
         self.system_store
             .create_broker_proxy(self.worker(), &broker_manifest)
     }
@@ -275,7 +275,7 @@ impl SystemBrokerProxy for CoreBroker {
             .iter()
             .map(|ssp| -> JuizResult<Value> {
                 let bp = ssp.broker_proxy();
-                let bp = juiz_lock(&bp)?;
+                let bp = juiz_borrow(&bp)?;
                 let proxy_profile = bp.profile_full()?;
                 Ok(match bp.system_profile_full_recursive() {
                     Ok(mut sub) => {
@@ -408,13 +408,13 @@ impl SystemBrokerProxy for CoreBroker {
             .unwrap_or(Value::Null);
         // BrokerProxy は、同じ相手を指すサブシステムやマスターシステムが残っていなければ外す
         for ssp in removed.iter().chain(removed_from_topics.iter()) {
-            let bp_id = juiz_lock(&ssp.broker_proxy())?.identifier().clone();
+            let bp_id = juiz_borrow(&ssp.broker_proxy())?.identifier().clone();
             let still_used = self
                 .subsystem_proxies
                 .iter()
                 .chain(self.master_system_proxy.iter())
                 .any(|other| {
-                    juiz_lock(&other.broker_proxy())
+                    juiz_borrow(&other.broker_proxy())
                         .map(|b| *b.identifier() == bp_id)
                         .unwrap_or(false)
                 });
@@ -469,7 +469,7 @@ pub(crate) struct AddSubsystemPlan {
     /// mastersystem 情報付きのリクエスト (相手が add_mastersystem の中から送ってきた確認) か
     confirmation_request: bool,
     uuid_value: Option<Value>,
-    bp: Arc<Mutex<dyn BrokerProxy>>,
+    bp: Arc<RwLock<dyn BrokerProxy>>,
     my_uuid: Uuid,
     /// 自分が持っているブローカーの (type_name, name)
     my_brokers: Vec<(String, String)>,
@@ -482,7 +482,7 @@ impl AddSubsystemPlan {
             Some(v) => v.clone(),
             None => {
                 log::debug!("【system_add_subsystem】関数に渡されたprofileにuuidが含まれていません。サブシステムから直接UUIDを取得します。");
-                juiz_lock(&self.bp)?.system_uuid()?
+                juiz_borrow(&self.bp)?.system_uuid()?
             }
         };
         let uuid_str = uuid_value.as_str().unwrap();
@@ -494,7 +494,7 @@ impl AddSubsystemPlan {
     /// 相手のプロファイルを確かめ、確認のリクエストでなければ相手にマスター側の情報を送る。
     fn negotiate(&self) -> JuizResult<()> {
         let profile = &self.profile;
-        let ssprofile = juiz_lock(&self.bp)?
+        let ssprofile = juiz_borrow(&self.bp)?
             .profile_full()
             .context("subsystem_proxy.broker_proxy().profile_full() in system_add_subsystem")?;
         log::info!("Added subsystem({})", ssprofile);
@@ -536,7 +536,7 @@ impl AddSubsystemPlan {
                 }
             });
             log::info!("In system_add_subsystem({profile}), sending back master_profile: {master_profile:}");
-            juiz_lock(&self.bp)?
+            juiz_write(&self.bp)?
                 .system_add_mastersystem(master_profile)
                 .or_else(|e| {
                     log::error!("subsystem_proxy.broker_proxy().system_add_mastersystem() failed. Error: {e:?}");
@@ -553,7 +553,7 @@ impl AddSubsystemPlan {
 pub(crate) struct AddMastersystemPlan {
     profile: Value,
     uuid_value: Option<Value>,
-    bp: Arc<Mutex<dyn BrokerProxy>>,
+    bp: Arc<RwLock<dyn BrokerProxy>>,
     my_uuid: Uuid,
     /// 自分が持っているブローカーの識別子
     my_broker_ids: Vec<String>,
@@ -572,7 +572,7 @@ impl AddMastersystemPlan {
             None => {
                 // サブシステムは未登録とみなしてUUIDを取得する
                 log::debug!("【system_add_mastersystem】引数にuuidが含まれていません。これはアプリケーションから呼ばれた最初のリクエストと判断し、サブシステムに対してリクエストを送ります。");
-                let mut b = juiz_lock(&self.bp)?;
+                let mut b = juiz_write(&self.bp)?;
                 let bprof = b.profile_full()?;
                 let broker_type_name = bprof
                     .as_object()
@@ -694,9 +694,9 @@ impl CoreBroker {
             .register(plan.bp.clone())?; // 作った相手方のBrokerProxyを自分に登録しておく
                                          // 同じアドレスのサブシステムが別の UUID で登録済みなら、それは止まって再起動する前の古いものなので外す。
                                          // 残すと一覧などの再帰的な問い合わせで同じサブシステムに 2 回問い合わせてしまう (issue #60)
-        let new_bp_id = juiz_lock(&plan.bp)?.identifier();
+        let new_bp_id = juiz_borrow(&plan.bp)?.identifier();
         self.subsystem_proxies.retain(|ssp| {
-            let same_address = juiz_lock(&ssp.broker_proxy())
+            let same_address = juiz_borrow(&ssp.broker_proxy())
                 .map(|b| b.identifier() == new_bp_id)
                 .unwrap_or(false);
             if same_address {
@@ -842,12 +842,12 @@ impl ProcessBrokerProxy for CoreBroker {
 
         for ssp in self.subsystem_proxies.iter() {
             log::debug!("【process_list】Subsystem({ssp:})にあるprocessも調べます。");
-            let plist = juiz_lock(&ssp.broker_proxy())?.process_list(recursive, None)?;
+            let plist = juiz_borrow(&ssp.broker_proxy())?.process_list(recursive, None)?;
 
             log::debug!("【process_list】Subsystem({ssp:})にあるprocessは{plist:?}");
             for v in plist.into_iter() {
                 let mut mut_pi = v.clone();
-                match ssp.broker_proxy().lock().and_then(|bp| {
+                match ssp.broker_proxy().read().and_then(|bp| {
                     mut_pi.broker_name = bp.name().to_owned();
                     mut_pi.broker_type_name = bp.type_name().to_owned();
                     Ok(())
@@ -1043,7 +1043,7 @@ impl ContainerBrokerProxy for CoreBroker {
             //for (_id, proxy) in self.store().broker_proxies.objects().iter() {
             for ssp in self.subsystem_proxies.iter() {
                 let proxy = ssp.broker_proxy();
-                let p = juiz_lock(&proxy)?;
+                let p = juiz_borrow(&proxy)?;
                 // 副系のものは、副系へのブローカーを指す識別子にする (process_list と同じ。issue #112)
                 for mut id in p.container_list(recursive, None)?.into_iter() {
                     id.broker_name = p.name().to_owned();
@@ -1118,7 +1118,7 @@ impl ContainerProcessBrokerProxy for CoreBroker {
         if recursive {
             for ssp in self.subsystem_proxies.iter() {
                 let proxy = ssp.broker_proxy();
-                let p = juiz_lock(&proxy)?;
+                let p = juiz_borrow(&proxy)?;
                 // 副系のものは、副系へのブローカーを指す識別子にする (process_list と同じ。issue #112)
                 for mut id in p.container_process_list(recursive, None)?.into_iter() {
                     id.broker_name = p.name().to_owned();
@@ -1283,7 +1283,7 @@ impl BrokerBrokerProxy for CoreBroker {
             log::trace!("【broker_list】サブシステムのBrokerも調べます。");
             for ssp in self.subsystem_proxies.iter() {
                 let proxy = ssp.broker_proxy();
-                let mut plist = juiz_lock(&proxy)?.broker_list(recursive)?;
+                let mut plist = juiz_borrow(&proxy)?.broker_list(recursive)?;
                 ids.append(&mut plist);
             }
         } else {
@@ -1306,7 +1306,7 @@ impl TopicBrokerProxy for CoreBroker {
             for ssp in self.subsystem_proxies.iter() {
                 let proxy = ssp.broker_proxy();
 
-                let mut plist = juiz_lock(&proxy)?.topic_list()?;
+                let mut plist = juiz_borrow(&proxy)?.topic_list()?;
                 ids.append(&mut plist);
             }
         }
@@ -1354,7 +1354,7 @@ impl TopicBrokerProxy for CoreBroker {
             // 呼び出し元のUUIDがマスターと一緒でなければマスターを検査
             if opt_system_uuid.is_some() && (msp.uuid() != &opt_system_uuid.unwrap()) {
                 let result_value =
-                    juiz_lock(&msp.broker_proxy())?.topic_request_subscribe(name, Some(my_uuid))?;
+                    juiz_write(&msp.broker_proxy())?.topic_request_subscribe(name, Some(my_uuid))?;
                 if obj_get_bool(&result_value, "subscribe")? {
                     // システムが購読を希望していたら、自分のlocalにTopicPtrを作り、それと相手システムを接続する
                     log::trace!("found subscriber of topic(name={name}) in master system");
@@ -1368,7 +1368,7 @@ impl TopicBrokerProxy for CoreBroker {
             // 呼び出し元のUUIDがサブシステムと一緒でなければ検査
             if opt_system_uuid.is_some() && (ssp.uuid() != &opt_system_uuid.unwrap()) {
                 let result_value =
-                    juiz_lock(&ssp.broker_proxy())?.topic_request_subscribe(name, Some(my_uuid))?;
+                    juiz_write(&ssp.broker_proxy())?.topic_request_subscribe(name, Some(my_uuid))?;
                 if obj_get_bool(&result_value, "subscribe")? {
                     log::trace!("found subscriber of topic(name={name}) in subsystem");
                     // システムが購読を希望していたら、自分のlocalにTopicPtrを作り、それと相手システムを接続する
@@ -1420,7 +1420,7 @@ impl TopicBrokerProxy for CoreBroker {
             if opt_system_uuid.is_some() && (msp.uuid() != &opt_system_uuid.unwrap()) {
                 let uuid = msp.uuid();
                 let result_value =
-                    juiz_lock(&msp.broker_proxy())?.topic_request_publish(name, Some(my_uuid))?;
+                    juiz_write(&msp.broker_proxy())?.topic_request_publish(name, Some(my_uuid))?;
                 if obj_get_bool(&result_value, "publish")? {
                     log::trace!("Subsystem({}) publishes topic({})", uuid, name);
                     // システムが出版を宣言していたら、自分のlocalにTopicPtrを作り、それと相手システムを接続する
@@ -1436,7 +1436,7 @@ impl TopicBrokerProxy for CoreBroker {
             // 呼び出し元のUUIDがサブシステムと一緒でなければ検査
             if opt_system_uuid.is_some() && (ssp.uuid() != &opt_system_uuid.unwrap()) {
                 let result_value =
-                    juiz_lock(&ssp.broker_proxy())?.topic_request_publish(name, Some(my_uuid))?;
+                    juiz_write(&ssp.broker_proxy())?.topic_request_publish(name, Some(my_uuid))?;
                 if obj_get_bool(&result_value, "publish")? {
                     let uuid = ssp.uuid();
                     log::trace!("Subsystem({}) publishes topic({})", uuid, name);
@@ -1464,7 +1464,7 @@ impl ExecutionContextBrokerProxy for CoreBroker {
             for ssp in self.subsystem_proxies.iter() {
                 let proxy = ssp.broker_proxy();
 
-                let plist = juiz_lock(&proxy)?.ec_list(recursive)?;
+                let plist = juiz_borrow(&proxy)?.ec_list(recursive)?;
                 for v in get_array(&plist)?.iter() {
                     let id = v.as_str().unwrap();
                     ids_arr.push(id.into());
@@ -1546,7 +1546,7 @@ impl ConnectionBrokerProxy for CoreBroker {
         if recursive {
             for subsystem_proxy in self.subsystem_proxies.iter() {
                 let plist =
-                    juiz_lock(&subsystem_proxy.broker_proxy())?.connection_list(recursive)?;
+                    juiz_borrow(&subsystem_proxy.broker_proxy())?.connection_list(recursive)?;
                 for v in plist.into_iter() {
                     ids_arr.push(v);
                 }
@@ -1663,3 +1663,7 @@ impl BrokerProxy for CoreBroker {
 }
 
 unsafe impl Send for CoreBroker {}
+// BrokerProxy は Sync を求める (issue #362、プロキシを RwLock の read で同時に使うため)。
+// CoreBroker は CoreBrokerPtr の RwLock の read で前から複数スレッドから同時に参照されている
+// (CoreBrokerPtr は unsafe impl Send)。ここで Sync を付けても実行時の振る舞いは変わらない。
+unsafe impl Sync for CoreBroker {}

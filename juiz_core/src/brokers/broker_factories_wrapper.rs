@@ -6,7 +6,7 @@ use crate::{
 };
 use crate::{core::CoreWorker, prelude::*};
 use juiz_sdk::utils::juiz_lock;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use super::broker_ptr::BrokerPtr;
 
@@ -60,7 +60,7 @@ impl BrokerFactoriesWrapper {
         &self,
         core_broker: &CoreWorker,
         manifest: &Value,
-    ) -> JuizResult<Arc<Mutex<dyn BrokerProxy>>> {
+    ) -> JuizResult<Arc<RwLock<dyn BrokerProxy>>> {
         log::trace!("create_broker_proxy(manifest='{manifest:}') called");
         juiz_lock(&self.broker_proxy_factory)?.create_broker_proxy(core_broker, manifest.clone())
     }

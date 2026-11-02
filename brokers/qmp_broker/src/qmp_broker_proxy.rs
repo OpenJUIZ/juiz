@@ -4,7 +4,7 @@ use std::{
     net::SocketAddr,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc, Mutex,
+        Arc, RwLock,
     },
     time::Duration,
 };
@@ -38,7 +38,7 @@ const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(5);
 pub(crate) fn create_broker_proxy_function(
     _core_broker: &CoreWorker,
     manifest: Value,
-) -> JuizResult<Arc<Mutex<dyn BrokerProxy>>> {
+) -> JuizResult<Arc<RwLock<dyn BrokerProxy>>> {
     log::trace!("create_broker_proxy_function({manifest:}) called");
     let name = obj_get_str(&manifest, "name")?;
     Ok(CRUDBrokerProxyHolder::new(

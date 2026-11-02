@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use crate::brokers::BrokerProxy;
 use crate::core::CoreWorker;
@@ -9,14 +9,14 @@ pub trait BrokerProxyFactory: JuizObject {
         &self,
         core_worker: &CoreWorker,
         manifest: Value,
-    ) -> JuizResult<Arc<Mutex<dyn BrokerProxy>>>;
+    ) -> JuizResult<Arc<RwLock<dyn BrokerProxy>>>;
 
     fn profile_full(&self) -> JuizResult<Value>;
 }
 
 pub struct BrokerProxyFactoryImpl {
     core: ObjectCore,
-    create_function: fn(&CoreWorker, Value) -> JuizResult<Arc<Mutex<dyn BrokerProxy>>>,
+    create_function: fn(&CoreWorker, Value) -> JuizResult<Arc<RwLock<dyn BrokerProxy>>>,
 }
 
 impl BrokerProxyFactoryImpl {
@@ -25,7 +25,7 @@ impl BrokerProxyFactoryImpl {
         create_function: fn(
             core_broker: &CoreWorker,
             manifest: Value,
-        ) -> JuizResult<Arc<Mutex<dyn BrokerProxy>>>,
+        ) -> JuizResult<Arc<RwLock<dyn BrokerProxy>>>,
     ) -> JuizResult<Arc<Mutex<dyn BrokerProxyFactory>>> {
         let class_name = "BrokerPRoxyFactoryImpl";
         let type_name = obj_get_str(&manifest, "type_name")?;
@@ -52,7 +52,7 @@ impl BrokerProxyFactory for BrokerProxyFactoryImpl {
         &self,
         core_broker: &CoreWorker,
         manifest: Value,
-    ) -> JuizResult<Arc<Mutex<dyn BrokerProxy>>> {
+    ) -> JuizResult<Arc<RwLock<dyn BrokerProxy>>> {
         log::trace!(
             "BrokerProxyFactoryImpl::create_broker_proxy(manifest={}) called",
             manifest
@@ -74,7 +74,7 @@ impl BrokerProxyFactory for BrokerProxyFactoryImpl {
 
 pub fn create_broker_proxy_factory_impl(
     manifest: Value,
-    create_broker_function: fn(&CoreWorker, Value) -> JuizResult<Arc<Mutex<dyn BrokerProxy>>>,
+    create_broker_function: fn(&CoreWorker, Value) -> JuizResult<Arc<RwLock<dyn BrokerProxy>>>,
 ) -> JuizResult<Arc<Mutex<dyn BrokerProxyFactory>>> {
     Ok(BrokerProxyFactoryImpl::new(
         manifest,

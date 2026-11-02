@@ -160,7 +160,7 @@ fn on_container_destroy(system: &mut System, id: String) -> JuizResult<()> {
         let mut local = cid.clone();
         local.broker_type_name = "core".to_owned();
         local.broker_name = "core".to_owned();
-        let p = juiz_lock(&proxy)?.container_destroy(&local)?;
+        let p = juiz_write(&proxy)?.container_destroy(&local)?;
         p
     };
     let id: String = profile.identifier().into();

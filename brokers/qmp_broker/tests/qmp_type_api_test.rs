@@ -48,7 +48,7 @@ fn qmp_type_api() -> JuizResult<()> {
             broker_name.as_str(),
             true,
         )?;
-        let bp = juiz_lock(&proxy)?;
+        let bp = juiz_borrow(&proxy)?;
         let list = bp.type_list()?;
         assert_eq!(list.len(), 1, "{list:?}");
         assert_eq!(list[0].identifier, twist().identifier());

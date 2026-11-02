@@ -349,7 +349,7 @@ fn ipc_profile(name: &str) -> Option<juiz_sdk::serde_json::Value> {
             .worker()
             .broker_proxy("ipc", name, true)?;
         // BrokerProxy は値を {"__value__": …} で包んで返す
-        out = juiz_lock(&bp)?
+        out = juiz_borrow(&bp)?
             .system_profile_full()
             .ok()
             .map(|p| p.get("__value__").cloned().unwrap_or(p));

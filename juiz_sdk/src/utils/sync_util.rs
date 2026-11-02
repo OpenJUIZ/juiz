@@ -56,3 +56,16 @@ where
         Ok(v) => Ok(v),
     }
 }
+
+/// `Arc<RwLock<T>>` の書き込みロックを取る。`juiz_borrow_mut` と違い `&Arc` で取れる (issue #362)
+pub fn juiz_write<'b, T: ?Sized>(obj: &'b Arc<RwLock<T>>) -> JuizResult<RwLockWriteGuard<'b, T>> {
+    match obj.write() {
+        Err(e) => {
+            log::error!("juiz_write() failed. Error is {:?}", e);
+            Err(anyhow::Error::from(JuizError::MutexLockFailedError {
+                error: e.to_string(),
+            }))
+        }
+        Ok(v) => Ok(v),
+    }
+}

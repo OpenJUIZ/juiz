@@ -7,12 +7,12 @@ use juiz_sdk::{
     manifests::ProcessProfile,
     process_identifier::ProcessIdentifier,
 };
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 
 #[allow(unused)]
 pub struct ProcessProxy {
     // core: ObjectCore,
-    broker_proxy: Arc<Mutex<dyn BrokerProxy>>,
+    broker_proxy: Arc<RwLock<dyn BrokerProxy>>,
     identifier: ProcessIdentifier,
     //profile: ProcessProfile,
     class_name_str: String,
@@ -22,7 +22,7 @@ impl ProcessProxy {
     pub fn new(
         class_name: JuizObjectClass,
         identifier: ProcessIdentifier,
-        broker_proxy: Arc<Mutex<dyn BrokerProxy>>,
+        broker_proxy: Arc<RwLock<dyn BrokerProxy>>,
     ) -> JuizResult<ProcessPtr> {
         log::trace!("【呼出】ProcessProxy::new({class_name:}, {identifier}, broker_proxy)");
         // let id_struct = IdentifierStruct::try_from(identifier.clone())?;
@@ -70,7 +70,7 @@ impl std::fmt::Debug for ProcessProxy {
 impl Process for ProcessProxy {
     fn call(&self, args: RequestMap) -> JuizResult<ResponsePtr> {
         log::trace!("ProcessProxy({})::call() called", self.identifier());
-        juiz_lock(&self.broker_proxy)?
+        juiz_borrow(&self.broker_proxy)?
             .any_process_call(&self.identifier(), args)
             .and_then(|v| {
                 log::trace!("【完了】ProcessProxy({})::call()", self.identifier());
@@ -87,7 +87,7 @@ impl Process for ProcessProxy {
     }
 
     fn profile(&self) -> JuizResult<ProcessProfile> {
-        juiz_lock(&self.broker_proxy)?.any_process_profile_full(&self.identifier())
+        juiz_borrow(&self.broker_proxy)?.any_process_profile_full(&self.identifier())
     }
 
     fn invoke<'b>(&self) -> JuizResult<ResponsePtr> {
@@ -100,7 +100,7 @@ impl Process for ProcessProxy {
 
     fn push_by(&self, arg_name: &str, value: CapsulePtr) -> JuizResult<CapsulePtr> {
         log::trace!("【呼出】ProcessProxy::push_by({arg_name}, {value})");
-        juiz_lock(&self.broker_proxy)?
+        juiz_borrow(&self.broker_proxy)?
             .process_push_by(&self.identifier(), arg_name.to_owned(), value)
             .and_then(|v| {
                 log::trace!(
@@ -130,7 +130,7 @@ impl Process for ProcessProxy {
         manifest: &ConnectionManifest,
     ) -> JuizResult<ConnectionProfile> {
         log::trace!("【呼出】ProcessProxy::notify_connected_from({manifest})");
-        juiz_lock(&self.broker_proxy)?
+        juiz_write(&self.broker_proxy)?
             .process_notify_connected_from(&manifest)
             .and_then(|v| {
                 log::trace!(
@@ -154,7 +154,7 @@ impl Process for ProcessProxy {
         manifest: &ConnectionManifest,
     ) -> JuizResult<ConnectionManifest> {
         log::trace!("【呼出】ProcessProxy::try_connect_to({manifest})");
-        juiz_lock(&self.broker_proxy)?
+        juiz_write(&self.broker_proxy)?
             .process_try_connect_to(&manifest)
             .and_then(|v| {
                 log::trace!(
@@ -187,7 +187,7 @@ impl Process for ProcessProxy {
             "【呼出】ProcessProxy({})::p_aplly({arg_name}, {value:})",
             self.identifier()
         );
-        juiz_lock(&self.broker_proxy)?
+        juiz_write(&self.broker_proxy)?
             .process_p_apply(&self.identifier(), arg_name, value)
             .and_then(|v| {
                 log::trace!(
@@ -221,7 +221,7 @@ impl Process for ProcessProxy {
             "【呼出】ProcessProxy({})::openapi_spec()",
             self.identifier()
         );
-        let broker = juiz_lock(&self.broker_proxy)?;
+        let broker = juiz_borrow(&self.broker_proxy)?;
         if self.class_name_str == "container_process" {
             broker.container_process_openapi_spec(&self.identifier())
         } else {

@@ -1,6 +1,6 @@
 use anyhow::Context;
 use std::{
-    sync::{Arc, Mutex},
+    sync::{Arc, RwLock},
     time::Duration,
 };
 
@@ -36,7 +36,7 @@ pub struct MessengerBrokerProxy {
     messenger: Box<dyn MessengerBrokerProxyCore>,
 }
 
-pub trait MessengerBrokerProxyCore: Send {
+pub trait MessengerBrokerProxyCore: Send + Sync {
     fn send_and_receive(&self, v: CapsuleMap, timeout: Duration) -> JuizResult<CapsulePtr>;
 }
 
@@ -50,8 +50,8 @@ impl MessengerBrokerProxy {
         type_name: &str,
         object_name: &str,
         messenger: Box<dyn MessengerBrokerProxyCore>,
-    ) -> JuizResult<Arc<Mutex<dyn BrokerProxy>>> {
-        Ok(Arc::new(Mutex::new(MessengerBrokerProxy {
+    ) -> JuizResult<Arc<RwLock<dyn BrokerProxy>>> {
+        Ok(Arc::new(RwLock::new(MessengerBrokerProxy {
             core: ObjectCore::create(
                 JuizObjectClass::BrokerProxy(class_name),
                 type_name,

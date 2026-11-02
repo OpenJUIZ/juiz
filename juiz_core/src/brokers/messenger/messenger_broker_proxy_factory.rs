@@ -1,6 +1,6 @@
 use anyhow::Context;
 use juiz_sdk::anyhow;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use crate::core::CoreWorker;
 
@@ -53,7 +53,7 @@ impl BrokerProxyFactory for MessengerBrokerProxyFactory {
         &self,
         _core_broker: &CoreWorker,
         manifest: Value,
-    ) -> JuizResult<Arc<Mutex<dyn BrokerProxy>>> {
+    ) -> JuizResult<Arc<RwLock<dyn BrokerProxy>>> {
         log::trace!(
             "MessengerBrokerProxyFactory::create_broker_proxy(manifest={}) called",
             manifest

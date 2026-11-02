@@ -186,7 +186,7 @@ fn check_http_broker_proxy(system: &mut System) -> JuizResult<()> {
         .lock()?
         .worker()
         .broker_proxy("http", host.as_str(), true)?;
-    let bp = juiz_lock(&proxy)?;
+    let bp = juiz_borrow(&proxy)?;
     let traced0: ProcessIdentifier =
         format!("http://{host}/process/traced0::inc_twice").try_into()?;
     let profile = bp.process_profile_full(&traced0)?;

@@ -27,7 +27,7 @@ fn qmp_composite_api() -> JuizResult<()> {
             broker_name.as_str(),
             true,
         )?;
-        let mut bp = juiz_lock(&proxy)?;
+        let mut bp = juiz_write(&proxy)?;
 
         let m = bp.composite_create(&composite(jvalue!({
             "type_name": "inc_twice",
