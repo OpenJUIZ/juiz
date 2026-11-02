@@ -5,7 +5,7 @@
 //! ProcessProxy は、BrokerProxy を包んで他の System のプロセスを手元のプロセスのように扱う部品で、
 //! ローカルブローカーと HTTP ブローカーの両方で call / profile / push_by / p_apply などを確かめる。
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 
 use crate::broker_api;
 
@@ -19,7 +19,7 @@ fn args(name: &str, v: i64) -> CapsuleMap {
     vec![(name, jvalue!(v))].into()
 }
 
-fn local_proxy(system: &System) -> JuizResult<Arc<Mutex<dyn BrokerProxy>>> {
+fn local_proxy(system: &System) -> JuizResult<Arc<RwLock<dyn BrokerProxy>>> {
     system
         .core_broker()
         .lock()?
@@ -27,7 +27,7 @@ fn local_proxy(system: &System) -> JuizResult<Arc<Mutex<dyn BrokerProxy>>> {
         .broker_proxy("local", "local", true)
 }
 
-fn http_proxy(system: &System) -> JuizResult<Arc<Mutex<dyn BrokerProxy>>> {
+fn http_proxy(system: &System) -> JuizResult<Arc<RwLock<dyn BrokerProxy>>> {
     system.core_broker().lock()?.worker().broker_proxy(
         "http",
         format!("localhost:{PORT}").as_str(),
@@ -277,9 +277,9 @@ fn check_load_plugins(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
 }
 
 /// ProcessProxy は BrokerProxy を通して相手のプロセスを操作する
-fn check_process_proxy(bp: Arc<Mutex<dyn BrokerProxy>>) -> JuizResult<()> {
+fn check_process_proxy(bp: Arc<RwLock<dyn BrokerProxy>>) -> JuizResult<()> {
     let (ids, cids) = {
-        let b = juiz_lock(&bp)?;
+        let b = juiz_borrow(&bp)?;
         (
             b.process_list(false, None)?,
             b.container_process_list(false, None)?,
@@ -309,9 +309,9 @@ fn check_process_proxy(bp: Arc<Mutex<dyn BrokerProxy>>) -> JuizResult<()> {
     let cm = ConnectionManifest::new(ConnectionType::Pull, id.clone(), "arg1".to_owned(), dst_id);
     let connected = proxy.lock_mut()?.try_connect_to(dst.clone(), &cm)?;
     assert_eq!(connected.arg_name, "arg1");
-    let cons = juiz_lock(&bp)?.connection_list(false)?;
+    let cons = juiz_borrow(&bp)?.connection_list(false)?;
     assert_eq!(cons.len(), 1, "{cons:?}");
-    juiz_lock(&bp)?.connection_destroy(&cons[0])?;
+    juiz_write(&bp)?.connection_destroy(&cons[0])?;
 
     // 識別子を自分自身の HTTP の識別子のままにすると、相手側が自分宛てに問い合わせ直して詰まるので、
     // 相手側の System の中の識別子 (core) にして渡す
@@ -327,8 +327,8 @@ fn check_process_proxy(bp: Arc<Mutex<dyn BrokerProxy>>) -> JuizResult<()> {
         .lock_mut()?
         .notify_connected_from(proxy.clone(), &notified)?;
     assert_eq!(profile.arg_name, "arg1");
-    let cons = juiz_lock(&bp)?.connection_list(false)?;
-    juiz_lock(&bp)?.connection_destroy(&cons[0])?;
+    let cons = juiz_borrow(&bp)?.connection_list(false)?;
+    juiz_write(&bp)?.connection_destroy(&cons[0])?;
 
     // ContainerProcess の ProcessProxy
     let get = find_process(&cids, "c0get").clone();
@@ -353,7 +353,7 @@ fn messenger_broker_proxy_api() -> JuizResult<()> {
         .run_and_do_once(|system| {
             let proxy = local_proxy(system)?;
             {
-                let mut bp = juiz_lock(&proxy)?;
+                let mut bp = juiz_write(&proxy)?;
                 check_system(&mut *bp)?;
                 check_process_call_execute(&mut *bp)?;
                 check_container_processes(&mut *bp)?;

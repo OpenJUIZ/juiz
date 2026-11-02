@@ -175,7 +175,7 @@ fn local_broker_api_with_rust_python_cpp_plugins() -> JuizResult<()> {
                 .lock()?
                 .worker()
                 .broker_proxy("local", "local", true)?;
-            let mut bp = juiz_lock(&proxy)?;
+            let mut bp = juiz_write(&proxy)?;
             check_system(&mut *bp)?;
             check_lists_and_profiles(&mut *bp)?;
             check_processes(&mut *bp)?;

@@ -70,7 +70,7 @@ fn http_broker_proxy_sends_large_image_argument() -> JuizResult<()> {
                 format!("localhost:{PORT}").as_str(),
                 true,
             )?;
-            let mut bp = juiz_lock(&proxy)?;
+            let bp = juiz_borrow(&proxy)?;
             let ids = bp.process_list(false, None)?;
             let sum0 = find_process(&ids, "sum0").clone();
 
@@ -105,7 +105,7 @@ fn http_broker_rejects_too_large_body_without_panic() -> JuizResult<()> {
                 format!("localhost:{LIMITED_PORT}").as_str(),
                 true,
             )?;
-            let mut bp = juiz_lock(&proxy)?;
+            let bp = juiz_borrow(&proxy)?;
             let ids = bp.process_list(false, None)?;
             let sum0 = find_process(&ids, "sum0").clone();
 

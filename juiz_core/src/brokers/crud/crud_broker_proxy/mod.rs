@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::{Arc, RwLock},
 };
 
 use juiz_sdk::{
@@ -104,8 +104,8 @@ impl CRUDBrokerProxyHolder {
         type_name: &str,
         name: &str,
         broker_proxy: Box<dyn CRUDBrokerProxy>,
-    ) -> JuizResult<Arc<Mutex<CRUDBrokerProxyHolder>>> {
-        Ok(Arc::new(Mutex::new(CRUDBrokerProxyHolder {
+    ) -> JuizResult<Arc<RwLock<CRUDBrokerProxyHolder>>> {
+        Ok(Arc::new(RwLock::new(CRUDBrokerProxyHolder {
             core: ObjectCore::create(
                 JuizObjectClass::BrokerProxy(impl_class_name),
                 type_name,

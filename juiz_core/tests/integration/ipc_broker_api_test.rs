@@ -184,7 +184,7 @@ pub(crate) fn setup_test_processes(system: &System) -> JuizResult<(ProcessPtr, P
     Ok((echo, sink))
 }
 
-fn ipc_proxy(system: &System, name: &str) -> JuizResult<std::sync::Arc<std::sync::Mutex<dyn BrokerProxy>>> {
+fn ipc_proxy(system: &System, name: &str) -> JuizResult<std::sync::Arc<std::sync::RwLock<dyn BrokerProxy>>> {
     system.core_broker().lock()?.worker().broker_proxy("ipc", name, true)
 }
 
@@ -390,7 +390,7 @@ fn ipc_broker_api_in_same_process() -> JuizResult<()> {
             assert_eq!(sink.lock()?.get_output().extract_value()?, jvalue!(expected));
 
             let proxy = ipc_proxy(system, ipc_name)?;
-            let mut bp = juiz_lock(&proxy)?;
+            let mut bp = juiz_write(&proxy)?;
             check_processes(&mut *bp, ipc_name)?;
             check_containers(&mut *bp)?;
             check_error_keeps_connection(&mut *bp, ipc_name)?;
@@ -434,11 +434,11 @@ fn ipc_broker_restart_and_stale_socket() -> JuizResult<()> {
     System::new(client_manifest)?.setup()?.run_and_do_once(|client| {
         let proxy = ipc_proxy(client, ipc_name)?;
         // サーバーが居なければエラーになる
-        assert!(juiz_lock(&proxy)?.system_uuid().is_err());
+        assert!(juiz_borrow(&proxy)?.system_uuid().is_err());
 
         let mut uuid1 = Value::Null;
         System::new(manifest())?.setup()?.run_and_do_once(|_first| {
-            uuid1 = juiz_lock(&proxy)?.system_uuid()?;
+            uuid1 = juiz_borrow(&proxy)?.system_uuid()?;
             // 同じ名前ではもう 1 つ起動できない
             let e = System::new(manifest())?.setup().err().expect("must fail");
             assert!(format!("{e:#}").contains("already in use"), "{e:#}");
@@ -447,11 +447,11 @@ fn ipc_broker_restart_and_stale_socket() -> JuizResult<()> {
         // 止めたサーバーのソケットは消える
         #[cfg(unix)]
         assert!(!socket.exists(), "the socket must be removed when the broker stops");
-        assert!(juiz_lock(&proxy)?.system_uuid().is_err());
+        assert!(juiz_borrow(&proxy)?.system_uuid().is_err());
 
         // 作り直したサーバーに、同じ BrokerProxy のまま繋ぎ直せる
         System::new(manifest())?.setup()?.run_and_do_once(|_second| {
-            let uuid2 = juiz_lock(&proxy)?.system_uuid()?;
+            let uuid2 = juiz_borrow(&proxy)?.system_uuid()?;
             assert_ne!(uuid1, uuid2);
             Ok(())
         })
@@ -519,7 +519,7 @@ fn ipc_broker_api_between_processes() -> JuizResult<()> {
             if let Some(status) = server.0.try_wait()? {
                 panic!("juiz server exited ({status})");
             }
-            match juiz_lock(&proxy)?.process_list(false, None) {
+            match juiz_borrow(&proxy)?.process_list(false, None) {
                 Ok(ids) if !ids.is_empty() => break ids,
                 r => {
                     assert!(Instant::now() < deadline, "can not connect to server: {r:?}");
@@ -529,7 +529,7 @@ fn ipc_broker_api_between_processes() -> JuizResult<()> {
         };
         let inc0 = find_process(&ids, "inc0");
         assert_eq!(inc0.broker_type_name, "ipc");
-        assert_eq!(int_of(juiz_lock(&proxy)?.process_call(inc0, args("arg1", 41))), 42);
+        assert_eq!(int_of(juiz_borrow(&proxy)?.process_call(inc0, args("arg1", 41))), 42);
         Ok(())
     });
     drop(server);

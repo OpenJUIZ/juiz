@@ -65,7 +65,7 @@ pub(crate) fn on_type(
         .setup()?
         .run_and_do_once(|system| {
             let proxy = crate::composite::server_proxy(system, &server)?;
-            let proxy = juiz_lock(&proxy)?;
+            let proxy = juiz_borrow(&proxy)?;
             match subcommand {
                 TypeSubCommands::List { long } => {
                     println!("{}", format_type_list(&proxy.type_list()?, long)?);

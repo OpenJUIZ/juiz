@@ -36,7 +36,7 @@ fn python_process_loads_with_relative_working_dir() -> JuizResult<()> {
                 .lock()?
                 .worker()
                 .broker_proxy("local", "local", true)?;
-            let bp = juiz_lock(&proxy)?;
+            let bp = juiz_borrow(&proxy)?;
             let ids = bp.process_list(false, None)?;
             let id = ids
                 .iter()

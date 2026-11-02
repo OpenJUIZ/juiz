@@ -236,7 +236,7 @@ fn plugin_images_through_ipc() -> JuizResult<()> {
         .setup()?
         .run_and_do_once(|system| {
             let proxy = system.core_broker().lock()?.worker().broker_proxy("ipc", ipc_name, true)?;
-            let bp = juiz_lock(&proxy)?;
+            let bp = juiz_borrow(&proxy)?;
             for l in langs.iter() {
                 check_language(&*bp, l, true)?;
             }

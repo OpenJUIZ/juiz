@@ -222,7 +222,7 @@ fn subsystem_check(
             .lock()?
             .create_broker_proxy(sub.clone())
             .map_err(|_| not_reached())?;
-        let profile = juiz_lock(&bp)?
+        let profile = juiz_borrow(&bp)?
             .system_profile_full()
             .map_err(|_| not_reached())?;
         // http・ipc などの BrokerProxy は値を {"__value__": …} で包んで返す

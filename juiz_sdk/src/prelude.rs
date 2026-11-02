@@ -25,7 +25,7 @@ pub use crate::{
     types::{JuizType, TypeSchema},
     utils::{
         check_connection_manifest, get_array, get_array_mut, get_hashmap, get_hashmap_mut, get_str,
-        get_value, juiz_borrow, juiz_borrow_mut, juiz_lock, juiz_try_lock, when_contains_do,
+        get_value, juiz_borrow, juiz_borrow_mut, juiz_lock, juiz_try_lock, juiz_write, when_contains_do,
         when_contains_do_mut,
     },
     value::{

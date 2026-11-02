@@ -1,6 +1,6 @@
 use std::{
     fmt::Display,
-    sync::{Arc, Mutex},
+    sync::{Arc, RwLock},
 };
 
 use uuid::Uuid;
@@ -11,7 +11,7 @@ use crate::prelude::*;
 #[derive(Clone)]
 pub struct SubSystemProxy {
     uuid: Uuid,
-    broker_proxy: Arc<Mutex<dyn BrokerProxy>>,
+    broker_proxy: Arc<RwLock<dyn BrokerProxy>>,
     profile: Value,
 }
 
@@ -31,8 +31,8 @@ fn assert_subsystem_manifest(manifest: Value) -> JuizResult<Value> {
 }
 
 impl SubSystemProxy {
-    pub fn new(system_uuid: Uuid, broker_proxy: Arc<Mutex<dyn BrokerProxy>>) -> JuizResult<Self> {
-        let profile = broker_proxy.lock().unwrap().profile_full()?;
+    pub fn new(system_uuid: Uuid, broker_proxy: Arc<RwLock<dyn BrokerProxy>>) -> JuizResult<Self> {
+        let profile = broker_proxy.read().unwrap().profile_full()?;
         Ok(SubSystemProxy {
             uuid: system_uuid,
             broker_proxy,
@@ -40,7 +40,7 @@ impl SubSystemProxy {
         })
     }
 
-    pub fn broker_proxy(&self) -> Arc<Mutex<dyn BrokerProxy>> {
+    pub fn broker_proxy(&self) -> Arc<RwLock<dyn BrokerProxy>> {
         self.broker_proxy.clone()
     }
 
@@ -50,7 +50,7 @@ impl SubSystemProxy {
     }
 
     pub fn profile_full(&self) -> JuizResult<Value> {
-        self.broker_proxy.lock().unwrap().profile_full()
+        self.broker_proxy.read().unwrap().profile_full()
     }
 
     pub fn subsystems(&self) -> JuizResult<Value> {

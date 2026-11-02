@@ -61,7 +61,7 @@ fn qmp_composite_profile() -> JuizResult<()> {
             broker_name.as_str(),
             true,
         )?;
-        let mut bp = juiz_lock(&proxy)?;
+        let bp = juiz_borrow(&proxy)?;
 
         let t0: ProcessIdentifier =
             format!("qmp://{broker_name}/process/t0::inc_twice").try_into()?;
