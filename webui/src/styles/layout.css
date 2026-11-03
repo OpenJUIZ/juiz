@@ -594,3 +594,85 @@ button.elem-link:hover {
 .call-form .hint {
   font-size: 0.85em;
 }
+
+/* ---------- Transformations(#373) ---------- */
+
+/* ツリーの容器の行に付ける Anchor の印 */
+.anchor-badge {
+  margin-left: 0.4em;
+  padding: 0 4px;
+  font-size: 0.8em;
+  border: 1px solid var(--kind-container);
+  color: var(--kind-container);
+}
+
+/* 位置・姿勢・回転角の表。数は右寄せ */
+.pose-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+
+.pose-table th {
+  font-weight: normal;
+  color: var(--text-dim);
+  padding: 1px 4px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.pose-table thead th {
+  text-align: right;
+  border-bottom: 1px solid var(--line);
+}
+
+.pose-table td {
+  padding: 1px 4px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.pose-reference {
+  margin-bottom: 4px;
+  font-size: 0.9em;
+}
+
+.pose-reference select {
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
+.pose-tree,
+.pose-tree ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.pose-tree ul {
+  margin-left: 6px;
+  padding-left: 12px;
+  border-left: 1px solid var(--line);
+}
+
+.pose-tree li {
+  padding: 1px 0;
+}
+
+.transform-item + .transform-item {
+  margin-top: 6px;
+}
+
+.props .stale {
+  opacity: 0.55;
+}
+
+.transform-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}

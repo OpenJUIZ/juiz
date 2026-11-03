@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { JuizClient } from "./api/client.ts";
-import { buildModel, type Model } from "./model.ts";
+import {
+  anchorContainers,
+  attachTransformations,
+  buildModel,
+  type FetchedTransformations,
+  type Model,
+} from "./model.ts";
 
 export interface SystemModelState {
   /** 最後に取れた系の情報。取得に失敗しても前回の分を残す */
@@ -13,6 +19,37 @@ export interface SystemModelState {
 /** 話題の発行・購読の接続か。識別子の両端のどちらかが "名前::topic" になっている */
 function isTopicConnection(id: string): boolean {
   return id.split("|").some((end) => end.endsWith("::topic"));
+}
+
+/**
+ * 最上位の系の Transformations(Anchor ごとの木と Transform の一覧、#373)を取る。
+ * Transformations の API が無い古い juiz では null
+ */
+async function fetchTransformations(
+  client: JuizClient,
+  model: Model,
+  signal: AbortSignal,
+): Promise<FetchedTransformations | null> {
+  let transforms: string[];
+  try {
+    transforms = await client.transformList(signal);
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "AbortError") throw e;
+    return null;
+  }
+  const anchors = anchorContainers(model);
+  const results = await Promise.allSettled(anchors.map((a) => client.transformationsTree(a.identifier, signal)));
+  if (signal.aborted) throw new DOMException("aborted", "AbortError");
+  return {
+    transforms,
+    trees: anchors.map((a, i) => {
+      const r = results[i]!;
+      return {
+        anchorKey: a.key,
+        tree: r.status === "fulfilled" ? r.value : r.reason instanceof Error ? r.reason.message : String(r.reason),
+      };
+    }),
+  };
 }
 
 interface Fetched {
@@ -53,6 +90,11 @@ export function useSystemModel(serverUrl: string, intervalMs: number | null): Sy
         if (ac.signal.aborted) throw new DOMException("aborted", "AbortError");
         const connections = results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
         return buildModel(profile, url, connections);
+      })
+      .then(async (model) => {
+        const t = await fetchTransformations(client, model, ac.signal);
+        if (t) attachTransformations(model, t);
+        return model;
       })
       .then((model) => {
         setFetched({ serverUrl, model, error: null, updatedAt: new Date() });

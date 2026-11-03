@@ -535,6 +535,14 @@ Step 3(#370)で決めたこと:
 
 Anchor ごとの木と、各 Container の Pose の数値を表示する。3D 表示はしない(§15)。Step 6(#373)。
 
+Step 6(#373)で決めたこと:
+
+- 画面は自動更新のたびに `transform/list` と、Anchor の容器(profile に `anchor` があるもの)ごとの `transformations/tree?anchor=<ID>` を取る。`transform/list` が無い古い juiz では Transformations を出さない。対象は最上位の系だけ(システムをまたぐ Transform は対象外なので、副系の容器には出さない)。
+- ツリー: Anchor の容器に「基点」の印。系の下の分類「変換木」に、Anchor ごとの木を入れ子で出す。Anchor が別の Anchor の子なら、親の木の途中にも、自分を根とする木にも出る。
+- 性質欄(容器): Anchor なら種類(周期更新 / 静的)・周期と木(各ノードに Anchor から見た位置)。どの容器にも「位置姿勢」(基準を選ぶ。候補はその容器が入っている木の容器、既定は容器が子として入っている木の Anchor)と「変換」(親から来る・子へ出る Transform と値)。
+- 値は位置 (x, y, z)、四元数 (x, y, z, w)、回転角(ロール・ピッチ・ヨー [度]、z → y → x の順の回転)を小数点以下 3 桁で出す。基準が木の Anchor なら木の値をそのまま使い、それ以外は `container/pose` で取る。木に入っていない Transform の値は `transform/profile_full` で取る。
+- 用語(#111 の漢字を正とする表記): Transformations = 変換木、Anchor = 基点、Transform = 変換、ContainerPose = 位置姿勢、基準 Container = 基準。
+
 ## 14. readonly ContainerProcess への備え
 
 将来の readonly ContainerProcess(#377。Container を読み出しロックで並行に呼べる)に備え、読み出し口と書き込み口を API の上で分けておく:

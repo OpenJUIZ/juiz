@@ -1,41 +1,411 @@
 {
-  "openapi": "3.0.3",
+  "components": {
+    "schemas": {
+      "CreateConnectionRequest": {
+        "properties": {
+          "arg_name": {
+            "type": "string"
+          },
+          "destination": {
+            "$ref": "#/components/schemas/IdentifierManifest"
+          },
+          "source": {
+            "$ref": "#/components/schemas/IdentifierManifest"
+          }
+        },
+        "required": [
+          "source",
+          "destination",
+          "arg_name"
+        ],
+        "type": "object"
+      },
+      "IdentifierManifest": {
+        "properties": {
+          "identifier": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "identifier"
+        ],
+        "type": "object"
+      },
+      "juiz_std.common.Header": {
+        "description": "データの時刻と座標系",
+        "properties": {
+          "frame_id": {
+            "default": "",
+            "description": "座標系の名前",
+            "type": "string"
+          },
+          "stamp": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/juiz_std.common.Time"
+              }
+            ],
+            "default": {
+              "nanosec": 0,
+              "sec": 0
+            },
+            "description": "データを取った時刻"
+          }
+        },
+        "title": "juiz_std.common.Header",
+        "type": "object",
+        "x-juiz-fingerprint": "sha256:d3c0852618c8a44bbc403254d0bdc755b51263e232e07e1f72644479c958893c"
+      },
+      "juiz_std.common.Time": {
+        "description": "時刻 (1970-01-01T00:00:00Z からの経過時間)",
+        "properties": {
+          "nanosec": {
+            "default": 0,
+            "description": "秒未満 [ns] (0〜999999999)",
+            "format": "int32",
+            "type": "integer"
+          },
+          "sec": {
+            "default": 0,
+            "description": "秒",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "title": "juiz_std.common.Time",
+        "type": "object",
+        "x-juiz-fingerprint": "sha256:60b9738d95bbcc060efc5047b35c4cc5549e08d0f26635868053dc039182caf8"
+      },
+      "juiz_std.geometry.Point3D": {
+        "description": "空間の点",
+        "properties": {
+          "x": {
+            "default": 0,
+            "format": "double",
+            "type": "number"
+          },
+          "y": {
+            "default": 0,
+            "format": "double",
+            "type": "number"
+          },
+          "z": {
+            "default": 0,
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "title": "juiz_std.geometry.Point3D",
+        "type": "object",
+        "x-juiz-fingerprint": "sha256:9dd48fe5ef662d3f012373f3e261c60c96e4d4167234bede618aa71919243d02"
+      },
+      "juiz_std.geometry.Pose": {
+        "description": "空間の姿勢",
+        "properties": {
+          "orientation": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/juiz_std.geometry.Quaternion"
+              }
+            ],
+            "default": {
+              "w": 1,
+              "x": 0,
+              "y": 0,
+              "z": 0
+            }
+          },
+          "position": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/juiz_std.geometry.Point3D"
+              }
+            ],
+            "default": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            }
+          }
+        },
+        "title": "juiz_std.geometry.Pose",
+        "type": "object",
+        "x-juiz-fingerprint": "sha256:fbbba3a9b972337fd6400bf8e734a0e553c8cf60981d6c6cd8c09c5574c578b6"
+      },
+      "juiz_std.geometry.PoseStamped": {
+        "description": "時刻と座標系つきの空間の姿勢",
+        "properties": {
+          "header": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/juiz_std.common.Header"
+              }
+            ],
+            "default": {
+              "frame_id": "",
+              "stamp": {
+                "nanosec": 0,
+                "sec": 0
+              }
+            }
+          },
+          "pose": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/juiz_std.geometry.Pose"
+              }
+            ],
+            "default": {
+              "orientation": {
+                "w": 1,
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "position": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              }
+            }
+          }
+        },
+        "title": "juiz_std.geometry.PoseStamped",
+        "type": "object",
+        "x-juiz-fingerprint": "sha256:baf659705a5670baebc612b2f6685f8e7eb55778805845519b775682e46a35f3"
+      },
+      "juiz_std.geometry.Quaternion": {
+        "description": "回転を表す四元数 (既定値は回転なし)",
+        "properties": {
+          "w": {
+            "default": 1,
+            "format": "double",
+            "type": "number"
+          },
+          "x": {
+            "default": 0,
+            "format": "double",
+            "type": "number"
+          },
+          "y": {
+            "default": 0,
+            "format": "double",
+            "type": "number"
+          },
+          "z": {
+            "default": 0,
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "title": "juiz_std.geometry.Quaternion",
+        "type": "object",
+        "x-juiz-fingerprint": "sha256:19ea592919e93a501b9e97cfa2f785cc063216c1866cc9f9bf68645b39052bd8"
+      },
+      "juiz_std.geometry.Transform": {
+        "description": "座標変換 (ROS 2 の geometry_msgs/Transform と同じ形)。\n子の座標を親の座標へ写す: p_親 = rotation · p_子 + translation (docs/spec/transformations.md)",
+        "properties": {
+          "rotation": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/juiz_std.geometry.Quaternion"
+              }
+            ],
+            "default": {
+              "w": 1,
+              "x": 0,
+              "y": 0,
+              "z": 0
+            }
+          },
+          "translation": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/juiz_std.geometry.Vector3"
+              }
+            ],
+            "default": {
+              "x": 0,
+              "y": 0,
+              "z": 0
+            }
+          }
+        },
+        "title": "juiz_std.geometry.Transform",
+        "type": "object",
+        "x-juiz-fingerprint": "sha256:a866b61bf295cf936bbe1be7972b1409c7a67ffecad8cda77494da54ff854fb0"
+      },
+      "juiz_std.geometry.TransformStamped": {
+        "description": "時刻と座標系つきの座標変換 (ROS 2 の geometry_msgs/TransformStamped と同じ形)。\nheader.frame_id が親 (始点)、child_frame_id が子 (終点)",
+        "properties": {
+          "child_frame_id": {
+            "default": "",
+            "type": "string"
+          },
+          "header": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/juiz_std.common.Header"
+              }
+            ],
+            "default": {
+              "frame_id": "",
+              "stamp": {
+                "nanosec": 0,
+                "sec": 0
+              }
+            }
+          },
+          "transform": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/juiz_std.geometry.Transform"
+              }
+            ],
+            "default": {
+              "rotation": {
+                "w": 1,
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "translation": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              }
+            }
+          }
+        },
+        "title": "juiz_std.geometry.TransformStamped",
+        "type": "object",
+        "x-juiz-fingerprint": "sha256:6e78b3aaccc73862f6ac42082b07a3c84dd6853845160babcbc4fffe322713d9"
+      },
+      "juiz_std.geometry.Vector3": {
+        "description": "空間のベクトル",
+        "properties": {
+          "x": {
+            "default": 0,
+            "format": "double",
+            "type": "number"
+          },
+          "y": {
+            "default": 0,
+            "format": "double",
+            "type": "number"
+          },
+          "z": {
+            "default": 0,
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "title": "juiz_std.geometry.Vector3",
+        "type": "object",
+        "x-juiz-fingerprint": "sha256:4abcfbbda65f821c0bbc57db2869c4eaf0c37db9629abdafe4b45e16dc2b5e8b"
+      }
+    }
+  },
   "info": {
-    "title": "juiz_core",
     "description": "Core library for JUIZ application. This package is not required if you want to build juiz functional module.",
     "license": {
       "name": "MIT OR Apache-2.0"
     },
-    "version": "0.0.18"
+    "title": "juiz_core",
+    "version": "0.1.0"
   },
+  "openapi": "3.0.3",
   "paths": {
+    "/api/anchor/list": {
+      "get": {
+        "operationId": "anchor_list_dummy",
+        "responses": {
+          "200": {
+            "description": "Anchor の ID の配列"
+          }
+        },
+        "tags": [
+          "universal.transformations"
+        ]
+      }
+    },
+    "/api/anchor/update": {
+      "patch": {
+        "operationId": "anchor_update_dummy",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "description": "{}",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "{identifier, stamp}"
+          }
+        },
+        "tags": [
+          "universal.transformations"
+        ]
+      }
+    },
     "/api/any_process/list": {
       "get": {
-        "tags": [
-          "any_process"
-        ],
         "operationId": "list_dummy",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "recursive",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "namespace",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "any_process"
+        ]
       }
     },
     "/api/any_process/profile_full": {
       "get": {
-        "tags": [
-          "any_process"
-        ],
         "operationId": "profile_handler_dummy",
         "parameters": [
           {
-            "name": "identifier",
             "in": "query",
+            "name": "identifier",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -43,36 +413,36 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "any_process"
+        ]
       }
     },
     "/api/broker/list": {
       "get": {
-        "tags": [
-          "universal.broker"
-        ],
         "operationId": "list_dummy",
         "responses": {
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.broker"
+        ]
       }
     },
     "/api/broker/profile_full": {
       "get": {
-        "tags": [
-          "universal.broker"
-        ],
         "operationId": "profile_handler_dummy",
         "parameters": [
           {
-            "name": "identifier",
             "in": "query",
+            "name": "identifier",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -80,14 +450,119 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.broker"
+        ]
+      }
+    },
+    "/api/composite/create": {
+      "post": {
+        "operationId": "create_dummy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "description": "{\"__manifest__\": <Composite の定義 (conf の composites: の 1 件と同じ形)>}",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Factory の manifest"
+          }
+        },
+        "tags": [
+          "universal.composite"
+        ]
+      }
+    },
+    "/api/composite/destroy": {
+      "delete": {
+        "operationId": "delete_dummy",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "消した Factory の manifest"
+          }
+        },
+        "tags": [
+          "universal.composite"
+        ]
+      }
+    },
+    "/api/composite/list": {
+      "get": {
+        "operationId": "list_dummy",
+        "responses": {
+          "200": {
+            "description": "Composite の型名の配列"
+          }
+        },
+        "tags": [
+          "universal.composite"
+        ]
+      }
+    },
+    "/api/composite/profile_full": {
+      "get": {
+        "operationId": "profile_handler_dummy",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Factory の manifest"
+          }
+        },
+        "tags": [
+          "universal.composite"
+        ]
+      }
+    },
+    "/api/composite_container/create": {
+      "post": {
+        "operationId": "container_create_dummy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "description": "{\"__manifest__\": <conf の composite_containers: の 1 件と同じ形>}",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "CompositeContainer の profile"
+          }
+        },
+        "tags": [
+          "universal.composite"
+        ]
       }
     },
     "/api/connection/create": {
       "post": {
-        "tags": [
-          "universal.connection"
-        ],
         "operationId": "create_dummy",
         "requestBody": {
           "content": {
@@ -103,36 +578,36 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.connection"
+        ]
       }
     },
     "/api/connection/list": {
       "get": {
-        "tags": [
-          "universal.connection"
-        ],
         "operationId": "list_dummy",
         "responses": {
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.connection"
+        ]
       }
     },
     "/api/connection/profile_full": {
       "get": {
-        "tags": [
-          "universal.connection"
-        ],
         "operationId": "profile_handler_dummy",
         "parameters": [
           {
-            "name": "identifier",
             "in": "query",
+            "name": "identifier",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -140,23 +615,23 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.connection"
+        ]
       }
     },
     "/api/container/destroy": {
       "delete": {
-        "tags": [
-          "universal.container"
-        ],
         "operationId": "delete_dummy",
         "parameters": [
           {
-            "name": "identifier",
             "in": "query",
+            "name": "identifier",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -164,23 +639,32 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.container"
+        ]
       }
     },
     "/api/container/list": {
       "get": {
-        "tags": [
-          "universal.container"
-        ],
         "operationId": "list_dummy",
         "parameters": [
           {
-            "name": "recursive",
             "in": "query",
+            "name": "recursive",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "namespace",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -188,23 +672,65 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.container"
+        ]
+      }
+    },
+    "/api/container/pose": {
+      "get": {
+        "operationId": "pose_dummy",
+        "parameters": [
+          {
+            "description": "Container の ID か名前 (根のネームスペースから解決する)",
+            "in": "query",
+            "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "基準 Container の ID か名前",
+            "in": "query",
+            "name": "reference",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/juiz_std.geometry.PoseStamped"
+                }
+              }
+            },
+            "description": "基準から見た ContainerPose (juiz_std.geometry.PoseStamped)"
+          }
+        },
+        "tags": [
+          "universal.transformations"
+        ]
       }
     },
     "/api/container/profile_full": {
       "get": {
-        "tags": [
-          "universal.container"
-        ],
         "operationId": "profile_handler_dummy",
         "parameters": [
           {
-            "name": "identifier",
             "in": "query",
+            "name": "identifier",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -212,23 +738,78 @@
           "200": {
             "description": "Container"
           }
-        }
+        },
+        "tags": [
+          "universal.container"
+        ]
+      }
+    },
+    "/api/container/set_pose": {
+      "patch": {
+        "operationId": "set_pose_dummy",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "pose": {
+                    "$ref": "#/components/schemas/juiz_std.geometry.Pose"
+                  },
+                  "reference": {
+                    "description": "基準 Container の ID か名前",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "reference",
+                  "pose"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "{\"reference\": <基準 Container>, \"pose\": <juiz_std.geometry.Pose>}",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/juiz_std.geometry.PoseStamped"
+                }
+              }
+            },
+            "description": "書いた後の ContainerPose (juiz_std.geometry.PoseStamped)"
+          }
+        },
+        "tags": [
+          "universal.transformations"
+        ]
       }
     },
     "/api/container_process/call": {
       "patch": {
-        "tags": [
-          "universal.container_process"
-        ],
         "operationId": "call_dummy",
         "parameters": [
           {
-            "name": "identifier",
             "in": "query",
+            "name": "identifier",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -244,23 +825,23 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.container_process"
+        ]
       }
     },
     "/api/container_process/destroy": {
       "delete": {
-        "tags": [
-          "universal.container_process"
-        ],
         "operationId": "delete_dummy",
         "parameters": [
           {
-            "name": "identifier",
             "in": "query",
+            "name": "identifier",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -268,23 +849,23 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.container_process"
+        ]
       }
     },
     "/api/container_process/execute": {
       "patch": {
-        "tags": [
-          "universal.container_process"
-        ],
         "operationId": "execute_dummy",
         "parameters": [
           {
-            "name": "identifier",
             "in": "query",
+            "name": "identifier",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -300,23 +881,32 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.container_process"
+        ]
       }
     },
     "/api/container_process/list": {
       "get": {
-        "tags": [
-          "universal.container_process"
-        ],
         "operationId": "list_dummy",
         "parameters": [
           {
-            "name": "recursive",
             "in": "query",
+            "name": "recursive",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "namespace",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -324,23 +914,23 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.container_process"
+        ]
       }
     },
     "/api/container_process/openapi_spec": {
       "get": {
-        "tags": [
-          "universal.container_process"
-        ],
         "operationId": "openapi_spec_handler_dummy",
         "parameters": [
           {
-            "name": "identifier",
             "in": "query",
+            "name": "identifier",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -348,23 +938,23 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.container_process"
+        ]
       }
     },
     "/api/container_process/p_apply": {
       "patch": {
-        "tags": [
-          "universal.container_process"
-        ],
         "operationId": "p_apply_dummy",
         "parameters": [
           {
-            "name": "identifier",
             "in": "query",
+            "name": "identifier",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -380,23 +970,23 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.container_process"
+        ]
       }
     },
     "/api/container_process/profile_full": {
       "get": {
-        "tags": [
-          "universal.container_process"
-        ],
         "operationId": "profile_handler_dummy",
         "parameters": [
           {
-            "name": "identifier",
             "in": "query",
+            "name": "identifier",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -404,23 +994,23 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.container_process"
+        ]
       }
     },
     "/api/execution_context/get_state": {
       "get": {
-        "tags": [
-          "universal.execution_context"
-        ],
         "operationId": "get_state_dummy",
         "parameters": [
           {
-            "name": "identifier",
             "in": "query",
+            "name": "identifier",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -428,23 +1018,32 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.execution_context"
+        ]
       }
     },
     "/api/execution_context/list": {
       "get": {
-        "tags": [
-          "universal.execution_context"
-        ],
         "operationId": "list_dummy",
         "parameters": [
           {
-            "name": "recursive",
             "in": "query",
+            "name": "recursive",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "namespace",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -452,23 +1051,23 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.execution_context"
+        ]
       }
     },
     "/api/execution_context/profile_full": {
       "get": {
-        "tags": [
-          "universal.execution_context"
-        ],
         "operationId": "profile_handler_dummy",
         "parameters": [
           {
-            "name": "identifier",
             "in": "query",
+            "name": "identifier",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -476,89 +1075,172 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.execution_context"
+        ]
       }
     },
     "/api/execution_context/start": {
       "patch": {
-        "tags": [
-          "universal.execution_context"
-        ],
         "operationId": "start_dummy",
         "parameters": [
           {
-            "name": "identifier",
             "in": "query",
+            "name": "identifier",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
         "requestBody": {
-          "description": "",
           "content": {
             "application/json": {
               "schema": {}
             }
           },
+          "description": "",
           "required": true
         },
         "responses": {
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.execution_context"
+        ]
       }
     },
     "/api/execution_context/stop": {
       "patch": {
-        "tags": [
-          "universal.execution_context"
-        ],
         "operationId": "stop_dummy",
         "parameters": [
           {
-            "name": "identifier",
             "in": "query",
+            "name": "identifier",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
         "requestBody": {
-          "description": "",
           "content": {
             "application/json": {
               "schema": {}
             }
           },
+          "description": "",
           "required": true
         },
         "responses": {
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.execution_context"
+        ]
+      }
+    },
+    "/api/pose_listener/create": {
+      "post": {
+        "operationId": "pose_listener_create_dummy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "description": "{\"container\", \"process\", \"arg\"?, \"reference\"?, \"on_update\"?}",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Pose 通知の profile"
+          }
+        },
+        "tags": [
+          "universal.transformations"
+        ]
+      }
+    },
+    "/api/pose_listener/destroy": {
+      "delete": {
+        "operationId": "pose_listener_destroy_dummy",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "外した Pose 通知の profile"
+          }
+        },
+        "tags": [
+          "universal.transformations"
+        ]
+      }
+    },
+    "/api/pose_listener/list": {
+      "get": {
+        "operationId": "pose_listener_list_dummy",
+        "responses": {
+          "200": {
+            "description": "Pose 通知の ID の配列"
+          }
+        },
+        "tags": [
+          "universal.transformations"
+        ]
+      }
+    },
+    "/api/pose_listener/profile_full": {
+      "get": {
+        "operationId": "pose_listener_profile_dummy",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{identifier, container, process, arg, reference, on_update}"
+          }
+        },
+        "tags": [
+          "universal.transformations"
+        ]
       }
     },
     "/api/process/call": {
       "patch": {
-        "tags": [
-          "universal.process"
-        ],
         "operationId": "call_dummy",
         "parameters": [
           {
-            "name": "identifier",
             "in": "query",
+            "name": "identifier",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -574,14 +1256,14 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.process"
+        ]
       }
     },
     "/api/process/create": {
       "post": {
-        "tags": [
-          "universal.process"
-        ],
         "operationId": "create_dummy",
         "requestBody": {
           "content": {
@@ -595,23 +1277,23 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.process"
+        ]
       }
     },
     "/api/process/destroy": {
       "delete": {
-        "tags": [
-          "universal.process"
-        ],
         "operationId": "delete_dummy",
         "parameters": [
           {
-            "name": "identifier",
             "in": "query",
+            "name": "identifier",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -619,23 +1301,23 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.process"
+        ]
       }
     },
     "/api/process/execute": {
       "patch": {
-        "tags": [
-          "universal.process"
-        ],
         "operationId": "execute_dummy",
         "parameters": [
           {
-            "name": "identifier",
             "in": "query",
+            "name": "identifier",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -651,23 +1333,32 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.process"
+        ]
       }
     },
     "/api/process/list": {
       "get": {
-        "tags": [
-          "universal.process"
-        ],
         "operationId": "list_dummy",
         "parameters": [
           {
-            "name": "recursive",
             "in": "query",
+            "name": "recursive",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "namespace",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -675,23 +1366,23 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.process"
+        ]
       }
     },
     "/api/process/openapi_spec": {
       "get": {
-        "tags": [
-          "universal.process"
-        ],
         "operationId": "openapi_spec_handler_dummy",
         "parameters": [
           {
-            "name": "identifier",
             "in": "query",
+            "name": "identifier",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -699,23 +1390,23 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.process"
+        ]
       }
     },
     "/api/process/p_apply": {
       "patch": {
-        "tags": [
-          "universal.process"
-        ],
         "operationId": "p_apply_dummy",
         "parameters": [
           {
-            "name": "identifier",
             "in": "query",
+            "name": "identifier",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -731,23 +1422,23 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.process"
+        ]
       }
     },
     "/api/process/profile_full": {
       "get": {
-        "tags": [
-          "universal.process"
-        ],
         "operationId": "profile_handler_dummy",
         "parameters": [
           {
-            "name": "identifier",
             "in": "query",
+            "name": "identifier",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -755,59 +1446,88 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.process"
+        ]
       }
     },
     "/api/system/add_mastersystem": {
       "patch": {
-        "tags": [
-          "universal.system"
-        ],
         "operationId": "add_mastersystem_dummy",
         "parameters": [
           {
+            "in": "query",
             "name": "identifier",
-            "in": "query",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           },
           {
+            "in": "query",
             "name": "path",
-            "in": "query",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           },
           {
+            "in": "query",
             "name": "recursive",
-            "in": "query",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           },
           {
+            "in": "query",
             "name": "system_uuid",
-            "in": "query",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           },
           {
-            "name": "topic_name",
             "in": "query",
+            "name": "topic_name",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "namespace",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Transformations の基準 Container (`container/pose`、issue #370)",
+            "in": "query",
+            "name": "reference",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Transformations の Anchor (`transformations/tree`、issue #370)",
+            "in": "query",
+            "name": "anchor",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -823,23 +1543,23 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.system"
+        ]
       }
     },
     "/api/system/add_subsystem": {
       "patch": {
-        "tags": [
-          "universal.system"
-        ],
         "operationId": "add_subsystem_dummy",
         "parameters": [
           {
-            "name": "identifier",
             "in": "query",
+            "name": "identifier",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -855,23 +1575,23 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.system"
+        ]
       }
     },
     "/api/system/filesystem_list": {
       "get": {
-        "tags": [
-          "universal.system"
-        ],
         "operationId": "fslist_handler_dummy",
         "parameters": [
           {
-            "name": "path",
             "in": "query",
+            "name": "path",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -879,23 +1599,23 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.system"
+        ]
       }
     },
     "/api/system/profile_full": {
       "get": {
-        "tags": [
-          "universal.system"
-        ],
         "operationId": "profile_handler_dummy",
         "parameters": [
           {
-            "name": "recursive",
             "in": "query",
+            "name": "recursive",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -903,36 +1623,58 @@
           "200": {
             "description": "System. recursive=true ならサブシステムの中身と各 System の接続 (connections) も入れる"
           }
-        }
+        },
+        "tags": [
+          "universal.system"
+        ]
+      }
+    },
+    "/api/system/remove_subsystem": {
+      "patch": {
+        "operationId": "remove_subsystem_dummy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "description": "{\"uuid\": 外すサブシステムの UUID}",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "外したサブシステムの uuid と broker_proxy"
+          }
+        },
+        "tags": [
+          "universal.system"
+        ]
       }
     },
     "/api/system/uuid": {
       "get": {
-        "tags": [
-          "universal.system"
-        ],
         "operationId": "uuid_dummy",
         "responses": {
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.system"
+        ]
       }
     },
     "/api/topic/list": {
       "get": {
-        "tags": [
-          "universal.topic"
-        ],
         "operationId": "list_dummy",
         "parameters": [
           {
-            "name": "recursive",
             "in": "query",
+            "name": "recursive",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -940,32 +1682,32 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.topic"
+        ]
       }
     },
     "/api/topic/push": {
       "patch": {
-        "tags": [
-          "universal.topic"
-        ],
         "operationId": "push_dummy",
         "parameters": [
           {
-            "name": "topic_name",
             "in": "query",
+            "name": "topic_name",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           },
           {
-            "name": "system_uuid",
             "in": "query",
+            "name": "system_uuid",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -981,32 +1723,32 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.topic"
+        ]
       }
     },
     "/api/topic/request_subscribe": {
       "patch": {
-        "tags": [
-          "universal.topic"
-        ],
         "operationId": "request_subscribe_dummy",
         "parameters": [
           {
-            "name": "topic_name",
             "in": "query",
+            "name": "topic_name",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           },
           {
-            "name": "system_uuid",
             "in": "query",
+            "name": "system_uuid",
             "required": false,
             "schema": {
-              "type": "string",
-              "nullable": true
+              "nullable": true,
+              "type": "string"
             }
           }
         ],
@@ -1022,41 +1764,316 @@
           "200": {
             "description": "System"
           }
-        }
+        },
+        "tags": [
+          "universal.topic"
+        ]
       }
-    }
-  },
-  "components": {
-    "schemas": {
-      "CreateConnectionRequest": {
-        "type": "object",
-        "required": [
-          "source",
-          "destination",
-          "arg_name"
-        ],
-        "properties": {
-          "arg_name": {
-            "type": "string"
+    },
+    "/api/transform/create": {
+      "post": {
+        "operationId": "transform_create_dummy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "destination": {
+                    "description": "終点 (子) の Container の ID か名前",
+                    "type": "string"
+                  },
+                  "rotation": {
+                    "$ref": "#/components/schemas/juiz_std.geometry.Quaternion"
+                  },
+                  "source": {
+                    "description": "始点 (親) の Container の ID か名前",
+                    "type": "string"
+                  },
+                  "translation": {
+                    "$ref": "#/components/schemas/juiz_std.geometry.Vector3"
+                  }
+                },
+                "required": [
+                  "source",
+                  "destination"
+                ],
+                "type": "object"
+              }
+            }
           },
-          "destination": {
-            "$ref": "#/components/schemas/IdentifierManifest"
-          },
-          "source": {
-            "$ref": "#/components/schemas/IdentifierManifest"
+          "description": "{\"source\": <始点>, \"destination\": <終点>, \"translation\": <juiz_std.geometry.Vector3>, \"rotation\": <juiz_std.geometry.Quaternion>}。translation・rotation は省略可",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "destination": {
+                      "type": "string"
+                    },
+                    "identifier": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "stamp": {
+                      "$ref": "#/components/schemas/juiz_std.common.Time"
+                    },
+                    "transform": {
+                      "$ref": "#/components/schemas/juiz_std.geometry.Transform"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Transform の profile"
           }
-        }
-      },
-      "IdentifierManifest": {
-        "type": "object",
-        "required": [
-          "identifier"
+        },
+        "tags": [
+          "universal.transformations"
+        ]
+      }
+    },
+    "/api/transform/destroy": {
+      "delete": {
+        "operationId": "transform_destroy_dummy",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
         ],
-        "properties": {
-          "identifier": {
-            "type": "string"
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "destination": {
+                      "type": "string"
+                    },
+                    "identifier": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "stamp": {
+                      "$ref": "#/components/schemas/juiz_std.common.Time"
+                    },
+                    "transform": {
+                      "$ref": "#/components/schemas/juiz_std.geometry.Transform"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "消した Transform の profile"
           }
-        }
+        },
+        "tags": [
+          "universal.transformations"
+        ]
+      }
+    },
+    "/api/transform/list": {
+      "get": {
+        "operationId": "transform_list_dummy",
+        "responses": {
+          "200": {
+            "description": "Transform の ID (transform://<始点>|<終点>) の配列"
+          }
+        },
+        "tags": [
+          "universal.transformations"
+        ]
+      }
+    },
+    "/api/transform/profile_full": {
+      "get": {
+        "operationId": "transform_profile_dummy",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "destination": {
+                      "type": "string"
+                    },
+                    "identifier": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "stamp": {
+                      "$ref": "#/components/schemas/juiz_std.common.Time"
+                    },
+                    "transform": {
+                      "$ref": "#/components/schemas/juiz_std.geometry.Transform"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "{identifier, source, destination, transform, stamp}"
+          }
+        },
+        "tags": [
+          "universal.transformations"
+        ]
+      }
+    },
+    "/api/transform/update": {
+      "patch": {
+        "operationId": "transform_update_dummy",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "rotation": {
+                    "$ref": "#/components/schemas/juiz_std.geometry.Quaternion"
+                  },
+                  "translation": {
+                    "$ref": "#/components/schemas/juiz_std.geometry.Vector3"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "description": "{\"translation\": <Vector3>, \"rotation\": <Quaternion>}。省いたものは今のまま",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "destination": {
+                      "type": "string"
+                    },
+                    "identifier": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "stamp": {
+                      "$ref": "#/components/schemas/juiz_std.common.Time"
+                    },
+                    "transform": {
+                      "$ref": "#/components/schemas/juiz_std.geometry.Transform"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Transform の profile"
+          }
+        },
+        "tags": [
+          "universal.transformations"
+        ]
+      }
+    },
+    "/api/transformations/tree": {
+      "get": {
+        "operationId": "tree_dummy",
+        "parameters": [
+          {
+            "description": "Anchor の ID か名前",
+            "in": "query",
+            "name": "anchor",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{identifier, pose, transform?, children: [...]} の入れ子"
+          }
+        },
+        "tags": [
+          "universal.transformations"
+        ]
+      }
+    },
+    "/api/type/list": {
+      "get": {
+        "operationId": "list_dummy",
+        "responses": {
+          "200": {
+            "description": "登録している名前付き型の配列 ({identifier, name, fingerprint, short_identifier, kind, used_by})"
+          }
+        },
+        "tags": [
+          "universal.type"
+        ]
+      }
+    },
+    "/api/type/schema": {
+      "get": {
+        "operationId": "schema_dummy",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "型参照 {name, fingerprint, avro}。identifier は <完全名>@sha256:… か完全名だけ"
+          }
+        },
+        "tags": [
+          "universal.type"
+        ]
       }
     }
   },

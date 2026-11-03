@@ -1,5 +1,11 @@
 import type { paths } from "./openapi.gen.ts";
-import type { ConnectionProfile, SystemProfile } from "./types.ts";
+import type {
+  ConnectionProfile,
+  PoseStamped,
+  SystemProfile,
+  TransformationsTreeNode,
+  TransformProfile,
+} from "./types.ts";
 
 /** GET で呼べる API のパス(OpenAPI 定義から生成) */
 type GetPath = {
@@ -106,5 +112,26 @@ export class JuizClient {
 
   async connectionProfileFull(identifier: string, signal?: AbortSignal): Promise<ConnectionProfile> {
     return (await this.get("/api/connection/profile_full", { identifier }, signal)) as ConnectionProfile;
+  }
+
+  /* ---------- Transformations(#370、#373) ---------- */
+
+  /** Transform の識別子の一覧(transform://<始点>|<終点>) */
+  async transformList(signal?: AbortSignal): Promise<string[]> {
+    return (await this.get("/api/transform/list", undefined, signal)) as string[];
+  }
+
+  async transformProfileFull(identifier: string, signal?: AbortSignal): Promise<TransformProfile> {
+    return (await this.get("/api/transform/profile_full", { identifier }, signal)) as TransformProfile;
+  }
+
+  /** Anchor を根とする木。各ノードに Anchor から見た位置姿勢と、親からの Transform の値が入る */
+  async transformationsTree(anchor: string, signal?: AbortSignal): Promise<TransformationsTreeNode> {
+    return (await this.get("/api/transformations/tree", { anchor }, signal)) as TransformationsTreeNode;
+  }
+
+  /** 基準 reference から見た Container の位置姿勢 */
+  async containerPose(identifier: string, reference: string, signal?: AbortSignal): Promise<PoseStamped> {
+    return (await this.get("/api/container/pose", { identifier, reference }, signal)) as PoseStamped;
   }
 }
