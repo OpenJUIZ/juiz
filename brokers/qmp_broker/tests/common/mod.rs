@@ -312,9 +312,15 @@ pub const FORMATS: [&str; 7] = ["l8", "la8", "rgb8", "rgba8", "l16", "rgb16", "r
 
 /// 指定の形式と大きさの画像を返す
 fn qmp_image_make(args: CapsuleMap) -> JuizResult<Capsule> {
-    let format = args.get("format")?.lock_as_value(|v| v.as_str().unwrap_or("rgb8").to_owned())?;
-    let w = args.get("width")?.lock_as_value(|v| v.as_u64().unwrap_or(1))? as u32;
-    let h = args.get("height")?.lock_as_value(|v| v.as_u64().unwrap_or(1))? as u32;
+    let format = args
+        .get("format")?
+        .lock_as_value(|v| v.as_str().unwrap_or("rgb8").to_owned())?;
+    let w = args
+        .get("width")?
+        .lock_as_value(|v| v.as_u64().unwrap_or(1))? as u32;
+    let h = args
+        .get("height")?
+        .lock_as_value(|v| v.as_u64().unwrap_or(1))? as u32;
     Ok(image_of_format(&format, w, h).into())
 }
 
@@ -337,14 +343,19 @@ fn qmp_value_echo(args: CapsuleMap) -> JuizResult<Capsule> {
 }
 
 fn qmp_always_fail(_args: CapsuleMap) -> JuizResult<Capsule> {
-    Err(juiz_sdk::anyhow::anyhow!("qmp_always_fail fails on purpose"))
+    Err(juiz_sdk::anyhow::anyhow!(
+        "qmp_always_fail fails on purpose"
+    ))
 }
 
 /// 画像と配列の Process を登録して作る。Topic の確かめに使う (publish する Process, subscribe する Process) を返す
 pub fn setup_data_processes(system: &System) -> JuizResult<(ProcessPtr, ProcessPtr)> {
     let mut cb = system.core_broker().lock_mut()?;
     let worker = cb.worker_mut();
-    let factories: Vec<(ProcessManifest, juiz_sdk::processes::ProcessBodyFunctionType)> = vec![
+    let factories: Vec<(
+        ProcessManifest,
+        juiz_sdk::processes::ProcessBodyFunctionType,
+    )> = vec![
         (
             ProcessManifest::new("qmp_image_make")
                 .use_memo(false)
@@ -379,7 +390,10 @@ pub fn setup_data_processes(system: &System) -> JuizResult<(ProcessPtr, ProcessP
     for (manifest, function) in factories {
         let type_name = manifest.type_name.clone();
         let pf = process_factory_create(manifest, function)?;
-        worker.store_mut().processes.register_factory(&type_name, pf)?;
+        worker
+            .store_mut()
+            .processes
+            .register_factory(&type_name, pf)?;
     }
     for (type_name, name) in [
         ("qmp_image_make", "make0"),
@@ -406,9 +420,14 @@ pub fn setup_data_processes(system: &System) -> JuizResult<(ProcessPtr, ProcessP
 /// サーバーのエラーは BrokerProxyRemoteError で返り、Process の失敗の文も届く
 pub fn check_remote_error(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     let ids = bp.process_list(false, None)?;
-    let e = bp.process_call(find_process(&ids, "fail0"), CapsuleMap::new()).unwrap_err();
+    let e = bp
+        .process_call(find_process(&ids, "fail0"), CapsuleMap::new())
+        .unwrap_err();
     assert!(
-        matches!(e.downcast_ref::<JuizError>(), Some(JuizError::BrokerProxyRemoteError { .. })),
+        matches!(
+            e.downcast_ref::<JuizError>(),
+            Some(JuizError::BrokerProxyRemoteError { .. })
+        ),
         "{e:?}"
     );
     assert!(format!("{e:#}").contains("fails on purpose"), "{e:#}");
@@ -452,7 +471,12 @@ pub fn check_arrays(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     let floats: Vec<f64> = (0..5000).map(|i| i as f64 / 3.0).collect();
     let mut mixed: Vec<Value> = (0..2000).map(|i| jvalue!(i)).collect();
     mixed.push(jvalue!(1.5));
-    for value in [jvalue!(ints), jvalue!(floats), jvalue!(mixed), jvalue!({"small": [1, 2.0]})] {
+    for value in [
+        jvalue!(ints),
+        jvalue!(floats),
+        jvalue!(mixed),
+        jvalue!({"small": [1, 2.0]}),
+    ] {
         let got = bp
             .process_call(&vecho, vec![("value", value.clone())].into())?
             .extract_value()?;
@@ -468,7 +492,11 @@ pub fn check_arrays(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
 }
 
 /// qmp の Topic の push で画像を送ると、subscribe 側に届く
-pub fn check_topic_push_image(bp: &mut dyn BrokerProxy, topic: &str, sink: &ProcessPtr) -> JuizResult<()> {
+pub fn check_topic_push_image(
+    bp: &mut dyn BrokerProxy,
+    topic: &str,
+    sink: &ProcessPtr,
+) -> JuizResult<()> {
     let img = image_of_format("rgb8", 320, 240);
     let expected: u64 = img.as_bytes().iter().map(|b| *b as u64).sum();
     bp.topic_push(topic, img.into(), Some(uuid::Uuid::new_v4()))?;

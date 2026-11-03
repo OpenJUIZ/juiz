@@ -82,6 +82,11 @@ fn construct_param(key: &String, value: &String) -> String {
             }
             Err(_) => key.clone() + "=" + value.as_str(),
         }
+    } else if key == "identifier"
+        && (value.starts_with("transform://") || value.starts_with("pose_listener://"))
+    {
+        // Transform・Pose 通知の ID は中に core の ID を持つので、そのまま送る (issue #370)
+        key.clone() + "=" + value.as_str()
     } else if key == "identifier" && value.contains("://") {
         // 解析できない識別子はそのまま送り、サーバ側でエラーにする (issue #35)。
         // `://` を含まないもの (composite/* に渡す Composite の型名、issue #171) は識別子として解析しない

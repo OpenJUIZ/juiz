@@ -467,6 +467,10 @@ impl CoreWorker {
         for cpf in self.store().container_processes.factories().values() {
             registry.add_manifest(&cpf.lock()?.manifest()?);
         }
+        // Transformations の API の引数・戻り値の型 (juiz_std.geometry、issue #370)
+        for s in crate::transformations::api_types::transformations_type_schemas()? {
+            registry.add_schema(&s, crate::transformations::api_types::TRANSFORMATIONS_TYPE_USER)?;
+        }
         Ok(registry)
     }
 

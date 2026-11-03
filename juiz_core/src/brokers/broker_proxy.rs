@@ -10,6 +10,8 @@ use uuid::Uuid;
 
 use crate::prelude::*;
 use crate::types::TypeEntry;
+use juiz_sdk::geometry::{Pose, PoseStamped, Quaternion, Vector3};
+use juiz_sdk::manifests::{PoseListenerManifest, TransformManifest};
 use juiz_sdk::types::TypeSchema;
 
 use std::path::PathBuf;
@@ -336,6 +338,65 @@ pub trait TypeBrokerProxy {
     fn type_schema(&self, identifier: &str) -> JuizResult<TypeSchema>;
 }
 
+/// Transformations (Container の位置姿勢と座標変換) の API (issue #370、仕様 docs/spec/transformations.md §13.1)
+///
+/// 登録所はその juiz プロセスだけのもので、サブシステムはたどらない (§15)。
+/// Container・Process は ID か名前で指定する。名前は根のネームスペースから解決する (`robot1/base0`、`base0::mobile_base` も可)。
+/// Anchor の作成・削除は Container の API (`container_create` の type_name が `periodic_anchor` / `static_anchor`)。
+pub trait TransformationsBrokerProxy {
+    /// Container `identifier` の、基準 `reference` から見た ContainerPose (§7.1)
+    fn container_pose(&self, identifier: &str, reference: &str) -> JuizResult<PoseStamped>;
+
+    /// Container `identifier` を、基準 `reference` から見て `pose` にする (§7.2)。書いた後の値を返す
+    fn container_set_pose(
+        &self,
+        identifier: &str,
+        reference: &str,
+        pose: &Pose,
+    ) -> JuizResult<PoseStamped>;
+
+    /// Transform の ID (`transform://<始点の ID>|<終点の ID>`) の一覧
+    fn transform_list(&self) -> JuizResult<Vec<String>>;
+
+    /// `{identifier, source, destination, transform, stamp}`
+    fn transform_profile_full(&self, identifier: &str) -> JuizResult<Value>;
+
+    /// Transform を作り、profile を返す。木の規則 (§5.2) を破ればエラーで何も作らない
+    fn transform_create(&self, manifest: &TransformManifest) -> JuizResult<Value>;
+
+    /// Transform の値を変える (§7.3)。`None` のものは今のまま
+    fn transform_update(
+        &self,
+        identifier: &str,
+        translation: Option<Vector3>,
+        rotation: Option<Quaternion>,
+    ) -> JuizResult<Value>;
+
+    /// Transform を消し、消したものの profile を返す
+    fn transform_destroy(&self, identifier: &str) -> JuizResult<Value>;
+
+    /// Anchor の ID の一覧
+    fn anchor_list(&self) -> JuizResult<Vec<String>>;
+
+    /// Anchor の木を今すぐ更新する (§4.4 の 3)。`{identifier, stamp}`
+    fn anchor_update(&self, identifier: &str) -> JuizResult<Value>;
+
+    /// Anchor の木 `{identifier, pose, transform?, children: [...]}` の入れ子
+    fn transformations_tree(&self, anchor: &str) -> JuizResult<Value>;
+
+    /// Pose 通知の ID (`pose_listener://<Container の ID>|<Process の ID>|<arg>`) の一覧
+    fn pose_listener_list(&self) -> JuizResult<Vec<String>>;
+
+    /// `{identifier, container, process, arg, reference, on_update}`
+    fn pose_listener_profile_full(&self, identifier: &str) -> JuizResult<Value>;
+
+    /// Pose 通知を登録し、profile を返す (§8.3)
+    fn pose_listener_create(&mut self, manifest: &PoseListenerManifest) -> JuizResult<Value>;
+
+    /// Pose 通知の登録を外し、外したものの profile を返す
+    fn pose_listener_destroy(&self, identifier: &str) -> JuizResult<Value>;
+}
+
 pub trait BrokerProxy:
     Send
     + Sync
@@ -350,6 +411,7 @@ pub trait BrokerProxy:
     + TopicBrokerProxy
     + CompositeBrokerProxy
     + TypeBrokerProxy
+    + TransformationsBrokerProxy
 {
     fn is_in_charge_for_process(&self, _id: &Identifier) -> JuizResult<bool>;
 

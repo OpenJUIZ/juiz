@@ -14,7 +14,8 @@ pub(crate) fn create_create_callbacks() -> CallbackContainerType {
         let manifest: ContainerManifest =
             serde_json::from_value(args.get("__manifest__")?.extract_value()?)?;
         let profile: ContainerProfile = cb.lock_mut()?.container_create(&manifest, args)?;
-        Ok(serde_json::to_value(profile)?.into())
+        // container/profile_full と同じく identifier と class_name を添える (issue #370)
+        Ok(container_profile_value(&profile)?.into())
     });
     container_callbacks
 }

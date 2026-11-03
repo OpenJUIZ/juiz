@@ -119,6 +119,15 @@ fn construct_capsule_map(
             capsule_map.set_param("namespace", v.as_str());
         }
     }
+    // Transformations (issue #370)。reference は ID なら identifier と同じく自分を指す http の ID を core に直す
+    if let Some(v) = query.reference.clone() {
+        let host = headers.get("host").and_then(|h| h.to_str().ok());
+        capsule_map.set_param("reference", localize_identifier(v.as_str(), "http", host).as_str());
+    }
+    if let Some(v) = query.anchor.clone() {
+        let host = headers.get("host").and_then(|h| h.to_str().ok());
+        capsule_map.set_param("anchor", localize_identifier(v.as_str(), "http", host).as_str());
+    }
     // println!("HEADER>>>> {headers:?}");
     match headers.get("host") {
         Some(header) => match header.to_str() {

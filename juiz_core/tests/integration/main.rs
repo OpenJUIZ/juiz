@@ -73,6 +73,7 @@ mod rust_native_test;
 mod subsystem_test;
 mod system_api_test;
 mod system_test;
+mod transformations_api_test;
 mod transformations_bench;
 mod transformations_test;
 mod type_check_test;

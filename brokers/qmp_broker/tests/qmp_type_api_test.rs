@@ -49,7 +49,12 @@ fn qmp_type_api() -> JuizResult<()> {
             true,
         )?;
         let bp = juiz_borrow(&proxy)?;
-        let list = bp.type_list()?;
+        // Transformations の API の型 (juiz_std.geometry、issue #370) はいつも載るので除く
+        let list: Vec<_> = bp
+            .type_list()?
+            .into_iter()
+            .filter(|e| e.used_by != vec!["transformations"])
+            .collect();
         assert_eq!(list.len(), 1, "{list:?}");
         assert_eq!(list[0].identifier, twist().identifier());
         assert_eq!(list[0].used_by, vec!["make_twist"]);

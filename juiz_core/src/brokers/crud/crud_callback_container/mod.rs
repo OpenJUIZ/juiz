@@ -9,6 +9,7 @@ mod ec;
 mod process;
 mod system;
 mod topic;
+mod transformations;
 
 use std::collections::HashMap;
 
@@ -110,6 +111,13 @@ pub(crate) fn create_callback_container() -> ClassCallbackContainerType {
         composite::create_container_create_callbacks(),
     );
 
+    // Transformations (issue #370)
+    create_cb_container.insert("transform", transformations::transform_create_callbacks());
+    create_cb_container.insert(
+        "pose_listener",
+        transformations::pose_listener_create_callbacks(),
+    );
+
     create_cb_container
 }
 
@@ -123,7 +131,10 @@ pub(crate) fn read_callback_container() -> ClassCallbackContainerType {
     read_cb_container.insert("process", process::create_read_callbacks());
 
     // コンテナ関連
-    read_cb_container.insert("container", container::create_read_callbacks());
+    let mut container_read = container::create_read_callbacks();
+    // container/pose (Transformations、issue #370)
+    transformations::container_read_callbacks(&mut container_read);
+    read_cb_container.insert("container", container_read);
 
     // コンテナプロセス関連
     read_cb_container.insert(
@@ -147,6 +158,18 @@ pub(crate) fn read_callback_container() -> ClassCallbackContainerType {
 
     // 型の登録所 (issue #193)
     read_cb_container.insert("type", types::create_read_callbacks());
+
+    // Transformations (issue #370)
+    read_cb_container.insert("transform", transformations::transform_read_callbacks());
+    read_cb_container.insert("anchor", transformations::anchor_read_callbacks());
+    read_cb_container.insert(
+        "transformations",
+        transformations::transformations_read_callbacks(),
+    );
+    read_cb_container.insert(
+        "pose_listener",
+        transformations::pose_listener_read_callbacks(),
+    );
 
     read_cb_container
 }
@@ -172,6 +195,13 @@ pub(crate) fn update_callback_container() -> ClassCallbackContainerType {
     // トピック関連
     update_cb_container.insert("topic", topic::create_update_calbacks());
 
+    // Transformations (issue #370)
+    let mut container_update = CallbackContainerType::new();
+    transformations::container_update_callbacks(&mut container_update);
+    update_cb_container.insert("container", container_update);
+    update_cb_container.insert("transform", transformations::transform_update_callbacks());
+    update_cb_container.insert("anchor", transformations::anchor_update_callbacks());
+
     update_cb_container
 }
 
@@ -194,6 +224,13 @@ pub(crate) fn delete_callback_container() -> ClassCallbackContainerType {
     delete_cb_container.insert("connection", connection::create_delete_callbacks());
 
     delete_cb_container.insert("composite", composite::create_delete_callbacks());
+
+    // Transformations (issue #370)
+    delete_cb_container.insert("transform", transformations::transform_delete_callbacks());
+    delete_cb_container.insert(
+        "pose_listener",
+        transformations::pose_listener_delete_callbacks(),
+    );
 
     delete_cb_container
 }

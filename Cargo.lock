@@ -1561,6 +1561,7 @@ dependencies = [
  "interprocess",
  "juiz_qmp_broker",
  "juiz_sdk",
+ "juiz_std_types",
  "juiz_webui",
  "libc",
  "libloading",

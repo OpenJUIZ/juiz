@@ -399,7 +399,32 @@ ContainerProcess の第 1 引数(利用者のオブジェクト)からたどれ�
 - 削除は既存のクラスに合わせて `destroy` という名前にする。
 - Anchor の作成・削除は Container の API(`container/create` の type_name が `periodic_anchor` / `static_anchor`)。
 - CRUD・HTTP・ブローカー越し(BrokerProxy)・pyjuiz のクライアントに足す。引数・戻り値は `juiz_std.geometry` の型として登録し、`type/list`・型検査・OpenAPI に載せる。
-- Step 3(#370)で細部を決める。
+
+Step 3(#370)で決めたこと:
+
+- Container・Anchor・Process は ID か名前で指定する。API の名前は**根のネームスペース**から解決する(`robot1/base0`、`base0::mobile_base`、`/robot1/base0` も可、§9.3 の規則)。System を `--namespace robot1` で起動していても、名前にはネームスペースを付ける。
+- 引数の渡し方(HTTP では READ / DELETE はクエリ、CREATE / UPDATE はボディ。QMP・IPC は param と引数):
+
+  | クラス / 関数 | 方法 | param(クエリ) | ボディ |
+  |---|---|---|---|
+  | `container/pose` | READ(GET) | `identifier`、`reference` | |
+  | `container/set_pose` | UPDATE(PATCH) | `identifier` | `reference`、`pose` |
+  | `transform/list`・`anchor/list`・`pose_listener/list` | READ | | |
+  | `transform/profile_full`・`pose_listener/profile_full` | READ | `identifier` | |
+  | `transform/create` | CREATE(POST) | | `source`、`destination`、`translation`、`rotation`(`{"__manifest__": {...}}` に包んでもよい) |
+  | `transform/update` | UPDATE | `identifier` | `translation`、`rotation`(省いたものは今のまま) |
+  | `transform/destroy`・`pose_listener/destroy` | DELETE | `identifier` | |
+  | `anchor/update` | UPDATE | `identifier` | |
+  | `transformations/tree` | READ | `anchor` | |
+  | `pose_listener/create` | CREATE | | §8.3 の項目(`__manifest__` に包んでもよい) |
+
+- 表にない `anchor/list`(Anchor の ID の配列)と `pose_listener/profile_full`(`{identifier, container, process, arg, reference, on_update}`)も足した。
+- `reference`・`anchor` のクエリに HTTP の ID(`http://<host>:<port>/container/...`)を渡すと、`identifier` と同じく自分を指すものは core の ID に直す。
+- ボディの `pose`・`translation`・`rotation` は `juiz_std.geometry` の `Pose`・`Vector3`・`Quaternion` で検査し、合わなければエラー(データ型の検査と同じ規則)。
+- `juiz_std.geometry` の `Pose`・`PoseStamped`・`Transform`・`TransformStamped`(と中の型)は、型の登録所(`type/list`、使う側の名前 `transformations`)と OpenAPI の `components.schemas` にいつも載る。OpenAPI の Transformations の API の応答・ボディはこれらを参照する。そのため `juiz_core` は `juiz_std_types` に依存する。
+- Rust は `BrokerProxy` の親に `TransformationsBrokerProxy` を足した(`container_pose`・`container_set_pose`・`transform_*`・`anchor_*`・`transformations_tree`・`pose_listener_*`)。`pose_listener_create` 以外は `&self`(登録所は自分の Mutex を持つ)。ブローカー越しの Transform・Pose 通知の ID(`transform://…`・`pose_listener://…`)は中の core の ID を書き換えずに送る。
+- `container_create` は manifest の `namespace` と `rate` も使う(引数に無いとき)。Rust・ブローカー越しに Periodic Anchor の rate を指定できる。
+- pyjuiz の `SystemProxy` に `create_anchor(name, kind='static', rate=None, namespace=None)`・`pose`・`set_pose`・`transforms`・`transform`・`create_transform`・`update_transform`・`destroy_transform`・`anchors`・`update_anchor`・`tree`・`pose_listeners`・`pose_listener`・`create_pose_listener`・`destroy_pose_listener` を、`ContainerProxy` に `pose(reference)`・`set_pose(reference, pose)` を足した。値は dict(`juiz_std.geometry` のオブジェクトも渡せる)、`translation`・`rotation` はタプルでもよい。クエリの値は URL 用に符号化する。
 
 ### 13.2 CLI
 
@@ -414,6 +439,27 @@ juiz anchor update <name>
 juiz anchor tree <name>
 juiz list --long        # Anchor の種類と rate を表示
 ```
+
+Step 3(#370)で決めたこと:
+
+- 実際のコマンドは次のとおり。サーバーは `-s`(既定 `http://127.0.0.1:8000`)。
+
+  ```text
+  juiz container pose <id> --reference <基準> [--set '<Pose の JSON>']   # -r でもよい。PoseStamped を JSON で出す
+  juiz transform list [--long]                     # --long は「始点 -> 終点  translation (…)  rotation (…)」
+  juiz transform info <id | 始点 終点>
+  juiz transform create <始点> <終点> [--translation x,y,z] [--rotation x,y,z,w]
+  juiz transform update <id | 始点 終点> [--translation x,y,z] [--rotation x,y,z,w]
+  juiz transform delete <id | 始点 終点>             # destroy でもよい
+  juiz anchor list
+  juiz anchor update <name>
+  juiz anchor tree <name> [--json]                 # 字下げの木。各行は名前と Anchor から見た位置・向き
+  juiz container list --long                       # Anchor の行の下に「anchor: periodic (10 Hz)」「anchor: static」
+  ```
+
+- Transform は ID が長いので、始点と終点の 2 つ(ID か名前)でも指せる。CLI が一覧から探す。
+- 一覧のコマンドは `juiz container list` なので、`juiz list --long` は `juiz container list --long` にした。
+- Pose 通知の CLI は作っていない(conf・API・pyjuiz で登録する)。
 
 ### 13.3 管理画面
 
@@ -463,7 +509,7 @@ Step 1 で上の名前のまま `JuizError` に足した。あわせて `Transfo
 | 0 仕様書・`juiz_std.geometry.Transform` | #367 | 全体、§3.1 の型 |
 | 1 SDK | #368 | §3、§9.1、§12.1、manifest |
 | 2 core | #369 | §4〜§11(決めたことは §9.3) |
-| 3 API・CLI | #370 | §13.1、§13.2 |
+| 3 API・CLI | #370 | §13.1、§13.2(決めたことは各節の「Step 3 で決めたこと」) |
 | 4 Python | #371 | §12.2 |
 | 5 C ABI | #372 | §12.3 |
 | 6 管理画面 | #373 | §13.3 |

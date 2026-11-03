@@ -15,6 +15,7 @@ mod namespace;
 mod package;
 mod process;
 mod setup;
+mod transformations;
 mod types;
 
 #[cfg(feature = "python-entry")]
@@ -31,6 +32,7 @@ use execution_context::{on_execution_context, EcSubCommands};
 
 use crate::process::{on_process, ProcSubCommands};
 use crate::setup::{on_setup, SetupSubCommands};
+use crate::transformations::{on_anchor, on_transform, AnchorSubCommands, TransformSubCommands};
 use crate::types::{on_type, TypeSubCommands};
 use juiz_core::prelude::*;
 use juiz_core::utils::yaml_conf_load;
@@ -222,6 +224,20 @@ enum SubCommands {
     Composite {
         #[clap(subcommand)]
         subcommand: CompositeSubCommands,
+    },
+
+    // Transform tools (Transformations、issue #370)
+    #[clap(arg_required_else_help = false)]
+    Transform {
+        #[clap(subcommand)]
+        subcommand: TransformSubCommands,
+    },
+
+    // Anchor tools (Transformations、issue #370)
+    #[clap(arg_required_else_help = false)]
+    Anchor {
+        #[clap(subcommand)]
+        subcommand: AnchorSubCommands,
     },
 
     // Type tools (issue #197)
@@ -855,6 +871,10 @@ fn run(args: Args) -> JuizResult<()> {
             on_composite(manifest, working_dir, subcommand, args)
         }
         SubCommands::Type { subcommand } => on_type(manifest, working_dir, subcommand, args),
+        SubCommands::Transform { subcommand } => {
+            on_transform(manifest, working_dir, subcommand, args)
+        }
+        SubCommands::Anchor { subcommand } => on_anchor(manifest, working_dir, subcommand, args),
         SubCommands::Idl { .. }
         | SubCommands::Pack { .. }
         | SubCommands::Run { .. }
