@@ -175,6 +175,7 @@ impl System {
         system_builder::setup_topic_synchronization(&mut self)?;
 
         system_builder::setup_ec_activation(&mut self)?;
+        system_builder::start_transformations(&self)?;
         log::debug!("システムのセットアップに成功しました。");
         Ok(self)
     }

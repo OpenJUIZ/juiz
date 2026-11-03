@@ -11,7 +11,8 @@ use juiz_sdk::{
     connections::{ConnectionManifest, ConnectionProfile},
     manifests::ContainerIdentifier,
     manifests::{
-        CompositeManifest, ContainerProfile, ProcessProfile, COMPOSITE_CONTAINER_TYPE_NAME,
+        is_anchor_type_name, AnchorManifest, CompositeManifest, ContainerProfile,
+        PoseListenerManifest, ProcessProfile, COMPOSITE_CONTAINER_TYPE_NAME,
     },
     process_identifier::ProcessIdentifier,
     utils::manifest_util::{construct_id, type_name},
@@ -343,11 +344,13 @@ impl CoreWorker {
         }
         let c = composite_container_new(name, namespace, resolved)?;
         log::info!("【作成】CompositeContainer({})", id);
-        Ok(self
+        let c = self
             .store_mut()
             .containers
             .register(&id.to_string(), c)?
-            .clone())
+            .clone();
+        self.store().transformations.add_container(&c, None)?;
+        Ok(c)
     }
 
     /// スロットの参照先の Container を探す。ID 文字列か、`namespace` から解決する名前
@@ -605,6 +608,9 @@ impl CoreWorker {
             "CoreBroker::destroy_process(identifier={}) called",
             identifier
         );
+        self.store()
+            .transformations
+            .remove_listeners_of_process(&identifier.to_string())?;
         self.store_mut()
             .processes
             .deregister_by_id(&identifier.to_string())
@@ -617,6 +623,10 @@ impl CoreWorker {
         mut args: CapsuleMap,
     ) -> JuizResult<ContainerPtr> {
         log::trace!("CoreBroker::create_container(manifest={:?}) called", args);
+        // Anchor は System に組み込みの Container で、Factory を持たない (docs/spec/transformations.md §4.1)
+        if is_anchor_type_name(type_name) {
+            return self.create_anchor_ref(type_name, name, &args);
+        }
         let arc_pf = match self.store().containers.factory(type_name)
             .with_context(||{format!("store.container_processes.factory({}) in create_container_process_ref() in core_worker.rs", type_name)}) {
             Ok(v) => Ok(v),
@@ -660,11 +670,63 @@ impl CoreWorker {
             .lock()?
             .create_container(self, name.to_owned(), args)?;
         let id = p.identifier().clone();
-        Ok(self
+        let p = self
             .store_mut()
             .containers
             .register(&id.to_string(), p)?
-            .clone())
+            .clone();
+        self.store().transformations.add_container(&p, None)?;
+        Ok(p)
+    }
+
+    /// Anchor (`periodic_anchor` / `static_anchor`) を作って登録する (docs/spec/transformations.md §4)
+    fn create_anchor_ref(
+        &mut self,
+        type_name: &str,
+        name: &str,
+        args: &CapsuleMap,
+    ) -> JuizResult<ContainerPtr> {
+        let id = container_identifier_from_args(type_name, name, args)?;
+        id.validate()?;
+        self.store()
+            .containers
+            .check_not_registered(&id.to_string())?;
+        let mut manifest = ContainerManifest::new(type_name)
+            .name(id.name.as_str())
+            .namespace(id.namespace.as_str());
+        if let Ok(rate) = args.get("rate") {
+            manifest.rate = Some(rate.lock_as_value(|v| {
+                v.as_f64().ok_or_else(|| {
+                    anyhow!(JuizError::ContainerManifestInvalidError {
+                        message: format!("rate of {type_name} must be a number, but {v}"),
+                    })
+                })
+            })??);
+        }
+        if let Ok(processes) = args.get("processes") {
+            let has_processes = processes
+                .lock_as_value(|v| v.as_array().is_some_and(|a| !a.is_empty()))
+                .unwrap_or(false);
+            if has_processes {
+                return Err(anyhow!(JuizError::ContainerManifestInvalidError {
+                    message: format!("Anchor ({type_name}) can not have processes."),
+                }));
+            }
+        }
+        let anchor = AnchorManifest::from_container_manifest(&manifest)?
+            .expect("type_name is an anchor type");
+        let c = crate::transformations::anchor_container_new(&id.name, &id.namespace, anchor)?;
+        log::info!("【作成】Anchor({})", id);
+        let c = self
+            .store_mut()
+            .containers
+            .register(&id.to_string(), c)?
+            .clone();
+        if let Err(e) = self.store().transformations.add_container(&c, Some(anchor)) {
+            let _ = self.store_mut().containers.deregister_by_id(&id.to_string());
+            return Err(e);
+        }
+        Ok(c)
     }
 
     pub fn destroy_container_ref(
@@ -698,11 +760,17 @@ impl CoreWorker {
             self.destroy_container_process_ref(pid)?;
             //container_lock_mut(&mut cont.clone())?.purge_process(pid)?;
         }
+        // Transform・Pose 通知を外し、Anchor ならスレッドを止める (docs/spec/transformations.md §10)
+        self.store()
+            .transformations
+            .remove_container(&identifier.to_string())?;
         self.store_mut()
             .containers
             .deregister_by_id(&identifier.to_string())?;
-        // CompositeContainer は Factory を持たない。消すとスロットの参照を放す (参照先は消さない)
-        if cont.identifier().type_name == COMPOSITE_CONTAINER_TYPE_NAME {
+        // CompositeContainer と Anchor は Factory を持たない。CompositeContainer は消すとスロットの参照を放す (参照先は消さない)
+        if cont.identifier().type_name == COMPOSITE_CONTAINER_TYPE_NAME
+            || is_anchor_type_name(&cont.identifier().type_name)
+        {
             let profile = cont.lock()?.profile()?;
             log::trace!("container_destroy({}) exit", identifier);
             return Ok(profile);
@@ -783,6 +851,9 @@ impl CoreWorker {
             "CoreBroker::destroy_container_process_ref(identifier={}) called",
             identifier
         );
+        self.store()
+            .transformations
+            .remove_listeners_of_process(&identifier.to_string())?;
         let process = self
             .store_mut()
             .container_processes
@@ -1450,3 +1521,105 @@ fn composite_node_uses(node: &juiz_sdk::manifests::CompositeNode, type_name: &st
             _ => false,
         })
 }
+
+/// Transformations の Pose 通知 (docs/spec/transformations.md §8.3)
+impl CoreWorker {
+    /// Pose 通知を登録する。Process は ID か名前 (`namespace` から解決)。
+    /// 引数 `arg` は Process の引数が 1 つなら省略でき、型は `juiz_std.geometry.PoseStamped` か any でなければエラー
+    pub fn create_pose_listener(
+        &mut self,
+        manifest: PoseListenerManifest,
+        namespace: &str,
+    ) -> JuizResult<Value> {
+        let listener_error = |message: String| anyhow!(JuizError::PoseListenerError { message });
+        let manifest = manifest.validated()?;
+        let process = self
+            .resolve_listener_process(&manifest.process, namespace)
+            .with_context(|| format!("resolving process of pose listener ({manifest:?})"))?;
+        let profile = process.lock()?.profile()?;
+        let arg = match &manifest.arg {
+            Some(a) => {
+                if !profile.arguments.iter().any(|p| &p.name == a) {
+                    return Err(listener_error(format!(
+                        "Process ({}) does not have argument '{a}'.",
+                        process.identifier()
+                    )));
+                }
+                a.clone()
+            }
+            None => match profile.arguments.as_slice() {
+                [only] => only.name.clone(),
+                _ => {
+                    return Err(listener_error(format!(
+                        "'arg' is required because Process ({}) has {} arguments.",
+                        process.identifier(),
+                        profile.arguments.len()
+                    )))
+                }
+            },
+        };
+        if let Some(schema) = crate::types::argument_schema(&profile, &arg) {
+            if schema.name != POSE_STAMPED_TYPE_NAME && schema.name != juiz_sdk::types::ANY_FULL_NAME {
+                return Err(listener_error(format!(
+                    "argument '{arg}' of Process ({}) must be {POSE_STAMPED_TYPE_NAME}, but {}.",
+                    process.identifier(),
+                    schema.name
+                )));
+            }
+        }
+        self.store().transformations.add_listener(
+            &manifest.container,
+            process,
+            &arg,
+            manifest.reference.as_deref(),
+            manifest.on_update,
+            namespace,
+        )
+    }
+
+    /// Pose 通知で呼ぶ Process を探す。ID (別 System の Process も可) か、Process・ContainerProcess の名前
+    fn resolve_listener_process(&mut self, reference: &str, namespace: &str) -> JuizResult<ProcessPtr> {
+        if reference.contains("://") {
+            let id = ProcessIdentifier::try_from(reference)?;
+            return if id.broker_type_name == "core" {
+                self.any_process_from_identifier(&id, false)
+            } else {
+                self.any_process_proxy_from_identifier(&id, true)
+            };
+        }
+        let (path, type_name) = match reference.split_once("::") {
+            Some((p, t)) => (p, Some(t)),
+            None => (reference, None),
+        };
+        let full = juiz_sdk::topic_identifier::resolve_topic_name(namespace, path)?;
+        let (ns, name) = juiz_sdk::identifier::split_namespace(&full);
+        let store = self.store();
+        let found = store
+            .processes
+            .objects()
+            .values()
+            .chain(store.container_processes.objects().values())
+            .filter(|p| {
+                let id = p.identifier();
+                id.namespace == ns
+                    && id.name == name
+                    && type_name.map_or(true, |t| id.type_name == t)
+            })
+            .cloned()
+            .collect::<Vec<ProcessPtr>>();
+        match found.len() {
+            0 => Err(anyhow!(JuizError::ObjectCanNotFoundByIdError {
+                id: reference.to_owned()
+            })),
+            1 => Ok(found.into_iter().next().unwrap()),
+            _ => Err(anyhow!(JuizError::InvalidValueError {
+                message: format!(
+                    "Process name '{reference}' is ambiguous. Use the identifier instead."
+                ),
+            })),
+        }
+    }
+}
+
+/// Pose 通知で渡す値の型 (docs/spec/transformations.md §8.3)
+const POSE_STAMPED_TYPE_NAME: &str = "juiz_std.geometry.PoseStamped";

@@ -10,6 +10,8 @@ mod containers;
 mod ecs;
 mod processes;
 mod topics;
+/// Transformations (Container の位置姿勢と座標変換) の登録所と Anchor (docs/spec/transformations.md)
+pub mod transformations;
 
 pub mod types;
 

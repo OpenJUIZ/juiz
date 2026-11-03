@@ -63,6 +63,10 @@ pub(crate) fn setup_objects(system: &mut System, manifest: &Value) -> JuizResult
             .context("setup_composite_containers() in setup_objects() in setup_objects.rs")
     })?;
 
+    // Transform と Pose 通知は Container・Process が出来てから (docs/spec/transformations.md §11)
+    crate::core::system_builder::transformations::setup_transformations(system, manifest)
+        .context("setup_transformations() in setup_objects() in setup_objects.rs")?;
+
     setup_http_broker_factory(system)
         .context("system_builder::setup_http_broker_factory in System::setup() failed.")?;
 
