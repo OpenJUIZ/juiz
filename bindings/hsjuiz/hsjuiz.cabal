@@ -51,6 +51,7 @@ library
                       Juiz.TH
                       Juiz.Type
                       Juiz.Image
+                      Juiz.Pose
                       Juiz.Internal.FFI
                       Juiz.Internal.TypeInfo
                       Juiz.Internal.Base64

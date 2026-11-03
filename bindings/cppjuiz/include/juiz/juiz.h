@@ -7,6 +7,7 @@
 #include "debug.h"
 #include "capsule_map.h"
 #include "image.h"
+#include "pose.h"
 #include "manifest.h"
 #include "process_manifest.h"
 

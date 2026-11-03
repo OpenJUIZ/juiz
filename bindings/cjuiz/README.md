@@ -86,6 +86,16 @@ Process の引数・戻り値の画像(Rust の `Capsule::Image`)を読み書き
 (行の余白を取り除き、`JUIZ_IMAGE_FORMAT_BGR8` / `BGRA8` は RGB に並べ替えます)。C++ では `bindings/cppjuiz/include/juiz/image.h` の
 `juiz::Image`(OpenCV との変換は `juiz/opencv.h`)、Haskell では hsjuiz の `Juiz.Image` がこれらを使います。
 
+## ContainerPose(`juiz_container_pose_get`、`juiz_container_pose_set`)
+
+ContainerProcess の中から、呼び出し元 Container の位置姿勢(ContainerPose)を読み書きする関数です
+(docs/spec/transformations.md §12.3)。juiz は ContainerProcess を呼ぶとき、引数の `capsule_map*` に呼び出し元 Container の口を
+隠して載せるので、entry point が受け取った `cm` をそのまま渡します。口は呼び出しの間だけ有効です。値は `juiz_pose` /
+`juiz_pose_stamped`(四元数の並びは (x, y, z, w))で、失敗すると `JUIZ_TRANSFORMATIONS_NOT_ATTACHED_ERROR`(-901)〜
+`JUIZ_TRANSFORMATIONS_ERROR`(-905)を返し、`juiz_container_pose_last_error()` で理由の文を読めます。
+C++ では `bindings/cppjuiz/include/juiz/pose.h` の `juiz::pose(container, "map")` / `juiz::set_pose(...)`、
+Haskell では hsjuiz の `Juiz.Pose` の `containerPose "map"` / `setContainerPose ...` がこれらを使います。
+
 ## Haskell のプラグイン(`language: "haskell"`)
 
 読み込み方は C++ と同じで、上の関数に加えて次の関数が必要です。

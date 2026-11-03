@@ -1,0 +1,13 @@
+; Windows で pose_component_hs.dll から公開するシンボル (juiz-haskell-examples.cabal の mod-def-file)
+EXPORTS
+    juiz_hs_init
+    component_manifest_entry_point
+    createPart_manifest_entry_point
+    createPart_factory_entry_point
+    createPart_factory_destroy_entry_point
+    partPose_manifest_entry_point
+    partPose_factory_entry_point
+    partSetPose_manifest_entry_point
+    partSetPose_factory_entry_point
+    partTry_manifest_entry_point
+    partTry_factory_entry_point

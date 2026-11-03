@@ -35,6 +35,7 @@ import Juiz.Capsule (ToCapsule)
 import Juiz.Error
 import Juiz.Internal.FFI
 import Juiz.Manifest
+import Juiz.Pose (withPoseCall)
 import Juiz.Process
 
 -- | juiz に渡す Container の中身: 状態と、解放するときに呼ぶ関数。
@@ -119,7 +120,8 @@ containerProcessEntryPoint m f p cm out = guardEntryPoint (pmTypeName m) $ do
       expected = typeRep (Proxy :: Proxy s)
   if typeKey actual == typeKey expected
     -- 型の名前 (モジュール名つき) が同じなら同じ型として扱う
-    then applyAndWrite (pmArguments m) (f (unsafeCoerce s :: s)) cm out
+    -- 関数の中から Juiz.Pose で呼び出し元 Container の ContainerPose を読み書きできるよう、引数を覚えておく
+    then withPoseCall cm $ applyAndWrite (pmArguments m) (f (unsafeCoerce s :: s)) cm out
     else throwJuiz juizHaskellContainerTypeError $
       "the container state is " <> T.pack (typeKey actual) <> ", but the process expects "
         <> T.pack (typeKey expected)

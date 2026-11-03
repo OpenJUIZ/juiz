@@ -218,6 +218,27 @@ containers:
         name: "hsinc0"
 ```
 
+### ContainerPose を読み書きする
+
+ContainerProcess の中から、その Container の位置姿勢(ContainerPose、docs/spec/transformations.md §12.3)を
+`Juiz.Pose` の関数で読み書きできます(`Juiz` から使えます)。
+
+```haskell
+move :: IORef Int64 -> Double -> IO Value
+move _ dx = do
+  (p, _) <- containerPose "map"                          -- map から見たこの Container の位置姿勢
+  let (x, y, z) = cpPosition p
+  r <- setContainerPose "map" p { cpPosition = (x + dx, y, z) }   -- 親 → この Container の Transform を書き換える
+  pure (poseStampedToValue "map" r)                      -- juiz_std.geometry.PoseStamped の辞書
+```
+
+- ContainerProcess の関数は Container の状態だけを受け取るので、読み書きの相手は「今呼ばれている ContainerProcess の
+  Container」です。juiz が呼んだスレッドの上(関数の中)でだけ使えます。`forkIO` した先や関数から戻った後では
+  `juizTransformationsNotAttachedError`(-901)の `JuizError` になります。
+- 四元数の並びは (x, y, z, w)。`cpOrientation` が `(0, 0, 0, 0)` のように長さ 0 なら `juizInvalidPoseValueError`(-904)。
+- 共通の Anchor がない基準は `juizNoCommonAnchorError`(-902)、書けない基準(根の Anchor・自分・子孫)は
+  `juizPoseNotWritableError`(-903)。捕まえなければ、エントリポイントがそのコードを juiz に返します。
+
 ## Component にまとめる
 
 Component は、1 つのライブラリに複数の Process / Container / ContainerProcess をまとめたものです(C++ の
