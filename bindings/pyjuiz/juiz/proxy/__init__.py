@@ -1,5 +1,6 @@
 import re
 import threading
+import urllib.parse
 import httpx
 import json, io
 from PIL import Image
@@ -36,7 +37,9 @@ class CRUDProxy():
         if param_dict is None:
             return f'/api/{class_name}/{function_name}'
         else:
-            return f'/api/{class_name}/{function_name}?' + '&'.join([f'{k}={v}' for k, v in param_dict.items()])
+            # 値は URL に使えない文字 (Transform の ID の '|' など) を符号化する (issue #370)
+            return f'/api/{class_name}/{function_name}?' + '&'.join(
+                [f'{k}={urllib.parse.quote(str(v), safe="")}' for k, v in param_dict.items()])
     
     def read(self, class_name, function_name, param_dict={}):
         pass
@@ -293,6 +296,98 @@ class SystemProxy():
     def destroy_container(self, identifier: str):
         """Container (CompositeContainer を含む) を消す"""
         return self.crud.delete('container', 'destroy', {'identifier': identifier})
+
+    # Transformations (issue #370、仕様 docs/spec/transformations.md §13.1)
+    # Container・Anchor・Process は ID か名前 (根のネームスペースから解決、'robot1/base0' など)。
+    # 位置姿勢は juiz_std.geometry の形の dict ({'position': {x,y,z}, 'orientation': {x,y,z,w}})。
+    # juiz_std.geometry.Pose などのオブジェクトも渡せる。戻り値は dict
+
+    def create_anchor(self, name: str, kind: str = 'static', rate: float = None, namespace: str = None):
+        """Anchor (kind は 'static' か 'periodic') を作り、ContainerProxy を返す。消すときは destroy_container(ID)"""
+        if kind not in ('static', 'periodic'):
+            raise ValueError(f"kind must be 'static' or 'periodic', but {kind!r}")
+        manifest = {'type_name': f'{kind}_anchor', 'name': name}
+        if namespace:
+            manifest['namespace'] = namespace
+        if rate is not None:
+            manifest['rate'] = float(rate)
+        profile = self.crud.create('container', 'create', {'__manifest__': manifest})
+        return ContainerProxy.new(self, profile['identifier'])
+
+    def pose(self, container: str, reference: str):
+        """Container の、基準 reference から見た ContainerPose (juiz_std.geometry.PoseStamped の dict)"""
+        return self.crud.read('container', 'pose', {'identifier': _id_str(container), 'reference': _id_str(reference)})
+
+    def set_pose(self, container: str, reference: str, pose):
+        """Container を基準 reference から見て pose にする (親 → Container の Transform を書き換える)。書いた後の値を返す"""
+        return self.crud.update('container', 'set_pose',
+                                {'reference': _id_str(reference), 'pose': _to_value(pose)},
+                                {'identifier': _id_str(container)})
+
+    def transforms(self):
+        """Transform の ID の一覧"""
+        return self.crud.read('transform', 'list')
+
+    def transform(self, identifier: str):
+        """Transform の profile {identifier, source, destination, transform, stamp}"""
+        return self.crud.read('transform', 'profile_full', {'identifier': identifier})
+
+    def create_transform(self, source: str, destination: str, translation=None, rotation=None):
+        """source (親) から destination (子) への Transform を作り、profile を返す。
+        translation は {'x','y','z'} か (x, y, z)、rotation は {'x','y','z','w'} か (x, y, z, w)。省略時は 0 と回転なし"""
+        manifest = {'source': _id_str(source), 'destination': _id_str(destination)}
+        if translation is not None:
+            manifest['translation'] = _vector3(translation)
+        if rotation is not None:
+            manifest['rotation'] = _quaternion(rotation)
+        return self.crud.create('transform', 'create', {'__manifest__': manifest})
+
+    def update_transform(self, identifier: str, translation=None, rotation=None):
+        """Transform の値を変え、profile を返す。None のものは今のまま"""
+        body = {}
+        if translation is not None:
+            body['translation'] = _vector3(translation)
+        if rotation is not None:
+            body['rotation'] = _quaternion(rotation)
+        return self.crud.update('transform', 'update', body, {'identifier': identifier})
+
+    def destroy_transform(self, identifier: str):
+        """Transform を消し、消したものの profile を返す"""
+        return self.crud.delete('transform', 'destroy', {'identifier': identifier})
+
+    def anchors(self):
+        """Anchor の ID の一覧"""
+        return self.crud.read('anchor', 'list')
+
+    def update_anchor(self, anchor: str):
+        """Anchor の木の ContainerPose を今すぐ更新する。{identifier, stamp} を返す"""
+        return self.crud.update('anchor', 'update', {}, {'identifier': _id_str(anchor)})
+
+    def tree(self, anchor: str):
+        """Anchor の木 {identifier, pose, transform?, children: [...]} の入れ子"""
+        return self.crud.read('transformations', 'tree', {'anchor': _id_str(anchor)})
+
+    def pose_listeners(self):
+        """Pose 通知の ID の一覧"""
+        return self.crud.read('pose_listener', 'list')
+
+    def pose_listener(self, identifier: str):
+        """Pose 通知の profile {identifier, container, process, arg, reference, on_update}"""
+        return self.crud.read('pose_listener', 'profile_full', {'identifier': identifier})
+
+    def create_pose_listener(self, container: str, process: str, arg: str = None,
+                             reference: str = None, on_update: bool = False):
+        """「Container の Pose が書かれたら Process を呼ぶ」を登録し、profile を返す"""
+        manifest = {'container': _id_str(container), 'process': _id_str(process), 'on_update': bool(on_update)}
+        if arg is not None:
+            manifest['arg'] = arg
+        if reference is not None:
+            manifest['reference'] = _id_str(reference)
+        return self.crud.create('pose_listener', 'create', {'__manifest__': manifest})
+
+    def destroy_pose_listener(self, identifier: str):
+        """Pose 通知の登録を外し、外したものの profile を返す"""
+        return self.crud.delete('pose_listener', 'destroy', {'identifier': identifier})
         
     def _list(self, class_name, namespace=None):
         # namespace を渡すと、そのネームスペースとその下だけを返す (list API の namespace クエリ)
@@ -331,6 +426,31 @@ class SystemProxy():
         return self._container_processes
 
     
+def _id_str(v):
+    """ObjectProxy・IdentifierStruct・dict の ID は文字列にする。名前の文字列はそのまま"""
+    if isinstance(v, ObjectProxy):
+        return v.identifier()
+    if isinstance(v, IdentifierStruct):
+        return v.to_id()
+    if isinstance(v, dict):
+        return to_identifier(v)
+    return v
+
+
+def _vector3(v):
+    if isinstance(v, (list, tuple)):
+        x, y, z = v
+        return {'x': float(x), 'y': float(y), 'z': float(z)}
+    return _to_value(v)
+
+
+def _quaternion(v):
+    if isinstance(v, (list, tuple)):
+        x, y, z, w = v
+        return {'x': float(x), 'y': float(y), 'z': float(z), 'w': float(w)}
+    return _to_value(v)
+
+
 def connect(address: str):
     """'ipc://<name>' か 'http://<host>:<port>' に繋ぐ SystemProxy を返す (issue #236)"""
     m = re.match(r'^(ipc|http)://([^/:]*)(?::(\d+))?/?$', address)
@@ -511,6 +631,14 @@ class ContainerProxy(ObjectProxy):
     def __repr__(self):
         return f'ContainerProxy("{self.identifier()}")'
     
+    def pose(self, reference: str):
+        """基準 reference から見たこの Container の ContainerPose (PoseStamped の dict、issue #370)"""
+        return self.system.pose(self.identifier(), reference)
+
+    def set_pose(self, reference: str, pose):
+        """この Container を基準 reference から見て pose にする (issue #370)"""
+        return self.system.set_pose(self.identifier(), reference, pose)
+
     def processes(self):
         # Container の profile_full の processes は空のことがあるので、
         # container_process/list からこの Container に属するものを選ぶ

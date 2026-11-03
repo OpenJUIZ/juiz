@@ -103,7 +103,12 @@ pub(crate) fn container_details(system: &System, id: &ContainerIdentifier) -> Ve
         .lock_mut()
         .and_then(|mut b| b.worker_mut().container_from_identifier(id))
         .and_then(|c| c.lock()?.profile());
-    details_or_error(profile.map(|p| slots_lines(&p)))
+    // Anchor は種類と rate を出す (issue #370)
+    details_or_error(profile.map(|p| {
+        let mut lines = crate::transformations::anchor_lines(&p);
+        lines.extend(slots_lines(&p));
+        lines
+    }))
 }
 
 fn details_or_error(lines: JuizResult<Vec<String>>) -> Vec<String> {

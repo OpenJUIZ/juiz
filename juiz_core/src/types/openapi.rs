@@ -223,8 +223,16 @@ fn output_data_type(m: &ProcessManifest) -> Option<DataType> {
 }
 
 /// manifest の型参照の名前付き型 (入れ子も含む)
-fn named_types_of(manifests: &[&ProcessManifest]) -> Vec<DataType> {
+fn named_types_of(
+    manifests: &[&ProcessManifest],
+    extra: &[juiz_sdk::types::TypeSchema],
+) -> Vec<DataType> {
     let mut types = Vec::new();
+    for s in extra.iter() {
+        if let Ok(t) = s.validate() {
+            collect_named_types(&t, &mut types);
+        }
+    }
     for m in manifests.iter() {
         let schemas = m
             .arguments
@@ -263,9 +271,14 @@ pub type FactoryManifest = (&'static str, ProcessManifest);
 /// - 名前付き型: キーは完全名 (同じ完全名の型が複数あれば `<完全名>_<指紋の先頭 8 桁>`)
 /// - Factory ごとに `<種類>.<型名>.arguments` (引数の辞書) と、戻り値が型付きなら `<種類>.<型名>.returns`。
 ///   ContainerProcess の型名の前には Container の型名を付ける (`container_process.<Container の型>.<型名>`)
-pub fn openapi_components(factories: &[FactoryManifest]) -> Map<String, Value> {
+///
+/// `extra` は Factory の manifest 以外から載せる型 (Transformations の API の `juiz_std.geometry` の型など、issue #370)
+pub fn openapi_components(
+    factories: &[FactoryManifest],
+    extra: &[juiz_sdk::types::TypeSchema],
+) -> Map<String, Value> {
     let manifests: Vec<&ProcessManifest> = factories.iter().map(|(_, m)| m).collect();
-    let types = named_types_of(&manifests);
+    let types = named_types_of(&manifests, extra);
     let keys = SchemaKeys::new(&types);
     let mut out = Map::new();
     named_schemas(&types, &keys, &mut out);
@@ -303,7 +316,7 @@ pub fn process_openapi_spec(profile: &ProcessProfile) -> Value {
         })
         .collect();
     let m = &m;
-    let types = named_types_of(&[m]);
+    let types = named_types_of(&[m], &[]);
     let keys = SchemaKeys::new(&types);
     let mut schemas = Map::new();
     named_schemas(&types, &keys, &mut schemas);
@@ -368,7 +381,7 @@ mod tests {
         let mut cm = ProcessManifest::new("get");
         cm.container_type = Some("robot".to_owned());
         let cm = cm.set_output_schema(Some(schema(&point(true)))).unwrap();
-        let c = openapi_components(&[("process", m), ("container_process", cm)]);
+        let c = openapi_components(&[("process", m), ("container_process", cm)], &[]);
 
         // 同じ完全名で指紋の違う Point は指紋の先頭で分ける
         let p1 = format!("a.Point_{}", short_hex(&point(false).fingerprint()));

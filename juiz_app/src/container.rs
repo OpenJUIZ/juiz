@@ -39,6 +39,22 @@ pub(crate) enum ContSubCommands {
         identifier: String,
     },
 
+    /// Read the ContainerPose seen from a reference Container, or write it with --set (issue #370)
+    #[clap(arg_required_else_help = true)]
+    Pose {
+        #[arg(help = "Container: ID or name (ex., base0, robot1/base0)")]
+        identifier: String,
+
+        #[arg(long = "reference", short = 'r', help = "Reference Container: ID or name (ex., map)")]
+        reference: String,
+
+        #[arg(
+            long = "set",
+            help = "Write the pose (JSON of juiz_std.geometry.Pose, ex., '{\"position\": {\"x\": 1, \"y\": 0, \"z\": 0}, \"orientation\": {\"x\": 0, \"y\": 0, \"z\": 0, \"w\": 1}}')"
+        )]
+        set: Option<String>,
+    },
+
     /// Destroy a container (CompositeContainer included, issue #171)
     #[clap(arg_required_else_help = true)]
     Destroy {
@@ -92,6 +108,18 @@ pub(crate) fn on_container_inner(
                 .add_systemproxy_by_id(Some(server.clone()))?
                 .run_and_do_once(|system| on_container_info(system, identifier))
         }
+        ContSubCommands::Pose {
+            identifier,
+            reference,
+            set,
+        } => crate::transformations::on_container_pose(
+            manifest,
+            working_dir,
+            args,
+            identifier,
+            reference,
+            set,
+        ),
         ContSubCommands::Destroy { identifier } => {
             let server = args.server;
             System::new(manifest)?

@@ -119,6 +119,63 @@ def check_composite(port):
     assert "py_inc_twice" not in system.composites()
 
 
+def _close(a, b, eps=1e-9):
+    return all(abs(a[k] - b[k]) < eps for k in b)
+
+
+def check_transformations(port):
+    # Transformations の API (issue #370)。数値は docs/spec/transformations.md §3.5 の例
+    h = 0.7071067811865476
+    system = SystemProxy(HttpProxy("localhost", port))
+    pymap = system.create_anchor("pymap")
+    assert pymap.type_name() == "static_anchor", pymap
+    assert pymap.identifier() in system.anchors()
+    t1 = system.create_transform("pymap", "c0", translation=(1, 0, 0), rotation=(0, 0, h, h))
+    # ネームスペース robot1 の c0 は 'robot1/c0' で指す
+    t2 = system.create_transform("c0", "robot1/c0", translation={"x": 0.1, "y": 0.0, "z": 0.3})
+    assert t2["identifier"] in system.transforms()
+    assert system.transform(t2["identifier"])["destination"] == "core://core/container/robot1/c0::example_container"
+
+    p = system.pose("robot1/c0", "pymap")
+    assert p["header"]["frame_id"] == "pymap", p
+    assert _close(p["pose"]["position"], {"x": 1.0, "y": 0.1, "z": 0.3}), p
+    assert _close(p["pose"]["orientation"], {"x": 0.0, "y": 0.0, "z": h, "w": h}), p
+    c1 = ContainerProxy("c0", "localhost", port, namespace="robot1")
+    assert _close(c1.pose("c0")["pose"]["position"], {"x": 0.1, "y": 0.0, "z": 0.3})
+
+    # set_pose は親 → Container の Transform を書き換える
+    w = c1.set_pose("pymap", {"position": {"x": 1.0, "y": 0.2, "z": 0.3},
+                              "orientation": {"x": 0.0, "y": 0.0, "z": h, "w": h}})
+    assert _close(w["pose"]["position"], {"x": 1.0, "y": 0.2, "z": 0.3}), w
+    assert _close(system.transform(t2["identifier"])["transform"]["translation"], {"x": 0.2, "y": 0.0, "z": 0.3})
+    system.update_transform(t2["identifier"], translation=(0.1, 0, 0.3))
+    assert _close(system.pose("robot1/c0", "pymap")["pose"]["position"], {"x": 1.0, "y": 0.1, "z": 0.3})
+
+    assert system.update_anchor("pymap")["identifier"] == pymap.identifier()
+    tree = system.tree("pymap")
+    assert tree["children"][0]["children"][0]["identifier"] == "core://core/container/robot1/c0::example_container", tree
+
+    l = system.create_pose_listener("c0", "inc0", reference="pymap")
+    assert l["identifier"] in system.pose_listeners()
+    assert system.pose_listener(l["identifier"])["arg"] == "arg1"
+    system.destroy_pose_listener(l["identifier"])
+    assert l["identifier"] not in system.pose_listeners()
+
+    # 根の Anchor には書けず、サーバーの理由が例外に入る
+    try:
+        system.set_pose("pymap", "c0", {"position": {"x": 0, "y": 0, "z": 0},
+                                        "orientation": {"x": 0, "y": 0, "z": 0, "w": 1}})
+        raise AssertionError("writing the pose of the root Anchor must fail")
+    except InternalServerError as e:
+        assert "can not be written" in str(e), e
+
+    system.destroy_transform(t2["identifier"])
+    system.destroy_transform(t1["identifier"])
+    assert system.transforms() == []
+    system.destroy_container(pymap.identifier())
+    assert system.anchors() == []
+
+
 def main():
     port = int(sys.argv[1])
     check_process(port)
@@ -126,6 +183,7 @@ def main():
     check_namespaced_process(port)
     check_namespaced_container(port)
     check_composite(port)
+    check_transformations(port)
     print("ok")
 
 

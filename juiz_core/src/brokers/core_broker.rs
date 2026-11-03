@@ -3,7 +3,10 @@ use juiz_sdk::anyhow::{anyhow, Context};
 use juiz_sdk::connection_identifier::ConnectionIdentifier;
 use juiz_sdk::connections::{ConnectionManifest, ConnectionProfile};
 use juiz_sdk::manifests::ContainerIdentifier;
-use juiz_sdk::manifests::{CompositeManifest, ContainerProfile, ProcessProfile};
+use juiz_sdk::geometry::{Pose, PoseStamped, Quaternion, Vector3};
+use juiz_sdk::manifests::{
+    CompositeManifest, ContainerProfile, PoseListenerManifest, ProcessProfile, TransformManifest,
+};
 use juiz_sdk::process_identifier::ProcessIdentifier;
 use juiz_sdk::topic_identifier::TopicIdentifier;
 use juiz_sdk::utils::check_corebroker_manifest;
@@ -14,7 +17,7 @@ use uuid::Uuid;
 use crate::brokers::broker_proxy::{
     BrokerBrokerProxy, CompositeBrokerProxy, ConnectionBrokerProxy, ContainerBrokerProxy,
     ContainerProcessBrokerProxy, ExecutionContextBrokerProxy, ProcessBrokerProxy,
-    SystemBrokerProxy, TopicBrokerProxy, TypeBrokerProxy,
+    SystemBrokerProxy, TopicBrokerProxy, TransformationsBrokerProxy, TypeBrokerProxy,
 };
 use crate::brokers::BrokerProxy;
 
@@ -165,6 +168,11 @@ impl CoreBroker {
             subsystem_proxies: Vec::new(),
             system_store,
         })
+    }
+
+    /// Transformations の登録所 (issue #370)
+    fn transformations(&self) -> &crate::transformations::Transformations {
+        &self.worker.store().transformations
     }
 
     pub fn worker(&self) -> &CoreWorker {
@@ -1067,6 +1075,17 @@ impl ContainerBrokerProxy for CoreBroker {
             .clone()
             .or(Some(format!("{}0", type_name)))
             .unwrap();
+        // manifest のネームスペースと Anchor の rate も使う (args に無ければ、issue #370)
+        let mut args = args;
+        if !manifest.namespace.is_empty() && args.get("namespace").is_err() {
+            args.insert(
+                "namespace".to_owned(),
+                jvalue!(manifest.namespace.clone()).into(),
+            );
+        }
+        if let (Some(rate), Err(_)) = (manifest.rate, args.get("rate")) {
+            args.insert("rate".to_owned(), jvalue!(rate).into());
+        }
         self.worker_mut()
             .create_container_ref(type_name.as_str(), name.as_str(), args)
             .and_then(|v| {
@@ -1653,6 +1672,90 @@ impl TypeBrokerProxy for CoreBroker {
 
     fn type_schema(&self, identifier: &str) -> JuizResult<juiz_sdk::types::TypeSchema> {
         self.worker().type_registry()?.schema(identifier)
+    }
+}
+
+/// Transformations の API (issue #370)。名前は根のネームスペースから解決する
+impl TransformationsBrokerProxy for CoreBroker {
+    fn container_pose(&self, identifier: &str, reference: &str) -> JuizResult<PoseStamped> {
+        self.transformations().pose_by_name(identifier, reference, "")
+    }
+
+    fn container_set_pose(
+        &self,
+        identifier: &str,
+        reference: &str,
+        pose: &Pose,
+    ) -> JuizResult<PoseStamped> {
+        log::trace!("【呼出】container_set_pose({identifier}, {reference}, {pose:?})");
+        self.transformations()
+            .set_pose_by_name(identifier, reference, "", pose)
+    }
+
+    fn transform_list(&self) -> JuizResult<Vec<String>> {
+        self.transformations().transform_list()
+    }
+
+    fn transform_profile_full(&self, identifier: &str) -> JuizResult<Value> {
+        self.transformations().transform_profile(identifier)
+    }
+
+    fn transform_create(&self, manifest: &TransformManifest) -> JuizResult<Value> {
+        log::trace!("【呼出】transform_create({manifest:?})");
+        let mut profiles = self
+            .transformations()
+            .create_transforms(std::slice::from_ref(manifest), "")?;
+        profiles.pop().ok_or_else(|| {
+            anyhow!(JuizError::InvalidValueError {
+                message: "transform_create created nothing".to_owned()
+            })
+        })
+    }
+
+    fn transform_update(
+        &self,
+        identifier: &str,
+        translation: Option<Vector3>,
+        rotation: Option<Quaternion>,
+    ) -> JuizResult<Value> {
+        log::trace!("【呼出】transform_update({identifier}, {translation:?}, {rotation:?})");
+        self.transformations()
+            .update_transform(identifier, translation, rotation)
+    }
+
+    fn transform_destroy(&self, identifier: &str) -> JuizResult<Value> {
+        log::trace!("【呼出】transform_destroy({identifier})");
+        self.transformations().destroy_transform(identifier)
+    }
+
+    fn anchor_list(&self) -> JuizResult<Vec<String>> {
+        self.transformations().anchor_list()
+    }
+
+    fn anchor_update(&self, identifier: &str) -> JuizResult<Value> {
+        self.transformations().update_anchor(identifier, "")
+    }
+
+    fn transformations_tree(&self, anchor: &str) -> JuizResult<Value> {
+        self.transformations().tree(anchor, "")
+    }
+
+    fn pose_listener_list(&self) -> JuizResult<Vec<String>> {
+        self.transformations().pose_listener_list()
+    }
+
+    fn pose_listener_profile_full(&self, identifier: &str) -> JuizResult<Value> {
+        self.transformations().pose_listener_profile(identifier)
+    }
+
+    fn pose_listener_create(&mut self, manifest: &PoseListenerManifest) -> JuizResult<Value> {
+        log::trace!("【呼出】pose_listener_create({manifest:?})");
+        self.worker_mut().create_pose_listener(manifest.clone(), "")
+    }
+
+    fn pose_listener_destroy(&self, identifier: &str) -> JuizResult<Value> {
+        log::trace!("【呼出】pose_listener_destroy({identifier})");
+        self.transformations().destroy_pose_listener(identifier)
     }
 }
 

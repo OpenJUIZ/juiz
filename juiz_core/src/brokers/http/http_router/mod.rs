@@ -39,6 +39,7 @@ pub mod execution_context;
 pub mod process;
 pub mod system;
 pub mod topic;
+pub mod transformations;
 pub mod types;
 // use cv_convert::TryFromCv;
 
@@ -83,6 +84,10 @@ pub struct FullQuery {
     system_uuid: Option<String>,
     topic_name: Option<String>,
     namespace: Option<String>,
+    /// Transformations の基準 Container (`container/pose`、issue #370)
+    reference: Option<String>,
+    /// Transformations の Anchor (`transformations/tree`、issue #370)
+    anchor: Option<String>,
 }
 
 pub fn full_query_to_map(query: &Query<FullQuery>) -> HashMap<String, String> {
@@ -122,6 +127,12 @@ pub fn full_query_to_map(query: &Query<FullQuery>) -> HashMap<String, String> {
         Some(v) => {
             map.insert("namespace".to_owned(), v);
         }
+    }
+    if let Some(v) = query.reference.clone() {
+        map.insert("reference".to_owned(), v);
+    }
+    if let Some(v) = query.anchor.clone() {
+        map.insert("anchor".to_owned(), v);
     }
     map
 }
@@ -340,6 +351,7 @@ pub fn app_new(
     api.merge(any_process::ApiDoc::openapi());
     api.merge(composite::ApiDoc::openapi());
     api.merge(types::ApiDoc::openapi());
+    api.merge(transformations::ApiDoc::openapi());
     log::trace!("app_new(static_filepaths: {static_filepaths:?}) called");
     let r = Router::new();
     // Swagger UI は feature "swagger-ui" のときだけ。無いときも OpenAPI 定義は返す。
@@ -415,6 +427,8 @@ pub fn openapi_with_types(mut api: Value, crud_broker: &Arc<Mutex<CRUDBroker>>) 
     if let Some(schemas) = api["components"]["schemas"].as_object_mut() {
         schemas.extend(components);
     }
+    // Transformations の API の値の型 (issue #370)
+    transformations::add_transformations_schemas(&mut api);
     api
 }
 

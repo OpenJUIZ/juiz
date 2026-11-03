@@ -5,7 +5,7 @@ pub use crate::{
         Broker, BrokerBrokerProxy, BrokerFactory, BrokerProxy, BrokerProxyFactory, BrokerPtr,
         CompositeBrokerProxy, ConnectionBrokerProxy, ContainerBrokerProxy,
         ContainerProcessBrokerProxy, CoreBroker, CoreBrokerPtr, ExecutionContextBrokerProxy,
-        ProcessBrokerProxy, SystemBrokerProxy, TypeBrokerProxy,
+        ProcessBrokerProxy, SystemBrokerProxy, TransformationsBrokerProxy, TypeBrokerProxy,
     },
     connections::connect,
     containers::{

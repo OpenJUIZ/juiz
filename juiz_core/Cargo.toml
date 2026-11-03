@@ -55,6 +55,8 @@ utoipa-swagger-ui = {workspace = true, features = ["axum"], optional = true }
 juiz_webui = { workspace = true, optional = true }
 
 juiz_sdk = { workspace = true}
+# Transformations の API の引数・戻り値の型 (juiz_std.geometry、issue #370)
+juiz_std_types = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

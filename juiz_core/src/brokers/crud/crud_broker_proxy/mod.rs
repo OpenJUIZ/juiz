@@ -12,12 +12,14 @@ use juiz_sdk::{
     process_identifier::ProcessIdentifier,
     topic_identifier::TopicIdentifier,
 };
+use juiz_sdk::geometry::{Pose, PoseStamped, Quaternion, Vector3};
+use juiz_sdk::manifests::{PoseListenerManifest, TransformManifest};
 use uuid::Uuid;
 
 use crate::brokers::{
     broker_proxy::{
         BrokerBrokerProxy, CompositeBrokerProxy, ConnectionBrokerProxy, ContainerBrokerProxy,
-        TypeBrokerProxy,
+        TransformationsBrokerProxy, TypeBrokerProxy,
         ContainerProcessBrokerProxy, ExecutionContextBrokerProxy, ProcessBrokerProxy,
         SystemBrokerProxy,
     },
@@ -1058,6 +1060,139 @@ impl TypeBrokerProxy for CRUDBrokerProxyHolder {
             param(&[("identifier", identifier)]),
         )?)?;
         Ok(serde_json::from_value(v)?)
+    }
+}
+
+/// Transformations の API (issue #370)
+impl TransformationsBrokerProxy for CRUDBrokerProxyHolder {
+    fn container_pose(&self, identifier: &str, reference: &str) -> JuizResult<PoseStamped> {
+        let v = capsule_value(self.broker.read(
+            "container",
+            "pose",
+            param(&[("identifier", identifier), ("reference", reference)]),
+        )?)?;
+        Ok(serde_json::from_value(v)?)
+    }
+
+    fn container_set_pose(
+        &self,
+        identifier: &str,
+        reference: &str,
+        pose: &Pose,
+    ) -> JuizResult<PoseStamped> {
+        let mut args = CapsuleMap::new();
+        args.insert("reference".to_owned(), jvalue!(reference).into());
+        args.insert("pose".to_owned(), serde_json::to_value(pose)?.into());
+        let v = capsule_value(self.broker.update(
+            "container",
+            "set_pose",
+            args,
+            param(&[("identifier", identifier)]),
+        )?)?;
+        Ok(serde_json::from_value(v)?)
+    }
+
+    fn transform_list(&self) -> JuizResult<Vec<String>> {
+        let v = capsule_value(self.broker.read("transform", "list", HashMap::new())?)?;
+        Ok(serde_json::from_value(v)?)
+    }
+
+    fn transform_profile_full(&self, identifier: &str) -> JuizResult<Value> {
+        capsule_value(self.broker.read(
+            "transform",
+            "profile_full",
+            param(&[("identifier", identifier)]),
+        )?)
+    }
+
+    fn transform_create(&self, manifest: &TransformManifest) -> JuizResult<Value> {
+        capsule_value(self.broker.create(
+            "transform",
+            "create",
+            jvalue!({"__manifest__": serde_json::to_value(manifest)?}),
+            HashMap::new(),
+        )?)
+    }
+
+    fn transform_update(
+        &self,
+        identifier: &str,
+        translation: Option<Vector3>,
+        rotation: Option<Quaternion>,
+    ) -> JuizResult<Value> {
+        let mut args = CapsuleMap::new();
+        if let Some(t) = translation {
+            args.insert("translation".to_owned(), serde_json::to_value(t)?.into());
+        }
+        if let Some(r) = rotation {
+            args.insert("rotation".to_owned(), serde_json::to_value(r)?.into());
+        }
+        capsule_value(self.broker.update(
+            "transform",
+            "update",
+            args,
+            param(&[("identifier", identifier)]),
+        )?)
+    }
+
+    fn transform_destroy(&self, identifier: &str) -> JuizResult<Value> {
+        capsule_value(self.broker.delete(
+            "transform",
+            "destroy",
+            param(&[("identifier", identifier)]),
+        )?)
+    }
+
+    fn anchor_list(&self) -> JuizResult<Vec<String>> {
+        let v = capsule_value(self.broker.read("anchor", "list", HashMap::new())?)?;
+        Ok(serde_json::from_value(v)?)
+    }
+
+    fn anchor_update(&self, identifier: &str) -> JuizResult<Value> {
+        capsule_value(self.broker.update(
+            "anchor",
+            "update",
+            CapsuleMap::new(),
+            param(&[("identifier", identifier)]),
+        )?)
+    }
+
+    fn transformations_tree(&self, anchor: &str) -> JuizResult<Value> {
+        capsule_value(self.broker.read(
+            "transformations",
+            "tree",
+            param(&[("anchor", anchor)]),
+        )?)
+    }
+
+    fn pose_listener_list(&self) -> JuizResult<Vec<String>> {
+        let v = capsule_value(self.broker.read("pose_listener", "list", HashMap::new())?)?;
+        Ok(serde_json::from_value(v)?)
+    }
+
+    fn pose_listener_profile_full(&self, identifier: &str) -> JuizResult<Value> {
+        capsule_value(self.broker.read(
+            "pose_listener",
+            "profile_full",
+            param(&[("identifier", identifier)]),
+        )?)
+    }
+
+    fn pose_listener_create(&mut self, manifest: &PoseListenerManifest) -> JuizResult<Value> {
+        capsule_value(self.broker.create(
+            "pose_listener",
+            "create",
+            jvalue!({"__manifest__": serde_json::to_value(manifest)?}),
+            HashMap::new(),
+        )?)
+    }
+
+    fn pose_listener_destroy(&self, identifier: &str) -> JuizResult<Value> {
+        capsule_value(self.broker.delete(
+            "pose_listener",
+            "destroy",
+            param(&[("identifier", identifier)]),
+        )?)
     }
 }
 
