@@ -393,6 +393,10 @@ pub enum JuizError {
     /// Container が System の Transformations 登録所につながっていない (§9.1)
     #[error("Container({container}) is not attached to Transformations of any System.")]
     TransformationsNotAttachedError { container: String },
+    /// System をまたぐ Transform の不備 (§19.2・§19.3): 両端とも別 System、写しを端点にする Transform、
+    /// 写しでない別 System の Container の PoseState の問い合わせなど
+    #[error("Cross-System Transform error: {message}")]
+    CrossSystemTransformError { message: String },
 }
 
 impl<T> From<PoisonError<T>> for JuizError {

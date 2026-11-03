@@ -3,6 +3,7 @@
 //! | クラス / 関数 | 引数 | 戻り値 |
 //! |---|---|---|
 //! | `container/pose` (READ) | param `identifier`・`reference` | `PoseStamped` |
+//! | `container/pose_state` (READ) | param `identifier`・`since`・`system` (§19.4) | `{identifier, system, version, changed, entries}` |
 //! | `container/set_pose` (UPDATE) | param `identifier`、ボディ `reference`・`pose` | `PoseStamped` |
 //! | `transform/list` (READ) | | ID の配列 |
 //! | `transform/profile_full` (READ) | param `identifier` | profile |
@@ -20,7 +21,7 @@
 //! ボディの値は param で渡してもよい (`reference` など文字列のもの)。
 use crate::brokers::TransformationsBrokerProxy;
 use crate::transformations::api_types::{
-    check_pose_value, check_quaternion_value, check_vector3_value,
+    check_pose_value, check_quaternion_value, check_vector3_value, PoseStateQuery,
 };
 use juiz_sdk::{
     anyhow::anyhow,
@@ -124,6 +125,19 @@ pub(crate) fn container_read_callbacks(cbs: &mut CallbackContainerType) {
         let reference = string_arg(&args, "reference")?.ok_or_else(|| missing("reference"))?;
         Ok(serde_json::to_value(cb.lock()?.container_pose(&id, &reference)?)?.into())
     });
+    cbs.insert("pose_state", |cb, args| {
+        log::debug!("[READ  ] container/pose_state called");
+        let mut query = PoseStateQuery::new(&param(&args, "identifier")?);
+        if let Some(s) = string_arg(&args, "since")? {
+            query.since = Some(s.parse::<u64>().map_err(|e| {
+                anyhow!(JuizError::InvalidArgumentError {
+                    message: format!("'since' must be an unsigned integer: {e} ({s})"),
+                })
+            })?);
+        }
+        query.system = string_arg(&args, "system")?;
+        Ok(cb.lock()?.container_pose_state(&query)?.into())
+    });
 }
 
 pub(crate) fn container_update_callbacks(cbs: &mut CallbackContainerType) {
@@ -142,7 +156,17 @@ pub(crate) fn transform_create_callbacks() -> CallbackContainerType {
     let mut cbs = CallbackContainerType::new();
     cbs.insert("create", |cb, args| {
         log::debug!("[CREATE] transform/create called");
-        let v = manifest_value(&args, &["source", "destination", "translation", "rotation"])?;
+        let v = manifest_value(
+            &args,
+            &[
+                "source",
+                "destination",
+                "translation",
+                "rotation",
+                "rate",
+                "timeout",
+            ],
+        )?;
         let manifest = transform_manifest_from_value(&v)?;
         Ok(cb.lock()?.transform_create(&manifest)?.into())
     });

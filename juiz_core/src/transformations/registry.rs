@@ -18,8 +18,13 @@ use juiz_sdk::manifests::{
 };
 use juiz_sdk::transformations::{ContainerPoseHandle, PoseEntry, TransformationsRegistry};
 
-use super::tree::{compute_tree, out_edges, TransformEntry, Tree};
+use super::tree::{compute_tree, out_edges, RemoteParams, TransformEntry, Tree};
 use crate::prelude::*;
+
+mod remote;
+
+pub use remote::PoseStateFetcher;
+use remote::{ImportThread, LostAnchor, RemoteNode, RemoteSource, ReplicaAnchor};
 
 /// Pose の値が変わったかを比べるときの許容誤差
 const POSE_CHANGE_EPSILON: f64 = 1e-12;
@@ -34,12 +39,29 @@ pub type TransformationsPtr = Arc<Transformations>;
 struct Node {
     identifier: ContainerIdentifier,
     handle: ContainerPoseHandle,
+    /// 写しの始点 P'・写しの Anchor B' (別 System のもの、§19.3) なら `Some`
+    remote: Option<RemoteNode>,
 }
 
 impl Node {
-    /// `header.frame_id` に入れる名前 (§5.4)
+    fn local(identifier: ContainerIdentifier, handle: ContainerPoseHandle) -> Self {
+        Self {
+            identifier,
+            handle,
+            remote: None,
+        }
+    }
+
+    /// `header.frame_id` に入れる名前 (§5.4)。写しはブローカー付きの ID (§19.5)
     fn frame_id(&self) -> String {
-        self.identifier.full_name()
+        match self.remote {
+            Some(_) => self.identifier.to_string(),
+            None => self.identifier.full_name(),
+        }
+    }
+
+    fn is_remote(&self) -> bool {
+        self.remote.is_some()
     }
 }
 
@@ -54,6 +76,8 @@ struct AnchorEntry {
     /// Container の ID → 最後に計算したときの (親の値の版番号, Transform の版番号) (§6.2 の 2)
     cache: HashMap<String, (u64, u64)>,
     thread: Option<PeriodicThread>,
+    /// 写しの Anchor B' なら `Some` (§19.3)
+    remote: Option<ReplicaAnchor>,
 }
 
 struct Listener {
@@ -82,12 +106,24 @@ struct Inner {
     last_version: u64,
     /// System の起動が終わったか。終わった後に作った Periodic Anchor はすぐスレッドを始める
     started: bool,
+    /// この System の UUID (§19.4 の `system`・§19.5 の循環の除外)
+    system_uuid: String,
+    /// 写しの始点 P' の ID → 取り込みの状態 (§19.4)
+    sources: BTreeMap<String, RemoteSource>,
+    /// (origin_system, origin_anchor) → 写しの Anchor B' の ID (§19.5)
+    replica_index: BTreeMap<(String, String), String>,
+    /// 木の規則を破るので作らなかった写しの Anchor (WARN を 1 回だけ出すため、§19.3)
+    rejected: BTreeSet<(String, String)>,
+    /// つながらなくなって消した写しの Anchor (エラー文に理由を入れるため、§19.6)
+    lost: BTreeMap<String, LostAnchor>,
 }
 
 /// System の Transformations 登録所 (§9.1)
 pub struct Transformations {
     inner: Mutex<Inner>,
     me: Weak<Transformations>,
+    /// 相手の System の `container/pose_state` を呼ぶ口 (§19.4)。System が作るときに置く
+    fetcher: Mutex<Option<Arc<dyn PoseStateFetcher>>>,
 }
 
 impl std::fmt::Debug for Transformations {
@@ -106,6 +142,17 @@ fn not_found(reference: &str) -> anyhow::Error {
     anyhow!(JuizError::ObjectCanNotFoundByIdError {
         id: reference.to_owned()
     })
+}
+
+fn is_not_found(e: &anyhow::Error) -> bool {
+    matches!(
+        e.downcast_ref::<JuizError>(),
+        Some(JuizError::ObjectCanNotFoundByIdError { .. })
+    )
+}
+
+fn cross_system_error(message: String) -> anyhow::Error {
+    anyhow!(JuizError::CrossSystemTransformError { message })
 }
 
 fn listener_error(message: String) -> anyhow::Error {
@@ -144,13 +191,28 @@ impl Inner {
 
     /// Container の ID か名前を ID にする (§5.4)。名前は `namespace` から解決し (先頭 `/` は絶対)、
     /// `<name>::<type_name>` の形で type_name を足してもよい。同じ名前が 2 つあればエラー
+    /// 自分の System の Container に当たらなければ、写しの Anchor・写しの始点から探す (§19.5)
     fn resolve(&self, reference: &str, namespace: &str) -> JuizResult<String> {
+        match self.resolve_local(reference, namespace) {
+            Ok(id) => Ok(id),
+            Err(e) if is_not_found(&e) => self.resolve_remote(reference, namespace).map_err(|re| {
+                if is_not_found(&re) {
+                    e
+                } else {
+                    re
+                }
+            }),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// 自分の System の Container だけから探す (§5.4)
+    fn resolve_local(&self, reference: &str, namespace: &str) -> JuizResult<String> {
         if reference.contains("://") {
             let id = ContainerIdentifier::try_from(reference.to_owned())?.to_string();
-            return if self.nodes.contains_key(&id) {
-                Ok(id)
-            } else {
-                Err(not_found(reference))
+            return match self.nodes.get(&id) {
+                Some(n) if !n.is_remote() => Ok(id),
+                _ => Err(not_found(reference)),
             };
         }
         let (path, type_name) = match reference.split_once("::") {
@@ -163,7 +225,8 @@ impl Inner {
             .nodes
             .iter()
             .filter(|(_, n)| {
-                n.identifier.namespace == ns
+                !n.is_remote()
+                    && n.identifier.namespace == ns
                     && n.identifier.name == name
                     && type_name.map_or(true, |t| n.identifier.type_name == t)
             })
@@ -277,6 +340,8 @@ impl Inner {
         if read_entry(&root.handle, anchor).is_none() {
             write_entry(&root.handle, anchor, Pose::identity(), stamp);
         }
+        // 写しの Anchor の木の時刻は、取り込んだ値の時刻 (相手の System の時計) のまま運ぶ (§19.3)
+        let replica = entry.remote.is_some();
         for node in entry.tree.order.iter().skip(1) {
             let (parent, tid) = &entry.tree.parent[node];
             let (Some(p), Some(c)) = (nodes.get(parent), nodes.get(node)) else {
@@ -292,7 +357,12 @@ impl Inner {
                 continue;
             }
             let pose = pe.pose * t.value;
-            write_entry(&c.handle, anchor, pose, stamp);
+            let node_stamp = match (replica, t.imported) {
+                (false, _) => stamp,
+                (true, true) => t.stamp,
+                (true, false) => pe.stamp,
+            };
+            write_entry(&c.handle, anchor, pose, node_stamp);
             entry.cache.insert(node.clone(), key);
             if old.map_or(true, |o| !o.pose.approx_eq(&pose, POSE_CHANGE_EPSILON)) {
                 changed.insert(node.clone());
@@ -360,6 +430,11 @@ impl Inner {
         };
         if container == reference {
             return Err(not_writable("the Container is the reference itself."));
+        }
+        if self.node(container)?.is_remote() {
+            return Err(not_writable(
+                "the Container is a replica of a Container of another System (§19.3). Write it in that System.",
+            ));
         }
         let anchor = self.choose_anchor(container, reference).ok_or_else(|| {
             anyhow!(JuizError::NoCommonAnchorError {
@@ -567,6 +642,7 @@ impl Transformations {
         Arc::new_cyclic(|me| Transformations {
             inner: Mutex::new(Inner::default()),
             me: me.clone(),
+            fetcher: Mutex::new(None),
         })
     }
 
@@ -591,13 +667,9 @@ impl Transformations {
         handle.attach(self.weak_registry())?;
         let changed = {
             let mut inner = self.lock()?;
-            inner.nodes.insert(
-                id.clone(),
-                Node {
-                    identifier: container.identifier(),
-                    handle,
-                },
-            );
+            inner
+                .nodes
+                .insert(id.clone(), Node::local(container.identifier(), handle));
             let Some(manifest) = anchor else {
                 return Ok(());
             };
@@ -614,6 +686,7 @@ impl Transformations {
                     tree,
                     cache: HashMap::new(),
                     thread,
+                    remote: None,
                 },
             );
             // 作られたときに自分の木を更新する (Static は §4.4 の 1、Periodic も根の値を置いておく)
@@ -626,15 +699,19 @@ impl Transformations {
 
     /// Container を外す (§10)。それを端点に持つ Transform と、それを見張る Pose 通知を消す
     pub fn remove_container(&self, identifier: &str) -> JuizResult<()> {
-        let (thread, notifications) = {
+        let (thread, imports, notifications) = {
             let mut inner = self.lock()?;
-            if !inner.nodes.contains_key(identifier) {
+            if !inner.nodes.get(identifier).is_some_and(|n| !n.is_remote()) {
                 return Ok(());
             }
-            let (thread, written, changed) = inner.remove_node(identifier);
-            (thread, inner.notifications(&written, &changed))
+            let (thread, written, mut changed) = inner.remove_node(identifier);
+            // 終点を消して Transform がなくなった写しの始点の取り込みを止める (§19.6)
+            let imports = inner.remove_unused_sources();
+            changed.extend(inner.update_static_anchors(None));
+            (thread, imports, inner.notifications(&written, &changed))
         };
         join_threads(thread.into_iter().collect());
+        remote::join_imports(imports);
         fire_unless_reentrant(notifications);
         Ok(())
     }
@@ -661,24 +738,33 @@ impl Transformations {
             let t = self.spawn_periodic(&id, &manifest)?;
             inner.anchors.get_mut(&id).unwrap().thread = Some(t);
         }
+        // 写しの取り込みも System の起動の最後に始める (§19.4)
+        self.start_imports(&mut inner)?;
         Ok(())
     }
 
     /// すべて外す (System の終了)。Periodic のスレッドを止め、Container を登録所から外す
     pub fn clear(&self) -> JuizResult<()> {
-        let threads = {
+        let (threads, imports) = {
             let mut inner = self.lock()?;
             let threads = std::mem::take(&mut inner.anchors)
                 .into_values()
                 .filter_map(|a| a.thread)
                 .collect::<Vec<PeriodicThread>>();
+            let imports = std::mem::take(&mut inner.sources)
+                .into_values()
+                .filter_map(|s| s.thread)
+                .collect::<Vec<ImportThread>>();
             for n in inner.nodes.values() {
                 let _ = n.handle.detach();
             }
+            let system_uuid = std::mem::take(&mut inner.system_uuid);
             *inner = Inner::default();
-            threads
+            inner.system_uuid = system_uuid;
+            (threads, imports)
         };
         join_threads(threads);
+        remote::join_imports(imports);
         Ok(())
     }
 
@@ -741,10 +827,18 @@ impl Transformations {
         let (id, notifications) = {
             let mut inner = self.lock()?;
             let id = inner.resolve(anchor, namespace)?;
-            if !inner.anchors.contains_key(&id) {
+            let Some(a) = inner.anchors.get(&id) else {
                 return Err(anyhow!(JuizError::InvalidValueError {
                     message: format!("Container ({anchor}) is not an Anchor."),
                 }));
+            };
+            // 写しの Anchor なら、その写しの始点の取り込みをすぐ 1 回行う (§19.10)
+            if let Some(r) = &a.remote {
+                for p in r.children.iter() {
+                    if let Some(t) = inner.sources.get(p).and_then(|s| s.thread.as_ref()) {
+                        t.wake();
+                    }
+                }
             }
             let changed = inner.update_anchor(&id)?;
             (id, inner.notifications(&[], &changed))
@@ -770,12 +864,45 @@ impl Transformations {
         let (profiles, notifications) = {
             let mut inner = self.lock()?;
             let mut added: Vec<String> = Vec::new();
+            let mut added_sources: Vec<ContainerIdentifier> = Vec::new();
+            let mut added_nodes: Vec<String> = Vec::new();
             let mut written = Vec::new();
             let result = (|| -> JuizResult<()> {
                 for m in manifests.iter() {
                     let m = m.validated()?;
-                    let source = inner.resolve(&m.source, namespace)?;
-                    let destination = inner.resolve(&m.destination, namespace)?;
+                    let (source, remote) = match inner.remote_source_of(&m.source)? {
+                        Some(identifier) => {
+                            let id = identifier.to_string();
+                            if !inner.sources.contains_key(&id)
+                                && !added_sources.iter().any(|a| a.to_string() == id)
+                            {
+                                if inner.add_source_node(&identifier) {
+                                    added_nodes.push(id.clone());
+                                }
+                                added_sources.push(identifier);
+                            }
+                            let params = RemoteParams {
+                                rate: m.rate.unwrap_or(juiz_sdk::manifests::DEFAULT_REMOTE_RATE),
+                                timeout: m
+                                    .timeout
+                                    .unwrap_or(juiz_sdk::manifests::DEFAULT_REMOTE_TIMEOUT),
+                            };
+                            (id, Some(params))
+                        }
+                        None => (
+                            inner.resolve_endpoint(&m.source, namespace, "source")?,
+                            None,
+                        ),
+                    };
+                    if remote.is_none() && (m.rate.is_some() || m.timeout.is_some()) {
+                        log::warn!(
+                            "rate / timeout of Transform ({} -> {}) are ignored: they are used only by a Transform whose source is on another System.",
+                            m.source,
+                            m.destination
+                        );
+                    }
+                    let destination =
+                        inner.resolve_endpoint(&m.destination, namespace, "destination")?;
                     if source == destination {
                         return Err(anyhow!(JuizError::TransformManifestInvalidError {
                             message: format!(
@@ -798,6 +925,8 @@ impl Transformations {
                             value: m.transform(),
                             stamp: Time::now(),
                             version,
+                            imported: false,
+                            remote,
                         },
                     );
                     added.push(tid);
@@ -809,7 +938,18 @@ impl Transformations {
                 for tid in added.iter() {
                     inner.transforms.remove(tid);
                 }
+                for p in added_nodes.iter() {
+                    inner.nodes.remove(p);
+                }
                 return Err(e);
+            }
+            // 新しい写しの始点の取り込みを始める (起動前なら start で、§19.4)
+            for p in added_sources.iter() {
+                inner.sources.insert(p.to_string(), RemoteSource::new(p));
+            }
+            inner.refresh_source_params();
+            if inner.started {
+                self.start_imports(&mut inner)?;
             }
             let changed = inner.update_static_anchors(None);
             let profiles = added
@@ -831,11 +971,15 @@ impl Transformations {
     ) -> JuizResult<Value> {
         let (profile, notifications) = {
             let mut inner = self.lock()?;
-            let t = inner.transforms.get(identifier).ok_or_else(|| {
-                anyhow!(JuizError::TransformNotFoundError {
-                    identifier: identifier.to_owned()
-                })
-            })?;
+            let t = inner
+                .transforms
+                .get(identifier)
+                .filter(|t| !t.imported)
+                .ok_or_else(|| {
+                    anyhow!(JuizError::TransformNotFoundError {
+                        identifier: identifier.to_owned()
+                    })
+                })?;
             let value = Transform::new(
                 translation.unwrap_or(t.value.translation),
                 rotation.unwrap_or(t.value.rotation),
@@ -861,21 +1005,31 @@ impl Transformations {
 
     /// Transform を消す (§10)
     pub fn destroy_transform(&self, identifier: &str) -> JuizResult<Value> {
-        let (profile, notifications) = {
+        let (profile, imports, notifications) = {
             let mut inner = self.lock()?;
             let profile = transform_profile(&inner, identifier)?;
             let t = inner.transforms.remove(identifier).unwrap();
             inner.rebuild_trees()?;
+            // 始点が写しの始点で、Transform が残らなければ取り込みを止める (§19.6)
+            let imports = inner.remove_unused_sources();
+            inner.refresh_source_params();
             let changed = inner.update_static_anchors(None);
             let written = vec![(t.destination, t.source)];
-            (profile, inner.notifications(&written, &changed))
+            (profile, imports, inner.notifications(&written, &changed))
         };
+        remote::join_imports(imports);
         fire_unless_reentrant(notifications);
         Ok(profile)
     }
 
     pub fn transform_list(&self) -> JuizResult<Vec<String>> {
-        Ok(self.lock()?.transforms.keys().cloned().collect())
+        Ok(self
+            .lock()?
+            .transforms
+            .iter()
+            .filter(|(_, t)| !t.imported)
+            .map(|(k, _)| k.clone())
+            .collect())
     }
 
     /// `{identifier, source, destination, transform, stamp}` (§13.1)
@@ -914,9 +1068,7 @@ impl Transformations {
         namespace: &str,
     ) -> JuizResult<PoseStamped> {
         let inner = self.lock()?;
-        let c = inner.resolve(container, namespace)?;
-        let r = inner.resolve(reference, namespace)?;
-        inner.pose(&c, &r)
+        inner.pose_explained(container, reference, namespace)
     }
 
     /// Container `container` を基準 `reference` から見て `pose` にする (§7.2)。名前は `namespace` から解決する
@@ -1007,18 +1159,27 @@ impl Transformations {
 }
 
 fn transform_profile(inner: &Inner, identifier: &str) -> JuizResult<Value> {
-    let t = inner.transforms.get(identifier).ok_or_else(|| {
-        anyhow!(JuizError::TransformNotFoundError {
-            identifier: identifier.to_owned()
-        })
-    })?;
-    Ok(jvalue!({
+    let t = inner
+        .transforms
+        .get(identifier)
+        .filter(|t| !t.imported)
+        .ok_or_else(|| {
+            anyhow!(JuizError::TransformNotFoundError {
+                identifier: identifier.to_owned()
+            })
+        })?;
+    let mut v = jvalue!({
         "identifier": identifier,
         "source": t.source,
         "destination": t.destination,
         "transform": Value::from(t.value),
         "stamp": Value::from(t.stamp),
-    }))
+    });
+    // System をまたぐ Transform の取り込みの状態 (§19.10)
+    if let (Some(params), Some(src)) = (t.remote, inner.sources.get(&t.source)) {
+        v["remote"] = src.profile(&params);
+    }
+    Ok(v)
 }
 
 fn listener_profile(inner: &Inner, identifier: &str) -> JuizResult<Value> {
@@ -1039,9 +1200,7 @@ fn listener_profile(inner: &Inner, identifier: &str) -> JuizResult<Value> {
 impl TransformationsRegistry for Transformations {
     fn pose(&self, container: &ContainerIdentifier, reference: &str) -> JuizResult<PoseStamped> {
         let inner = self.lock()?;
-        let c = container.to_string();
-        let r = inner.resolve(reference, &container.namespace)?;
-        inner.pose(&c, &r)
+        inner.pose_explained(&container.to_string(), reference, &container.namespace)
     }
 
     fn set_pose(

@@ -1074,6 +1074,21 @@ impl TransformationsBrokerProxy for CRUDBrokerProxyHolder {
         Ok(serde_json::from_value(v)?)
     }
 
+    fn container_pose_state(
+        &self,
+        query: &crate::transformations::api_types::PoseStateQuery,
+    ) -> JuizResult<Value> {
+        let since = query.since.map(|v| v.to_string());
+        let mut pairs = vec![("identifier", query.identifier.as_str())];
+        if let Some(s) = since.as_deref() {
+            pairs.push(("since", s));
+        }
+        if let Some(s) = query.system.as_deref() {
+            pairs.push(("system", s));
+        }
+        capsule_value(self.broker.read("container", "pose_state", param(&pairs))?)
+    }
+
     fn container_set_pose(
         &self,
         identifier: &str,

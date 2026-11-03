@@ -10,5 +10,5 @@ mod registry;
 mod tree;
 
 pub use anchor::{anchor_container_new, AnchorContainer, AnchorState};
-pub use registry::{Transformations, TransformationsPtr};
+pub use registry::{PoseStateFetcher, Transformations, TransformationsPtr};
 pub mod api_types;

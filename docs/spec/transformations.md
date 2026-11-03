@@ -600,7 +600,7 @@ System をまたぐ Transform(#376、§19):
 | Step | issue | 節 |
 |---|---|---|
 | 0 仕様書 | #413 | §19 全体 |
-| 1 core | #414 | §19.2〜§19.7、§19.9 |
+| 1 core | #414 | §19.2〜§19.7、§19.9(決めたことは §19.12) |
 | 2 API・CLI・pyjuiz | #415 | §19.8、§19.4 の API、HTTP / QMP / IPC 越しのテスト(2 プロセス) |
 | 3 管理画面 | #416 | §19.10 |
 | 4 サンプル 4 言語・サイトのガイド | #417、OpenJUIZ.github.io#69 | §19.1 の例 |
@@ -788,3 +788,19 @@ CLI(§13.2 への追加): `juiz transform create` に `--rate`・`--timeout`、`
 - 過去の時刻の問い合わせ(§15 と同じ)。
 - 親の System で子の木全体を組むこと(管理画面の印だけ)。
 - 相手の System の、写しになっていない Container を基準にすること(§19.8)。
+
+### 19.12 Step 1(#414)で決めたこと
+
+core(`juiz_core::transformations`)の実装で決めたこと。
+
+- **取り込みの辺**: 写しの Anchor B' → 写しの始点 P' は、登録所の中だけの Transform(値は取り込んだ pose_B(P))として持つ。`transform/list` に出さず、`transform/update`・`transform/destroy`・`transform/profile_full` には `TransformNotFoundError`。P' = B'(P 自身が Anchor)のときは辺を置かず、P' がそのまま木の根になる。
+- **写しの Anchor の更新**: StaticAnchor と同じ扱い(§4.4 の 2)。取り込んだ値が変わったときに加えて、S2 の中で B' の木の Transform を書き換えたとき(`set_pose`・`transform/update`)も更新する。
+- **時刻**: B' の直下の P' の値の stamp は取り込んだ項目の stamp、その先は親の値の stamp をそのまま運ぶ(§19.3 の「木の stamp は取り込んだ値の stamp」)。
+- **取り込みの呼び出し**: 写しの始点ごとのスレッドが、1 回ごとに呼び出し用の短いスレッドを立てて `container/pose_state` を呼び、`timeout` 秒待って返らなければ失敗として扱う(返らない呼び出しは待たずに捨てる)。前の呼び出しが返るか見切るまでは次を呼ばない。System の終了は呼び出しの最中でも待たない。
+- **呼び出しの口**: `Transformations::set_pose_state_fetcher`(trait `PoseStateFetcher`)。System は CoreBroker を作るときに、ID のブローカー(`http` / `qmp` / `ipc` …)の BrokerProxy で `TransformationsBrokerProxy::container_pose_state` を呼ぶものを置く。BrokerProxy がなければ作る。CoreBroker の読み出しのロックは BrokerProxy を探す間だけ持つ。
+- **`anchor/update` に写しの Anchor を渡したとき**: その写しの始点の取り込みスレッドを起こして、すぐ 1 回取りに行かせる。呼び出しは取り込みを待たずに戻る(API の処理の中で相手の System を呼ぶと CoreBroker のロックを持ったまま通信することになるため)。
+- **1 回も取れていないとき**: 作ってから `timeout` 秒の間は `stale`、過ぎたら `lost`。その間に P' や写しの名前で読むと `NoCommonAnchorError` で、理由に「まだ取り込んでいない」「相手の System につながらない」「remove_subsystem で外れた」のどれかを入れる。
+- **名前の解決**: Transform の端点(作成)は自分の System の Container だけから解決する。写しに当たる名前・ID を端点に書くと `CrossSystemTransformError`(始点はブローカー付きの ID で書く)。終点が別 System の Container のときも、Step 2 で回すようにするまでは `CrossSystemTransformError`。
+- **rate / timeout**: 正の有限の数でなければ `TransformManifestInvalidError`。またぐ Transform でない Transform に書くと WARN を出して使わない。
+- **API**: `container/pose_state` の core の処理と、CRUD・メッセンジャー系の BrokerProxy・コールバック(param `identifier`・`since`・`system`)は Step 1 で足した。HTTP の経路と OpenAPI、CLI、pyjuiz、`subscriber`・`destination`・`timeout` の引数と `remote_children`、`reference_system` と別 System の Container の `pose` / `set_pose` の回し方(§19.8)、`transform/create` の終点の System への転送(§19.2 の 5・7)は Step 2(#415)。
+- `transform/profile_full` の `remote: {system, rate, timeout, state, last_success}` は Step 1 で足した(`rate`・`timeout` はその Transform に書いた値、`system` は 1 回目が届くまで `null`)。

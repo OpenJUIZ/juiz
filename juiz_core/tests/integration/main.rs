@@ -79,6 +79,7 @@ mod system_api_test;
 mod system_test;
 mod transformations_api_test;
 mod transformations_bench;
+mod transformations_cross_system_test;
 mod transformations_test;
 mod type_check_test;
 mod viewer_api_test;
