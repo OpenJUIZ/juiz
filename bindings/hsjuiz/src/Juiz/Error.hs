@@ -16,6 +16,11 @@ module Juiz.Error
   , juizTypeSchemaInvalidError
   , juizValueDoesNotMatchTypeError
   , juizImageFormatError
+  , juizTransformationsNotAttachedError
+  , juizNoCommonAnchorError
+  , juizPoseNotWritableError
+  , juizInvalidPoseValueError
+  , juizTransformationsError
   ) where
 
 import Control.Exception (Exception, throwIO)
@@ -68,3 +73,24 @@ juizValueDoesNotMatchTypeError = -702
 -- | 画像の形式・大きさ・stride が正しくない、または扱えない形式 (juiz_sdk.h の JUIZ_IMAGE_FORMAT_ERROR)
 juizImageFormatError :: Int64
 juizImageFormatError = -704
+
+-- | ContainerPose (docs/spec/transformations.md §12.3・§17)。
+-- Container が System の Transformations につながっていない、または ContainerProcess の外で読み書きした
+juizTransformationsNotAttachedError :: Int64
+juizTransformationsNotAttachedError = -901
+
+-- | 基準と Container の両方を含む Anchor がない
+juizNoCommonAnchorError :: Int64
+juizNoCommonAnchorError = -902
+
+-- | 根の Anchor・基準自身・基準が子孫の Container への書き込み
+juizPoseNotWritableError :: Int64
+juizPoseNotWritableError = -903
+
+-- | 長さ 0 の四元数、NaN・無限大
+juizInvalidPoseValueError :: Int64
+juizInvalidPoseValueError = -904
+
+-- | そのほかの ContainerPose の失敗
+juizTransformationsError :: Int64
+juizTransformationsError = -905

@@ -3,6 +3,12 @@
 hsjuiz の版は juiz(crates.io の juiz_app、PyPI の pyjuiz / juiz-cli)と同じ番号にそろえています。
 使う libjuiz_sdk も同じ版にしてください。
 
+## 次の版(未公開)
+
+- ContainerProcess の中から Container の位置姿勢を読み書きする `Juiz.Pose`(`containerPose`・`setContainerPose`・
+  `poseToValue`・`poseStampedToValue`)とエラーコード `juizTransformationsNotAttachedError` など(-901〜-905)を足した
+  (Transformations Step 5、issue #372)。
+
 ## 0.1.0
 
 - 0.0 系を締めくくる版。hsjuiz の API は 0.0.30 から変えていない(juiz 本体の Windows の Haskell DLL の修正 #262、libjuiz_sdk の版照合 #344、HTTP ブローカーの並行化 #356・#362 などに版をそろえた)。

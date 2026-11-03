@@ -128,6 +128,11 @@ pub struct FrameHeader {
     pub bodies: Vec<BodyDesc>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<FrameError>,
+    /// 呼び出し元 Container の ContainerPose の口 (`JuizPosePort` のアドレス)。
+    /// Rust プラグインの C ABI でホストがコンテナプロセスを呼ぶときだけ付ける
+    /// (docs/spec/rust-plugin-abi.md §8.4、transformations.md §12.3)。IPC・qmp では使わない
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pose_port: Option<u64>,
 }
 
 impl FrameHeader {
@@ -141,6 +146,7 @@ impl FrameHeader {
             option: None,
             bodies: Vec::new(),
             error: None,
+            pose_port: None,
         }
     }
 }

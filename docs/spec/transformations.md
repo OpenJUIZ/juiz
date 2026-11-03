@@ -395,9 +395,57 @@ Step 4(#371)で決めたこと:
 
 - **今の入口の関数の形は変えない**(C++ の `entry_point(cobj, CapsuleMap*, Capsule*)`、Rust C ABI の frame_in / frame_out)。
 - ホストは ContainerProcess を呼ぶとき、呼び出しに渡している引数(C++・Haskell は CapsuleMap、Rust C ABI は frame_in)に、呼び出し元 Container の口(PoseState と登録所への不透明なハンドル)を隠して載せる。利用者から見える引数は増えない。
-- cjuiz(`juiz_sdk.h`)に、その口を取り出して読み書きするアクセサ関数を足す(仮の名前 `juiz_container_pose_get` / `juiz_container_pose_set`)。四元数の順番は (x, y, z, w)。
+- cjuiz(`juiz_sdk.h`)に、その口を取り出して読み書きするアクセサ関数 `juiz_container_pose_get` / `juiz_container_pose_set` を足す。四元数の順番は (x, y, z, w)。
 - 口を載せない古いホスト・口を知らない古いプラグインの組み合わせでも、今まで通り動かなければならない(口がなければアクセサはエラーコードを返す)。
-- 関数名・引数・C の構造体・ABI の版の扱いは Step 5(#372)で決め、rust-plugin-abi.md と合わせて直す。
+Step 5(#372)で決めたこと:
+
+- 口は `#[repr(C)]` の表 `JuizPosePort { abi_version, struct_size, ctx, get, set }`(`juiz_sdk::transformations::port`)。
+  `get(ctx, reference, out, frame_id, error)` / `set(ctx, reference, pose, out, frame_id, error)` は C の関数で、
+  ホスト(juiz_core)が呼び出し元 Container の `ContainerPoseHandle` を包んで作る(`PosePortOwner`)。
+  境界を越えるのは C の構造体とバイト列だけで、エラーの種類はコードで運ぶ(プラグインの juiz_sdk とホストの juiz_sdk は
+  別の複製で、`JuizError` を downcast できないため)。表の版は 1(並びを変えるときに上げ、後ろに足すときは `struct_size` で見分ける)。
+- 口のアドレスを載せる場所:
+  - C++・Haskell: 引数の `CapsuleMap` の見えない欄(`CapsuleMap::pose_port`、値・param とは別で、フレームや表示には出ない)。
+    ホストは ContainerProcess を呼ぶ間だけ置き、呼び終わったら外す。
+  - Rust の C ABI プラグイン: 引数のフレームのヘッダの `pose_port`(数。rust-plugin-abi.md §8.4)。知らないキーは無視されるので
+    ABI の版は 1 のまま。グルーは `PortRegistry` をプラグインの中の `ContainerImpl` に呼び出しの間だけつなぐので、
+    利用者は Rust ABI と同じく `c.pose("map")` / `c.set_pose(...)` で読み書きする(書き方は §12.1 と同じ)。
+- cjuiz(`juiz_sdk.h`)の関数と構造体:
+
+  ```c
+  typedef struct juiz_vector3 { double x, y, z; } juiz_vector3;
+  typedef struct juiz_quaternion { double x, y, z, w; } juiz_quaternion;     /* (x, y, z, w) */
+  typedef struct juiz_pose { juiz_vector3 position; juiz_quaternion orientation; } juiz_pose;
+  typedef struct juiz_time { int64_t sec; int32_t nanosec; uint32_t reserved; } juiz_time;
+  typedef struct juiz_pose_stamped { juiz_pose pose; juiz_time stamp; } juiz_pose_stamped;
+
+  int64_t juiz_container_pose_get(capsule_map* cm, const char* reference, juiz_pose_stamped* out);
+  int64_t juiz_container_pose_set(capsule_map* cm, const char* reference, const juiz_pose* pose, juiz_pose_stamped* out);
+  const char* juiz_container_pose_last_error(void);   /* このスレッドの最後のエラー文 */
+  ```
+
+  `cm` は entry point が受け取った引数をそのまま渡す。`juiz_pose_stamped` は基準の名前を持たない(基準は渡した `reference`)。
+- エラーコード(-9xx、§17 の名前と対応): `JUIZ_TRANSFORMATIONS_NOT_ATTACHED_ERROR`(-901、口が無いときも)、
+  `JUIZ_NO_COMMON_ANCHOR_ERROR`(-902)、`JUIZ_POSE_NOT_WRITABLE_ERROR`(-903)、`JUIZ_INVALID_POSE_VALUE_ERROR`(-904)、
+  `JUIZ_TRANSFORMATIONS_ERROR`(-905、そのほか)。
+- cppjuiz(`juiz/pose.h`): `juiz::pose(container, "map")` / `juiz::set_pose(container, "map", juiz::make_pose(...))` が
+  `juiz_pose_stamped` を返し、失敗は `juiz::TransformationsError` の子の例外(`NoCommonAnchorError` など)を投げる。
+  ContainerProcess の entry point(`CONTAINER_PROCESS_FACTORY` など)は呼び出しの間 (Container のポインタ, `cm`) をスレッドごとに積み、
+  `juiz::pose` は渡された Container のポインタで探す(今呼ばれている Container 以外のオブジェクトは `TransformationsNotAttachedError`)。
+  捕まえなかった `TransformationsError` は entry point がそのコードにして返す。辞書にするのは `juiz::pose_to_value`。
+- hsjuiz(`Juiz.Pose`): ContainerProcess の関数は Container の状態だけを受け取るので、`containerPose "map"` /
+  `setContainerPose "map" p` は「今呼ばれている ContainerProcess の Container」を読み書きする。エントリポイントが呼び出しの間
+  `cm` をスレッドごとの変数(cbits の `hsjuiz_swap_pose_call`)に置く(foreign export の呼び出しは bound thread なので、
+  関数の中の同じスレッドから読める)。値は `ContainerPose { cpPosition, cpOrientation }` と `PoseTime`、エラーは `JuizError`
+  (コード -901〜-905)。
+- 口は呼び出しの間だけ有効。プラグインが別スレッドを立てたり、引数を取っておいて後で読み書きしたりはできない
+  (`TransformationsNotAttachedError`)。Pose 通知で同じスレッドから別の ContainerProcess が入れ子に呼ばれても、それぞれの口を使う。
+- 古い組み合わせ: C++・Haskell は libjuiz_sdk の版がホストと同じでなければ読み込まれない(#136)ので、口を知らない libjuiz_sdk との
+  組み合わせは起きない。古いプラグイン(関数を呼ばない)はそのまま動く。Rust の C ABI プラグインは、古いグルーは `pose_port` を無視し
+  (読み書きは今まで通り `TransformationsNotAttachedError`)、新しいグルーは古いホスト(`pose_port` なし)で同じエラーになる。
+- 全言語のテストで §3.5 の値を確かめた: `juiz_core/tests/integration/{cpp,haskell,rust}_transformations_test.rs`
+  (例は examples/cpp/component/cpp_pose_component、examples/haskell の pose_component_hs、
+  juiz_sdk/test_packages/pose_part_component。Rust は C ABI と Rust ABI の両方)。
 
 ## 13. API・CLI・管理画面
 

@@ -112,12 +112,25 @@ module Juiz
   , typeInfoSchema
   , unsafeTypeInfo
   , Proxy (..)
+    -- * ContainerPose (docs/spec/transformations.md §12.3)
+  , ContainerPose (..)
+  , PoseTime (..)
+  , identityPose
+  , containerPose
+  , setContainerPose
+  , poseToValue
+  , poseStampedToValue
     -- * エラー
   , JuizError (..)
   , throwJuiz
   , juizHaskellContainerTypeError
   , juizValueDoesNotMatchTypeError
   , juizImageFormatError
+  , juizTransformationsNotAttachedError
+  , juizNoCommonAnchorError
+  , juizPoseNotWritableError
+  , juizInvalidPoseValueError
+  , juizTransformationsError
     -- * よく使う型
   , Int64
   , Word64
@@ -180,6 +193,7 @@ import Juiz.Internal.FFI
   , ProcessFunction
   )
 import Juiz.Manifest
+import Juiz.Pose
 import Juiz.Process
 import Juiz.TH
 import Juiz.Type

@@ -44,6 +44,17 @@ extern "C" {
 #define JUIZ_NATIVE_NOT_MATCHED                            INT64_C(-703)
 /* 画像の形式・大きさ・stride が正しくない、または扱えない形式 (capsule_set_image / capsule_ptr_lock_as_image が返す) */
 #define JUIZ_IMAGE_FORMAT_ERROR                            INT64_C(-704)
+/* ContainerPose (docs/spec/transformations.md §12.3・§17) */
+/* Container が System の Transformations につながっていない。口が無い (ContainerProcess の外、古い juiz) ときも */
+#define JUIZ_TRANSFORMATIONS_NOT_ATTACHED_ERROR            INT64_C(-901)
+/* 基準と Container の両方を含む Anchor がない */
+#define JUIZ_NO_COMMON_ANCHOR_ERROR                        INT64_C(-902)
+/* 根の Anchor・基準自身・基準が子孫の Container への書き込み */
+#define JUIZ_POSE_NOT_WRITABLE_ERROR                       INT64_C(-903)
+/* 長さ 0 の四元数、NaN・無限大 */
+#define JUIZ_INVALID_POSE_VALUE_ERROR                      INT64_C(-904)
+/* そのほかの失敗 (引数が null など) */
+#define JUIZ_TRANSFORMATIONS_ERROR                         INT64_C(-905)
 
 /* ---- 不透明な型 ----
  * 中身は Rust 側の CapsulePtr / Capsule / CapsuleMap / Value。ポインタとしてだけ使う。 */
@@ -235,6 +246,50 @@ int64_t capsule_ptr_lock_as_image(capsule_ptr* cp, int64_t (*callback)(void*, co
 /* 画像を複製して capsule (Process の戻り値) に入れる。行の余白は取り除き、BGR8 / BGRA8 は RGB8 / RGBA8 に並べ替える。
  * 合わなければ JUIZ_IMAGE_FORMAT_ERROR (理由はログ)。 */
 int64_t capsule_set_image(capsule* cp, const juiz_image* image);
+
+/* ---- ContainerPose (docs/spec/transformations.md §12.3) ----
+ * ContainerProcess の中から、呼び出し元 Container の位置姿勢を読み書きする。juiz は ContainerProcess を呼ぶとき、
+ * 引数の capsule_map に呼び出し元 Container の口を隠して載せるので、entry point が受け取った cm をそのまま渡す。
+ * 口は呼び出しの間だけ有効 (cm を取っておいて後で使うことはできない)。口が無ければ JUIZ_TRANSFORMATIONS_NOT_ATTACHED_ERROR。
+ * 四元数の並びは (x, y, z, w)。reference は基準 Container の名前か ID (UTF-8、NUL 終端)。 */
+typedef struct juiz_vector3 {
+    double x;
+    double y;
+    double z;
+} juiz_vector3;
+
+typedef struct juiz_quaternion {
+    double x;
+    double y;
+    double z;
+    double w;
+} juiz_quaternion;
+
+typedef struct juiz_pose {
+    juiz_vector3 position;
+    juiz_quaternion orientation;
+} juiz_pose;
+
+typedef struct juiz_time {
+    int64_t sec;
+    int32_t nanosec;     /* 0〜999999999 */
+    uint32_t reserved;
+} juiz_time;
+
+/* 時刻つきの ContainerPose。基準 (juiz_std.geometry.PoseStamped の header.frame_id) は渡した reference */
+typedef struct juiz_pose_stamped {
+    juiz_pose pose;
+    juiz_time stamp;
+} juiz_pose_stamped;
+
+/* 基準 reference から見た、呼び出し元 Container の ContainerPose を out に書く (§7.1) */
+int64_t juiz_container_pose_get(capsule_map* cm, const char* reference, juiz_pose_stamped* out);
+/* 呼び出し元 Container を、基準 reference から見て pose の位置姿勢にする (§7.2)。値は正規化して書く。
+ * 書き換わるのは親 → この Container の Transform。out (NULL 可) に書いた後の値を書く */
+int64_t juiz_container_pose_set(capsule_map* cm, const char* reference, const juiz_pose* pose, juiz_pose_stamped* out);
+/* このスレッドで最後に呼んだ juiz_container_pose_get / _set のエラー文 (成功なら空文字列)。
+ * 次にこのスレッドでそれらを呼ぶまで有効で、解放しない */
+const char* juiz_container_pose_last_error(void);
 
 #ifdef __cplusplus
 }

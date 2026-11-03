@@ -10,6 +10,10 @@ use crate::utils::get_hashmap;
 pub struct CapsuleMap {
     map: HashMap<String, CapsulePtr>,
     param: HashMap<String, String>,
+    /// 呼び出し元 Container の ContainerPose の口 (`JuizPosePort` のアドレス、0 なら無し)。
+    /// C ABI のプラグインの ContainerProcess を呼ぶ間だけホストが置く
+    /// (docs/spec/transformations.md §12.3)。値・param とは別で、フレームや表示には出ない
+    pose_port: usize,
 }
 
 impl Display for CapsuleMap {
@@ -26,6 +30,7 @@ impl CapsuleMap {
         CapsuleMap {
             map: HashMap::new(),
             param: HashMap::new(),
+            pose_port: 0,
         }
     }
 
@@ -36,6 +41,20 @@ impl CapsuleMap {
 
     pub fn get_param(&self, key: &str) -> Option<&String> {
         self.param.get(key)
+    }
+
+    /// 呼び出し元 Container の ContainerPose の口のアドレス (0 なら無し、docs/spec/transformations.md §12.3)
+    #[doc(hidden)]
+    pub fn pose_port(&self) -> usize {
+        self.pose_port
+    }
+
+    /// ContainerPose の口を置く。ホストが C ABI のプラグインの ContainerProcess を呼ぶ間だけ使う。
+    /// 口は呼び出しが終わるまで有効でなければならない
+    #[doc(hidden)]
+    pub fn set_pose_port(&mut self, port: usize) -> &mut Self {
+        self.pose_port = port;
+        self
     }
 
     /// 値を取り除いて返す。get と違い参照を残さないので、呼び出し側が中身を複製せずに取り出せる。

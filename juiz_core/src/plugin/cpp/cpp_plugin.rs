@@ -14,6 +14,7 @@ use crate::prelude::*;
 use crate::plugin::open_library;
 use crate::processes::process_factory_create_from_trait;
 use juiz_sdk::build_info::{BuildInfo, SDK_BUILD_INFO_SYMBOL};
+use juiz_sdk::transformations::port::PosePortOwner;
 
 /// C ABI のプラグイン (C++ など) が公開する関数の型。
 /// プラグイン側は extern "C" で定義するので、Rust ABI ではなく extern "C" の関数ポインタで受ける。
@@ -324,7 +325,13 @@ impl CppPlugin {
               -> JuizResult<Capsule> {
             let _lib = &lib;
             let mut retval = Capsule::empty();
+            // 呼び出しの間だけ有効な ContainerPose の口を CapsuleMap の見えない欄に載せる
+            // (transformations.md §12.3)。プラグインは juiz_container_pose_get / _set で使う
+            let pose_port = PosePortOwner::new(c.pose_handle());
+            argument.set_pose_port(pose_port.addr());
             let return_value = unsafe { (entry_point)(c.t.cobj, &mut argument, &mut retval) };
+            argument.set_pose_port(0);
+            drop(pose_port);
             if return_value != 0 {
                 return Err(anyhow::Error::from(JuizError::CppPluginFunctionCallError {
                     function_name: format!("container_process({type_name})"),

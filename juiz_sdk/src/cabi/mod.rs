@@ -438,7 +438,11 @@ fn read_args(args: *const JuizFrameIn) -> Result<CapsuleMap, Failure> {
     frame
         .and_then(|mut f| {
             f.set_natives(natives);
-            f.into_call_map()
+            // 呼び出し元 Container の ContainerPose の口 (§8.4)。値ではないので CapsuleMap の見えない欄に置く
+            let pose_port = f.header.pose_port.take().unwrap_or(0) as usize;
+            let mut map = f.into_call_map()?;
+            map.set_pose_port(pose_port);
+            Ok(map)
         })
         .map_err(|e| Failure::Frame(format!("{e:#}")))
 }
@@ -811,6 +815,13 @@ where
             }
             // SAFETY: handle は同じ型タグの create_container が作ったもので、ホストはロックを持って呼ぶ
             let container = unsafe { &mut *(handle as *mut ContainerImpl<T>) };
+            // ホストが ContainerPose の口を載せていれば、呼び出しの間だけプラグインの中の Container につなぐ (§8.4)。
+            // 利用者は今まで通り c.pose("map") / c.set_pose(...) で読み書きできる
+            let _pose = crate::transformations::port::PortAttachment::attach(
+                container.pose_handle(),
+                map.pose_port(),
+            )
+            .map_err(call_failure)?;
             let result = function(container, map).map_err(call_failure)?;
             write_result(out, result)
         },

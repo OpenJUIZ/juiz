@@ -117,7 +117,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/bindings/pyjuiz
         run: >-
           cargo test -p juiz_core --no-fail-fast --test integration
-          -- --test-threads=1 rust_cabi_ rust_native_test
+          -- --test-threads=1 rust_cabi_ rust_native_test rust_transformations_test
 
       - name: Test (Rust C ABI, .juizapp)
         if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}

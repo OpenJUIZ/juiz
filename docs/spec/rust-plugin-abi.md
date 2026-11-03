@@ -345,6 +345,17 @@ int64_t (*container_call)(void* handle, const juiz_frame_in* args, const juiz_fr
 - コンテナが C ABI で、コンテナプロセスが Rust ABI(またはその逆)のときは、ホスト側の入れ物の型が合わないので `ContainerDowncastingError` になる。エラーの文で、両方を同じ juiz_sdk でビルドし直すよう案内する。
 - コンテナスタック(§12)のコンテナプロセスが親コンテナの中身を `ContainerImpl<T>` として読む(examples の `example_container_stack_get`)ときは、親を C ABI で読むとホストからは中身が見えない。そのときは親とそのコンテナプロセスを conf の `abi: rust`(§11)で読む。
 
+### 8.4 ContainerPose の口(Transformations Step 5 #372)
+
+- ホストはコンテナプロセスを呼ぶとき、引数のフレームのヘッダに `"pose_port": <数>` を足す。数は呼び出し元コンテナの
+  ContainerPose の口(`JuizPosePort`、transformations.md §12.3)のアドレスで、呼び出しの間だけ有効。
+- グルーは `pose_port` を読み、`PortRegistry` をプラグインの中の `ContainerImpl<T>` の `ContainerPoseHandle` に呼び出しの間だけつなぐ。
+  利用者の関数は今まで通り `c.pose("map")` / `c.set_pose(...)` を呼ぶ。読み書きはホストの登録所で行い、エラーの種類はコード(-9xx)で
+  受け取ってプラグインの juiz_sdk の `JuizError` に戻す。
+- ヘッダに任意のキーを足すだけなので ABI の版は 1 のまま(§9.1)。古いグルーは `pose_port` を無視し、古いホストは付けない。
+  どちらの場合も読み書きは `TransformationsNotAttachedError` になる。
+- Process(kind 1)には付けない。IPC・qmp のフレームでは使わない(受け手は読まない)。
+
 ## 9. ABI の版
 
 ### 9.1 版を上げるとき

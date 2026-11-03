@@ -9,6 +9,7 @@
 #include "process_manifest.h"
 #include "bind_process.h"
 #include "image.h"
+#include "pose.h"
 
 
 #if WIN32
@@ -204,6 +205,7 @@ JUIZ_API int64_t manifest_entry_point(capsule_ptr* ptr) { \
 }\
 JUIZ_API int64_t container_process_entry_point(void* container, capsule_map* cm, capsule* cp) {\
     try {\
+        juiz::detail::PoseCallScope juiz_pose_call_scope_(container, cm);\
         auto proc_manif = manifest_function(); \
         auto binded_process_function = bind_container_process(proc_manif.arguments_.begin(), std::function(process_function));\
         auto return_value = binded_process_function((container_type_t*)(container), juiz::CapsuleMap(cm));\
@@ -220,6 +222,8 @@ JUIZ_API int64_t container_process_entry_point(void* container, capsule_map* cm,
         return JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR;\
     } catch (juiz::ImageFormatError &e) {\
         return JUIZ_IMAGE_FORMAT_ERROR;\
+    } catch (juiz::TransformationsError &e) {\
+        return e.code();\
     }\
 }\
 \
@@ -233,6 +237,7 @@ JUIZ_API int64_t (*container_process_factory_entry_point())(void*, capsule_map*,
 extern "C" {\
 int64_t container_process_entry_point(container_type* container, capsule_map* cm, capsule* cp) {\
     try {\
+        juiz::detail::PoseCallScope juiz_pose_call_scope_(container, cm);\
         auto args = deser(juiz::CapsuleMap(cm));\
         if (!args) {\
             return -1;\
@@ -250,6 +255,8 @@ int64_t container_process_entry_point(container_type* container, capsule_map* cm
         return JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR;\
     } catch (juiz::ImageFormatError &e) {\
         return JUIZ_IMAGE_FORMAT_ERROR;\
+    } catch (juiz::TransformationsError &e) {\
+        return e.code();\
     }\
 }\
 int64_t (*container_process_factory())(container_type*,capsule_map*,capsule*) {\
@@ -339,6 +346,7 @@ JUIZ_API int64_t process_function##_manifest_entry_point(capsule_ptr* ptr) { \
 }\
 JUIZ_API int64_t process_function##_entry_point(void* container, capsule_map* cm, capsule* cp) {\
     try {\
+        juiz::detail::PoseCallScope juiz_pose_call_scope_(container, cm);\
         auto proc_manif = process_function##_manifest(); \
         auto binded_process_function = bind_container_process(proc_manif.arguments_.begin(), std::function(process_function));\
         auto return_value = binded_process_function((container_type_t*)(container), juiz::CapsuleMap(cm));\
@@ -355,6 +363,8 @@ JUIZ_API int64_t process_function##_entry_point(void* container, capsule_map* cm
         return JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR;\
     } catch (juiz::ImageFormatError &e) {\
         return JUIZ_IMAGE_FORMAT_ERROR;\
+    } catch (juiz::TransformationsError &e) {\
+        return e.code();\
     }\
 }\
 \

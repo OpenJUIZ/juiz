@@ -8,8 +8,10 @@
 //!   `ContainerPtr` が同じものを指すので、ContainerProcess が Container の書き込みロックを持っている間も
 //!   登録所は Container のロックを取らずに PoseState を読み書きできる。
 //!   読み出しだけの口 [`ContainerPoseReader`] を別に取り出せる (§14、将来の readonly ContainerProcess 用)。
+//! - [`port`]: C ABI のプラグイン (C++・Haskell・Rust の C ABI) の ContainerProcess に渡す口 (§12.3)。
 
 mod handle;
+pub mod port;
 mod pose_state;
 
 pub use handle::{ContainerPoseHandle, ContainerPoseReader, TransformationsRegistry};

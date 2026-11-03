@@ -121,3 +121,19 @@ int64_t hsjuiz_capsule_ptr_is_image(capsule_ptr* cp)
 {
     return capsule_ptr_is_image(cp) ? 1 : 0;
 }
+
+/*
+ * 今このスレッドで呼ばれている ContainerProcess の引数 (capsule_map*) を置き換え、前の値を返す
+ * (Juiz.Pose.withPoseCall、docs/spec/transformations.md §12.3)。juiz は ContainerProcess を呼ぶとき、
+ * 引数に呼び出し元 Container の ContainerPose の口を載せるので、関数の中から読み書きするのに使う。
+ * foreign export の呼び出しは呼んだ OS スレッドに結びついた (bound) Haskell スレッドで動くので、
+ * スレッドごとの変数に置けばよい
+ */
+static _Thread_local void* hsjuiz_pose_call = NULL;
+
+void* hsjuiz_swap_pose_call(void* cm)
+{
+    void* old = hsjuiz_pose_call;
+    hsjuiz_pose_call = cm;
+    return old;
+}

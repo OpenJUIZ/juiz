@@ -207,8 +207,8 @@ std::function<std::optional<T>(U*, juiz::CapsuleMap)> bind_container_process(std
         const auto v = cm.get_bool(arg_name);
         auto i = iter;
         ++i;
-        auto binded = [v, f](R... rem) {
-            return f(v, rem...);
+        auto binded = [v, f](U* u2, R... rem) {
+            return f(u2, v, rem...);
         };
         return bind_container_process<T>(i, std::function(binded))(u, cm); 
     };
@@ -230,8 +230,8 @@ std::function<std::optional<T>(U*, juiz::CapsuleMap)> bind_container_process(std
         const IV v = cm.get_int(arg_name);
         auto i = iter;
         ++i;
-        auto binded = [v, f](R... rem) {
-            return f(v, rem...);
+        auto binded = [v, f](U* u2, R... rem) {
+            return f(u2, v, rem...);
         };
         return bind_container_process<T>(i, std::function(binded))(u, cm); 
     };
@@ -254,8 +254,8 @@ std::function<std::optional<T>(U*, juiz::CapsuleMap)> bind_container_process(std
         const FV v = cm.get_float(arg_name);
         auto i = iter;
         ++i;
-        auto binded = [v, f](R... rem) {
-            return f(v, rem...);
+        auto binded = [v, f](U* u2, R... rem) {
+            return f(u2, v, rem...);
         };
         return bind_container_process<T>(i, std::function(binded))(u, cm); 
     };
@@ -278,8 +278,8 @@ std::function<std::optional<T>(U*, juiz::CapsuleMap)> bind_container_process(std
         const auto v = cm.get_string(arg_name);
         auto i = iter;
         ++i;
-        auto binded = [v, f](R... rem) {
-            return f(v, rem...);
+        auto binded = [v, f](U* u2, R... rem) {
+            return f(u2, v, rem...);
         };
         return bind_container_process<T>(i, std::function(binded))(u, cm); 
     };
@@ -303,8 +303,8 @@ std::function<std::optional<T>(U*, juiz::CapsuleMap)> bind_container_process(std
         const auto v = cm.get_array(arg_name);
         auto i = iter;
         ++i;
-        auto binded = [v, f](R... rem) {
-            return f(v, rem...);
+        auto binded = [v, f](U* u2, R... rem) {
+            return f(u2, v, rem...);
         };
         return bind_container_process<T>(i, std::function(binded))(u, cm); 
     };

@@ -26,6 +26,7 @@ use juiz_sdk::frame::{
     keep_spare_image, take_spare_image, FrameLimits, FrameReceiver, OutgoingFrame,
 };
 use libloading::Library;
+use juiz_sdk::transformations::port::PosePortOwner;
 
 use crate::prelude::*;
 
@@ -287,7 +288,7 @@ impl CabiEntry {
     /// Process (kind 1) を呼ぶ
     fn call_process(&self, args: CapsuleMap) -> JuizResult<Capsule> {
         let call = self.call.ok_or_else(|| self.error("call", 0, Some("is null".to_owned())))?;
-        with_frame_in(self.native_abi_tag.as_deref(), args, |frame_in| {
+        with_frame_in(self.native_abi_tag.as_deref(), None, args, |frame_in| {
             self.call_with_out("call", |out| call(frame_in, out))
         })
         .map_err(|e| self.error("call", 0, Some(format!("the arguments can not be passed ({e:#})"))))?
@@ -549,6 +550,7 @@ impl ArgNative {
 /// ほかの Native は encode する
 fn with_frame_in<R>(
     target_abi: Option<&str>,
+    pose_port: Option<usize>,
     mut map: CapsuleMap,
     f: impl FnOnce(&JuizFrameIn) -> R,
 ) -> JuizResult<R> {
@@ -568,6 +570,8 @@ fn with_frame_in<R>(
         }
     }
     let mut frame = OutgoingFrame::call_request(&map)?;
+    // 呼び出し元 Container の ContainerPose の口 (rust-plugin-abi.md §8.4)
+    frame.header_mut().pose_port = pose_port.map(|p| p as u64);
     if !natives.is_empty() {
         let header_map = frame.header_mut().map.get_or_insert_with(Default::default);
         for (i, (k, _)) in natives.iter().enumerate() {
@@ -835,7 +839,7 @@ pub fn container_factory(entry: CabiEntry) -> JuizResult<ContainerFactoryPtr> {
             .ok_or_else(|| entry.error("destroy", 0, Some("is null".to_owned())))?;
         let manifest_json = serde_json::to_vec(&cm)?;
         let mut handle: *mut c_void = std::ptr::null_mut();
-        let (code, message) = with_frame_in(entry.native_abi_tag.as_deref(), args, |frame_in| {
+        let (code, message) = with_frame_in(entry.native_abi_tag.as_deref(), None, args, |frame_in| {
             collect_bytes(|error| {
                 create(
                     JuizBytes::from_slice(&manifest_json),
@@ -895,7 +899,9 @@ pub fn container_process_factory(entry: CabiEntry) -> JuizResult<ContainerProces
             }));
         }
         let handle = c.t.handle;
-        with_frame_in(entry.native_abi_tag.as_deref(), args, |frame_in| {
+        // 呼び出しの間だけ有効な ContainerPose の口を引数のフレームに載せる (transformations.md §12.3)
+        let pose_port = PosePortOwner::new(c.pose_handle());
+        with_frame_in(entry.native_abi_tag.as_deref(), Some(pose_port.addr()), args, |frame_in| {
             entry.call_with_out("container_call", |out| container_call(handle, frame_in, out))
         })
         .map_err(|e| {

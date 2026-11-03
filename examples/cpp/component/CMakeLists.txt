@@ -7,6 +7,7 @@ add_subdirectory(example_component)
 add_subdirectory(cpp_typed_component)
 add_subdirectory(cpp_typed_component_other_abi)
 add_subdirectory(cpp_image_component)
+add_subdirectory(cpp_pose_component)
 
 # OpenCV があるときだけ (juiz/opencv.h の例)
 find_package(OpenCV QUIET COMPONENTS core)
