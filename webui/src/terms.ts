@@ -13,6 +13,11 @@ export const TERMS = {
   namespace: { ja: "名前空間", en: "Namespace" },
   composition: { ja: "合成", en: "Composition" },
   slot: { ja: "差込口", en: "Slot" },
+  transformations: { ja: "変換木", en: "Transformations" },
+  anchor: { ja: "基点", en: "Anchor" },
+  transform: { ja: "変換", en: "Transform" },
+  pose: { ja: "位置姿勢", en: "ContainerPose" },
+  reference: { ja: "基準", en: "Reference" },
 } as const;
 
 export type TermKey = keyof typeof TERMS;

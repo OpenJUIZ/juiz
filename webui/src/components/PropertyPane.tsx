@@ -19,6 +19,8 @@ import {
 } from "../model.ts";
 import type { TermKey } from "../terms.ts";
 import { CallForm } from "./CallForm.tsx";
+import { AnchorSection, PoseSection, TransformSection } from "./PoseSections.tsx";
+import { ElementLink, Empty, Fields, LinkList, Mono, Section } from "./props-parts.tsx";
 import { Term } from "./Term.tsx";
 
 interface Props {
@@ -97,75 +99,6 @@ function Body(p: BodyProps) {
 }
 
 /* ---------- 部品 ---------- */
-
-function Section({ title, children }: { title: ReactNode; children: ReactNode }) {
-  return (
-    <section className="props-section">
-      <h3>{title}</h3>
-      {children}
-    </section>
-  );
-}
-
-/** 名前と値の組を並べる。値が null / undefined の行は「—」 */
-function Fields({ rows }: { rows: [ReactNode, ReactNode][] }) {
-  return (
-    <dl className="fields">
-      {rows.map(([k, v], i) => (
-        <div key={i} className="field-row">
-          <dt>{k}</dt>
-          <dd>{v ?? <span className="none">—</span>}</dd>
-        </div>
-      ))}
-    </dl>
-  );
-}
-
-function Mono({ children }: { children: ReactNode }) {
-  return <code className="mono">{children}</code>;
-}
-
-function Empty({ children }: { children: ReactNode }) {
-  return <div className="none">{children}</div>;
-}
-
-/** 別の要素へ移る見出し。key が無い(系の中に見つからない)ときは名前だけ */
-function ElementLink({
-  model,
-  elementKey,
-  fallback,
-  onSelect,
-}: {
-  model: Model;
-  elementKey: string | null;
-  fallback?: string;
-  onSelect: (key: string) => void;
-}) {
-  const e = elementKey ? model.elements.get(elementKey) : undefined;
-  if (!e) {
-    return (
-      <span className="elem-link missing" title="系の中に見つかりません">
-        {fallback ?? "不明"}
-      </span>
-    );
-  }
-  return (
-    <button type="button" className="elem-link" onClick={() => onSelect(e.key)} title={e.identifier}>
-      <span className={`mark ${MARK_CLASS[e.kind]}`} />
-      {e.fullName}
-    </button>
-  );
-}
-
-function LinkList({ children }: { children: ReactNode[] }) {
-  return (
-    <ul className="link-list">
-      {children.map((c, i) => (
-        <li key={i}>{c}</li>
-      ))}
-    </ul>
-  );
-}
 
 function Description({ text }: { text: string }) {
   return text ? <span className="description">{text}</span> : null;
@@ -496,7 +429,7 @@ function EcState({ ec }: { ec: EcElement }) {
   return <span className={`ec-state ${ec.profile.state === "STARTED" ? "on" : ""}`}>{ecStateLabel(ec.profile.state)}</span>;
 }
 
-function ContainerBody({ element: e, model, onSelect }: BodyProps<ContainerElement>) {
+function ContainerBody({ element: e, model, onSelect, serverUrl }: BodyProps<ContainerElement>) {
   const p = e.profile;
   return (
     <>
@@ -512,6 +445,14 @@ function ContainerBody({ element: e, model, onSelect }: BodyProps<ContainerEleme
           ]}
         />
       </Section>
+      {p.anchor && <AnchorSection element={e} model={model} onSelect={onSelect} />}
+      {/* Transformations は最上位の系の分だけ取っている(システムをまたぐ Transform は対象外) */}
+      {model.transformations && e.systemKey === model.root.key && (
+        <>
+          <PoseSection key={e.key} element={e} model={model} onSelect={onSelect} serverUrl={serverUrl} />
+          <TransformSection element={e} model={model} onSelect={onSelect} serverUrl={serverUrl} />
+        </>
+      )}
       <Section title="引数">
         <ArgumentTable
           args={p.arguments ?? []}

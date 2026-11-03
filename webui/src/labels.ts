@@ -26,7 +26,18 @@ export function connectionTypeLabel(type: string): string {
   }
 }
 
-/** 値を一行で見せる */
+/** Anchor の種類 */
+export function anchorKindLabel(kind: string): string {
+  switch (kind) {
+    case "periodic":
+      return "周期更新";
+    case "static":
+      return "静的";
+    default:
+      return kind;
+  }
+}
+
 /** 値を JSON で短く出す。max 文字を超えたら末尾を … にする */
 export function shortValue(v: unknown, max = 16): string {
   const s = formatValue(v);

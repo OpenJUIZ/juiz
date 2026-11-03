@@ -78,11 +78,12 @@ juiz -f webui/juiz_webui.conf -d
 - 左のツリー: 系 → 処理・容器(その下に容器処理)・実行文脈・接続・話題・仲介 → 各要素。副系(別プロセスの juiz)は系の「副系」の下に入れ子で出し、経由する仲介(http、qmp など)を併記します。中身を取れなかった副系には「取得不可」と出します。分類や要素の ▸ / ▾ で畳めます。
 - 接続は、出す側の処理がいる系の下に出ます。別の系どうしの接続も 1 本にまとめます。
 - 要素を押すと、右の性質欄にその要素の中身が出ます。
+- Anchor(基点、[#366](https://github.com/OpenJUIZ/juiz/issues/366))の容器には「基点」の印が付きます。系の下の「変換木」には、Anchor ごとに Transform をたどった容器の木が出ます(Anchor を別の Anchor の子にしていれば、子の Anchor の木も別に出ます)。木の行を押すと、その容器を選びます([#373](https://github.com/OpenJUIZ/juiz/issues/373))。
 
 | 種類 | 性質欄に出すもの |
 |---|---|
 | 処理・容器処理 | 型、識別子、説明、言語、生成器、所属容器、引数(名前・型・既定値・拘束値)、戻値型、呼び出すフォーム、入力と出力の接続、対象にしている実行文脈、発行・購読する話題 |
-| 容器 | 型、識別子、説明、言語、生成器、引数(既定値と生成時の値)、容器処理 |
+| 容器 | 型、識別子、説明、言語、生成器、基点の種類と周期・その変換木(Anchor のとき)、位置姿勢、つながる変換、引数(既定値と生成時の値)、容器処理 |
 | 実行文脈 | 型、識別子、状態、周期、自動開始、対象の処理 |
 | 接続 | 押込・引込、送り元、送り先と引数、識別子 |
 | 話題 | 発行する処理、購読する処理と引数 |
@@ -90,6 +91,8 @@ juiz -f webui/juiz_webui.conf -d
 | 系 | 接続先、経由する仲介(副系)、取得できない理由、UUID、仲介、要素の数 |
 
 性質欄の中の要素名を押すと、その要素に移ります(ツリーで畳まれていれば開きます)。
+
+容器の「位置姿勢」は、基準に選んだ容器から見た位置 (x, y, z) [m]、姿勢の四元数 (x, y, z, w)、回転角(ロール・ピッチ・ヨー、度)です。基準の候補は、その容器が入っている変換木の容器で、既定はその木の Anchor です。基準が木の Anchor なら `transformations/tree` の値を、それ以外は `container/pose` で取った値を出します。「変換」には、親から来る Transform と子へ出る Transform を値つきで出します。どの変換木にも入っていない容器は位置姿勢を持ちません。Transformations は最上位の系の分だけ出します(副系の容器には出しません)。3D の表示はしません。
 
 型付きの引数(データ型、[#197](https://github.com/OpenJUIZ/juiz/issues/197))は、型の欄に型の名前(`Pose2D` など)を出します。名前にマウスを載せると完全名と指紋が出ます。
 
@@ -175,7 +178,7 @@ scripts/subset-fonts.sh <ZenOldMincho-Regular.ttf と ZenOldMincho-Black.ttf を
 | `src/api/types.ts` | `profile_full` の中身の型。OpenAPI に schema が無いので画面側で書く |
 | `src/avro.ts` | 型参照の Avro のスキーマを入力フォーム用の形に読む |
 | `src/model.ts` | 取得した profile を画面用の形に組み直す。要素の鍵と、要素どうしの関係(接続の両端、実行文脈の対象など)を解く |
-| `src/useSystemModel.ts` | `system/profile_full?recursive=true`(副系の中身と各系の接続つき)を取得し、自動更新する。古い juiz なら接続を一つずつ取る |
+| `src/useSystemModel.ts` | `system/profile_full?recursive=true`(副系の中身と各系の接続つき)を取得し、自動更新する。古い juiz なら接続を一つずつ取る。続けて Transformations(`transform/list` と Anchor ごとの `transformations/tree`)を取る |
 | `src/labels.ts`, `src/marks.ts` | 値の表示用の言葉(実行中・押込など)と、種類ごとのマーク |
 | `src/terms.ts` | 画面の用語。漢字を正とし、英語名を小さく並記する |
 | `src/settings.ts` | 設定と localStorage への保存 |
@@ -183,7 +186,7 @@ scripts/subset-fonts.sh <ZenOldMincho-Regular.ttf と ZenOldMincho-Black.ttf を
 | `src/styles/fonts.css` | 書体。同梱フォントの `@font-face` と、見出しの太さ `--font-weight-heading` |
 | `src/assets/fonts/` | 同梱フォント(画面の字だけに絞った woff2)と字の一覧 `subset-chars.txt` |
 | `public/fonts/ZenOldMincho-OFL.txt` | 同梱フォントのライセンス。ビルドした画面の `fonts/` に入る |
-| `src/components/` | 上部の帯、ツリー、図、性質欄(呼び出すフォーム `CallForm.tsx` を含む)、設定の画面部品 |
+| `src/components/` | 上部の帯、ツリー、図、性質欄(呼び出すフォーム `CallForm.tsx`、位置姿勢と変換の `PoseSections.tsx`、共通の部品 `props-parts.tsx` を含む)、設定の画面部品 |
 | `src/diagram/` | 中央の図の中身。モデルから図の要素と線を作る `graph.ts`、自動配置 `layout.ts`、位置の保存 `positions.ts`、要素・線・湾曲グリッドの部品と `diagram.css` |
 
 ## ライセンス

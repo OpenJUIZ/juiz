@@ -103,6 +103,70 @@ export interface ContainerProfile extends ObjectProfile {
   parent_type_name?: string | null;
   /** CompositeContainer のスロット名 → 参照先の容器の識別子。それ以外の容器では無い(#170) */
   slots?: Record<string, string> | null;
+  /** Anchor のときだけ。種類と、Periodic なら周期 [Hz](#369) */
+  anchor?: AnchorInfo | null;
+}
+
+/* ---------- Transformations(#366) ---------- */
+
+/** Anchor の種類 */
+export interface AnchorInfo {
+  kind: "periodic" | "static" | string;
+  rate?: number;
+}
+
+export interface Vector3 {
+  x: number;
+  y: number;
+  z: number;
+}
+
+/** 四元数。並びは (x, y, z, w) */
+export interface Quaternion {
+  x: number;
+  y: number;
+  z: number;
+  w: number;
+}
+
+/** juiz_std.geometry.Pose */
+export interface Pose {
+  position: Vector3;
+  orientation: Quaternion;
+}
+
+/** juiz_std.geometry.Transform */
+export interface TransformValue {
+  translation: Vector3;
+  rotation: Quaternion;
+}
+
+export interface Time {
+  sec: number;
+  nanosec: number;
+}
+
+/** GET /api/container/pose の戻り値(juiz_std.geometry.PoseStamped)。frame_id は基準の Container */
+export interface PoseStamped {
+  header: { stamp?: Time; frame_id: string };
+  pose: Pose;
+}
+
+/** GET /api/transformations/tree の戻り値。pose は根の Anchor から見た位置姿勢、transform は木での親からの Transform */
+export interface TransformationsTreeNode {
+  identifier: string;
+  pose: Pose;
+  transform?: TransformValue;
+  children: TransformationsTreeNode[];
+}
+
+/** GET /api/transform/profile_full */
+export interface TransformProfile {
+  identifier: string;
+  source: string;
+  destination: string;
+  transform: TransformValue;
+  stamp?: Time;
 }
 
 export interface ExecutionContextProfile extends ObjectProfile {
