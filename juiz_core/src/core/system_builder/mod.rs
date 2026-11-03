@@ -12,6 +12,7 @@ mod setup_objects;
 mod setup_plugins;
 mod subsystems;
 mod topics;
+mod transformations;
 
 mod http_broker;
 #[cfg(feature = "ipc-broker")]
@@ -22,6 +23,7 @@ use crate::prelude::*;
 pub(crate) use cleanup_objects::cleanup_objects;
 pub(crate) use setup_objects::setup_objects;
 pub(crate) use setup_plugins::setup_plugins;
+pub(crate) use transformations::start_transformations;
 use uuid::Uuid;
 
 use crate::brokers::{broker_proxy::TopicBrokerProxy, SystemBrokerProxy};

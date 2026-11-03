@@ -272,6 +272,21 @@ Step 1(#368)で決めた SDK の形(`juiz_sdk::transformations`):
 - PoseState のロックは値の読み書きの間だけ持つ。
 - Anchor の更新と `set_pose` の Transform 書き換えは、どちらも登録所のロックの下で行う(混ざらない)。
 
+### 9.3 core の形(Step 2、#369 で決めたこと)
+
+- 登録所は `juiz_core::transformations::Transformations`(`CoreStore::transformations`、`Arc` で持つ)。中身は 1 つの `Mutex` で、Transform の一覧・各 Anchor の木(幅優先の順・親・深さ)・Pose 通知の登録を持つ。Container は `ContainerPoseHandle` だけで持ち、`ContainerPtr` は持たない(§9.1)。
+- Container は `CoreWorker::create_container_ref`・`create_composite_container` で System に登録したときに登録所につなぎ、`destroy_container_ref` で外す。
+- Anchor は Factory を持たず、`create_container_ref` が type_name を見て直接作る(`AnchorContainer = ContainerImpl<AnchorState>`)。`ContainerProfile` に `anchor`(Anchor 以外では出力しない)を足した。
+- Periodic Anchor のスレッドは `System::setup` の最後(EC の起動の後)に始める。起動後に作った Periodic はすぐ始める。スレッドは登録所を `Weak` で持ち、止めるときは通知を送ってから登録所のロックの外で join する。
+- 版番号による省略(§6.2 の 2): Anchor ごとに Container ごとの「親の PoseState[A] の版番号と、親 → 子の Transform の版番号」を覚え、どちらも同じなら計算も書き込みもしない。飛ばした Container の stamp は前の値のまま。Transform の版番号は登録所の中で一意。
+- 木から外れた Container の PoseState の項目は、次の更新を待たず、木の形が変わったときにすぐ消す(§6.2 の 3)。
+- 名前の解決(§5.4)は `<name>`・`<ns>/<name>`・`/<絶対の ns>/<name>` に加えて `<name>::<type_name>` も受け付ける。conf の `transforms:`・`pose_listeners:` は System の既定ネームスペースから解決する。
+- `set_pose` の戻り値は、PoseState ではなく登録所のロックの下でその場で計算した pose_A(R) から求めた値(Periodic の木でも書いた値がそのまま返る)。
+- Container を削除して消えた Transform についても、残った終点に Pose 通知を出す(§8.1 の削除と同じ)。値を計算できない(共通 Anchor がなくなった)通知は出さない(DEBUG ログ)。
+- Pose 通知の受け手が、書き込みをしている ContainerProcess と同じ Container の ContainerProcess だと、その Container の書き込みロックを待って止まる。この版では検出しないので、そういう登録はしないこと。
+- core の関数(API・CLI は Step 3): `Transformations::create_transforms`(conf と `transform/create`、まとめて作り 1 つでも不備があれば何も作らない)・`update_transform`・`destroy_transform`・`transform_list`・`transform_profile`・`update_anchor`・`anchor_list`・`tree`・`pose_by_name`・`set_pose_by_name`・`pose_listener_list`・`pose_listener_profile`・`destroy_pose_listener`、`CoreWorker::create_pose_listener`。
+- 1000 ノードの木(各ノードが子を 10 個持つ、StaticAnchor)の 1 回の更新(release、`tests/integration/transformations_bench.rs`): 根の直下の Transform を変えたとき(全ノードを計算し直す)約 0.95 ms、何も変わっていないとき(全部飛ばす)約 0.48 ms。1000 本の Transform をまとめて作る(検査と最初の更新を含む)のは約 235 ms。
+
 ## 10. 後始末
 
 - Container を削除すると、それを端点に持つ Transform と、それを見張る・それを呼ぶ Pose 通知を消す。影響を受ける StaticAnchor は更新し、Periodic は次の周期で追従する。
@@ -447,7 +462,7 @@ Step 1 で上の名前のまま `JuizError` に足した。あわせて `Transfo
 |---|---|---|
 | 0 仕様書・`juiz_std.geometry.Transform` | #367 | 全体、§3.1 の型 |
 | 1 SDK | #368 | §3、§9.1、§12.1、manifest |
-| 2 core | #369 | §4〜§11 |
+| 2 core | #369 | §4〜§11(決めたことは §9.3) |
 | 3 API・CLI | #370 | §13.1、§13.2 |
 | 4 Python | #371 | §12.2 |
 | 5 C ABI | #372 | §12.3 |

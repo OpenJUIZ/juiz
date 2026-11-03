@@ -32,6 +32,8 @@ pub struct CoreStore {
     pub ecs:
         Box<MutexObjectCollection<dyn ExecutionContextFunction, ExecutionContextHolderFactory>>,
     pub broker_proxies: Box<BufferObjectCollection<dyn BrokerProxy, dyn BrokerProxyFactory>>,
+    /// Transformations 登録所 (docs/spec/transformations.md §9.1)
+    pub transformations: crate::transformations::TransformationsPtr,
 }
 
 /// setup の途中で失敗したときなど、cleanup を通らずに捨てられる場合も、
@@ -59,6 +61,7 @@ impl CoreStore {
             //container_processes: RwObjectCollection::new("container_process"),
             container_processes: ObjectCollection::new("container_process"),
             ecs: MutexObjectCollection::new("ecs"),
+            transformations: crate::transformations::Transformations::new(),
         }
     }
 
@@ -86,6 +89,8 @@ impl CoreStore {
 
     pub fn clear(&mut self) -> JuizResult<()> {
         log::trace!("CoreStore::clear() called");
+        // Periodic Anchor のスレッドを止め、Container を登録所から外してから捨てる
+        self.transformations.clear()?;
         self.clear_container_process_factories()?;
         self.clear_container_factories()?;
         self.clear_process_factories()?;

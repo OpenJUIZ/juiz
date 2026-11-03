@@ -26,6 +26,10 @@ pub struct ContainerProfile {
     /// CompositeContainer 以外では `None` で、出力しない
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slots: Option<BTreeMap<String, String>>,
+    /// Anchor の種類と周期 `{"kind": "periodic" | "static", "rate": <Hz>}`
+    /// (docs/spec/transformations.md §4.1)。Anchor 以外では `None` で、出力しない
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anchor: Option<Value>,
 }
 
 impl Display for ContainerProfile {
@@ -77,6 +81,7 @@ impl TryFrom<ContainerManifest> for ContainerProfile {
             processes,
             args: value.args,
             slots: None,
+            anchor: None,
         })
     }
 
@@ -106,6 +111,7 @@ impl ContainerProfile {
             args: jvalue!({}),
             arguments: Vec::new(),
             slots: None,
+            anchor: None,
         }
     }
 
@@ -124,6 +130,7 @@ impl ContainerProfile {
                 args: jvalue!({}),
                 arguments: Vec::new(),
                 slots: None,
+                anchor: None,
             })
         })
     }
