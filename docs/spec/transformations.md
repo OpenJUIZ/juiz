@@ -3,6 +3,7 @@
 - 状態: 確定(Step 0、issue #367、2026-11-02)
 - 親 issue: #366。計画と経緯はプロジェクトの計画書 transformations-plan.md(2026-11-02 確定)にある
 - この文書は Step 1〜7(#368〜#374)の実装の基準になる。実装で仕様を変えるときは、同じ PR でこの文書を直す
+- §19(System をまたぐ Transform)は issue #413(#376 の Step 0、2026-11-03)で足した。計画はプロジェクトの計画書 transformations-cross-system-plan.md(2026-11-03 確定)。§19 は Step #414〜#418 の実装の基準になる
 - 「しなければならない」「エラーにする」は必須の規則、「してよい」は任意を表す。「(Step n で決める)」と書いた所は、その Step の PR でこの文書に書き足す
 
 ## 1. 目的と用語
@@ -26,7 +27,7 @@ ROS の tf との違い: tf の frame は Container とは別の名前だが、j
 
 1. 位置姿勢は Container の「位置そのもの」で、名前は ContainerPose。必ず基準 Container の名前と組で読み書きする(読むときも書くときも基準を指定する)。
 2. Anchor は Container の一種である。ID・ネームスペース・list / profile・管理画面の表示・削除は Container と同じ仕組みに乗る。
-3. Transform の木と更新は 1 つの System の中で閉じる。システムをまたぐ Transform は対象外(§15、将来 #376)。
+3. Transform の木と更新は 1 つの System の中で閉じる。System をまたぐ Transform は終点(子)の System が持ち、親の位置を「写し」として取り込んで自分の System の中の木として扱う(§19)。木の形が System の外へ広がることはない。
 4. ContainerPose は利用者の状態とは**別のロック**に置く(§9.2)。ContainerProcess が長く走っていても Anchor の更新は止まらない。
 5. 値の形は `juiz_std.geometry` の型(`Pose`・`PoseStamped`・`Transform`・`TransformStamped`)に合わせる。通信で流れる辞書もこの形。
 6. 他言語のプラグインは**今の関数の形を変えない**。呼び出しに渡している引数に呼び出し元 Container の口を隠して載せる(§12)。
@@ -135,7 +136,7 @@ Anchor を別の Anchor の Transform の終点にしてよい(例: `map → odo
 - ID は `transform://<source の ID>|<destination の ID>`(接続 `connection://<src>|<arg>|<dst>` にならう)。
 - 同じ (source, destination) の Transform を 2 つ作るのはエラー(`TransformAlreadyExistsError`)。値を変えるときは update。
 - source と destination が同じ Container はエラー。
-- 端点はどちらも同じ System の Container(Anchor を含む)でなければならない。見つからなければエラー。
+- 端点はどちらも同じ System の Container(Anchor を含む)でなければならない。見つからなければエラー。ただし始点は別 System の Container でもよい(System をまたぐ Transform、§19)。終点はいつも自分の System の Container。
 - ContainerProcess・Process は端点にならない。
 
 ### 5.2 Anchor ごとに届く範囲が木であること
@@ -263,7 +264,7 @@ Step 1(#368)で決めた SDK の形(`juiz_sdk::transformations`):
 - `ContainerPoseHandle`: Container ごとの PoseState と登録所への口の組。`ContainerImpl::new` が作り、`Container::pose_handle()`(trait の必須メソッド)で取り出せる。`ContainerPtr::new` はこれを受け取って持つので、`ContainerPtr::pose` / `set_pose` / `pose_state` / `attach_transformations` / `detach_transformations` は Container のロックを取らない。登録所は循環しないよう `Weak` で持つ(登録所が消えれば `TransformationsNotAttachedError`)。`detach` は PoseState も空にする。
 - `ContainerPtr` は `Send` でない(`dyn Container` が `Send` でない)ので、Periodic Anchor のスレッドから使う登録所は `ContainerPtr` ではなく `ContainerPoseHandle`(`Send + Sync`)を持つ。
 - 読み出しだけの口 `ContainerPoseReader`(`pose`・`entry` だけを持つ)を `pose_reader()` で取り出せる(§14)。
-- 別 System の Container(`ContainerProxy`)も口を持つが、登録所にはつながない(§15)。
+- 別 System の Container(`ContainerProxy`)も口を持つが、登録所にはつながない。別 System の Container の読み書きはその System に回す(§19.8)。
 
 ### 9.2 ロックの順番
 
@@ -533,7 +534,7 @@ Step 3(#370)で決めたこと:
 
 ### 13.3 管理画面
 
-Anchor ごとの木と、各 Container の Pose の数値を表示する。3D 表示はしない(§15)。Step 6(#373)。
+Anchor ごとの木と、各 Container の Pose の数値を表示する。3D 表示はしない(§15)。Step 6(#373)。System をまたぐ Transform の表示は §19.10。
 
 Step 6(#373)で決めたこと:
 
@@ -553,7 +554,7 @@ Step 6(#373)で決めたこと:
 
 ## 15. 範囲の外
 
-- システムをまたぐ Transform(サブシステムや別プロセスの Container との接続)。将来の Step 10(#376)。
+- System をまたぐ Transform のうち §19.11 に挙げたもの(親からの push、System 間の時計合わせなど)。System をまたぐ Transform そのものは §19 で扱う。
 - 過去の時刻の位置姿勢の問い合わせ(tf2 の時刻つきバッファ)。
 - 管理画面の 3D 表示。
 - readonly ContainerProcess の実装そのもの(#377)。
@@ -577,6 +578,7 @@ Step 6(#373)で決めたこと:
 | `TransformTreeError` | §5.2 の木の規則を破る変更 |
 | `TransformNotFoundError` | 指定の Transform がない |
 | `PoseListenerError` | Pose 通知の登録の不備(引数・型・二重登録) |
+| `CrossSystemTransformError` | System をまたぐ Transform の不備(§19.2: 終点が別 System なのに回す先の System につながっていない、両端とも別 System、`source_system` が分からない、始点が相手の System の Container でない) |
 
 Step 1 で上の名前のまま `JuizError` に足した。あわせて `TransformManifestInvalidError`(`transforms:` の 1 項目の不備)と `TransformationsNotAttachedError`(登録所につながっていない Container の読み書き、§9.1)を足した。
 
@@ -592,3 +594,197 @@ Step 1 で上の名前のまま `JuizError` に足した。あわせて `Transfo
 | 5 C ABI | #372 | §12.3 |
 | 6 管理画面 | #373 | §13.3 |
 | 7 サンプル 4 言語 | #374 | §3.5 の値、§11 の形 |
+
+System をまたぐ Transform(#376、§19):
+
+| Step | issue | 節 |
+|---|---|---|
+| 0 仕様書 | #413 | §19 全体 |
+| 1 core | #414 | §19.2〜§19.7、§19.9 |
+| 2 API・CLI・pyjuiz | #415 | §19.8、§19.4 の API、HTTP / QMP / IPC 越しのテスト(2 プロセス) |
+| 3 管理画面 | #416 | §19.10 |
+| 4 サンプル 4 言語・サイトのガイド | #417、OpenJUIZ.github.io#69 | §19.1 の例 |
+| 5 リリース | #418 | – |
+
+## 19. System をまたぐ Transform
+
+Step 0(#413)で足した節。親 issue #376。「(Step n で決める)」と書いた所は、その Step の PR でこの節に書き足す。
+
+### 19.1 使い方の例
+
+- **例 A(親子の System)**: 地図の System S1 に `map`(Anchor)、ロボットの System S2(S1 のサブシステム、または別プロセス)に `odom → base0 → camera0`。S2 に `map → odom`(始点は S1 の `map`)を張ると、S2 の中で `camera0` を `map` から見た位置が読め、S1 からも S2 の `camera0` を `map` から見て読める。
+- **例 B(複数のロボット)**: S1 の `world` から S2 の `robot1/odom`、S3 の `robot2/odom` に張る。S2 と S3 はどちらも `world` の写しを持つので、それぞれで `world` から見た位置を読んで合成すれば、robot1 の camera から見た robot2 の base が分かる(§19.8)。
+
+用語:
+
+| 用語 | 意味 |
+|---|---|
+| **またぐ Transform** | 始点 P が別 System の Container、終点 C が自分の System の Container である Transform |
+| **写しの始点** P' | 自分の System の登録所の中で P の代わりになるノード。Container ではない(`container/list` に出ない) |
+| **写しの Anchor** B' | P の PoseState にある Anchor B ごとに、自分の System の登録所に置く Anchor。Container ではない |
+| **相手の System** | P を持つ System(親)。こちらが写しを取りに行く先 |
+
+### 19.2 持ち主と端点
+
+1. またぐ Transform は**終点(子)の System** が持つ。木の規則(§5.2)で各 Container の親はちょうど 1 つなので、Transform は子に属する情報である。`set_pose(C, R, p)` は親 → C の Transform を書き換える(§7.2)ので、子の System が持てば `set_pose` は今どおり C の System の中だけで終わり、ブローカー越しの書き込みやロックは要らない。
+2. 始点 `source` は別 System の Container を**ブローカー付きの ID** で書く(`http://host:8000/container/map::periodic_anchor`、`qmp://…`、`ipc://…` など、`container/pose_state`(§19.4)を呼べるブローカーなら何でもよい)。名前では書けない(名前は自分の System の中で解決する)。終点 `destination` はいつも自分の System の Container(名前か ID)。
+3. 始点の Container は相手の System に登録された Container(Anchor を含む)でなければならない。相手の System にとっても別 System の Container(相手の `ContainerProxy`)なら、相手が `container/pose_state` をエラーで返す。
+4. Transform の ID は今と同じ `transform://<source の ID>|<destination の ID>`。source はブローカー付きの ID のまま入る。
+5. **親の System で作ろうとしたとき**(conf の `transforms:` や `transform/create` で、始点が自分の Container で終点が別 System の Container): 終点の System の `transform/create` に回して作る。引数の `source` は自分の core の ID、`source_system` に自分の System の UUID を付ける。回された System は、`source_system` の UUID を自分がつないでいる System(マスターシステム・サブシステム)から探し、その BrokerProxy で source を書き換えて作る。こちらには何も残さない。戻り値は相手の profile。
+6. 回せないとき(終点の System につながっていない、相手が `source_system` を知らない)、両端とも別 System のときは `CrossSystemTransformError`。
+7. `transform/update`・`transform/destroy`・`transform/profile_full` も、ID の終点が別 System なら終点の System に回す。
+8. conf で回す Transform は、conf の `subsystems:` / マスターシステムとのつなぎが済んだ後に作る。失敗は §11 の conf の読み込みエラーと同じ扱い。
+
+### 19.3 写しの Anchor と木
+
+子の System S2 は、またぐ Transform P → C ごとに P の PoseState(Anchor B ごとの pose_B(P)、§6.1)を取り込み(§19.4)、自分の登録所に置く:
+
+- **写しの始点 P'**: P の代わりのノード。P' → C が S2 の木の Transform になる。同じ P を始点にする Transform が S2 に複数あっても P' は 1 つ。
+- **写しの Anchor B'**: P の PoseState の項目 B ごとに 1 つ。B' の木の直下の子は、PoseState に B の項目を持つすべての P' で、`pose_B'(P') = pose_B(P)`(取り込んだ値)。B' の木はそこから先、S2 の Transform を今どおりたどる。P 自身が Anchor なら(`pose_P(P)` = 単位なので)P' がそのまま P の写しの Anchor になる。
+- B' の木の値は §3.4 の計算規則のまま(根の直下の値が単位でないだけ)。S2 の Container の PoseState に B' の項目が入るので、`pose(camera0, map)` は今の規則(§7.1)のまま答えられ、S2 からさらに取り込む S3 には B' の項目も渡る(多段のつながり)。
+- 木の規則(§5.2)は B' の木にもそのまま当てはめる。取り込みで B' の木が規則を破るとき(2 つの P' から同じ Container に届くなど)は、その B' を作らず WARN を 1 回出す。木の形が変わったら検査し直す。
+- 写しの値の更新は StaticAnchor と同じく、取り込んだ値が変わったときに登録所のロックの下で計算する(§6.2)。木の stamp は**取り込んだ値の stamp**(相手の System の時計の値)のまま。
+- P'・B' への `set_pose` と、P' → C 以外の P'・B' を端点にする Transform の作成は `PoseNotWritableError` / `CrossSystemTransformError`。C 以下の `set_pose` は §7.2 のまま(P' → C の Transform を書き換えてよい)。
+- **親の System S1 は子の木を取り込まない**。S1 の登録所に S2 の Container は入らず、木の形は各 System の中で閉じる。S1 から S2 の Container の位置を読むのは §19.8 の回し方で行う。
+
+### 19.4 取り込み(子が親に取りに行く)と `container/pose_state`
+
+- S2 は始点 P ごとに取り込みのスレッドを持ち、`1 / rate` 秒ごとに相手の System の `container/pose_state` を 1 回呼ぶ。
+- `rate`(Hz、正の数、既定 10.0)と `timeout`(秒、正の数、既定 3.0)は Transform ごとに conf・`transform/create` で指定する。同じ P を始点にする Transform が複数あれば、いちばん大きい `rate` といちばん小さい `timeout` を使う。またぐ Transform でない Transform に書くと WARN を出して使わない。
+- 取り込みのスレッドは Periodic Anchor と同じく、`System::setup` の最後で始め、起動後に作ったものはすぐ始める。始めてすぐ 1 回目を取りに行く。Transform の作成は 1 回目を待たずに戻る(1 回目が届くまでは B' がないので `NoCommonAnchorError`)。
+- 通信は登録所のロックの外で行い、値を当てはめるときだけ登録所のロックを取る(§9.2 の順番は変えない)。
+- 1 回の取り込みが周期より長くかかったときは、次をすぐ始める(§4.3 と同じ)。
+
+**`container/pose_state`**(READ、相手の System が持つ API):
+
+| param(クエリ) | 内容 |
+|---|---|
+| `identifier` | P の ID か名前(必須) |
+| `since` | 前回受け取った `version`。同じなら `entries` を省く(省略可) |
+| `system` | 前回受け取った `system`(相手の UUID)。今の UUID と違えば `since` を無視する(相手が起動し直して版番号が戻ったときのため) |
+| `subscriber` | 取りに来た System の UUID(省略可、§19.10 の表示に使う) |
+| `destination` | 取りに来た System での終点の ID。複数なら繰り返す(省略可、§19.10) |
+| `timeout` | 取りに来た側の `timeout`(省略可、§19.10) |
+
+戻り値:
+
+```json
+{
+  "identifier": "core://core/container/base_a::mobile_base",
+  "system": "<相手の System の UUID>",
+  "version": 42,
+  "changed": true,
+  "entries": [
+    {
+      "anchor": "core://core/container/map::periodic_anchor",
+      "origin_system": "<Anchor を本当に持つ System の UUID>",
+      "origin_anchor": "core://core/container/map::periodic_anchor",
+      "pose": { "position": {"x": 1, "y": 0, "z": 0}, "orientation": {"x": 0, "y": 0, "z": 0.7071067811865476, "w": 0.7071067811865476} },
+      "stamp": { "sec": 1762171200, "nanosec": 0 },
+      "version": 41
+    }
+  ]
+}
+```
+
+- `version` は P の PoseState の版番号(§9.1、書くたびに増える)。`changed` が `false` なら `entries` は空で、子は計算も通知もしない。
+- `pose` は `juiz_std.geometry.Pose`、`stamp` は `juiz_std.common.Time`。
+- `anchor` は相手の System での Anchor の ID。相手が写しとして持つ Anchor(多段)なら相手の写しの ID(ブローカー付き)。`origin_system` / `origin_anchor` は、その Anchor を本当に持つ System の UUID と、その System での core の ID(多段でも変えずに運ぶ)。
+- 量は Anchor 1 つにつき Pose 1 個(JSON で 200 バイト程度)。10 Hz・Anchor 数個なら数 KB/s。
+- P が見つからない、P が相手にとっても別 System の Container のときはエラー(子からは取り込みの失敗に見える、§19.6)。
+- この API はまたぐ Transform 以外からも使ってよい(Container の PoseState を見るだけの読み出し)。
+
+### 19.5 名前と ID
+
+- **写しの Anchor の ID**: `entries[].anchor` が core の ID(相手の System の Anchor)なら、P の ID のブローカーの部分で書き換えたもの(`core://core/container/map::periodic_anchor` を `http://host:8000/container/...` から取ったなら `http://host:8000/container/map::periodic_anchor`)。ブローカー付き(相手の写し、多段)なら相手の ID の文字列のまま。
+- 写しの Anchor は (`origin_system`, `origin_anchor`) で同じものとみなす。別の P'・別の経路から同じ組が来たら同じ B'(直下の子の P' が増える)。ID は最初に取り込んだときのものを使い、B' が消えるまで変えない。
+- **写しの始点 P' の ID** は Transform の source の ID(ブローカー付き)。
+- **基準・Anchor の指定**(`pose`・`set_pose` の reference、`transformations/tree` の anchor など):
+  1. 自分の System の Container の名前・ID に当たれば、それを使う(自分が優先)。
+  2. 当たらなければ、写しの Anchor・写しの始点を探す。ID はブローカー付きの ID、または `origin_anchor`(core の ID)で探す。名前は `origin_anchor` の名前(ネームスペースつき、§5.4)で探す。
+  3. 2 で複数当たれば、名前の解決と同じくエラー。
+  4. API に `reference_system`(UUID)が付いていれば、2 は `origin_system` がその UUID のものだけを探し、1 を飛ばす(§19.8 の回し方で使う)。
+- 自分の System に同じ名前があるときに写しを指すには、写しの ID で指定する。
+- `PoseStamped.header.frame_id` は、基準が写しのときは写しの ID(ブローカー付き)。
+- **循環**: `entries` のうち `origin_system` が自分の UUID のもの(S1 → S2 → S1 と回ってきた自分の Anchor の値)は取り込まない。
+
+### 19.6 つながらなくなったとき
+
+- 取り込みに失敗しても(相手が落ちた、P が消えた、応答がエラー)、最後に取れた値を stamp つきのまま持ち続ける。読む側は stamp で古さが分かる。
+- ログ: 最初の失敗で WARN を 1 回、以降は DEBUG。つながり直したら INFO を 1 回(#301・#276 の ERROR 連発の反省)。
+- 失敗している間も取りに行き続けるが、間隔は `1 / rate` 秒と 1 秒の長い方にする。1 回の呼び出しは `timeout` を超えて待たない。
+- 最後に取れてから `timeout` 秒たっても取れなければ、その P' からの写し(B' の直下の子としての P'、ほかに子がなくなった B')を S2 のすべての PoseState から消す(§10 の Anchor の削除と同じ)。以後その基準で読むと `NoCommonAnchorError` で、理由に「相手の System(<ID>)につながらない」を入れる。**Transform は消さない**。
+- つながり直せば、次の取り込みで写しが自動で戻る(`since` は使わず全部取る)。
+- #303 の `system/remove_subsystem` で相手の System が外れたときも、その System を始点にする写しを消す(Transform は残し、取り込みは続ける)。
+- 終点 C を消せば Transform も消え(§10)、P を始点にする Transform がなくなった P' の取り込みも止める。
+
+### 19.7 Pose 通知
+
+- きっかけ(§8.1)は変えない。写しの取り込みは明示的な書き込みではないので、`on_update: true` の Pose 通知だけを呼ぶ(Anchor の更新と同じ扱い)。
+- S2 の中の `set_pose`・`transform/update`(P' → C の Transform を含む)は今どおり通知を出す。
+- S1 で P を `set_pose` しても、S2 の通知(`on_update: false`)は呼ばない。
+
+### 19.8 別 System の Container の位置を読む・書く
+
+- S1 の `container/pose`・`container/set_pose` に、`identifier` として別 System の Container(ブローカー付きの ID)を渡すと、その System の同じ API に回す。基準 R が S1 の Container なら、引数の `reference` は R の core の ID、`reference_system` に S1 の UUID を付ける。相手は §19.5 の 4 で R の写しを探す(例 A: S1 から S2 の `camera0` を `map` から見て読む)。
+- 基準 R が別 System で、C が自分の Container のときは、R の System に `pose(R, C)`(C は core の ID と自分の UUID)を頼み、逆(§3.3)にして返す。`set_pose` はこの形では回さない(`CrossSystemTransformError`。書き込みは C を持つ System で、C の基準を指定して行う)。
+- 回した先で写しが見つからなければ `NoCommonAnchorError`。基準に使えるのは、回した先が写しとして持つ Container(写しの Anchor・写しの始点)だけで、相手の System のほかの Container は基準にできない。
+- 例 B のように子同士(S2 と S3)で読むときも同じ。S2 から S3 の `robot2/base` を S2 の `robot1/camera` から見て読みたければ、S2 で `pose(robot1/camera, world)`、S3 で `pose(robot2/base, world)` を取り、§3.4 で合成する(共通の写しの Anchor `world` を介する)。この合成を API でまとめるかは Step 2(#415)で決める。
+- Rust の `ContainerProxy`・pyjuiz の `ContainerProxy.pose` も同じ規則で回す。
+
+### 19.9 変えないもの
+
+- Python・C ABI・Haskell の `pose` / `set_pose` の形は変えない。基準に写しの Anchor の名前や ID を指定できるようになるだけ。
+- ロックの順番(§9.2)・Anchor の更新の手順(§6.2)・Pose 通知のきっかけ(§8.1)は変えない。
+- conf の形は、`transforms:` の項目に `rate` / `timeout` が増えるだけ。
+
+```yaml
+# S2(子、ロボット)の conf
+transforms:
+  - source: http://127.0.0.1:8000/container/map::periodic_anchor   # S1 の map
+    destination: odom
+    rate: 10.0       # 省略時 10.0
+    timeout: 3.0     # 省略時 3.0
+  - source: odom
+    destination: base0
+```
+
+```yaml
+# S1(親、地図)の conf で書いてもよい。S2 の transform/create に回る(§19.2 の 5)
+subsystems:
+  - ...                                                             # S2 とつないでおく
+transforms:
+  - source: map
+    destination: http://127.0.0.1:8001/container/odom::static_anchor
+```
+
+### 19.10 API・CLI・管理画面の差分
+
+API(§13.1 への追加。細かい形は Step 2、#415 で決める):
+
+| 種類 | クラス / 関数 | 追加 |
+|---|---|---|
+| read | `container/pose_state` | 新しい API(§19.4) |
+| create | `transform/create` | 引数 `rate`・`timeout`・`source_system`。終点が別 System なら回す(§19.2) |
+| read | `transform/profile_full` | またぐ Transform に `remote: {system, rate, timeout, state, last_success}` を足す。`state` は `ok`(取れている)/ `stale`(失敗中、`timeout` 前)/ `lost`(写しを消した) |
+| read | `container/pose` / update `container/set_pose` | 引数 `reference_system`。`identifier` が別 System なら回す(§19.8) |
+| read | `anchor/list` | 写しの Anchor の ID も入れる |
+| read | `transformations/tree` | `anchor` に写しの Anchor・写しの始点を指定できる |
+| update | `anchor/update` | 写しの Anchor を指定したら、その写しの始点すべての取り込みをその場で 1 回行う(明示要求、§4.4 の 3 と同じ位置づけ) |
+| read | `container/profile_full` | 写しを取りに来ている System があれば `remote_children: [{system, destinations, last_access}]`。最後の `container/pose_state` から、そのとき渡された `timeout`(なければ 3.0 秒)を過ぎたら消す |
+
+CLI(§13.2 への追加): `juiz transform create` に `--rate`・`--timeout`、`juiz transform list --long` でまたぐ Transform に `(remote: ok | stale | lost)`、`juiz container pose-state <id>`。名前は Step 2 で決める。
+
+管理画面(§13.3 への追加、Step 3、#416):
+
+- 子の System: 写しの Anchor・写しの始点を、Anchor の木の中に「写し」の印で出す(Container ではないので容器の一覧には出さない)。またぐ Transform に状態(`ok` / `stale` / `lost`)を出す。
+- 親の System: 子の木は出さない。`remote_children` がある容器に「別 System の子あり」の印だけを出す。
+- 副系の容器への表示(§13.3 の「最上位の系だけ」)を広げるかは Step 3 で決める。
+
+### 19.11 範囲の外
+
+- 親が子へ変化のたびに送る push(Topic の転送と同じ形)。最初は pull だけにし、遅れが問題になったら足す。
+- System 間の時計合わせ。stamp は相手の System の時計の値をそのまま持つ。
+- 過去の時刻の問い合わせ(§15 と同じ)。
+- 親の System で子の木全体を組むこと(管理画面の印だけ)。
+- 相手の System の、写しになっていない Container を基準にすること(§19.8)。
