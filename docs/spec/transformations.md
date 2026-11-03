@@ -367,7 +367,29 @@ fn mobile_base_update(c: &mut ContainerImpl<MobileBase>, odom: Value) -> JuizRes
 
 ### 12.2 Python
 
-ContainerProcess の第 1 引数(利用者のオブジェクト)からたどれる口で読み書きする。例 `juiz.pose(self, "map")`、`juiz.set_pose(self, "map", p)`。値は `juiz_std.geometry.PoseStamped` / `Pose`(辞書も受け付ける)。形は Step 4(#371)で決める。
+ContainerProcess の第 1 引数(利用者のオブジェクト)からたどれる口で読み書きする。
+
+```python
+from juiz import juiz_container_process, pose, set_pose
+from juiz_std.geometry import PoseStamped
+
+@juiz_container_process(container_type="mobile_base")
+def mobile_base_update(base, dx: float = 0.0) -> PoseStamped:
+    p = pose(base, "map")                  # map から見た base の ContainerPose (PoseStamped)
+    p.pose.position.x += dx
+    return set_pose(base, "map", p.pose)   # 親 → base の Transform を書き換え、書いた後の値を返す
+```
+
+Step 4(#371)で決めたこと:
+
+- 関数は pyjuiz の `juiz.pose(container, reference)`(読む)と `juiz.set_pose(container, reference, value)`(書く)。読み出しと書き込みは別の関数(§14)。`juiz/transformations.py`。
+- 口: ホストは Python の Container を作ったとき(`load_container_factory` の constructor)、利用者のオブジェクトに属性 `__juiz_pose__` としてホストの `ContainerPoseHandle` の包み(PyO3 のクラス `juiz.ContainerPoseHandle`、`juiz_core/src/plugin/python/pose.rs`)を付ける。`juiz.pose` はこの属性を通して呼ぶので、ContainerProcess の中だけでなく、同じオブジェクトを持っていればどこからでも呼べる。pip 版(juiz-cli)と埋め込み版で同じ仕組み(どちらもホストの juiz_core が付ける)。
+- 属性を付けられないオブジェクト(`__slots__` を持つクラス、dict などの組み込みの型)では WARN を出して付けず、`juiz.pose` は `TransformationsNotAttachedError` になる。Container の constructor は普通のクラスのオブジェクトを返すこと。
+- `reference` は Container の名前か ID の文字列。`identifier()` を持つもの(ContainerProxy など)も受け付ける。
+- 戻り値はどちらも `juiz_std.geometry.PoseStamped`(型の値)。`set_pose` の `value` は `Pose`・`PoseStamped`・それぞれの辞書を受け付ける。`PoseStamped` は `pose` だけを使い、`header` は見ない(基準はいつも `reference`)。
+- ホストと pyjuiz の間は辞書で行き来する。ホストは登録所を呼ぶ間 GIL を手放す(Pose 通知の受け手が Python の Process でも、そのスレッドで GIL を取り直して呼ぶ)。
+- エラーは §17 の名前の例外: `juiz.NoCommonAnchorError`・`PoseNotWritableError`・`InvalidPoseValueError`・`TransformationsNotAttachedError`、基底は `juiz.TransformationsError`(`RuntimeError` の子、`kind` に種類の名前)。ホストは `RuntimeError(種類, メッセージ)` を投げ、pyjuiz が振り分ける。
+- あわせて、Python の Container の Factory だけを読むときにも `pythonpath` を足すようにした(以前は ContainerProcess を先に読んでいないと `import juiz` できなかった)。
 
 ### 12.3 C ABI(C++・Haskell・Rust C ABI プラグイン)
 

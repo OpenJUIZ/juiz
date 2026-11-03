@@ -58,3 +58,7 @@ jobs:
       - name: Run pyjuiz standard types test
         working-directory: bindings/pyjuiz
         run: python test/std_types_test.py
+
+      - name: Run pyjuiz transformations test
+        working-directory: bindings/pyjuiz
+        run: python test/transformations_test.py

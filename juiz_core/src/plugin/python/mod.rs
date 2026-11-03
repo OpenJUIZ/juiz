@@ -1,5 +1,8 @@
 #[cfg(feature = "python")]
 mod python_plugin;
+// ContainerProcess から ContainerPose を読み書きする口 (#371)
+#[cfg(feature = "python")]
+mod pose;
 //mod python_process_factory_impl;
 //mod python_container_factory_impl;
 //mod python_container_process_factory_impl;
