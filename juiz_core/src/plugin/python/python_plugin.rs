@@ -458,6 +458,8 @@ if not r"{path_str:}" in sys.path:
         type_name_opt: Option<&str>,
     ) -> JuizResult<ContainerFactoryPtr> {
         log::trace!("【呼出】PythonPlugin({:?})::load_container_factory(symbol_name='{symbol_name}') called", self.path);
+        // Container の Factory だけを読むときも pythonpath を足す (先に ContainerProcess を読んでいなくても import juiz できるように)
+        self.init_path(working_dir.clone())?;
 
         let type_name = match type_name_opt {
             Some(v) => v,
@@ -498,10 +500,12 @@ if not r"{path_str:}" in sys.path:
                     //return_value
                     pyfunc2.call1(py, PyTuple::new(py, v)?)
                 })?;
-                Ok(ContainerPtr::new(ContainerImpl::new(
-                    cm,
-                    Box::new(PythonContainerStruct { pyobj }),
-                )?))
+                let container = ContainerImpl::new(cm, Box::new(PythonContainerStruct { pyobj }))?;
+                // ContainerProcess の第 1 引数 (利用者のオブジェクト) から ContainerPose にたどれるようにする (#371)
+                Python::attach(|py| {
+                    super::pose::attach_pose_handle(py, &container.t.pyobj, container.pose_handle())
+                });
+                Ok(ContainerPtr::new(container))
             };
 
         container_factory_create(serde_json::from_value(manifest)?, Arc::new(constructor))
@@ -673,7 +677,7 @@ fn valueobj_to_pyany(py: Python, map: &Map<String, Value>) -> Py<PyAny> {
         .unwrap()
 }
 
-fn value_to_pyany(py: Python, value: &Value) -> Py<PyAny> {
+pub(super) fn value_to_pyany(py: Python, value: &Value) -> Py<PyAny> {
     if value.is_i64() {
         return (value.as_i64().unwrap()).into_py_any(py).unwrap();
     } else if value.is_f64() {

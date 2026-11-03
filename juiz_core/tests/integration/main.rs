@@ -66,6 +66,7 @@ mod python_datatype_test;
 mod python_example_conf_test;
 mod python_plugin_path_test;
 mod python_plugin_test;
+mod python_transformations_test;
 mod rust_abi_bench;
 mod rust_cabi_entry_test;
 mod rust_cabi_load_test;
