@@ -22,6 +22,7 @@ mod container_identifier;
 mod output_profile;
 mod topic_manifest;
 mod topic_profile;
+mod transformations_manifest;
 
 pub use argument_manifest::ArgumentManifest;
 pub use argument_profile::ArgumentProfile;
@@ -44,3 +45,8 @@ pub use process_manifest::ProcessManifest;
 pub use process_profile::ProcessProfile;
 pub use topic_manifest::TopicManifest;
 pub use topic_profile::TopicProfile;
+pub use transformations_manifest::{
+    is_anchor_type_name, pose_listener_identifier, transform_identifier, AnchorKind,
+    AnchorManifest, PoseListenerManifest, TransformManifest, DEFAULT_ANCHOR_RATE,
+    PERIODIC_ANCHOR_TYPE_NAME, STATIC_ANCHOR_TYPE_NAME,
+};

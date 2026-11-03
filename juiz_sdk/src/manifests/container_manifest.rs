@@ -52,6 +52,10 @@ pub struct ContainerManifest {
     pub broker_type_name: String,
     #[serde(default = "default_broker_name")]
     pub broker_name: String,
+    /// Anchor (`periodic_anchor`) の更新の周期 [Hz]。Anchor 以外では使わない
+    /// (docs/spec/transformations.md §4.3、[`AnchorManifest`](super::AnchorManifest))
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rate: Option<f64>,
 }
 
 impl Display for ContainerManifest {
@@ -93,6 +97,7 @@ impl ContainerManifest {
             arguments: Vec::new(),
             broker_name: "core".to_owned(),
             broker_type_name: "core".to_owned(),
+            rate: None,
         }
     }
 
@@ -111,6 +116,7 @@ impl ContainerManifest {
             arguments: Vec::new(),
             broker_name: self.broker_name.clone(),
             broker_type_name: self.broker_type_name.clone(),
+            rate: None,
         }
     }
 
@@ -154,6 +160,18 @@ impl ContainerManifest {
         );
         // println!("cm: {}", self);
         self
+    }
+
+    /// Anchor の更新の周期 [Hz] を設定する (`periodic_anchor` 用)
+    pub fn rate(mut self, rate: f64) -> Self {
+        self.rate = Some(rate);
+        self
+    }
+
+    /// Anchor の Container なら、その設定 ([`AnchorManifest`](super::AnchorManifest))。
+    /// Anchor でなければ `None`。設定の不備はエラー
+    pub fn anchor_manifest(&self) -> JuizResult<Option<super::AnchorManifest>> {
+        super::AnchorManifest::from_container_manifest(self)
     }
 
     pub fn factory(mut self, factory: &str) -> Self {

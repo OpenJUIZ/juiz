@@ -254,7 +254,16 @@ Pose 通知で呼ばれた Process の中でまた `set_pose` すると、その
 
 - PoseState(§6.1)は `Arc<RwLock<PoseState>>` に入れ、`ContainerImpl` と `ContainerPtr` の両方から同じものを指す。ホスト側の他言語の Container(`ContainerImpl<PythonContainerStruct>` など)にも同じく付くので、全言語の Container が ContainerPose を持つ。
 - Transform の一覧・木の形・各 Anchor の reach・Pose 通知の登録は System の **Transformations 登録所**が持つ。
-- Container は System に登録されたときに登録所への口を受け取る。登録されていない Container の `pose` / `set_pose` はエラー。
+- Container は System に登録されたときに登録所への口を受け取る。登録されていない Container の `pose` / `set_pose` はエラー(`TransformationsNotAttachedError`)。
+
+Step 1(#368)で決めた SDK の形(`juiz_sdk::transformations`):
+
+- `PoseState`: Anchor の ID → `PoseEntry { pose, stamp, version }`。版番号は PoseState ごとに書くたびに増える。`PoseStatePtr = Arc<RwLock<PoseState>>`。
+- `TransformationsRegistry`(trait、`Send + Sync`): `pose(&ContainerIdentifier, reference)` と `set_pose(&ContainerIdentifier, reference, &Pose)`。core の登録所(Step 2)が実装する。計算規則(§7)はすべて実装側の責任。
+- `ContainerPoseHandle`: Container ごとの PoseState と登録所への口の組。`ContainerImpl::new` が作り、`Container::pose_handle()`(trait の必須メソッド)で取り出せる。`ContainerPtr::new` はこれを受け取って持つので、`ContainerPtr::pose` / `set_pose` / `pose_state` / `attach_transformations` / `detach_transformations` は Container のロックを取らない。登録所は循環しないよう `Weak` で持つ(登録所が消えれば `TransformationsNotAttachedError`)。`detach` は PoseState も空にする。
+- `ContainerPtr` は `Send` でない(`dyn Container` が `Send` でない)ので、Periodic Anchor のスレッドから使う登録所は `ContainerPtr` ではなく `ContainerPoseHandle`(`Send + Sync`)を持つ。
+- 読み出しだけの口 `ContainerPoseReader`(`pose`・`entry` だけを持つ)を `pose_reader()` で取り出せる(§14)。
+- 別 System の Container(`ContainerProxy`)も口を持つが、登録所にはつながない(§15)。
 
 ### 9.2 ロックの順番
 
@@ -305,6 +314,10 @@ pose_listeners:
 ```
 
 - `transforms:` の `translation` / `rotation` は省略時それぞれ 0 と回転なし。辞書のキーは `juiz_std.geometry.Transform` と同じ。
+- SDK の manifest(Step 1、`juiz_sdk::manifests`):
+  - Anchor の `rate` は `ContainerManifest.rate: Option<f64>`(Anchor 以外では使わず、`None` なら直列化しない)。`ContainerManifest::anchor_manifest()` が `AnchorManifest { kind: AnchorKind, rate: Option<f64> }` を返す(Anchor でなければ `None`)。§4.3 の既定値と検査、§4.1 の `processes:` の禁止はここで行い、不備は `ContainerManifestInvalidError`。Static に `rate` を書くと WARN を出して使わない。`AnchorManifest::to_profile_value()` が §4.1 の `anchor` の値を返す。定数 `PERIODIC_ANCHOR_TYPE_NAME`・`STATIC_ANCHOR_TYPE_NAME`・`DEFAULT_ANCHOR_RATE`。
+  - `TransformManifest { source, destination, translation, rotation }`、`PoseListenerManifest { container, process, arg, reference, on_update }`。`list_from_conf(&conf)` で conf 全体から `transforms:` / `pose_listeners:` を読む(なければ空)。1 項目だけで分かる不備(端点が空・同じ名前、`on_update` で `reference` なし など)はここで検査し、名前の解決・木の規則・引数の型は core(Step 2)が検査する。Transform の回転はここで正規化する。
+  - ID は `transform_identifier(src, dst)`・`pose_listener_identifier(x, y, arg)` で作る。
 - `transforms:` は `containers:` の後、`pose_listeners:` は `processes:`・`containers:` の後に読む。
 - 名前の解決は §5.4。
 - `transforms:` の端点が見つからない、木の規則(§5.2)を破る、`pose_listeners:` の Process が見つからない、はどれも conf の読み込みエラーとする(他のエラーと同じく ERROR を出す。起動を止めるかは他の conf のエラーと同じ扱い)。
@@ -324,7 +337,18 @@ fn mobile_base_update(c: &mut ContainerImpl<MobileBase>, odom: Value) -> JuizRes
 ```
 
 - 読む口は `&self`、書く口は `&mut self` のメソッドにする(§14)。
-- 値の型は `juiz_sdk::geometry` を f64 で整理し直したもの(合成・逆・正規化を持つ)。`juiz_std_types` の型とは辞書で行き来できる(`juiz_sdk` は `juiz_std_types` に依存できないため)。名前の詳細は Step 1(#368)で決める。
+- 値の型は `juiz_sdk::geometry`(Step 1、#368 で f64 に作り直した。nalgebra・quaternion-core への依存はやめた):
+
+  | 型 | juiz_std の型 | 主なメソッド |
+  |---|---|---|
+  | `Vector3`(別名 `Point3D`) | `Vector3` / `Point3D` | `+` `-`、`dot`・`cross`・`norm` |
+  | `Quaternion` | `Quaternion` | `identity`・`from_axis_angle`・`from_rpy` / `to_rpy`(ROS の RPY)・`normalized`・`inverse`・`rotate`・`angle_to`、`*` はハミルトン積 |
+  | `Transform` | `Transform` | `identity`・`compose`(`*`)・`inverse`・`transform_point`・`normalized`・`approx_eq` |
+  | `Pose` | `Pose` | `Transform` と同じ計算。`relative(&other)` は `self⁻¹ ∘ other`(`pose_R(C)` の計算)。`Pose * Transform` は `Pose` |
+  | `Time`・`Header`・`PoseStamped`・`TransformStamped` | `juiz_std.common.Time`・`Header`、`PoseStamped`・`TransformStamped` | `Time::now()`、`PoseStamped::reference()`(= `header.frame_id`) |
+
+  どれも `Value`(辞書)・`Capsule` と `From` / `TryFrom` で行き来できる。足りないキーは juiz_std の既定値で埋め、形が違えば `DataConversionError`。`juiz_std_types` の型とはこの辞書で行き来する(`juiz_sdk` は `juiz_std_types` に依存できないため)。geometry の型は prelude に入れない(`juiz_std_types` の同名の型とぶつかるため)。
+- `ContainerImpl<S>` のメソッド: `pose(&self, reference: &str) -> JuizResult<PoseStamped>`、`set_pose(&mut self, reference: &str, pose: Pose) -> JuizResult<PoseStamped>`、`pose_reader(&self)`(読み出しだけの口)、`pose_state(&self)`。`set_pose` は値を正規化してから登録所に渡す(不正な値は登録所に届く前に `InvalidPoseValueError`)。
 
 ### 12.2 Python
 
@@ -415,7 +439,7 @@ Anchor ごとの木と、各 Container の Pose の数値を表示する。3D �
 | `TransformNotFoundError` | 指定の Transform がない |
 | `PoseListenerError` | Pose 通知の登録の不備(引数・型・二重登録) |
 
-名前は Step 1・2 で `JuizError` に足すときに合わせてよい。
+Step 1 で上の名前のまま `JuizError` に足した。あわせて `TransformManifestInvalidError`(`transforms:` の 1 項目の不備)と `TransformationsNotAttachedError`(登録所につながっていない Container の読み書き、§9.1)を足した。
 
 ## 18. Step と担当する節
 
