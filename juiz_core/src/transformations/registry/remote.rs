@@ -59,6 +59,14 @@ pub(super) struct ReplicaAnchor {
     pub children: BTreeSet<String>,
 }
 
+/// Container の PoseState を取りに来ている別 System (`container/profile_full` の `remote_children`、§19.10)
+pub(super) struct Subscriber {
+    destinations: Vec<String>,
+    last_access: Instant,
+    last_access_time: Time,
+    timeout: f64,
+}
+
 /// つながらなくなって消した写しの Anchor (§19.6 のエラー文用)
 pub(super) struct LostAnchor {
     pub origin: ContainerIdentifier,
@@ -253,6 +261,43 @@ impl Inner {
             .collect::<Vec<String>>();
         match found.len() {
             0 => Err(not_found(reference)),
+            1 => Ok(found.into_iter().next().unwrap()),
+            _ => Err(anyhow!(JuizError::InvalidValueError {
+                message: format!(
+                    "Replica name '{reference}' is ambiguous ({found:?}). Use the identifier instead."
+                ),
+            })),
+        }
+    }
+
+    /// 写しのうち、相手の System が `system` (UUID) のものだけから探す (§19.5 の 4)。
+    /// 自分の System の Container は探さない
+    pub(super) fn resolve_in_system(
+        &self,
+        reference: &str,
+        namespace: &str,
+        system: &str,
+    ) -> JuizResult<String> {
+        let found = self
+            .nodes
+            .iter()
+            .filter(|(_, n)| {
+                n.remote.as_ref().is_some_and(|r| {
+                    r.origin_system.as_deref() == Some(system)
+                        && matches_origin(&r.origin, reference, namespace)
+                })
+            })
+            .map(|(k, _)| k.clone())
+            .collect::<Vec<String>>();
+        match found.len() {
+            0 => Err(anyhow!(JuizError::NoCommonAnchorError {
+                container: reference.to_owned(),
+                reference: reference.to_owned(),
+            })
+            .context(format!(
+                "this System has no replica of Container({reference}) of the System (uuid={system}). \
+                 Only the Containers imported as replicas can be the reference (§19.8)."
+            ))),
             1 => Ok(found.into_iter().next().unwrap()),
             _ => Err(anyhow!(JuizError::InvalidValueError {
                 message: format!(
@@ -769,8 +814,49 @@ impl Inner {
         })
     }
 
+    /// 取りに来た System を覚える (§19.10 の `remote_children`)
+    fn record_subscriber(&mut self, id: &str, query: &PoseStateQuery) {
+        let Some(uuid) = query.subscriber.as_ref() else {
+            return;
+        };
+        let timeout = query
+            .timeout
+            .filter(|t| t.is_finite() && *t > 0.0)
+            .unwrap_or(juiz_sdk::manifests::DEFAULT_REMOTE_TIMEOUT);
+        self.subscribers.entry(id.to_owned()).or_default().insert(
+            uuid.clone(),
+            Subscriber {
+                destinations: query.destination.clone(),
+                last_access: Instant::now(),
+                last_access_time: Time::now(),
+                timeout,
+            },
+        );
+    }
+
+    /// `container/profile_full` の `remote_children` (§19.10)。最後に来てから timeout を過ぎたものは消す
+    fn remote_children(&mut self, id: &str) -> Option<Value> {
+        let subs = self.subscribers.get_mut(id)?;
+        subs.retain(|_, s| s.last_access.elapsed().as_secs_f64() < s.timeout);
+        if subs.is_empty() {
+            self.subscribers.remove(id);
+            return None;
+        }
+        Some(Value::Array(
+            subs.iter()
+                .map(|(uuid, s)| {
+                    jvalue!({
+                        "system": uuid,
+                        "destinations": s.destinations,
+                        "last_access": Value::from(s.last_access_time),
+                    })
+                })
+                .collect(),
+        ))
+    }
+
     /// `container/pose_state` (§19.4)
-    fn pose_state(&self, query: &PoseStateQuery, namespace: &str) -> JuizResult<Value> {
+    fn pose_state(&mut self, query: &PoseStateQuery, namespace: &str) -> JuizResult<Value> {
         let id = self.resolve(&query.identifier, namespace)?;
         let node = self.node(&id)?;
         if node.is_remote() {
@@ -778,7 +864,9 @@ impl Inner {
                 "Container ({id}) is a replica of a Container of another System. Ask that System."
             )));
         }
-        let state = node.handle.state();
+        let handle = node.handle.clone();
+        self.record_subscriber(&id, query);
+        let state = handle.state();
         let state = state.read().map_err(|_| super::lock_error())?;
         let version = state.last_version();
         let same_system = query
@@ -831,9 +919,58 @@ impl Transformations {
         Ok(())
     }
 
-    /// `container/pose_state` (§19.4)。Container `query.identifier` の PoseState を版番号つきで返す
+    /// `container/pose_state` (§19.4)。Container `query.identifier` の PoseState を版番号つきで返す。
+    /// `query.subscriber` があれば、取りに来た System として覚える (§19.10)
     pub fn pose_state(&self, query: &PoseStateQuery, namespace: &str) -> JuizResult<Value> {
         self.lock()?.pose_state(query, namespace)
+    }
+
+    /// Container `identifier` (core の ID) の写しを取りに来ている System の一覧 (§19.10)。いなければ `None`
+    pub fn remote_children(&self, identifier: &str) -> JuizResult<Option<Value>> {
+        Ok(self.lock()?.remote_children(identifier))
+    }
+
+    /// 自分の System の Container の名前か ID を core の ID にする (§19.2 の 5 で回すときの始点)
+    pub fn resolve_local_id(&self, reference: &str, namespace: &str) -> JuizResult<String> {
+        self.lock()?.resolve_local(reference, namespace)
+    }
+
+    /// 名前か ID が、自分の System の Container か写しに当たるか (§19.5 の 1・2)
+    pub fn knows(&self, reference: &str, namespace: &str) -> JuizResult<bool> {
+        Ok(self.lock()?.resolve(reference, namespace).is_ok())
+    }
+
+    /// [`Transformations::pose_by_name`] の、基準 `reference` を System `system` の写しだけから探すもの (§19.8)
+    pub fn pose_by_name_from_system(
+        &self,
+        container: &str,
+        reference: &str,
+        namespace: &str,
+        system: &str,
+    ) -> JuizResult<juiz_sdk::geometry::PoseStamped> {
+        let inner = self.lock()?;
+        let c = inner.resolve(container, namespace)?;
+        let r = inner.resolve_in_system(reference, namespace, system)?;
+        inner.pose_explained(&c, &r, namespace)
+    }
+
+    /// [`Transformations::set_pose_by_name`] の、基準 `reference` を System `system` の写しだけから探すもの (§19.8)
+    pub fn set_pose_by_name_from_system(
+        &self,
+        container: &str,
+        reference: &str,
+        namespace: &str,
+        system: &str,
+        pose: &Pose,
+    ) -> JuizResult<juiz_sdk::geometry::PoseStamped> {
+        let (c, r) = {
+            let inner = self.lock()?;
+            (
+                inner.resolve(container, namespace)?,
+                inner.resolve_in_system(reference, namespace, system)?,
+            )
+        };
+        self.set_pose_ids(&c, &r, pose)
     }
 
     /// `system/remove_subsystem` で System `uuid` が外れたとき、その System からの写しを消す (§19.6)。
@@ -958,6 +1095,17 @@ impl Transformations {
         let mut query = PoseStateQuery::new(&src.origin.to_string());
         query.since = src.last_version;
         query.system = src.remote_system.clone();
+        // 相手の `remote_children` に出る (§19.10)
+        if !inner.system_uuid.is_empty() {
+            query.subscriber = Some(inner.system_uuid.clone());
+        }
+        query.destination = inner
+            .transforms
+            .values()
+            .filter(|t| !t.imported && t.source == p)
+            .map(|t| t.destination.clone())
+            .collect();
+        query.timeout = Some(src.timeout);
         Some(ImportRequest {
             source: src.identifier.clone(),
             query,

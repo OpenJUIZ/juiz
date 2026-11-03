@@ -181,6 +181,10 @@ pub struct TransformManifest {
     /// 省略時 [`DEFAULT_REMOTE_TIMEOUT`]。またぐ Transform でなければ使わない (WARN)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<f64>,
+    /// 別 System から回された作成 (§19.2 の 5) のとき、始点の Container を持つ System の UUID。
+    /// `source` はその System での core の ID で、受けた System がその System へのブローカーで書き換える
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_system: Option<String>,
 }
 
 impl TransformManifest {
@@ -192,6 +196,7 @@ impl TransformManifest {
             rotation: Quaternion::identity(),
             rate: None,
             timeout: None,
+            source_system: None,
         }
     }
 

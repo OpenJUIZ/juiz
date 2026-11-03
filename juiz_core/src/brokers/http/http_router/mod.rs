@@ -88,6 +88,35 @@ pub struct FullQuery {
     reference: Option<String>,
     /// Transformations の Anchor (`transformations/tree`、issue #370)
     anchor: Option<String>,
+    /// `container/pose_state` の前回の版番号・相手の UUID (transformations.md §19.4)
+    since: Option<String>,
+    system: Option<String>,
+    /// `container/pose_state` を取りに来た System の UUID・終点 (`,` 区切り)・timeout (§19.10)
+    subscriber: Option<String>,
+    destination: Option<String>,
+    timeout: Option<String>,
+    /// 基準を写しから探す System の UUID (`container/pose`・`set_pose`、§19.8)
+    reference_system: Option<String>,
+    /// 回された Transform の始点の System の UUID (`transform/*`、§19.2 の 7)
+    source_system: Option<String>,
+}
+
+impl FullQuery {
+    /// Transformations の、そのまま param に渡す値 (§19)
+    pub(crate) fn transformations_params(&self) -> Vec<(&'static str, String)> {
+        [
+            ("since", &self.since),
+            ("system", &self.system),
+            ("subscriber", &self.subscriber),
+            ("destination", &self.destination),
+            ("timeout", &self.timeout),
+            ("reference_system", &self.reference_system),
+            ("source_system", &self.source_system),
+        ]
+        .into_iter()
+        .filter_map(|(k, v)| v.clone().map(|v| (k, v)))
+        .collect()
+    }
 }
 
 pub fn full_query_to_map(query: &Query<FullQuery>) -> HashMap<String, String> {
@@ -133,6 +162,9 @@ pub fn full_query_to_map(query: &Query<FullQuery>) -> HashMap<String, String> {
     }
     if let Some(v) = query.anchor.clone() {
         map.insert("anchor".to_owned(), v);
+    }
+    for (k, v) in query.transformations_params() {
+        map.insert(k.to_owned(), v);
     }
     map
 }

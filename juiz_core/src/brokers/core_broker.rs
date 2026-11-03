@@ -25,6 +25,9 @@ use crate::core::CoreWorker;
 use crate::core::SubSystemProxy;
 use crate::core::SystemStorePtr;
 
+mod cross_system;
+pub(crate) use cross_system::remote_container_id;
+
 #[allow(unused)]
 // #[derive(Debug)]
 pub struct CoreBroker {
@@ -1074,7 +1077,10 @@ impl ContainerBrokerProxy for CoreBroker {
     fn container_profile_full(&self, id: &ContainerIdentifier) -> JuizResult<ContainerProfile> {
         let store = self.worker().store();
         let container = store.containers.get(&id.to_string())?;
-        store.container_profile(&container)
+        let mut profile = store.container_profile(&container)?;
+        // 写しを取りに来ている別 System (transformations.md §19.10)
+        profile.remote_children = self.transformations().remote_children(&id.to_string())?;
+        Ok(profile)
     }
 
     fn container_list(
@@ -1725,8 +1731,13 @@ impl TypeBrokerProxy for CoreBroker {
 
 /// Transformations の API (issue #370)。名前は根のネームスペースから解決する
 impl TransformationsBrokerProxy for CoreBroker {
-    fn container_pose(&self, identifier: &str, reference: &str) -> JuizResult<PoseStamped> {
-        self.transformations().pose_by_name(identifier, reference, "")
+    fn container_pose_from_system(
+        &self,
+        identifier: &str,
+        reference: &str,
+        reference_system: Option<&str>,
+    ) -> JuizResult<PoseStamped> {
+        self.pose_across(identifier, reference, reference_system)
     }
 
     fn container_pose_state(
@@ -1736,51 +1747,67 @@ impl TransformationsBrokerProxy for CoreBroker {
         self.transformations().pose_state(query, "")
     }
 
-    fn container_set_pose(
+    fn container_set_pose_from_system(
         &self,
         identifier: &str,
         reference: &str,
+        reference_system: Option<&str>,
         pose: &Pose,
     ) -> JuizResult<PoseStamped> {
-        log::trace!("【呼出】container_set_pose({identifier}, {reference}, {pose:?})");
-        self.transformations()
-            .set_pose_by_name(identifier, reference, "", pose)
+        log::trace!("【呼出】container_set_pose({identifier}, {reference}, {reference_system:?}, {pose:?})");
+        self.set_pose_across(identifier, reference, reference_system, pose)
     }
 
     fn transform_list(&self) -> JuizResult<Vec<String>> {
         self.transformations().transform_list()
     }
 
-    fn transform_profile_full(&self, identifier: &str) -> JuizResult<Value> {
-        self.transformations().transform_profile(identifier)
+    fn transform_profile_full_from_system(
+        &self,
+        identifier: &str,
+        source_system: Option<&str>,
+    ) -> JuizResult<Value> {
+        self.with_transform(
+            identifier,
+            source_system,
+            |t, id| t.transform_profile(id),
+            |bp, id, uuid| bp.transform_profile_full_from_system(id, Some(uuid)),
+        )
     }
 
     fn transform_create(&self, manifest: &TransformManifest) -> JuizResult<Value> {
         log::trace!("【呼出】transform_create({manifest:?})");
-        let mut profiles = self
-            .transformations()
-            .create_transforms(std::slice::from_ref(manifest), "")?;
-        profiles.pop().ok_or_else(|| {
-            anyhow!(JuizError::InvalidValueError {
-                message: "transform_create created nothing".to_owned()
-            })
-        })
+        self.transform_create_in(manifest, "")
     }
 
-    fn transform_update(
+    fn transform_update_from_system(
         &self,
         identifier: &str,
+        source_system: Option<&str>,
         translation: Option<Vector3>,
         rotation: Option<Quaternion>,
     ) -> JuizResult<Value> {
-        log::trace!("【呼出】transform_update({identifier}, {translation:?}, {rotation:?})");
-        self.transformations()
-            .update_transform(identifier, translation, rotation)
+        log::trace!("【呼出】transform_update({identifier}, {source_system:?}, {translation:?}, {rotation:?})");
+        self.with_transform(
+            identifier,
+            source_system,
+            |t, id| t.update_transform(id, translation, rotation),
+            |bp, id, uuid| bp.transform_update_from_system(id, Some(uuid), translation, rotation),
+        )
     }
 
-    fn transform_destroy(&self, identifier: &str) -> JuizResult<Value> {
-        log::trace!("【呼出】transform_destroy({identifier})");
-        self.transformations().destroy_transform(identifier)
+    fn transform_destroy_from_system(
+        &self,
+        identifier: &str,
+        source_system: Option<&str>,
+    ) -> JuizResult<Value> {
+        log::trace!("【呼出】transform_destroy({identifier}, {source_system:?})");
+        self.with_transform(
+            identifier,
+            source_system,
+            |t, id| t.destroy_transform(id),
+            |bp, id, uuid| bp.transform_destroy_from_system(id, Some(uuid)),
+        )
     }
 
     fn anchor_list(&self) -> JuizResult<Vec<String>> {

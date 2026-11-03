@@ -114,7 +114,16 @@ fn construct_url(
     if param.len() == 0 {
         return url;
     }
-    let m = param.iter().map(|(k, v)| construct_param(k, v));
+    // container/pose・set_pose の identifier は別 System の Container (ブローカー付きの ID) でもよいので書き換えない。
+    // このサーバー自身を指す ID はサーバー側で core の ID に直す (localize_identifier、transformations.md §19.8)
+    let keep_identifier = class_name == "container" && matches!(function_name, "pose" | "set_pose");
+    let m = param.iter().map(|(k, v)| {
+        if keep_identifier && k == "identifier" {
+            k.clone() + "=" + v.as_str()
+        } else {
+            construct_param(k, v)
+        }
+    });
     return url + "?" + m.collect::<Vec<String>>().join("&").as_str();
 }
 

@@ -128,6 +128,10 @@ fn construct_capsule_map(
         let host = headers.get("host").and_then(|h| h.to_str().ok());
         capsule_map.set_param("anchor", localize_identifier(v.as_str(), "http", host).as_str());
     }
+    // System をまたぐ Transform (transformations.md §19)。UUID・版番号などなので書き換えない
+    for (k, v) in query.transformations_params() {
+        capsule_map.set_param(k, v.as_str());
+    }
     // println!("HEADER>>>> {headers:?}");
     match headers.get("host") {
         Some(header) => match header.to_str() {

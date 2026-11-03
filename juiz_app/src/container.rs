@@ -55,6 +55,13 @@ pub(crate) enum ContSubCommands {
         set: Option<String>,
     },
 
+    /// Show the PoseState of a Container (the poses from each Anchor) with its version (container/pose_state, issue #415)
+    #[clap(arg_required_else_help = true, name = "pose-state")]
+    PoseState {
+        #[arg(help = "Container: ID or name (ex., base0, robot1/base0)")]
+        identifier: String,
+    },
+
     /// Destroy a container (CompositeContainer included, issue #171)
     #[clap(arg_required_else_help = true)]
     Destroy {
@@ -120,6 +127,9 @@ pub(crate) fn on_container_inner(
             reference,
             set,
         ),
+        ContSubCommands::PoseState { identifier } => {
+            crate::transformations::on_container_pose_state(manifest, working_dir, args, identifier)
+        }
         ContSubCommands::Destroy { identifier } => {
             let server = args.server;
             System::new(manifest)?
