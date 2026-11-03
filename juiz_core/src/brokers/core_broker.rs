@@ -43,11 +43,52 @@ pub struct CoreBrokerPtr {
 
 unsafe impl Send for CoreBrokerPtr {}
 
+/// System をまたぐ Transform の取り込みで、相手の System の `container/pose_state` を
+/// BrokerProxy で呼ぶ口 (docs/spec/transformations.md §19.4)。
+///
+/// 取り込み用のスレッドから、登録所のロックの外で呼ばれる。CoreBroker は読み出しのロックで
+/// BrokerProxy を探す間だけ持ち、相手への問い合わせはロックを外して行う。
+struct CoreBrokerPoseStateFetcher {
+    core_broker: std::sync::Weak<RwLock<CoreBroker>>,
+}
+
+impl crate::transformations::PoseStateFetcher for CoreBrokerPoseStateFetcher {
+    fn fetch(
+        &self,
+        source: &ContainerIdentifier,
+        query: &crate::transformations::api_types::PoseStateQuery,
+    ) -> JuizResult<Value> {
+        let cb = self.core_broker.upgrade().ok_or_else(|| {
+            anyhow!(JuizError::ObjectLockError {
+                target: "CoreBroker (already dropped)".to_owned()
+            })
+        })?;
+        let bp = {
+            let cb = cb.read().map_err(|_| {
+                anyhow!(JuizError::ObjectLockError {
+                    target: "CoreBrokerPtr".to_owned()
+                })
+            })?;
+            cb.worker()
+                .broker_proxy(&source.broker_type_name, &source.broker_name, true)?
+        };
+        let result = juiz_borrow(&bp)?.container_pose_state(query);
+        result
+    }
+}
+
 impl CoreBrokerPtr {
     pub fn new(core_broker: CoreBroker) -> Self {
-        Self {
-            ptr: Arc::new(RwLock::new(core_broker)),
+        let ptr = Arc::new(RwLock::new(core_broker));
+        let fetcher = Arc::new(CoreBrokerPoseStateFetcher {
+            core_broker: Arc::downgrade(&ptr),
+        });
+        if let Ok(cb) = ptr.read() {
+            if let Err(e) = cb.transformations().set_pose_state_fetcher(fetcher) {
+                log::error!("setting PoseStateFetcher failed: {e}");
+            }
         }
+        Self { ptr }
     }
     pub fn lock(&self) -> JuizResult<RwLockReadGuard<CoreBroker>> {
         self.ptr.read().or_else(|_| {
@@ -378,6 +419,13 @@ impl SystemBrokerProxy for CoreBroker {
     /// ほかで使っていなければ外す。どこにも登録されていない UUID ならエラー。
     fn system_remove_subsystem(&mut self, uuid: Uuid) -> JuizResult<Value> {
         log::trace!("【呼出】system_remove_subsystem({uuid})");
+        // その System から取り込んでいた写しを消す。Transform は残す (transformations.md §19.6)
+        if let Err(e) = self
+            .transformations()
+            .remove_remote_system(&uuid.to_string())
+        {
+            log::error!("dropping replicas of System({uuid}) failed: {e}");
+        }
         let mut removed: Vec<SubSystemProxy> = Vec::new();
         if let Some(index) = self
             .subsystem_proxies
@@ -1679,6 +1727,13 @@ impl TypeBrokerProxy for CoreBroker {
 impl TransformationsBrokerProxy for CoreBroker {
     fn container_pose(&self, identifier: &str, reference: &str) -> JuizResult<PoseStamped> {
         self.transformations().pose_by_name(identifier, reference, "")
+    }
+
+    fn container_pose_state(
+        &self,
+        query: &crate::transformations::api_types::PoseStateQuery,
+    ) -> JuizResult<Value> {
+        self.transformations().pose_state(query, "")
     }
 
     fn container_set_pose(

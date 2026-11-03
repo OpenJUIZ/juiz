@@ -51,8 +51,13 @@ pub struct CoreWorker {
 
 impl CoreWorker {
     pub fn new(uuid: Uuid, manifest: Value) -> Self {
+        let store = CoreStore::new(manifest);
+        // System をまたぐ Transform の循環の除外と container/pose_state の応答に使う (transformations.md §19)
+        if let Err(e) = store.transformations.set_system_uuid(&uuid.to_string()) {
+            log::error!("setting System UUID to Transformations failed: {e}");
+        }
         CoreWorker {
-            store: CoreStore::new(manifest),
+            store,
             system_uuid: uuid,
         }
     }

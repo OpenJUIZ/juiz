@@ -347,6 +347,13 @@ pub trait TransformationsBrokerProxy {
     /// Container `identifier` の、基準 `reference` から見た ContainerPose (§7.1)
     fn container_pose(&self, identifier: &str, reference: &str) -> JuizResult<PoseStamped>;
 
+    /// Container の PoseState を版番号つきで返す (`container/pose_state`、§19.4)。
+    /// 別 System の写しを取り込む System が呼ぶ。戻り値は [`crate::transformations::api_types::PoseStateResponse`] の形
+    fn container_pose_state(
+        &self,
+        query: &crate::transformations::api_types::PoseStateQuery,
+    ) -> JuizResult<Value>;
+
     /// Container `identifier` を、基準 `reference` から見て `pose` にする (§7.2)。書いた後の値を返す
     fn container_set_pose(
         &self,

@@ -18,6 +18,20 @@ pub(super) struct TransformEntry {
     pub stamp: juiz_sdk::geometry::Time,
     /// 版番号。登録所の中で一意 (値を変えるたびに新しい番号になる)
     pub version: u64,
+    /// 取り込みで登録所が置いた、写しの Anchor B' → 写しの始点 P' の辺 (§19.3)。
+    /// 値は取り込んだ pose_B(P)。Transform の一覧には出さず、書き換えられない
+    pub imported: bool,
+    /// System をまたぐ Transform (始点が写しの始点 P') の取り込みの設定 (§19.4)
+    pub remote: Option<RemoteParams>,
+}
+
+/// System をまたぐ Transform の取り込みの設定 (§19.4)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct RemoteParams {
+    /// 周期 [Hz]
+    pub rate: f64,
+    /// 写しを消すまでの時間 [秒]
+    pub timeout: f64,
 }
 
 /// Anchor A を根とする木。reach(A) と木での親・深さ

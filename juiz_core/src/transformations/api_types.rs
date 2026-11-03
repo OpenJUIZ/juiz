@@ -43,3 +43,53 @@ pub fn check_vector3_value(what: &str, value: &Value) -> JuizResult<()> {
 pub fn check_quaternion_value(what: &str, value: &Value) -> JuizResult<()> {
     check::<geometry::Quaternion>(what, value)
 }
+
+/// `container/pose_state` の引数 (§19.4)。取り込む側 (子の System) が相手の System に聞くときに使う
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+pub struct PoseStateQuery {
+    /// P の ID か名前 (相手の System での core の ID)
+    pub identifier: String,
+    /// 前回受け取った `version`。同じなら `entries` を省いてもらう
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<u64>,
+    /// 前回受け取った `system` (相手の UUID)。相手の今の UUID と違えば `since` は無視される
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system: Option<String>,
+}
+
+impl PoseStateQuery {
+    pub fn new(identifier: &str) -> Self {
+        Self {
+            identifier: identifier.to_owned(),
+            ..Default::default()
+        }
+    }
+}
+
+/// `container/pose_state` の戻り値の `entries` の 1 項目 (§19.4)
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PoseStateEntry {
+    /// 相手の System での Anchor の ID (相手が写しとして持つ Anchor ならブローカー付きの ID)
+    pub anchor: String,
+    /// その Anchor を本当に持つ System の UUID
+    pub origin_system: String,
+    /// その Anchor を本当に持つ System での core の ID
+    pub origin_anchor: String,
+    pub pose: juiz_sdk::geometry::Pose,
+    pub stamp: juiz_sdk::geometry::Time,
+    pub version: u64,
+}
+
+/// `container/pose_state` の戻り値 (§19.4)
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PoseStateResponse {
+    pub identifier: String,
+    /// 答えた System の UUID
+    pub system: String,
+    /// P の PoseState の版番号
+    pub version: u64,
+    /// `false` なら `entries` は空 (前回から変わっていない)
+    pub changed: bool,
+    #[serde(default)]
+    pub entries: Vec<PoseStateEntry>,
+}

@@ -20,6 +20,10 @@ pub const PERIODIC_ANCHOR_TYPE_NAME: &str = "periodic_anchor";
 pub const STATIC_ANCHOR_TYPE_NAME: &str = "static_anchor";
 /// PeriodicExecutionAnchor の `rate` の既定値 [Hz] (§4.3)
 pub const DEFAULT_ANCHOR_RATE: f64 = 10.0;
+/// System をまたぐ Transform の取り込みの `rate` の既定値 [Hz] (§19.4)
+pub const DEFAULT_REMOTE_RATE: f64 = 10.0;
+/// System をまたぐ Transform の取り込みの `timeout` の既定値 [秒] (§19.4・§19.6)
+pub const DEFAULT_REMOTE_TIMEOUT: f64 = 3.0;
 
 /// Anchor の更新方式
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -169,6 +173,14 @@ pub struct TransformManifest {
     pub translation: Vector3,
     #[serde(default)]
     pub rotation: Quaternion,
+    /// System をまたぐ Transform の取り込みの周期 [Hz] (§19.4)。省略時 [`DEFAULT_REMOTE_RATE`]。
+    /// またぐ Transform でなければ使わない (WARN)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rate: Option<f64>,
+    /// System をまたぐ Transform の取り込みが途絶えてから写しを消すまでの時間 [秒] (§19.6)。
+    /// 省略時 [`DEFAULT_REMOTE_TIMEOUT`]。またぐ Transform でなければ使わない (WARN)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<f64>,
 }
 
 impl TransformManifest {
@@ -178,7 +190,21 @@ impl TransformManifest {
             destination: destination.to_owned(),
             translation: Vector3::zero(),
             rotation: Quaternion::identity(),
+            rate: None,
+            timeout: None,
         }
+    }
+
+    /// 取り込みの周期 [Hz] (System をまたぐ Transform だけ、§19.4)
+    pub fn rate(mut self, rate: f64) -> Self {
+        self.rate = Some(rate);
+        self
+    }
+
+    /// 取り込みの timeout [秒] (System をまたぐ Transform だけ、§19.6)
+    pub fn timeout(mut self, timeout: f64) -> Self {
+        self.timeout = Some(timeout);
+        self
     }
 
     pub fn translation(mut self, translation: Vector3) -> Self {
@@ -210,6 +236,15 @@ impl TransformManifest {
                 "source and destination must be different Containers: {}",
                 self.source
             )));
+        }
+        for (key, v) in [("rate", self.rate), ("timeout", self.timeout)] {
+            if let Some(v) = v {
+                if !(v.is_finite() && v > 0.0) {
+                    return Err(transform_manifest_invalid(format!(
+                        "{key} must be a positive number, but {v}: {self:?}"
+                    )));
+                }
+            }
         }
         let t = self.transform().normalized()?;
         Ok(Self {
