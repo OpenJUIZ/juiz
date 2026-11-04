@@ -3,7 +3,7 @@
 hsjuiz の版は juiz(crates.io の juiz_app、PyPI の pyjuiz / juiz-cli)と同じ番号にそろえています。
 使う libjuiz_sdk も同じ版にしてください。
 
-## 次の版
+## 0.2.2
 
 - readonly の ContainerProcess を書けるようにした。manifest に `& readonly True` を付けると、juiz は Container を
   読み出しロックで呼び、同じ Container の readonly 同士は並行に走る。中で `setContainerPose` を呼ぶと
