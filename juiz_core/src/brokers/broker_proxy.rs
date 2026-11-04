@@ -344,8 +344,20 @@ pub trait TypeBrokerProxy {
 /// Container・Process は ID か名前で指定する。名前は根のネームスペースから解決する (`robot1/base0`、`base0::mobile_base` も可)。
 /// Anchor の作成・削除は Container の API (`container_create` の type_name が `periodic_anchor` / `static_anchor`)。
 pub trait TransformationsBrokerProxy {
-    /// Container `identifier` の、基準 `reference` から見た ContainerPose (§7.1)
-    fn container_pose(&self, identifier: &str, reference: &str) -> JuizResult<PoseStamped>;
+    /// Container `identifier` の、基準 `reference` から見た ContainerPose (§7.1)。
+    /// `identifier` が別 System の Container (ブローカー付きの ID) なら、その System に回す (§19.8)
+    fn container_pose(&self, identifier: &str, reference: &str) -> JuizResult<PoseStamped> {
+        self.container_pose_from_system(identifier, reference, None)
+    }
+
+    /// [`Self::container_pose`] の、基準を System `reference_system` (UUID) の写しから探すもの (§19.5 の 4・§19.8)。
+    /// `None` なら [`Self::container_pose`] と同じ
+    fn container_pose_from_system(
+        &self,
+        identifier: &str,
+        reference: &str,
+        reference_system: Option<&str>,
+    ) -> JuizResult<PoseStamped>;
 
     /// Container の PoseState を版番号つきで返す (`container/pose_state`、§19.4)。
     /// 別 System の写しを取り込む System が呼ぶ。戻り値は [`crate::transformations::api_types::PoseStateResponse`] の形
@@ -360,15 +372,38 @@ pub trait TransformationsBrokerProxy {
         identifier: &str,
         reference: &str,
         pose: &Pose,
+    ) -> JuizResult<PoseStamped> {
+        self.container_set_pose_from_system(identifier, reference, None, pose)
+    }
+
+    /// [`Self::container_set_pose`] の、基準を System `reference_system` の写しから探すもの (§19.8)
+    fn container_set_pose_from_system(
+        &self,
+        identifier: &str,
+        reference: &str,
+        reference_system: Option<&str>,
+        pose: &Pose,
     ) -> JuizResult<PoseStamped>;
 
     /// Transform の ID (`transform://<始点の ID>|<終点の ID>`) の一覧
     fn transform_list(&self) -> JuizResult<Vec<String>>;
 
-    /// `{identifier, source, destination, transform, stamp}`
-    fn transform_profile_full(&self, identifier: &str) -> JuizResult<Value>;
+    /// `{identifier, source, destination, transform, stamp}`。System をまたぐ Transform には `remote` (§19.10)。
+    /// ID の終点が別 System の Container なら、その System に回す (§19.2 の 7)
+    fn transform_profile_full(&self, identifier: &str) -> JuizResult<Value> {
+        self.transform_profile_full_from_system(identifier, None)
+    }
 
-    /// Transform を作り、profile を返す。木の規則 (§5.2) を破ればエラーで何も作らない
+    /// 別 System `source_system` (UUID) から回された [`Self::transform_profile_full`]。
+    /// ID の始点は `source_system` での core の ID (§19.2 の 7)
+    fn transform_profile_full_from_system(
+        &self,
+        identifier: &str,
+        source_system: Option<&str>,
+    ) -> JuizResult<Value>;
+
+    /// Transform を作り、profile を返す。木の規則 (§5.2) を破ればエラーで何も作らない。
+    /// 終点が別 System の Container なら、その System に回して作る (§19.2 の 5)
     fn transform_create(&self, manifest: &TransformManifest) -> JuizResult<Value>;
 
     /// Transform の値を変える (§7.3)。`None` のものは今のまま
@@ -377,10 +412,30 @@ pub trait TransformationsBrokerProxy {
         identifier: &str,
         translation: Option<Vector3>,
         rotation: Option<Quaternion>,
+    ) -> JuizResult<Value> {
+        self.transform_update_from_system(identifier, None, translation, rotation)
+    }
+
+    /// 別 System `source_system` から回された [`Self::transform_update`] (§19.2 の 7)
+    fn transform_update_from_system(
+        &self,
+        identifier: &str,
+        source_system: Option<&str>,
+        translation: Option<Vector3>,
+        rotation: Option<Quaternion>,
     ) -> JuizResult<Value>;
 
     /// Transform を消し、消したものの profile を返す
-    fn transform_destroy(&self, identifier: &str) -> JuizResult<Value>;
+    fn transform_destroy(&self, identifier: &str) -> JuizResult<Value> {
+        self.transform_destroy_from_system(identifier, None)
+    }
+
+    /// 別 System `source_system` から回された [`Self::transform_destroy`] (§19.2 の 7)
+    fn transform_destroy_from_system(
+        &self,
+        identifier: &str,
+        source_system: Option<&str>,
+    ) -> JuizResult<Value>;
 
     /// Anchor の ID の一覧
     fn anchor_list(&self) -> JuizResult<Vec<String>>;

@@ -17,6 +17,43 @@ pub struct PoseQuery {
     identifier: Option<String>,
     /// 基準 Container の ID か名前
     reference: Option<String>,
+    /// 基準を、この UUID の System から取り込んだ写しだけから探す (別 System から回されたとき、§19.8)
+    reference_system: Option<String>,
+}
+
+#[allow(unused)]
+#[derive(Deserialize, IntoParams, Debug)]
+pub struct SetPoseQuery {
+    /// Container の ID か名前
+    identifier: Option<String>,
+    /// 基準を、この UUID の System から取り込んだ写しだけから探す (§19.8)
+    reference_system: Option<String>,
+}
+
+#[allow(unused)]
+#[derive(Deserialize, IntoParams, Debug)]
+pub struct PoseStateQuery {
+    /// Container の ID か名前
+    identifier: Option<String>,
+    /// 前回受け取った version。同じなら entries を省く
+    since: Option<String>,
+    /// 前回受け取った system (相手の UUID)。今の UUID と違えば since を無視する
+    system: Option<String>,
+    /// 取りに来た System の UUID (container/profile_full の remote_children に出る)
+    subscriber: Option<String>,
+    /// 取りに来た System での終点の ID (複数なら `,` 区切り)
+    destination: Option<String>,
+    /// 取りに来た側の timeout [秒] (remote_children から消すまでの時間、既定 3.0)
+    timeout: Option<String>,
+}
+
+#[allow(unused)]
+#[derive(Deserialize, IntoParams, Debug)]
+pub struct TransformQuery {
+    /// Transform の ID (transform://<始点>|<終点>)
+    identifier: Option<String>,
+    /// 別 System から回されたとき、始点の System の UUID (§19.2 の 7)
+    source_system: Option<String>,
 }
 
 #[allow(unused)]
@@ -38,14 +75,24 @@ pub fn pose_dummy(_query: Query<PoseQuery>) {}
 
 #[allow(unused)]
 #[utoipa::path(
+    get,
+    path = "/api/container/pose_state",
+    params(PoseStateQuery),
+    responses((status = 200, description = "{identifier, system, version, changed, entries: [{anchor, origin_system, origin_anchor, pose, stamp, version}]} (System をまたぐ Transform の取り込みに使う、§19.4)")),
+    tag = "universal.transformations",
+)]
+pub fn pose_state_dummy(_query: Query<PoseStateQuery>) {}
+
+#[allow(unused)]
+#[utoipa::path(
     patch,
     path = "/api/container/set_pose",
-    params(IdentifierQuery),
+    params(SetPoseQuery),
     request_body(content = Value, description = "{\"reference\": <基準 Container>, \"pose\": <juiz_std.geometry.Pose>}"),
     responses((status = 200, description = "書いた後の ContainerPose (juiz_std.geometry.PoseStamped)")),
     tag = "universal.transformations",
 )]
-pub fn set_pose_dummy(_query: Query<IdentifierQuery>, Json(_body): Json<Value>) {}
+pub fn set_pose_dummy(_query: Query<SetPoseQuery>, Json(_body): Json<Value>) {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -60,17 +107,17 @@ pub fn transform_list_dummy() {}
 #[utoipa::path(
     get,
     path = "/api/transform/profile_full",
-    params(IdentifierQuery),
-    responses((status = 200, description = "{identifier, source, destination, transform, stamp}")),
+    params(TransformQuery),
+    responses((status = 200, description = "{identifier, source, destination, transform, stamp, remote?}")),
     tag = "universal.transformations",
 )]
-pub fn transform_profile_dummy(_query: Query<IdentifierQuery>) {}
+pub fn transform_profile_dummy(_query: Query<TransformQuery>) {}
 
 #[allow(unused)]
 #[utoipa::path(
     post,
     path = "/api/transform/create",
-    request_body(content = Value, description = "{\"source\": <始点>, \"destination\": <終点>, \"translation\": <juiz_std.geometry.Vector3>, \"rotation\": <juiz_std.geometry.Quaternion>}。translation・rotation は省略可"),
+    request_body(content = Value, description = "{\"source\": <始点>, \"destination\": <終点>, \"translation\": <juiz_std.geometry.Vector3>, \"rotation\": <juiz_std.geometry.Quaternion>, \"rate\": <Hz>, \"timeout\": <秒>}。translation・rotation・rate・timeout は省略可。終点が別 System なら、その System で作る"),
     responses((status = 200, description = "Transform の profile")),
     tag = "universal.transformations",
 )]
@@ -80,22 +127,22 @@ pub fn transform_create_dummy(Json(_body): Json<Value>) {}
 #[utoipa::path(
     patch,
     path = "/api/transform/update",
-    params(IdentifierQuery),
+    params(TransformQuery),
     request_body(content = Value, description = "{\"translation\": <Vector3>, \"rotation\": <Quaternion>}。省いたものは今のまま"),
     responses((status = 200, description = "Transform の profile")),
     tag = "universal.transformations",
 )]
-pub fn transform_update_dummy(_query: Query<IdentifierQuery>, Json(_body): Json<Value>) {}
+pub fn transform_update_dummy(_query: Query<TransformQuery>, Json(_body): Json<Value>) {}
 
 #[allow(unused)]
 #[utoipa::path(
     delete,
     path = "/api/transform/destroy",
-    params(IdentifierQuery),
+    params(TransformQuery),
     responses((status = 200, description = "消した Transform の profile")),
     tag = "universal.transformations",
 )]
-pub fn transform_destroy_dummy(_query: Query<IdentifierQuery>) {}
+pub fn transform_destroy_dummy(_query: Query<TransformQuery>) {}
 
 #[allow(unused)]
 #[utoipa::path(
@@ -170,6 +217,7 @@ pub fn pose_listener_destroy_dummy(_query: Query<IdentifierQuery>) {}
 #[openapi(
     paths(
         pose_dummy,
+        pose_state_dummy,
         set_pose_dummy,
         transform_list_dummy,
         transform_profile_dummy,
@@ -247,6 +295,17 @@ pub fn add_transformations_schemas(api: &mut Value) {
             "destination": {"type": "string"},
             "transform": schema_ref(TRANSFORM),
             "stamp": schema_ref("juiz_std.common.Time"),
+            "remote": {
+                "type": "object",
+                "description": "System をまたぐ Transform の取り込みの様子 (§19.10)",
+                "properties": {
+                    "system": {"type": "string", "nullable": true},
+                    "rate": {"type": "number"},
+                    "timeout": {"type": "number"},
+                    "state": {"type": "string", "enum": ["ok", "stale", "lost"]},
+                    "last_success": schema_ref("juiz_std.common.Time"),
+                }
+            },
         }
     });
     for (path, method) in [
@@ -268,6 +327,9 @@ pub fn add_transformations_schemas(api: &mut Value) {
                 "destination": {"type": "string", "description": "終点 (子) の Container の ID か名前"},
                 "translation": schema_ref(VECTOR3),
                 "rotation": schema_ref(QUATERNION),
+                "rate": {"type": "number", "description": "System をまたぐ Transform の取り込みの周期 [Hz] (既定 10.0)"},
+                "timeout": {"type": "number", "description": "取り込めないとき写しを消すまでの時間 [秒] (既定 3.0)"},
+                "source_system": {"type": "string", "description": "別 System から回されたとき、始点の System の UUID"},
             }
         }),
     );

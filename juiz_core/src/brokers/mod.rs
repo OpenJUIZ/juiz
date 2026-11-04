@@ -36,3 +36,4 @@ pub use local::*;
 pub use messenger::*;
 
 pub use core_broker::{CoreBroker, CoreBrokerPtr};
+pub(crate) use core_broker::remote_container_id;

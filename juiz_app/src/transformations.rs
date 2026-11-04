@@ -3,9 +3,10 @@
 //! ```text
 //! juiz container pose <id> --reference map                       # 読む
 //! juiz container pose <id> --reference map --set '<Pose の JSON>' # 書く
+//! juiz container pose-state <id>                                 # PoseState と版番号 (§19.4)
 //! juiz transform list [--long]
 //! juiz transform info <id | source destination>
-//! juiz transform create <source> <destination> [--translation x,y,z] [--rotation x,y,z,w]
+//! juiz transform create <source> <destination> [--translation x,y,z] [--rotation x,y,z,w] [--rate Hz] [--timeout 秒]
 //! juiz transform update <id | source destination> [--translation ...] [--rotation ...]
 //! juiz transform delete <id | source destination>
 //! juiz anchor list
@@ -16,6 +17,11 @@
 //! Container・Anchor は ID か名前 (根のネームスペースから解決する、`robot1/base0` など)。
 //! Transform は ID (`transform://…`) か、始点と終点の 2 つの名前で指定する。
 //! `juiz container list --long` は Anchor の種類と rate を行の下に出す。
+//!
+//! System をまたぐ Transform (§19、issue #415): 始点に別 System の Container をブローカー付きの ID
+//! (`http://host:port/container/map::static_anchor`) で書く。終点に別 System の Container を書けば、
+//! その System で作る。`transform list --long` はまたぐ Transform に `(remote: ok | stale | lost)` を足す。
+//! `container pose` は別 System の Container を ID で指定でき、その System に回して読む。
 
 use std::path::Path;
 
@@ -63,6 +69,16 @@ pub(crate) enum TransformSubCommands {
             allow_hyphen_values = true
         )]
         rotation: Option<String>,
+        #[arg(
+            long = "rate",
+            help = "Rate [Hz] to import the poses of the source on another System (default: 10.0)"
+        )]
+        rate: Option<f64>,
+        #[arg(
+            long = "timeout",
+            help = "Seconds to keep the last imported poses when the source System is not reachable (default: 3.0)"
+        )]
+        timeout: Option<f64>,
     },
 
     /// Change the value of a Transform. Omitted values are kept
@@ -159,6 +175,21 @@ pub(crate) fn on_container_pose(
     }))
 }
 
+/// `juiz container pose-state`
+pub(crate) fn on_container_pose_state(
+    manifest: Value,
+    working_dir: &Path,
+    args: Args,
+    identifier: String,
+) -> JuizResult<()> {
+    print_error(run_with_proxy(manifest, working_dir, &args, |proxy| {
+        let query = juiz_core::transformations::api_types::PoseStateQuery::new(&identifier);
+        let v = proxy.container_pose_state(&query)?;
+        println!("{}", serde_json::to_string_pretty(&v)?);
+        Ok(())
+    }))
+}
+
 pub(crate) fn on_transform(
     manifest: Value,
     working_dir: &Path,
@@ -193,8 +224,12 @@ pub(crate) fn on_transform(
                 destination,
                 translation,
                 rotation,
+                rate,
+                timeout,
             } => {
                 let mut m = TransformManifest::new(&source, &destination);
+                m.rate = rate;
+                m.timeout = timeout;
                 if let Some(t) = translation {
                     m = m.translation(parse_vector3(&t)?);
                 }
@@ -318,15 +353,20 @@ fn print_pose_stamped(p: &PoseStamped) {
     println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
 }
 
-/// `<始点> -> <終点>  translation (x, y, z)  rotation (x, y, z, w)`
+/// `<始点> -> <終点>  translation (x, y, z)  rotation (x, y, z, w)`。
+/// System をまたぐ Transform には `  (remote: ok | stale | lost)` を足す (§19.10)
 fn transform_line(p: &Value) -> String {
-    format!(
+    let line = format!(
         "{} -> {}  translation {}  rotation {}",
         p["source"].as_str().unwrap_or_default(),
         p["destination"].as_str().unwrap_or_default(),
         fmt_vector3(&p["transform"]["translation"]),
         fmt_quaternion(&p["transform"]["rotation"]),
-    )
+    );
+    match p["remote"]["state"].as_str() {
+        Some(state) => format!("{line}  (remote: {state})"),
+        None => line,
+    }
 }
 
 /// ID の名前の部分 (`<ns>/<name>`)。ID でなければそのまま
@@ -417,16 +457,39 @@ pub(crate) fn tree_lines(tree: &Value) -> Vec<String> {
     out
 }
 
-/// `container list --long` で Anchor の行の下に出す `anchor: periodic (10 Hz)` / `anchor: static`
+/// `container list --long` で Anchor の行の下に出す `anchor: periodic (10 Hz)` / `anchor: static`。
+/// 写しを取りに来ている別 System があれば `remote child: <UUID> -> <終点>, ...` も出す (§19.10)
 pub(crate) fn anchor_lines(profile: &ContainerProfile) -> Vec<String> {
-    let Some(a) = profile.anchor.as_ref() else {
-        return Vec::new();
-    };
-    let kind = a["kind"].as_str().unwrap_or_default();
-    match a["rate"].as_f64() {
-        Some(rate) => vec![format!("anchor: {kind} ({rate} Hz)")],
-        None => vec![format!("anchor: {kind}")],
+    let mut lines = Vec::new();
+    if let Some(a) = profile.anchor.as_ref() {
+        let kind = a["kind"].as_str().unwrap_or_default();
+        lines.push(match a["rate"].as_f64() {
+            Some(rate) => format!("anchor: {kind} ({rate} Hz)"),
+            None => format!("anchor: {kind}"),
+        });
     }
+    for c in profile
+        .remote_children
+        .as_ref()
+        .and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+    {
+        let destinations = c["destinations"]
+            .as_array()
+            .map(|d| {
+                d.iter()
+                    .filter_map(|s| s.as_str())
+                    .collect::<Vec<&str>>()
+                    .join(", ")
+            })
+            .unwrap_or_default();
+        lines.push(format!(
+            "remote child: {} -> {destinations}",
+            c["system"].as_str().unwrap_or_default()
+        ));
+    }
+    lines
 }
 
 #[cfg(test)]

@@ -24,7 +24,7 @@ use crate::prelude::*;
 mod remote;
 
 pub use remote::PoseStateFetcher;
-use remote::{ImportThread, LostAnchor, RemoteNode, RemoteSource, ReplicaAnchor};
+use remote::{ImportThread, LostAnchor, RemoteNode, RemoteSource, ReplicaAnchor, Subscriber};
 
 /// Pose の値が変わったかを比べるときの許容誤差
 const POSE_CHANGE_EPSILON: f64 = 1e-12;
@@ -116,6 +116,8 @@ struct Inner {
     rejected: BTreeSet<(String, String)>,
     /// つながらなくなって消した写しの Anchor (エラー文に理由を入れるため、§19.6)
     lost: BTreeMap<String, LostAnchor>,
+    /// Container の ID → その PoseState を取りに来ている System (UUID → 様子) (`remote_children`、§19.10)
+    subscribers: BTreeMap<String, BTreeMap<String, Subscriber>>,
 }
 
 /// System の Transformations 登録所 (§9.1)
@@ -705,6 +707,7 @@ impl Transformations {
                 return Ok(());
             }
             let (thread, written, mut changed) = inner.remove_node(identifier);
+            inner.subscribers.remove(identifier);
             // 終点を消して Transform がなくなった写しの始点の取り込みを止める (§19.6)
             let imports = inner.remove_unused_sources();
             changed.extend(inner.update_static_anchors(None));

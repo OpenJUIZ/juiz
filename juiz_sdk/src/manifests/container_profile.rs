@@ -30,6 +30,10 @@ pub struct ContainerProfile {
     /// (docs/spec/transformations.md §4.1)。Anchor 以外では `None` で、出力しない
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anchor: Option<Value>,
+    /// この Container の写しを取りに来ている別 System `[{system, destinations, last_access}]`
+    /// (docs/spec/transformations.md §19.10)。いなければ `None` で、出力しない
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_children: Option<Value>,
 }
 
 impl Display for ContainerProfile {
@@ -82,6 +86,7 @@ impl TryFrom<ContainerManifest> for ContainerProfile {
             args: value.args,
             slots: None,
             anchor: None,
+            remote_children: None,
         })
     }
 
@@ -112,6 +117,7 @@ impl ContainerProfile {
             arguments: Vec::new(),
             slots: None,
             anchor: None,
+            remote_children: None,
         }
     }
 
@@ -131,6 +137,7 @@ impl ContainerProfile {
                 arguments: Vec::new(),
                 slots: None,
                 anchor: None,
+                remote_children: None,
             })
         })
     }

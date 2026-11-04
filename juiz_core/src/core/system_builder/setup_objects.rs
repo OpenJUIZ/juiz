@@ -132,6 +132,10 @@ pub(crate) fn setup_objects(system: &mut System, manifest: &Value) -> JuizResult
             .context("system_builder::setup_mastersystem in System::setup() failed.")
     })?;
 
+    // 終点が別 System の Transform は、つないだ後で終点の System に回す (transformations.md §19.2 の 8)
+    crate::core::system_builder::transformations::setup_forwarded_transforms(system, manifest)
+        .context("setup_forwarded_transforms() in setup_objects() in setup_objects.rs")?;
+
     let _ = when_contains_do(&manifest_copied, "ecs", |v| {
         setup_ecs(system, v).context("system_builder::setup_ecs in System::setup() failed")
     })?;

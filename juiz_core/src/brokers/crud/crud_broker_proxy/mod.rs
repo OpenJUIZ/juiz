@@ -1063,14 +1063,28 @@ impl TypeBrokerProxy for CRUDBrokerProxyHolder {
     }
 }
 
+/// `identifier` と、あれば System の UUID (`source_system` など) の param (§19.2 の 7)
+fn system_pairs<'a>(identifier: &'a str, key: &'a str, system: Option<&'a str>) -> Vec<(&'a str, &'a str)> {
+    let mut pairs = vec![("identifier", identifier)];
+    if let Some(s) = system {
+        pairs.push((key, s));
+    }
+    pairs
+}
+
 /// Transformations の API (issue #370)
 impl TransformationsBrokerProxy for CRUDBrokerProxyHolder {
-    fn container_pose(&self, identifier: &str, reference: &str) -> JuizResult<PoseStamped> {
-        let v = capsule_value(self.broker.read(
-            "container",
-            "pose",
-            param(&[("identifier", identifier), ("reference", reference)]),
-        )?)?;
+    fn container_pose_from_system(
+        &self,
+        identifier: &str,
+        reference: &str,
+        reference_system: Option<&str>,
+    ) -> JuizResult<PoseStamped> {
+        let mut pairs = vec![("identifier", identifier), ("reference", reference)];
+        if let Some(s) = reference_system {
+            pairs.push(("reference_system", s));
+        }
+        let v = capsule_value(self.broker.read("container", "pose", param(&pairs))?)?;
         Ok(serde_json::from_value(v)?)
     }
 
@@ -1078,31 +1092,33 @@ impl TransformationsBrokerProxy for CRUDBrokerProxyHolder {
         &self,
         query: &crate::transformations::api_types::PoseStateQuery,
     ) -> JuizResult<Value> {
-        let since = query.since.map(|v| v.to_string());
-        let mut pairs = vec![("identifier", query.identifier.as_str())];
-        if let Some(s) = since.as_deref() {
-            pairs.push(("since", s));
-        }
-        if let Some(s) = query.system.as_deref() {
-            pairs.push(("system", s));
-        }
+        let pairs = query.to_params();
+        let pairs = pairs
+            .iter()
+            .map(|(k, v)| (*k, v.as_str()))
+            .collect::<Vec<(&str, &str)>>();
         capsule_value(self.broker.read("container", "pose_state", param(&pairs))?)
     }
 
-    fn container_set_pose(
+    fn container_set_pose_from_system(
         &self,
         identifier: &str,
         reference: &str,
+        reference_system: Option<&str>,
         pose: &Pose,
     ) -> JuizResult<PoseStamped> {
         let mut args = CapsuleMap::new();
         args.insert("reference".to_owned(), jvalue!(reference).into());
         args.insert("pose".to_owned(), serde_json::to_value(pose)?.into());
+        let mut pairs = vec![("identifier", identifier)];
+        if let Some(s) = reference_system {
+            pairs.push(("reference_system", s));
+        }
         let v = capsule_value(self.broker.update(
             "container",
             "set_pose",
             args,
-            param(&[("identifier", identifier)]),
+            param(&pairs),
         )?)?;
         Ok(serde_json::from_value(v)?)
     }
@@ -1112,11 +1128,15 @@ impl TransformationsBrokerProxy for CRUDBrokerProxyHolder {
         Ok(serde_json::from_value(v)?)
     }
 
-    fn transform_profile_full(&self, identifier: &str) -> JuizResult<Value> {
+    fn transform_profile_full_from_system(
+        &self,
+        identifier: &str,
+        source_system: Option<&str>,
+    ) -> JuizResult<Value> {
         capsule_value(self.broker.read(
             "transform",
             "profile_full",
-            param(&[("identifier", identifier)]),
+            param(&system_pairs(identifier, "source_system", source_system)),
         )?)
     }
 
@@ -1129,9 +1149,10 @@ impl TransformationsBrokerProxy for CRUDBrokerProxyHolder {
         )?)
     }
 
-    fn transform_update(
+    fn transform_update_from_system(
         &self,
         identifier: &str,
+        source_system: Option<&str>,
         translation: Option<Vector3>,
         rotation: Option<Quaternion>,
     ) -> JuizResult<Value> {
@@ -1146,15 +1167,19 @@ impl TransformationsBrokerProxy for CRUDBrokerProxyHolder {
             "transform",
             "update",
             args,
-            param(&[("identifier", identifier)]),
+            param(&system_pairs(identifier, "source_system", source_system)),
         )?)
     }
 
-    fn transform_destroy(&self, identifier: &str) -> JuizResult<Value> {
+    fn transform_destroy_from_system(
+        &self,
+        identifier: &str,
+        source_system: Option<&str>,
+    ) -> JuizResult<Value> {
         capsule_value(self.broker.delete(
             "transform",
             "destroy",
-            param(&[("identifier", identifier)]),
+            param(&system_pairs(identifier, "source_system", source_system)),
         )?)
     }
 

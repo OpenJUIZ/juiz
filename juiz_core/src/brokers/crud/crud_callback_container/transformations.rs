@@ -2,14 +2,14 @@
 //!
 //! | クラス / 関数 | 引数 | 戻り値 |
 //! |---|---|---|
-//! | `container/pose` (READ) | param `identifier`・`reference` | `PoseStamped` |
-//! | `container/pose_state` (READ) | param `identifier`・`since`・`system` (§19.4) | `{identifier, system, version, changed, entries}` |
-//! | `container/set_pose` (UPDATE) | param `identifier`、ボディ `reference`・`pose` | `PoseStamped` |
+//! | `container/pose` (READ) | param `identifier`・`reference`・`reference_system` (§19.8) | `PoseStamped` |
+//! | `container/pose_state` (READ) | param `identifier`・`since`・`system`・`subscriber`・`destination` (`,` 区切り)・`timeout` (§19.4) | `{identifier, system, version, changed, entries}` |
+//! | `container/set_pose` (UPDATE) | param `identifier`・`reference_system`、ボディ `reference`・`pose` | `PoseStamped` |
 //! | `transform/list` (READ) | | ID の配列 |
-//! | `transform/profile_full` (READ) | param `identifier` | profile |
-//! | `transform/create` (CREATE) | ボディ `source`・`destination`・`translation`・`rotation` (`__manifest__` に包んでもよい) | profile |
-//! | `transform/update` (UPDATE) | param `identifier`、ボディ `translation`・`rotation` (省けば今のまま) | profile |
-//! | `transform/destroy` (DELETE) | param `identifier` | profile |
+//! | `transform/profile_full` (READ) | param `identifier`・`source_system` (§19.2 の 7) | profile |
+//! | `transform/create` (CREATE) | ボディ `source`・`destination`・`translation`・`rotation`・`rate`・`timeout`・`source_system` (`__manifest__` に包んでもよい) | profile |
+//! | `transform/update` (UPDATE) | param `identifier`・`source_system`、ボディ `translation`・`rotation` (省けば今のまま) | profile |
+//! | `transform/destroy` (DELETE) | param `identifier`・`source_system` | profile |
 //! | `anchor/list` (READ) | | ID の配列 |
 //! | `anchor/update` (UPDATE) | param `identifier` | `{identifier, stamp}` |
 //! | `transformations/tree` (READ) | param `anchor` (`identifier` でもよい) | 木 |
@@ -123,7 +123,13 @@ pub(crate) fn container_read_callbacks(cbs: &mut CallbackContainerType) {
         log::debug!("[READ  ] container/pose called");
         let id = param(&args, "identifier")?;
         let reference = string_arg(&args, "reference")?.ok_or_else(|| missing("reference"))?;
-        Ok(serde_json::to_value(cb.lock()?.container_pose(&id, &reference)?)?.into())
+        let reference_system = string_arg(&args, "reference_system")?;
+        Ok(serde_json::to_value(cb.lock()?.container_pose_from_system(
+            &id,
+            &reference,
+            reference_system.as_deref(),
+        )?)?
+        .into())
     });
     cbs.insert("pose_state", |cb, args| {
         log::debug!("[READ  ] container/pose_state called");
@@ -136,6 +142,21 @@ pub(crate) fn container_read_callbacks(cbs: &mut CallbackContainerType) {
             })?);
         }
         query.system = string_arg(&args, "system")?;
+        query.subscriber = string_arg(&args, "subscriber")?;
+        if let Some(d) = string_arg(&args, "destination")? {
+            query.destination = d
+                .split(',')
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_owned())
+                .collect();
+        }
+        if let Some(t) = string_arg(&args, "timeout")? {
+            query.timeout = Some(t.parse::<f64>().map_err(|e| {
+                anyhow!(JuizError::InvalidArgumentError {
+                    message: format!("'timeout' must be a number: {e} ({t})"),
+                })
+            })?);
+        }
         Ok(cb.lock()?.container_pose_state(&query)?.into())
     });
 }
@@ -148,7 +169,14 @@ pub(crate) fn container_update_callbacks(cbs: &mut CallbackContainerType) {
         let v = body_value(&args, "pose")?.ok_or_else(|| missing("pose"))?;
         check_pose_value(&v)?;
         let pose: Pose = serde_json::from_value(v.clone()).map_err(|e| invalid("pose", e, &v))?;
-        Ok(serde_json::to_value(cb.lock()?.container_set_pose(&id, &reference, &pose)?)?.into())
+        let reference_system = string_arg(&args, "reference_system")?;
+        Ok(serde_json::to_value(cb.lock()?.container_set_pose_from_system(
+            &id,
+            &reference,
+            reference_system.as_deref(),
+            &pose,
+        )?)?
+        .into())
     });
 }
 
@@ -165,6 +193,7 @@ pub(crate) fn transform_create_callbacks() -> CallbackContainerType {
                 "rotation",
                 "rate",
                 "timeout",
+                "source_system",
             ],
         )?;
         let manifest = transform_manifest_from_value(&v)?;
@@ -183,7 +212,10 @@ pub(crate) fn transform_read_callbacks() -> CallbackContainerType {
         log::debug!("[READ  ] transform/profile_full called");
         Ok(cb
             .lock()?
-            .transform_profile_full(&param(&args, "identifier")?)?
+            .transform_profile_full_from_system(
+                &param(&args, "identifier")?,
+                string_arg(&args, "source_system")?.as_deref(),
+            )?
             .into())
     });
     cbs
@@ -196,9 +228,10 @@ pub(crate) fn transform_update_callbacks() -> CallbackContainerType {
         let id = param(&args, "identifier")?;
         let translation = vector3_arg(&args, "translation")?;
         let rotation = quaternion_arg(&args, "rotation")?;
+        let source_system = string_arg(&args, "source_system")?;
         Ok(cb
             .lock()?
-            .transform_update(&id, translation, rotation)?
+            .transform_update_from_system(&id, source_system.as_deref(), translation, rotation)?
             .into())
     });
     cbs
@@ -210,7 +243,10 @@ pub(crate) fn transform_delete_callbacks() -> CallbackContainerType {
         log::debug!("[DELETE] transform/destroy called");
         Ok(cb
             .lock()?
-            .transform_destroy(&param(&args, "identifier")?)?
+            .transform_destroy_from_system(
+                &param(&args, "identifier")?,
+                string_arg(&args, "source_system")?.as_deref(),
+            )?
             .into())
     });
     cbs

@@ -61,6 +61,10 @@ class HttpProxy(CRUDProxy):
         self._base_url = 'http://' + self._host + ':' + str(self._port)
         pass
 
+    def broker_id(self):
+        """別 System に渡す ID のブローカーの部分 ('http://host:port')"""
+        return self._base_url
+
     def _do_response(self, response):
         if response.status_code == 200:
             ct = response.headers.get('content-type', None)
@@ -170,6 +174,10 @@ class IpcProxy(CRUDProxy):
 
     def __repr__(self):
         return f'IpcProxy("ipc://{self._name}")'
+
+    def broker_id(self):
+        """別 System に渡す ID のブローカーの部分 ('ipc://name')"""
+        return f'ipc://{self._name}'
 
     def close(self):
         with self._lock:
@@ -314,15 +322,31 @@ class SystemProxy():
         profile = self.crud.create('container', 'create', {'__manifest__': manifest})
         return ContainerProxy.new(self, profile['identifier'])
 
+    # System をまたぐ Transform (issue #415、§19)。別 System の Container は、その System の
+    # ContainerProxy か、ブローカー付きの ID ('http://host:port/container/map::static_anchor') で渡す。
+    # この System はその System に回して答える
+
     def pose(self, container: str, reference: str):
-        """Container の、基準 reference から見た ContainerPose (juiz_std.geometry.PoseStamped の dict)"""
-        return self.crud.read('container', 'pose', {'identifier': _id_str(container), 'reference': _id_str(reference)})
+        """Container の、基準 reference から見た ContainerPose (juiz_std.geometry.PoseStamped の dict)。
+        container か reference に別 System の Container を渡してもよい"""
+        return self.crud.read('container', 'pose', {'identifier': self._ref(container), 'reference': self._ref(reference)})
 
     def set_pose(self, container: str, reference: str, pose):
-        """Container を基準 reference から見て pose にする (親 → Container の Transform を書き換える)。書いた後の値を返す"""
+        """Container を基準 reference から見て pose にする (親 → Container の Transform を書き換える)。書いた後の値を返す。
+        container に別 System の Container を渡すと、その System で書く (基準はこの System の Container)"""
         return self.crud.update('container', 'set_pose',
-                                {'reference': _id_str(reference), 'pose': _to_value(pose)},
-                                {'identifier': _id_str(container)})
+                                {'reference': self._ref(reference), 'pose': _to_value(pose)},
+                                {'identifier': self._ref(container)})
+
+    def pose_state(self, container: str):
+        """Container の PoseState {identifier, system, version, changed, entries: [{anchor, pose, stamp, ...}]} (§19.4)"""
+        return self.crud.read('container', 'pose_state', {'identifier': _id_str(container)})
+
+    def _ref(self, v):
+        """別 System の ObjectProxy は、その System へのブローカー付きの ID にする"""
+        if isinstance(v, ObjectProxy) and v.system is not None and v.system is not self:
+            return v.broker_identifier()
+        return _id_str(v)
 
     def transforms(self):
         """Transform の ID の一覧"""
@@ -332,14 +356,23 @@ class SystemProxy():
         """Transform の profile {identifier, source, destination, transform, stamp}"""
         return self.crud.read('transform', 'profile_full', {'identifier': identifier})
 
-    def create_transform(self, source: str, destination: str, translation=None, rotation=None):
+    def create_transform(self, source: str, destination: str, translation=None, rotation=None,
+                         rate: float = None, timeout: float = None):
         """source (親) から destination (子) への Transform を作り、profile を返す。
-        translation は {'x','y','z'} か (x, y, z)、rotation は {'x','y','z','w'} か (x, y, z, w)。省略時は 0 と回転なし"""
-        manifest = {'source': _id_str(source), 'destination': _id_str(destination)}
+        translation は {'x','y','z'} か (x, y, z)、rotation は {'x','y','z','w'} か (x, y, z, w)。省略時は 0 と回転なし。
+
+        source に別 System の Container を渡すと System をまたぐ Transform になる (§19)。rate [Hz] は
+        その位置を取り込む周期 (既定 10.0)、timeout [秒] は取り込めないとき写しを消すまでの時間 (既定 3.0)。
+        destination に別 System の Container を渡すと、その System で作る"""
+        manifest = {'source': self._ref(source), 'destination': self._ref(destination)}
         if translation is not None:
             manifest['translation'] = _vector3(translation)
         if rotation is not None:
             manifest['rotation'] = _quaternion(rotation)
+        if rate is not None:
+            manifest['rate'] = float(rate)
+        if timeout is not None:
+            manifest['timeout'] = float(timeout)
         return self.crud.create('transform', 'create', {'__manifest__': manifest})
 
     def update_transform(self, identifier: str, translation=None, rotation=None):
@@ -492,6 +525,13 @@ class ObjectProxy(object):
 
     def identifier(self, update=False):
         return self._id
+
+    def broker_identifier(self):
+        """別 System に渡すときの ID。core の ID はこの System へのブローカー付きの ID にする (issue #415)"""
+        prefix = 'core://core/'
+        if self._id is not None and self._id.startswith(prefix) and hasattr(self.system.crud, 'broker_id'):
+            return self.system.crud.broker_id() + '/' + self._id[len(prefix):]
+        return self._id
     
     def name(self):
         if self._name is None:
@@ -632,8 +672,13 @@ class ContainerProxy(ObjectProxy):
         return f'ContainerProxy("{self.identifier()}")'
     
     def pose(self, reference: str):
-        """基準 reference から見たこの Container の ContainerPose (PoseStamped の dict、issue #370)"""
+        """基準 reference から見たこの Container の ContainerPose (PoseStamped の dict、issue #370)。
+        reference は別 System の ContainerProxy でもよい (その System に回して読む、issue #415)"""
         return self.system.pose(self.identifier(), reference)
+
+    def pose_state(self):
+        """この Container の PoseState (§19.4、issue #415)"""
+        return self.system.pose_state(self.identifier())
 
     def set_pose(self, reference: str, pose):
         """この Container を基準 reference から見て pose にする (issue #370)"""

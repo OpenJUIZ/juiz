@@ -804,3 +804,20 @@ core(`juiz_core::transformations`)の実装で決めたこと。
 - **rate / timeout**: 正の有限の数でなければ `TransformManifestInvalidError`。またぐ Transform でない Transform に書くと WARN を出して使わない。
 - **API**: `container/pose_state` の core の処理と、CRUD・メッセンジャー系の BrokerProxy・コールバック(param `identifier`・`since`・`system`)は Step 1 で足した。HTTP の経路と OpenAPI、CLI、pyjuiz、`subscriber`・`destination`・`timeout` の引数と `remote_children`、`reference_system` と別 System の Container の `pose` / `set_pose` の回し方(§19.8)、`transform/create` の終点の System への転送(§19.2 の 5・7)は Step 2(#415)。
 - `transform/profile_full` の `remote: {system, rate, timeout, state, last_success}` は Step 1 で足した(`rate`・`timeout` はその Transform に書いた値、`system` は 1 回目が届くまで `null`)。
+
+### 19.13 Step 2(#415)で決めたこと
+
+API・CLI・pyjuiz で決めたこと。
+
+- **`container/pose_state` の param**: HTTP は `GET /api/container/pose_state?identifier=…&since=…&system=…&subscriber=…&destination=…&timeout=…`。`destination` は**複数なら `,` でつなぐ**(繰り返しにしない。HTTP のクエリの読み取りが 1 つの名前に 1 つの値のため。メッセンジャー系も同じ形)。取り込みのスレッドは毎回 `subscriber`(自分の UUID)・`destination`(その写しの始点を始点にする Transform の終点の ID)・`timeout` を付ける。
+- **`remote_children`**: `container/profile_full` に `[{system, destinations, last_access}]`(`last_access` は `juiz_std.common.Time`)。`subscriber` の付いた `container/pose_state` だけを覚え、そのとき渡された `timeout`(なければ 3.0 秒)の間に次が来なければ消す(読み出しのときに消す)。Container を消せば一緒に消える。CLI の `container list --long` は `remote child: <UUID> -> <終点>, …` の行を出す。
+- **`transform/create` の転送**(§19.2 の 5): `TransformManifest` に `source_system`(省略可)を足した。転送する側は、始点を自分の core の ID に、終点を相手での core の ID に直し、`source_system` に自分の UUID を入れて終点の System の BrokerProxy で `transform/create` を呼ぶ。受けた側は、マスターシステム・サブシステムの中からその UUID の System を探し、その BrokerProxy の(種類, 名前)で始点を書き換えて作る(`127.0.0.1:8000` につないでいれば `http://127.0.0.1:8000/container/map::static_anchor`)。戻り値は相手の profile(ID は相手の System での形)。
+- **`transform/profile_full`・`update`・`destroy` の転送**(§19.2 の 7): 親の System では Transform を `transform://<自分の core の ID>|<相手のブローカー付きの ID>` で指す。この ID の終点が別 System なら、`transform://<自分の core の ID>|<相手での core の ID>` と param `source_system`(自分の UUID)を付けて回す。受けた側は始点を作成と同じ規則で書き換えてから探す。
+- **回せないとき**: BrokerProxy が作れない・相手に届かない(juiz のエラーでない)ときは `CrossSystemTransformError`。相手が juiz のエラー(木の規則を破る、`source_system` を知らないなど)を返したときは、そのエラーに「どの System で起きたか」を足して返す。
+- **`container/pose`・`set_pose` の回し方**(§19.8): param `reference_system` を足した。自分の System の Container・写しに当たる名前や ID は自分で計算する(§19.5 の「自分が優先」)。当たらない `identifier` がブローカー付きの ID なら、その System に回す。答えの `header.frame_id` は自分の System での基準の名前(§5.4)に直す。当たらない `reference` がブローカー付きの ID で `identifier` が自分の Container なら、R の System に `pose(R, C)` を頼んで逆にし、`frame_id` は R のブローカー付きの ID。`set_pose` のこの形は `CrossSystemTransformError`。
+- **HTTP の BrokerProxy**: `container/pose`・`container/set_pose` の `identifier` は core の ID に書き換えずに送る(別 System の Container を指せるように)。サーバーは自分を指す ID を今どおり core の ID に直す(`localize_identifier`)。
+- **例 B の合成**(§19.8): API にはまとめない。それぞれの System で共通の写しの Anchor から見た位置を読み、使う側で合成する。
+- **conf**(§19.2 の 8): `transforms:` のうち終点がブローカー付きの、別 System の Container の項目は、`subsystems:` / `mastersystem:` の後で回す。ほかの項目は今どおり `composite_containers:` の後。
+- **CLI**: `juiz transform create … --rate <Hz> --timeout <秒>`、`juiz transform list --long` はまたぐ Transform に `  (remote: ok | stale | lost)` を足す、`juiz container pose-state <id>`(PoseState を JSON で出す)。`juiz container pose` に別 System の Container の ID を渡すと回して読む。
+- **pyjuiz**: `SystemProxy.create_transform(…, rate=, timeout=)`、`SystemProxy.pose_state(container)`・`ContainerProxy.pose_state()`。`pose`・`set_pose`・`create_transform` に**別の SystemProxy の ObjectProxy** を渡すと、その System へのブローカー付きの ID(`ObjectProxy.broker_identifier()`、`http://host:port/container/…`)にして送る。
+- **残したもの**: Rust の Process の中から、別 System の Container を指す `ContainerProxy` の `pose` を呼んだときの回し方(登録所から CoreBroker を呼ぶ口が要る)。管理画面(Step 3、#416)。

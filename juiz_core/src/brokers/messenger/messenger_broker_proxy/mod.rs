@@ -947,17 +947,31 @@ fn params(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
         .collect()
 }
 
+/// `identifier` と、あれば System の UUID (`source_system` など) の param (§19.2 の 7)
+fn system_params(identifier: &str, key: &str, system: Option<&str>) -> Vec<(String, String)> {
+    let mut pairs = vec![("identifier".to_owned(), identifier.to_owned())];
+    if let Some(s) = system {
+        pairs.push((key.to_owned(), s.to_owned()));
+    }
+    pairs
+}
+
 /// Transformations の API (issue #370)
 impl TransformationsBrokerProxy for MessengerBrokerProxy {
-    fn container_pose(
+    fn container_pose_from_system(
         &self,
         identifier: &str,
         reference: &str,
+        reference_system: Option<&str>,
     ) -> JuizResult<juiz_sdk::geometry::PoseStamped> {
+        let mut pairs = vec![("identifier", identifier), ("reference", reference)];
+        if let Some(s) = reference_system {
+            pairs.push(("reference_system", s));
+        }
         Ok(serde_json::from_value(capsule_value(self.read_with_param(
             "container",
             "pose",
-            &params(&[("identifier", identifier), ("reference", reference)]),
+            &params(&pairs),
         )?)?)?)
     }
 
@@ -965,31 +979,29 @@ impl TransformationsBrokerProxy for MessengerBrokerProxy {
         &self,
         query: &crate::transformations::api_types::PoseStateQuery,
     ) -> JuizResult<Value> {
-        let since = query.since.map(|v| v.to_string());
-        let mut pairs = vec![("identifier", query.identifier.as_str())];
-        if let Some(s) = since.as_deref() {
-            pairs.push(("since", s));
-        }
-        if let Some(s) = query.system.as_deref() {
-            pairs.push(("system", s));
-        }
-        capsule_value(self.read_with_param("container", "pose_state", &params(&pairs))?)
+        let pairs = query
+            .to_params()
+            .into_iter()
+            .map(|(k, v)| (k.to_owned(), v))
+            .collect::<Vec<(String, String)>>();
+        capsule_value(self.read_with_param("container", "pose_state", &pairs)?)
     }
 
-    fn container_set_pose(
+    fn container_set_pose_from_system(
         &self,
         identifier: &str,
         reference: &str,
+        reference_system: Option<&str>,
         pose: &juiz_sdk::geometry::Pose,
     ) -> JuizResult<juiz_sdk::geometry::PoseStamped> {
         let mut cm = CapsuleMap::new();
         cm.insert("reference".to_owned(), jvalue!(reference).into());
         cm.insert("pose".to_owned(), serde_json::to_value(pose)?.into());
-        Ok(serde_json::from_value(capsule_value(self.update_by_id(
+        Ok(serde_json::from_value(capsule_value(self.update(
             "container",
             "set_pose",
             cm,
-            &identifier.to_owned(),
+            &system_params(identifier, "reference_system", reference_system),
         )?)?)?)
     }
 
@@ -999,8 +1011,16 @@ impl TransformationsBrokerProxy for MessengerBrokerProxy {
         )?)?)
     }
 
-    fn transform_profile_full(&self, identifier: &str) -> JuizResult<Value> {
-        capsule_value(self.read_by_id("transform", "profile_full", &identifier.to_owned())?)
+    fn transform_profile_full_from_system(
+        &self,
+        identifier: &str,
+        source_system: Option<&str>,
+    ) -> JuizResult<Value> {
+        capsule_value(self.read_with_param(
+            "transform",
+            "profile_full",
+            &system_params(identifier, "source_system", source_system),
+        )?)
     }
 
     fn transform_create(
@@ -1015,9 +1035,10 @@ impl TransformationsBrokerProxy for MessengerBrokerProxy {
         capsule_value(self.create("transform", "create", cm)?)
     }
 
-    fn transform_update(
+    fn transform_update_from_system(
         &self,
         identifier: &str,
+        source_system: Option<&str>,
         translation: Option<juiz_sdk::geometry::Vector3>,
         rotation: Option<juiz_sdk::geometry::Quaternion>,
     ) -> JuizResult<Value> {
@@ -1028,11 +1049,27 @@ impl TransformationsBrokerProxy for MessengerBrokerProxy {
         if let Some(r) = rotation {
             cm.insert("rotation".to_owned(), serde_json::to_value(r)?.into());
         }
-        capsule_value(self.update_by_id("transform", "update", cm, &identifier.to_owned())?)
+        capsule_value(self.update(
+            "transform",
+            "update",
+            cm,
+            &system_params(identifier, "source_system", source_system),
+        )?)
     }
 
-    fn transform_destroy(&self, identifier: &str) -> JuizResult<Value> {
-        capsule_value(self.delete_by_id("transform", "destroy", &identifier.to_owned())?)
+    fn transform_destroy_from_system(
+        &self,
+        identifier: &str,
+        source_system: Option<&str>,
+    ) -> JuizResult<Value> {
+        capsule_value(self.send_recv_and(
+            "DELETE",
+            "transform",
+            "destroy",
+            CapsuleMap::new(),
+            &system_params(identifier, "source_system", source_system),
+            |value| Ok(value),
+        )?)
     }
 
     fn anchor_list(&self) -> JuizResult<Vec<String>> {

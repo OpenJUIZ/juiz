@@ -55,6 +55,15 @@ pub struct PoseStateQuery {
     /// 前回受け取った `system` (相手の UUID)。相手の今の UUID と違えば `since` は無視される
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub system: Option<String>,
+    /// 取りに来た System の UUID (`container/profile_full` の `remote_children` に使う、§19.10)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subscriber: Option<String>,
+    /// 取りに来た System での終点の ID (§19.10)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub destination: Vec<String>,
+    /// 取りに来た側の timeout [秒]。`remote_children` から消すまでの時間 (§19.10)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<f64>,
 }
 
 impl PoseStateQuery {
@@ -63,6 +72,27 @@ impl PoseStateQuery {
             identifier: identifier.to_owned(),
             ..Default::default()
         }
+    }
+
+    /// BrokerProxy が相手に渡す param の組 (`destination` は `,` でつなぐ、§19.13)
+    pub fn to_params(&self) -> Vec<(&'static str, String)> {
+        let mut pairs = vec![("identifier", self.identifier.clone())];
+        if let Some(v) = self.since {
+            pairs.push(("since", v.to_string()));
+        }
+        if let Some(v) = self.system.as_ref() {
+            pairs.push(("system", v.clone()));
+        }
+        if let Some(v) = self.subscriber.as_ref() {
+            pairs.push(("subscriber", v.clone()));
+        }
+        if !self.destination.is_empty() {
+            pairs.push(("destination", self.destination.join(",")));
+        }
+        if let Some(v) = self.timeout {
+            pairs.push(("timeout", v.to_string()));
+        }
+        pairs
     }
 }
 
