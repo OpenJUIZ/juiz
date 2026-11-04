@@ -122,7 +122,14 @@ function SystemNode({
                   }
                 >
                   {c.processes.map((cp) => (
-                    <TreeNode {...p} key={cp.key} element={cp} label={cp.name} sub={cp.typeName} />
+                    <TreeNode
+                      {...p}
+                      key={cp.key}
+                      element={cp}
+                      label={cp.name}
+                      sub={cp.typeName}
+                      badge={cp.kind === "containerProcess" && cp.profile.readonly && <ReadonlyBadge />}
+                    />
                   ))}
                 </TreeNode>
               )
@@ -203,7 +210,14 @@ function Category({
               children ? (
                 <Fragment key={e.key}>{children(e)}</Fragment>
               ) : (
-                <TreeNode {...p} key={e.key} element={e} label={e.name} sub={e.typeName} />
+                <TreeNode
+                  {...p}
+                  key={e.key}
+                  element={e}
+                  label={e.name}
+                  sub={e.typeName}
+                  badge={e.kind === "containerProcess" && e.profile.readonly && <ReadonlyBadge />}
+                />
               )
             }
           </NamespaceGroup>
@@ -338,6 +352,15 @@ function Twisty({
   return (
     <span className="twisty" role="button" aria-label={open ? "畳む" : "開く"} onClick={onClick}>
       {open ? "▾" : "▸"}
+    </span>
+  );
+}
+
+/** readonly の容器処理の印(#377)。ツリーの容器処理の行に付ける */
+function ReadonlyBadge() {
+  return (
+    <span className="readonly-badge" title="読み取り専用(readonly)。同じ容器の読み取り専用どうしは並行に走る">
+      読取
     </span>
   );
 }

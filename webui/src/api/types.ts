@@ -67,6 +67,8 @@ export interface ProcessProfile extends ObjectProfile {
   output_schema?: TypeSchemaRef | null;
   /** Composite の式の木とスロット。Composite でなければ無い(#170) */
   composition?: Composition | null;
+  /** readonly の容器処理なら true。false なら無い(#377、仕様 transformations.md §14) */
+  readonly?: boolean;
 }
 
 /** Composite の式の木のノード(子の呼び出し)。profile では正規化され、すべてのノードに args がある */

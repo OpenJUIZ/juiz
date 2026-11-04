@@ -81,19 +81,36 @@ pub(crate) fn composition_lines(profile: &ProcessProfile) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// readonly の ContainerProcess なら `readonly` の 1 行を返す。そうでなければ空
+/// (docs/spec/transformations.md §14、issue #377)
+pub(crate) fn readonly_lines(profile: &ProcessProfile) -> Vec<String> {
+    if profile.readonly {
+        vec!["readonly".to_owned()]
+    } else {
+        Vec::new()
+    }
+}
+
+/// `list --long` と `info` で Process の行の下に出す行(readonly の印と Composite の木)
+pub(crate) fn process_lines(profile: &ProcessProfile) -> Vec<String> {
+    let mut lines = readonly_lines(profile);
+    lines.extend(composition_lines(profile));
+    lines
+}
+
 /// profile に `slots` があればスロットの行を返す。CompositeContainer でなければ空
 pub(crate) fn slots_lines(profile: &ContainerProfile) -> Vec<String> {
     profile.slots.as_ref().map(format_slots).unwrap_or_default()
 }
 
-/// Process (ContainerProcess を含む) の Composite の木。profile が取れなければ、その理由を 1 行で返す
+/// Process (ContainerProcess を含む) の readonly の印と Composite の木。profile が取れなければ、その理由を 1 行で返す
 pub(crate) fn process_details(system: &System, id: &ProcessIdentifier) -> Vec<String> {
     let profile = system
         .core_broker()
         .lock_mut()
         .and_then(|mut b| b.worker_mut().any_process_from_identifier(id, true))
         .and_then(|p| p.lock()?.profile());
-    details_or_error(profile.map(|p| composition_lines(&p)))
+    details_or_error(profile.map(|p| process_lines(&p)))
 }
 
 /// Container の CompositeContainer のスロット。profile が取れなければ、その理由を 1 行で返す
@@ -173,11 +190,22 @@ mod tests {
     }
 
     #[test]
+    fn readonly_line_from_profile() {
+        let mut profile = ProcessProfile::new("p0", "pose_get");
+        assert!(readonly_lines(&profile).is_empty());
+        assert!(process_lines(&profile).is_empty());
+        profile.readonly = true;
+        assert_eq!(readonly_lines(&profile), vec!["readonly"]);
+        assert_eq!(process_lines(&profile), vec!["readonly"]);
+    }
+
+    #[test]
     fn lines_from_profile() {
         let mut profile = ProcessProfile::new("p0", "inc_twice");
         assert!(composition_lines(&profile).is_empty());
         profile.composition = Some(composition());
         assert_eq!(composition_lines(&profile).len(), 5);
+        assert_eq!(process_lines(&profile).len(), 5);
 
         let mut profile = ContainerProfile::new("composite_container", "cc0");
         assert!(slots_lines(&profile).is_empty());
