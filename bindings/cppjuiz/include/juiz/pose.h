@@ -11,6 +11,8 @@
 //   }
 //
 // 値は C の構造体 juiz_pose / juiz_pose_stamped (juiz_sdk.h)。四元数の並びは (x, y, z, w)。
+// 平面の移動ロボットは juiz::make_pose_2d(x, y, yaw) / juiz::yaw(pose)、3 次元の向きは
+// juiz::from_rpy / juiz::to_rpy で四元数と roll・pitch・yaw を変換できる (#412)。
 // 読み書きできるのは、その Container の ContainerProcess が呼ばれている間だけ。それ以外 (別スレッド、
 // 呼び出しの後) では TransformationsNotAttachedError を投げる。
 // エラーは TransformationsError の子の例外で投げ、CONTAINER_PROCESS_FACTORY などの entry point が
@@ -19,6 +21,7 @@
 #include "juiz_sdk.h"
 #include "value.h"
 
+#include <cmath>
 #include <cstdint>
 #include <stdexcept>
 #include <string>
@@ -117,6 +120,70 @@ namespace juiz {
         p.position.x = x; p.position.y = y; p.position.z = z;
         p.orientation.x = qx; p.orientation.y = qy; p.orientation.z = qz; p.orientation.w = qw;
         return p;
+    }
+
+    // ---- 四元数と角度の変換 (#412) ----
+    // 角度は rad。規則は Rust の juiz_sdk::geometry::Quaternion::from_rpy / to_rpy と同じ
+    // (ROS と同じ roll (x)・pitch (y)・yaw (z)、固定軸 X→Y→Z の順に回す、q = q_z ⊗ q_y ⊗ q_x)。
+
+    // roll・pitch・yaw [rad]
+    struct Rpy {
+        double roll;
+        double pitch;
+        double yaw;
+    };
+
+    // roll・pitch・yaw [rad] から四元数を作る
+    inline juiz_quaternion from_rpy(double roll, double pitch, double yaw) {
+        const double sr = std::sin(roll / 2), cr = std::cos(roll / 2);
+        const double sp = std::sin(pitch / 2), cp = std::cos(pitch / 2);
+        const double sy = std::sin(yaw / 2), cy = std::cos(yaw / 2);
+        juiz_quaternion q;
+        q.x = sr * cp * cy - cr * sp * sy;
+        q.y = cr * sp * cy + sr * cp * sy;
+        q.z = cr * cp * sy - sr * sp * cy;
+        q.w = cr * cp * cy + sr * sp * sy;
+        return q;
+    }
+
+    // from_rpy の逆。長さ 1 でない四元数は正規化してから変換する。
+    // 長さ 0 (1e-12 未満)・NaN・無限大の四元数は回転なしとみなして (0, 0, 0) を返す (Rust と同じ)
+    inline Rpy to_rpy(const juiz_quaternion& q0) {
+        const double n = std::sqrt(q0.x * q0.x + q0.y * q0.y + q0.z * q0.z + q0.w * q0.w);
+        if (!std::isfinite(n) || n < 1e-12) {
+            return Rpy{0.0, 0.0, 0.0};
+        }
+        const double x = q0.x / n, y = q0.y / n, z = q0.z / n, w = q0.w / n;
+        Rpy r;
+        r.roll = std::atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y));
+        double sinp = 2 * (w * y - z * x);
+        sinp = sinp > 1 ? 1 : (sinp < -1 ? -1 : sinp);
+        r.pitch = std::asin(sinp);
+        r.yaw = std::atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z));
+        return r;
+    }
+
+    inline Rpy to_rpy(const juiz_pose& p) {
+        return to_rpy(p.orientation);
+    }
+
+    // z 軸まわりの回転角 [rad] (to_rpy の yaw)。平面の移動ロボットの向き
+    inline double yaw(const juiz_quaternion& q) {
+        return to_rpy(q).yaw;
+    }
+
+    inline double yaw(const juiz_pose& p) {
+        return yaw(p.orientation);
+    }
+
+    // 位置 (x, y, z) と四元数 q から juiz_pose を作る
+    inline juiz_pose make_pose(double x, double y, double z, const juiz_quaternion& q) {
+        return make_pose(x, y, z, q.x, q.y, q.z, q.w);
+    }
+
+    // 平面 (z = 0) の位置 (x, y) と z 軸まわりの向き yaw [rad] から juiz_pose を作る
+    inline juiz_pose make_pose_2d(double x, double y, double yaw) {
+        return make_pose(x, y, 0.0, from_rpy(0.0, 0.0, yaw));
     }
 
     // 基準 reference (Container の名前か ID) から見た container の ContainerPose (§7.1)

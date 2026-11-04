@@ -39,6 +39,9 @@ fn conf() -> Value {
                 "cpp_pose_component": { "language": "c++", "path": "../target/debug" }
             }
         },
+        "processes": [
+            { "type_name": "cpp_pose_angles", "name": "angles0" },
+        ],
         "containers": [
             { "type_name": "static_anchor", "name": "map" },
             part("base0"),
@@ -213,6 +216,63 @@ fn cpp_readonly_container_process() -> JuizResult<()> {
         );
         let p = call(system, "camera0", "cpp_part_pose", jvalue!({"reference": "map"}))?;
         assert_pose(&p, "map", &pose(1.0, 0.1, 0.3, z90()));
+        Ok(())
+    })
+}
+
+/// juiz/pose.h の四元数と角度の変換 (#412) が Rust の Quaternion::from_rpy / to_rpy と同じ値になる
+#[test]
+fn cpp_pose_angle_helpers_match_rust() -> JuizResult<()> {
+    crate::common::logger::init();
+    System::new(conf())?.setup()?.run_and_do_once(|system| {
+        let id = system
+            .core_broker()
+            .lock()?
+            .process_list(false, None)?
+            .into_iter()
+            .find(|id| id.name == "angles0")
+            .expect("angles0 not found");
+        let call_angles = |roll: f64, pitch: f64, yaw: f64, x: f64, y: f64| -> JuizResult<Value> {
+            let args: CapsuleMap = jvalue!({"roll": roll, "pitch": pitch, "yaw": yaw, "x": x, "y": y}).try_into()?;
+            system.core_broker().lock()?.process_call(&id, args)?.lock_as_value(|v| v.clone())
+        };
+        let f = |v: &Value, path: &[&str]| -> f64 {
+            let mut v = v;
+            for k in path {
+                v = &v[*k];
+            }
+            v.as_f64().unwrap_or_else(|| panic!("{path:?} is not a number: {v}"))
+        };
+        for (roll, pitch, yaw) in [
+            (0.0, 0.0, 0.0),
+            (0.1, -0.2, 0.3),
+            (0.0, 0.0, std::f64::consts::FRAC_PI_2),
+            (-1.0, 0.5, 3.0),
+            (0.3, 1.2, -2.5),
+        ] {
+            let r = call_angles(roll, pitch, yaw, 1.5, -2.0)?;
+            let q = Quaternion::from_rpy(roll, pitch, yaw);
+            for (k, expected) in [("x", q.x), ("y", q.y), ("z", q.z), ("w", q.w)] {
+                assert!((f(&r, &["quaternion", k]) - expected).abs() < EPS, "{k}: {r}");
+            }
+            let (er, ep, ey) = q.to_rpy();
+            assert!((f(&r, &["rpy", "roll"]) - er).abs() < EPS, "{r}");
+            assert!((f(&r, &["rpy", "pitch"]) - ep).abs() < EPS, "{r}");
+            assert!((f(&r, &["rpy", "yaw"]) - ey).abs() < EPS, "{r}");
+            // 往復で元に戻る (pitch が ±90° でない範囲)
+            assert!((er - roll).abs() < EPS && (ep - pitch).abs() < EPS && (ey - yaw).abs() < EPS, "{r}");
+            assert!((f(&r, &["rpy_of_pose", "roll"]) - er).abs() < EPS, "{r}");
+
+            // make_pose_2d(x, y, yaw) は z = 0、z 軸まわりの回転
+            let q2 = Quaternion::from_rpy(0.0, 0.0, yaw);
+            assert!((f(&r, &["pose_2d", "position", "x"]) - 1.5).abs() < EPS, "{r}");
+            assert!((f(&r, &["pose_2d", "position", "y"]) + 2.0).abs() < EPS, "{r}");
+            assert_eq!(f(&r, &["pose_2d", "position", "z"]), 0.0, "{r}");
+            for (k, expected) in [("x", q2.x), ("y", q2.y), ("z", q2.z), ("w", q2.w)] {
+                assert!((f(&r, &["pose_2d", "orientation", k]) - expected).abs() < EPS, "{k}: {r}");
+            }
+            assert!((f(&r, &["yaw_2d"]) - yaw).abs() < EPS, "{r}");
+        }
         Ok(())
     })
 }

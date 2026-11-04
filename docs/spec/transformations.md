@@ -434,6 +434,10 @@ Step 5(#372)で決めたこと:
   ContainerProcess の entry point(`CONTAINER_PROCESS_FACTORY` など)は呼び出しの間 (Container のポインタ, `cm`) をスレッドごとに積み、
   `juiz::pose` は渡された Container のポインタで探す(今呼ばれている Container 以外のオブジェクトは `TransformationsNotAttachedError`)。
   捕まえなかった `TransformationsError` は entry point がそのコードにして返す。辞書にするのは `juiz::pose_to_value`。
+  四元数と角度の変換(#412): `juiz::from_rpy(roll, pitch, yaw)` → `juiz_quaternion`、`juiz::to_rpy(q または pose)` →
+  `juiz::Rpy{roll, pitch, yaw}`、平面用に `juiz::make_pose_2d(x, y, yaw)`(z = 0)と `juiz::yaw(q または pose)`。
+  規則は Rust の `Quaternion::from_rpy` / `to_rpy` と同じ(固定軸 X→Y→Z、q = q_z ⊗ q_y ⊗ q_x)。`to_rpy` は正規化してから変換し、
+  長さ 0・NaN・無限大の四元数は (0, 0, 0) にする。
 - hsjuiz(`Juiz.Pose`): ContainerProcess の関数は Container の状態だけを受け取るので、`containerPose "map"` /
   `setContainerPose "map" p` は「今呼ばれている ContainerProcess の Container」を読み書きする。エントリポイントが呼び出しの間
   `cm` をスレッドごとの変数(cbits の `hsjuiz_swap_pose_call`)に置く(foreign export の呼び出しは bound thread なので、

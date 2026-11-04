@@ -55,6 +55,13 @@ extern "C" {
 #define JUIZ_INVALID_POSE_VALUE_ERROR                      INT64_C(-904)
 /* そのほかの失敗 (引数が null など) */
 #define JUIZ_TRANSFORMATIONS_ERROR                         INT64_C(-905)
+/* C++ のプラグイン (cppjuiz の entry point) で、juiz の例外ではない例外が投げられた (#400)。
+ * extern "C" の境界の外へ例外を出すと juiz ごと落ちるので、entry point が捕まえてこのコードにする。
+ * Process / ContainerProcess では戻り値の capsule にエラー文 (what()) を文字列で入れる */
+/* std::exception の子 (std::runtime_error、std::bad_alloc など) */
+#define JUIZ_CPP_EXCEPTION_ERROR                           INT64_C(-1001)
+/* std::exception の子ではない例外 (catch (...) で捕まえたもの) */
+#define JUIZ_CPP_UNKNOWN_EXCEPTION_ERROR                   INT64_C(-1002)
 
 /* ---- 不透明な型 ----
  * 中身は Rust 側の CapsulePtr / Capsule / CapsuleMap / Value。ポインタとしてだけ使う。 */

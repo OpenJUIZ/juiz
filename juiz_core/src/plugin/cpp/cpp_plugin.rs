@@ -56,6 +56,25 @@ impl CAbiLanguage {
 /// Haskell のプラグインが公開する、GHC の RTS を初期化する関数 (int64_t juiz_hs_init(void))
 const HASKELL_INIT_SYMBOL: &str = "juiz_hs_init";
 
+/// cppjuiz の entry point が、juiz の例外ではない例外を捕まえたときに返すコード (juiz_sdk.h、#400)
+const JUIZ_CPP_EXCEPTION_ERROR: i64 = -1001;
+const JUIZ_CPP_UNKNOWN_EXCEPTION_ERROR: i64 = -1002;
+
+/// C++ / Haskell のプラグインの関数が負の値を返したときのエラー。
+/// 例外のコード (#400) なら、entry point が戻り値の capsule に入れたエラー文 (what()) を読む
+fn cpp_call_error(function_name: String, return_value: i64, result: Option<&Capsule>) -> anyhow::Error {
+    if return_value == JUIZ_CPP_EXCEPTION_ERROR || return_value == JUIZ_CPP_UNKNOWN_EXCEPTION_ERROR {
+        let message = result
+            .and_then(|c| c.as_value())
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_owned())
+            .unwrap_or_else(|| "(no message; see the standard error of juiz)".to_owned());
+        log::error!("C++ plugin function ({function_name}) threw an exception: {message}");
+        return anyhow::Error::from(JuizError::CppPluginExceptionError { function_name, message });
+    }
+    anyhow::Error::from(JuizError::CppPluginFunctionCallError { function_name, return_value })
+}
+
 pub struct CppPlugin {
     path: PathBuf,
     language: CAbiLanguage,
@@ -282,10 +301,7 @@ impl CppPlugin {
                 let mut pobj: *mut c_void = std::ptr::null_mut();
                 let retval = unsafe { (entry_point)(&mut v, &mut pobj) };
                 if retval < 0 || pobj == std::ptr::null_mut() {
-                    return Err(anyhow::Error::from(JuizError::CppPluginFunctionCallError {
-                        function_name: "create_container".to_owned(),
-                        return_value: retval,
-                    }));
+                    return Err(cpp_call_error("create_container".to_owned(), retval, None));
                 }
                 Ok(ContainerPtr::new(ContainerImpl::new(
                     cm,
@@ -341,10 +357,7 @@ impl CppPlugin {
             argument.set_pose_port(0);
             drop(pose_port);
             if return_value != 0 {
-                return Err(anyhow::Error::from(JuizError::CppPluginFunctionCallError {
-                    function_name: format!("container_process({type_name})"),
-                    return_value,
-                }));
+                return Err(cpp_call_error(format!("container_process({type_name})"), return_value, Some(&retval)));
             }
             Ok(retval)
         };
@@ -515,7 +528,7 @@ fn create_cpp_process_factory(
     lib: Arc<Library>,
 ) -> JuizResult<ProcessFactoryPtr> {
     log::trace!("【呼出】create_cpp_process_factory({manifest}, {entry_point:?}");
-    let entry_point_name = "process_entry_point".to_owned();
+    let entry_point_name = format!("process({})", manifest.type_name);
     let function = move |mut argument: CapsuleMap| -> JuizResult<Capsule> {
         log::trace!("【呼出】func_cpp(argument={argument:?})");
         let _lib = &lib;
@@ -523,10 +536,7 @@ fn create_cpp_process_factory(
         unsafe {
             let v = entry_point(&mut argument, &mut func_result);
             if v < 0 {
-                return Err(anyhow::Error::from(JuizError::CppPluginFunctionCallError {
-                    function_name: entry_point_name.clone(),
-                    return_value: v,
-                }));
+                return Err(cpp_call_error(entry_point_name.clone(), v, Some(&func_result)));
             }
         }
         return Ok(func_result);
