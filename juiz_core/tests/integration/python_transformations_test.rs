@@ -11,12 +11,15 @@ use juiz_sdk::process_identifier::ProcessIdentifier;
 const EPS: f64 = 1e-9;
 const H: f64 = std::f64::consts::FRAC_1_SQRT_2;
 
-const PROCESSES: [&str; 5] = [
+const PROCESSES: [&str; 8] = [
     "py_part_pose",
     "py_part_set_pose",
     "py_part_try",
     "py_part_on_pose",
     "py_part_last",
+    "py_part_peek",
+    "py_part_sleep",
+    "py_part_try_readonly",
 ];
 
 fn part(name: &str) -> Value {
@@ -197,6 +200,80 @@ fn python_pose_errors_have_kinds() -> JuizResult<()> {
         assert_eq!(
             try_op("camera0", "not_container", "map")?,
             jvalue!("TransformationsNotAttachedError")
+        );
+        Ok(())
+    })
+}
+
+/// 同じ Container の 2 つの ContainerProcess を 2 つのスレッドから同時に呼び、かかった時間を返す
+fn call_two_at_once(
+    system: &System,
+    container: &str,
+    (t1, a1): (&str, Value),
+    (t2, a2): (&str, Value),
+) -> JuizResult<std::time::Duration> {
+    let broker = system.core_broker().clone();
+    let start = std::time::Instant::now();
+    std::thread::scope(|scope| -> JuizResult<()> {
+        let calls = [(t1, a1), (t2, a2)].map(|(t, a)| {
+            let broker = broker.clone();
+            let container = container.to_owned();
+            let t = t.to_owned();
+            scope.spawn(move || -> JuizResult<()> {
+                let id: ProcessIdentifier =
+                    format!("core://core/container_process/{container}_{t}::{t}:{container}").try_into()?;
+                let args: CapsuleMap = a.try_into()?;
+                broker.lock()?.container_process_call(&id, args)?;
+                Ok(())
+            })
+        });
+        for c in calls {
+            c.join().expect("the calling thread panicked")?;
+        }
+        Ok(())
+    })?;
+    Ok(start.elapsed())
+}
+
+/// readonly=True の Python の ContainerProcess (#377): 同じ Container の readonly 同士は並行に走り
+/// (time.sleep は GIL を離す)、set_pose は PoseNotWritableError
+#[test]
+fn python_readonly_container_process() -> JuizResult<()> {
+    crate::common::logger::init();
+    System::new(conf())?.setup()?.run_and_do_once(|system| {
+        let sleep = 300;
+        let both_readonly = call_two_at_once(
+            system,
+            "base0",
+            ("py_part_peek", jvalue!({"reference": "map", "sleep_ms": sleep})),
+            ("py_part_peek", jvalue!({"reference": "map", "sleep_ms": sleep / 2})),
+        )?;
+        assert!(
+            both_readonly.as_millis() < (sleep + sleep / 2 - 30) as u128,
+            "two readonly calls took {both_readonly:?}"
+        );
+        let mixed = call_two_at_once(
+            system,
+            "base0",
+            ("py_part_peek", jvalue!({"reference": "map", "sleep_ms": sleep})),
+            ("py_part_sleep", jvalue!({"sleep_ms": sleep})),
+        )?;
+        assert!(
+            mixed.as_millis() >= (sleep * 2) as u128,
+            "a readonly and a writing call took {mixed:?}"
+        );
+
+        let p = call(system, "camera0", "py_part_peek", jvalue!({"reference": "map"}))?;
+        assert_pose(&p, "map", &pose(1.0, 0.1, 0.3, z90()));
+        let try_op = |op: &str| call(system, "camera0", "py_part_try_readonly", jvalue!({"op": op, "reference": "map"}));
+        assert_eq!(try_op("pose")?, jvalue!("ok"));
+        assert_eq!(try_op("set_pose")?, jvalue!("PoseNotWritableError"));
+        // 書き込みは何も変えていない。普通の ContainerProcess からは書ける
+        let p = call(system, "camera0", "py_part_pose", jvalue!({"reference": "map"}))?;
+        assert_pose(&p, "map", &pose(1.0, 0.1, 0.3, z90()));
+        assert_eq!(
+            call(system, "camera0", "py_part_try", jvalue!({"op": "set_pose", "reference": "base0"}))?,
+            jvalue!("ok")
         );
         Ok(())
     })

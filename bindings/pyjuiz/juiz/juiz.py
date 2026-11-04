@@ -49,10 +49,16 @@ class ProcessManifest:
     container_type: Optional[str] = None
     # 戻り値の型参照 (juiz-idl が生成した型を返すときだけ、仕様 §6)
     output_schema: Optional[dict] = None
+    # readonly の ContainerProcess (Container を読み出しロックで呼ぶ、transformations.md §14、#377)
+    readonly: bool = False
     
     @classmethod
     def new(cls, type_name):
         return ProcessManifest(type_name=type_name, arguments=[])
+
+    def set_readonly(self, readonly: bool = True):
+        self.readonly = readonly
+        return self
         
     def set_name(self, n):
         self.name = n

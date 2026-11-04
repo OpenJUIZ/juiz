@@ -11,7 +11,10 @@ use super::{
 use crate::util::parse_attr;
 use crate::util::typed::{all_typed, change_return_to_capsule};
 use crate::util::{argument_statement, exit_tokenstream};
-use crate::util::{change_container_process_argument_to_capsule_map, get_body_tokenstream};
+use crate::util::{
+    change_container_process_argument_to_capsule_map, container_process_is_readonly,
+    get_body_tokenstream,
+};
 
 pub(crate) fn juiz_component_container_process_inner(
     attr: TokenStream,
@@ -38,6 +41,8 @@ pub(crate) fn juiz_component_container_process_inner(
 
     let factory_name = function_name.clone() + "_factory";
 
+    // 第 1 引数が &ContainerImpl<T> なら readonly (#377)
+    let readonly = container_process_is_readonly(&ast, &manifest_attr);
     // ここで全部 CapsuleMapにしてしまう。元の引数のデータはarg_mapで受け取る
     let arg_map = change_container_process_argument_to_capsule_map(&mut ast);
     // このあとclearしちゃうのでまずbodyを保存。
@@ -74,6 +79,7 @@ pub(crate) fn juiz_component_container_process_inner(
         &arg_map,
         &return_kind,
         factory_name.clone(),
+        readonly,
     );
     manifest2_item_fn
         .block
@@ -81,7 +87,7 @@ pub(crate) fn juiz_component_container_process_inner(
         .push(parse_macro_input!(return_manifest as Stmt));
 
     // factoryを自動生成する
-    let fts = component_factory_tokenstream(ast.sig.ident.clone(), factory_name);
+    let fts = component_factory_tokenstream(ast.sig.ident.clone(), factory_name, readonly);
     let factory_item_fn = proc_macro2::TokenStream::from(fts);
 
     // println!("{}", manifest2_item_fn.to_token_stream().to_string());

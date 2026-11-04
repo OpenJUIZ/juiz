@@ -16,7 +16,7 @@ pub use container_process_factory_wrapper::ContainerProcessFactoryWrapper;
 pub use container_proxy::ContainerProxy;
 pub use juiz_sdk::containers::ContainerImpl;
 
-pub use container_process_factory_impl::bind_container_function;
+pub use container_process_factory_impl::{bind_container_function, bind_container_function_readonly};
 use juiz_sdk::prelude::*;
 
 use super::{ContainerFactoryPtr, ContainerProcessFactoryPtr};

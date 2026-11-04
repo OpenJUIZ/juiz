@@ -544,20 +544,51 @@ Step 6(#373)で決めたこと:
 - 値は位置 (x, y, z)、四元数 (x, y, z, w)、回転角(ロール・ピッチ・ヨー [度]、z → y → x の順の回転)を小数点以下 3 桁で出す。基準が木の Anchor なら木の値をそのまま使い、それ以外は `container/pose` で取る。木に入っていない Transform の値は `transform/profile_full` で取る。
 - 用語(#111 の漢字を正とする表記): Transformations = 変換木、Anchor = 基点、Transform = 変換、ContainerPose = 位置姿勢、基準 Container = 基準。
 
-## 14. readonly ContainerProcess への備え
+## 14. readonly ContainerProcess
 
-将来の readonly ContainerProcess(#377。Container を読み出しロックで並行に呼べる)に備え、読み出し口と書き込み口を API の上で分けておく:
+readonly の ContainerProcess(#377)は、Container を**読み出しロック**で呼ぶ ContainerProcess。同じ Container の readonly 同士は並行に走る。中から ContainerPose は読めるが、書き込みはエラー(`PoseNotWritableError`)になる。Container の利用者の状態も書き換えない約束で、Rust と C++ は型で止める。
 
-- Rust は `pose()` を `&self`、`set_pose()` を `&mut self` に置く。
-- C ABI・Python のアクセサも読み出しと書き込みを別の関数にする。
-- readonly の ContainerProcess の中で書き込み口を呼ぶとエラーにする(この版では readonly がないので、規則だけ決めておく)。
+### 14.1 manifest
+
+- ProcessManifest に `readonly`(真偽値、既定 `false`)を足した。`false` のときは JSON に出さない。
+- `readonly` は Factory の manifest で決まる(関数の書き方で決まる)。conf のインスタンスの manifest では変えられない。
+- ProcessProfile にも `readonly` が載る(`false` なら出さない)。API・CLI・管理画面の profile で見える。
+- readonly でない ContainerProcess は今まで通り書き込みロックで呼ぶ。readonly と readonly でないものは並行に走らない(書き込みロックを待つ)。
+
+### 14.2 ロックと書き込みの止め方
+
+- ホストは manifest の `readonly` を見て、Container を `lock()`(読み出し)で取る。readonly でなければ `lock_mut()`。
+- 呼び出しの間、ホストは呼んだスレッドに「この Container の readonly を呼び出し中」を覚える(`juiz_sdk::transformations::ReadonlyScope`)。その間そのスレッドから同じ Container の `ContainerPoseHandle::set_pose` を呼ぶと `PoseNotWritableError`(文は `the pose can not be written from a readonly container process`)。スレッドごと・Container ごとなので、同じ Container の readonly が走っている間も、API・CLI・別の Process・Pose 通知からの書き込みは今まで通りできる。
+- C ABI のプラグイン(C++・Haskell・Rust C ABI)には書き込みの口が `PoseNotWritableError`(`JUIZ_POSE_NOT_WRITABLE_ERROR`)を返す口を渡す(`PosePortOwner::new_readonly`)。
+- Composite の ContainerProcess は子がそれぞれ自分のロックを取るので、readonly の子は読み出しロックで、そうでない子は書き込みロックで呼ばれる。Composite の manifest の `readonly` は付けない(`false`)。
+
+### 14.3 言語ごとの書き方
+
+| 言語 | 書き方 | 利用者の状態の書き換え |
+|---|---|---|
+| Rust | 第 1 引数を `&ContainerImpl<T>`(`mut` なし)にすると、マクロが readonly にする。属性に `readonly = true` を書いてもよい(`&mut` のままだとコンパイルエラー)。`T: Sync` が要る | 型で止める(`&self` なので `set_pose` も呼べない) |
+| Python | `@juiz_container_process(container_type="...", readonly=True)` | 止められない(書き手が守る)。`juiz.set_pose` は `PoseNotWritableError` |
+| C++ | manifest に `.readonly()`、関数は Container を `const T*` で受け取る | `const T*` で受ければ型で止まる(`T*` のままでも動くが、書き換えないのは書き手が守る)。`juiz::set_pose` に const の Container を渡すと `static_assert` で止まる |
+| Haskell | manifest に `& readonly True` | 止められない(書き手が守る)。`setContainerPose` は `juizPoseNotWritableError` |
+
+```rust
+#[juiz_container_process(container_type = "mobile_base")]
+fn mobile_base_where(c: &ContainerImpl<MobileBase>, reference: String) -> JuizResult<Capsule> {
+    Ok(c.pose(&reference)?.into())
+}
+```
+
+### 14.4 Rust のプラグインの形
+
+- Rust ABI(`abi: rust`): `juiz_sdk::factory::container_process_factory_readonly(manifest, f)`。マクロが使う。読み出しロックを取るのはプラグインの中のグルー。
+- C ABI: 入口の表は今まで通り(kind 3、`container_call`)。manifest の `readonly` を見てホストが読み出しロックで呼び、プラグインのグルー `call_container_process_readonly` が handle を `&ContainerImpl<T>` に戻す。ABI の版は変えない(古いプラグインは `readonly` を出さないので今まで通り)。
+- C ABI では同じ Container の呼び出しが並行するので、プラグインの中の Container に口をつなぐのは最初の呼び出し、外すのは最後の呼び出しが終わったとき(`SharedPortAttachment`)。読み書きは呼んだスレッドの口を使い、別のスレッドからは `TransformationsNotAttachedError`。
 
 ## 15. 範囲の外
 
 - System をまたぐ Transform のうち §19.11 に挙げたもの(親からの push、System 間の時計合わせなど)。System をまたぐ Transform そのものは §19 で扱う。
 - 過去の時刻の位置姿勢の問い合わせ(tf2 の時刻つきバッファ)。
 - 管理画面の 3D 表示。
-- readonly ContainerProcess の実装そのもの(#377)。
 - Transform の自動作成(どの木にも入っていない Container への `set_pose` はエラー)。
 
 ## 16. 他の機能との関係
@@ -573,7 +604,7 @@ Step 6(#373)で決めたこと:
 |---|---|
 | `InvalidPoseValueError` | 長さ 0 の四元数、NaN・無限大 |
 | `NoCommonAnchorError` | R と C の両方を含む Anchor がない(読み・書き) |
-| `PoseNotWritableError` | 根の Anchor・基準自身・基準が子孫の Container への書き込み、readonly からの書き込み |
+| `PoseNotWritableError` | 根の Anchor・基準自身・基準が子孫の Container への書き込み、readonly の ContainerProcess からの書き込み(§14) |
 | `TransformAlreadyExistsError` | 同じ (source, destination) の Transform |
 | `TransformTreeError` | §5.2 の木の規則を破る変更 |
 | `TransformNotFoundError` | 指定の Transform がない |
@@ -594,6 +625,7 @@ Step 1 で上の名前のまま `JuizError` に足した。あわせて `Transfo
 | 5 C ABI | #372 | §12.3 |
 | 6 管理画面 | #373 | §13.3 |
 | 7 サンプル 4 言語 | #374 | §3.5 の値、§11 の形 |
+| 11 readonly ContainerProcess | #377 | §14 |
 
 System をまたぐ Transform(#376、§19):
 

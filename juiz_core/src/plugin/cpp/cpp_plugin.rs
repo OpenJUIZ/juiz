@@ -7,7 +7,8 @@ use std::sync::Arc;
 //use super::cpp_container_process_factory_impl::CppContainerProcessFactoryImpl;
 //use crate::brokers::http::http_router::container;
 use crate::containers::{
-    bind_container_function, container_factory_create, container_process_factory_create_from_trait,
+    bind_container_function, bind_container_function_readonly, container_factory_create,
+    container_process_factory_create_from_trait,
 };
 //use crate::plugin::cpp::cpp_container_factory_impl::CppContainerStruct;
 use crate::prelude::*;
@@ -320,14 +321,21 @@ impl CppPlugin {
         };
         let type_name = container_process_manifest.type_name.to_owned();
         let lib = self.lib.clone();
-        let constructor = move |c: &mut ContainerImpl<CppContainerStruct>,
+        // readonly (transformations.md §14、#377) なら Container を読み出しロックで呼び、
+        // ContainerPose の書き込みの口は PoseNotWritableError を返す
+        let readonly = container_process_manifest.readonly;
+        let constructor = move |c: &ContainerImpl<CppContainerStruct>,
                                 mut argument: CapsuleMap|
               -> JuizResult<Capsule> {
             let _lib = &lib;
             let mut retval = Capsule::empty();
             // 呼び出しの間だけ有効な ContainerPose の口を CapsuleMap の見えない欄に載せる
             // (transformations.md §12.3)。プラグインは juiz_container_pose_get / _set で使う
-            let pose_port = PosePortOwner::new(c.pose_handle());
+            let pose_port = if readonly {
+                PosePortOwner::new_readonly(c.pose_handle())
+            } else {
+                PosePortOwner::new(c.pose_handle())
+            };
             argument.set_pose_port(pose_port.addr());
             let return_value = unsafe { (entry_point)(c.t.cobj, &mut argument, &mut retval) };
             argument.set_pose_port(0);
@@ -340,10 +348,12 @@ impl CppPlugin {
             }
             Ok(retval)
         };
-        container_process_factory_create_from_trait(
-            container_process_manifest.into(),
-            bind_container_function(constructor),
-        )
+        let binded = if readonly {
+            bind_container_function_readonly(constructor)
+        } else {
+            bind_container_function(move |c: &mut ContainerImpl<CppContainerStruct>, a| constructor(c, a))
+        };
+        container_process_factory_create_from_trait(container_process_manifest.into(), binded)
         //Ok(ContainerProcessFactoryPtr::new(CppContainerProcessFactoryImpl::new2(self.get_manifest().clone().try_into()?, f)?))
     }
 

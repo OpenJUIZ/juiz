@@ -54,11 +54,12 @@ pub(crate) fn construct_manif_tokenstream(
     manifest_attr: &serde_json::Value,
     arg_map: &Vec<(TypePath, syn::Ident)>,
     return_kind: &ReturnKind,
+    readonly: bool,
 ) -> TokenStream {
     let description = description_of(manifest_attr, &function_name);
     // ここでmanifestデータの基本データを作成する部分
     let construct_manif = quote! {
-        let mut manif = ProcessManifest::new( #function_name ).description(#description).container(#container_type_ident ::manifest2() );
+        let mut manif = ProcessManifest::new( #function_name ).description(#description).container(#container_type_ident ::manifest2() ).readonly(#readonly);
     };
     let construct_manif =
         construct_manif_inner(manifest_attr, arg_map, return_kind, construct_manif);
@@ -77,13 +78,14 @@ pub(crate) fn component_construct_manif_tokenstream(
     arg_map: &Vec<(TypePath, syn::Ident)>,
     return_kind: &ReturnKind,
     factory_name: String,
+    readonly: bool,
 ) -> TokenStream {
     let container_manifest_function_name_ident =
         format_ident!("{}_manifest", container_type_ident.to_string());
     let description = description_of(manifest_attr, &function_name);
     // ここでmanifestデータの基本データを作成する部分
     let construct_manif = quote! {
-        let mut manif = ProcessManifest::new( #function_name ).description(#description).container(#container_manifest_function_name_ident() );
+        let mut manif = ProcessManifest::new( #function_name ).description(#description).container(#container_manifest_function_name_ident() ).readonly(#readonly);
     };
     let construct_manif =
         construct_manif_inner(manifest_attr, arg_map, return_kind, construct_manif);

@@ -1,7 +1,9 @@
 // C++ の ContainerProcess から ContainerPose を読み書きする例 (Transformations Step 5、issue #372)。
 // juiz のテスト juiz_core/tests/integration/cpp_transformations_test.rs が使う。
 // 仕様は docs/spec/transformations.md §12.3。
+#include <chrono>
 #include <string>
+#include <thread>
 #include "juiz/juiz.h"
 
 // 利用者の状態は持たない部品。位置姿勢は juiz が Container ごとに持つ (利用者の状態とは別)
@@ -77,6 +79,46 @@ std::optional<juiz::Value> cpp_part_pose_unchecked(CppPart* part, const std::str
 }
 COMPONENT_CONTAINER_PROCESS_FACTORY(CppPart, cpp_part_pose_unchecked_manif, cpp_part_pose_unchecked);
 
+// readonly の ContainerProcess (#377)。Container を const のポインタで受け取り、manifest に readonly() を付ける。
+// juiz は Container を読み出しロックで呼ぶので、同じ Container の readonly 同士は並行に走る。
+// sleep_ms だけ待ってから、基準 reference から見た自分の ContainerPose を返す
+static auto cpp_part_peek_manif = ProcessManifest("cpp_part_peek")
+    .readonly()
+    .add_string_arg("reference", "基準 Container", "map")
+    .add_int_arg("sleep_ms", "待つ時間 [ms]", 0);
+std::optional<juiz::Value> cpp_part_peek(const CppPart* part, const std::string& reference, const int64_t sleep_ms) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
+    return juiz::pose_to_value(juiz::pose(part, reference), reference);
+}
+COMPONENT_CONTAINER_PROCESS_FACTORY(CppPart, cpp_part_peek_manif, cpp_part_peek);
+
+// readonly でない ContainerProcess。sleep_ms だけ待つ (並行に走らないことの比較用)
+static auto cpp_part_sleep_manif = ProcessManifest("cpp_part_sleep")
+    .add_int_arg("sleep_ms", "待つ時間 [ms]", 0);
+std::optional<int64_t> cpp_part_sleep(CppPart* part, const int64_t sleep_ms) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
+    part->id += 1;
+    return part->id;
+}
+COMPONENT_CONTAINER_PROCESS_FACTORY(CppPart, cpp_part_sleep_manif, cpp_part_sleep);
+
+// readonly の中から書こうとする。juiz::set_pose は const の Container では static_assert で止まるので、
+// libjuiz_sdk の C の関数を直接呼ぶ。juiz が渡す口が JUIZ_POSE_NOT_WRITABLE_ERROR を返す
+static auto cpp_part_try_readonly_manif = ProcessManifest("cpp_part_try_readonly")
+    .readonly()
+    .add_string_arg("reference", "基準 Container", "map");
+std::optional<std::string> cpp_part_try_readonly(const CppPart* part, const std::string& reference) {
+    capsule_map* cm = juiz::detail::require_pose_call(part);
+    juiz_pose p = juiz::make_pose(1.0, 0.0, 0.0);
+    juiz_pose_stamped out{};
+    int64_t r = juiz_container_pose_set(cm, reference.c_str(), &p, &out);
+    if (r == JUIZ_POSE_NOT_WRITABLE_ERROR) {
+        return std::string("PoseNotWritableError");
+    }
+    return std::string("returned ") + std::to_string(r);
+}
+COMPONENT_CONTAINER_PROCESS_FACTORY(CppPart, cpp_part_try_readonly_manif, cpp_part_try_readonly);
+
 auto component_manifest() {
     return ComponentManifest("cpp_pose_component")
       .add_container(cpp_part_manifest()
@@ -84,6 +126,9 @@ auto component_manifest() {
         .add_process(cpp_part_set_pose_manifest())
         .add_process(cpp_part_try_manifest())
         .add_process(cpp_part_pose_unchecked_manifest())
+        .add_process(cpp_part_peek_manifest())
+        .add_process(cpp_part_sleep_manifest())
+        .add_process(cpp_part_try_readonly_manifest())
       );
 }
 DEFINE_COMPONENT_MANIFEST_ENTRY_POINT(component_manifest)

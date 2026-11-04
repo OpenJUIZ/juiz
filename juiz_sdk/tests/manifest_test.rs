@@ -804,3 +804,30 @@ fn description_deserializes_from_serialized_form() -> JuizResult<()> {
     assert_eq!(from_str.text, "plain");
     Ok(())
 }
+
+/// readonly の ContainerProcess (transformations.md §14、issue #377)。false は JSON に出さず、
+/// 値からも serde からも読め、インスタンスの manifest では変えられない
+#[test]
+fn process_manifest_readonly() -> JuizResult<()> {
+    let m = ProcessManifest::new("peek").readonly(true);
+    let v = serde_json::to_value(&m)?;
+    assert_eq!(v["readonly"], jvalue!(true));
+    assert!(serde_json::to_value(ProcessManifest::new("p"))?.get("readonly").is_none());
+
+    let from_value: ProcessManifest = jvalue!({"type_name": "peek", "readonly": true}).try_into()?;
+    assert!(from_value.readonly);
+    let from_serde: ProcessManifest = serde_json::from_value(jvalue!({"type_name": "peek", "readonly": true}))?;
+    assert!(from_serde.readonly);
+    let default: ProcessManifest = serde_json::from_value(jvalue!({"type_name": "p"}))?;
+    assert!(!default.readonly);
+
+    let instance = m.build_instance_manifest(ProcessManifest::new("peek").name("peek0"))?;
+    assert!(instance.readonly);
+    let instance = ProcessManifest::new("p")
+        .build_instance_manifest(ProcessManifest::new("p").name("p0").readonly(true))?;
+    assert!(!instance.readonly);
+
+    let profile: ProcessProfile = m.name("peek0").try_into()?;
+    assert!(profile.readonly);
+    Ok(())
+}

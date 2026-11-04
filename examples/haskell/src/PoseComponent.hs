@@ -5,6 +5,7 @@
 -- juiz のテスト juiz_core/tests/integration/haskell_transformations_test.rs が使う。
 module PoseComponent () where
 
+import Control.Concurrent (threadDelay)
 import Control.Exception (try)
 
 import Juiz
@@ -62,9 +63,51 @@ partTry _ op reference = do
       | code == juizInvalidPoseValueError -> "InvalidPoseValueError"
       | otherwise -> "TransformationsError"
 
+-- | readonly の ContainerProcess (#377)。manifest に readonly True を付ける。juiz は Container を読み出しロックで
+-- 呼ぶので、同じ Container の readonly 同士は並行に走る。sleep_ms だけ待ってから、基準 reference から見た自分の
+-- ContainerPose を返す
+partPeekManifest :: ProcessManifest
+partPeekManifest = containerProcessManifest "hs_part_peek" "hs_part"
+  & readonly True
+  & addStringArg "reference" "reference container" "map"
+  & addIntArg "sleep_ms" "milliseconds to wait" 0
+
+partPeek :: IORef Int64 -> Text -> Int64 -> IO Value
+partPeek _ reference sleepMs = do
+  threadDelay (fromIntegral sleepMs * 1000)
+  poseStampedToValue reference <$> containerPose reference
+
+-- | readonly でない ContainerProcess。sleep_ms だけ待つ (並行に走らないことの比較用)
+partSleepManifest :: ProcessManifest
+partSleepManifest = containerProcessManifest "hs_part_sleep" "hs_part"
+  & addIntArg "sleep_ms" "milliseconds to wait" 0
+
+partSleep :: IORef Int64 -> Int64 -> IO Int64
+partSleep ref sleepMs = do
+  threadDelay (fromIntegral sleepMs * 1000)
+  atomicModifyIORef' ref (\v -> (v + 1, v + 1))
+
+-- | readonly の中から書こうとする。'juizPoseNotWritableError' になる
+partTryReadonlyManifest :: ProcessManifest
+partTryReadonlyManifest = containerProcessManifest "hs_part_try_readonly" "hs_part"
+  & readonly True
+  & addStringArg "reference" "reference container" "map"
+
+partTryReadonly :: IORef Int64 -> Text -> IO Text
+partTryReadonly _ reference = do
+  r <- try (setContainerPose reference (ContainerPose (1, 0, 0) (0, 0, 0, 1)))
+  pure $ case r of
+    Right _ -> "ok"
+    Left (JuizError code _)
+      | code == juizPoseNotWritableError -> "PoseNotWritableError"
+      | otherwise -> "TransformationsError"
+
 juizComponent 'component
   [ componentContainer 'createPart 'partManifest
   , componentContainerProcess 'partPose 'partPoseManifest
   , componentContainerProcess 'partSetPose 'partSetPoseManifest
   , componentContainerProcess 'partTry 'partTryManifest
+  , componentContainerProcess 'partPeek 'partPeekManifest
+  , componentContainerProcess 'partSleep 'partSleepManifest
+  , componentContainerProcess 'partTryReadonly 'partTryReadonlyManifest
   ]

@@ -29,6 +29,7 @@ module Juiz.Manifest
   , description
   , factory
   , useMemo
+  , readonly
   , containerType
   , addArg
   , addBoolArg
@@ -80,6 +81,8 @@ data ProcessManifest = ProcessManifest
   , pmContainerType :: !(Maybe Text)
   -- | 戻り値の型 ('returns'、または関数の結果の型)。manifest の output_schema になる
   , pmOutputType :: !(Maybe TypeInfo)
+  -- | readonly の ContainerProcess ('readonly'、juiz の readonly)
+  , pmReadonly :: !Bool
   }
   deriving (Eq, Show)
 
@@ -147,6 +150,7 @@ processManifest typeName = ProcessManifest
   , pmUseMemo = False
   , pmContainerType = Nothing
   , pmOutputType = Nothing
+  , pmReadonly = False
   }
 
 -- | 型名 (設定ファイルの type_name) を指定して Container のマニフェストを作る
@@ -197,6 +201,13 @@ containerType c m = m { pmContainerType = Just c }
 -- | 同じ引数で呼ばれたときに前の結果を使い回すか (juiz の use_memo)
 useMemo :: Bool -> ProcessManifest -> ProcessManifest
 useMemo b m = m { pmUseMemo = b }
+
+-- | readonly の ContainerProcess にする (juiz の readonly、docs/spec/transformations.md §14)。
+-- juiz は Container を読み出しロックで呼ぶので、同じ Container の readonly 同士は並行に走る。
+-- 中で 'Juiz.Pose.setContainerPose' を呼ぶと 'juizPoseNotWritableError' になる。
+-- Container の状態 (IORef など) を書き換えないことは書き手が守る
+readonly :: Bool -> ProcessManifest -> ProcessManifest
+readonly b m = m { pmReadonly = b }
 
 -- | 引数を足す。型名 → 名前 → 説明 → 既定値
 addArg :: HasArguments m => Text -> Text -> Text -> Value -> m -> m
@@ -259,6 +270,7 @@ manifestToValue m = object $
   , "arguments" .= map argumentToValue (pmArguments m)
   ]
   ++ maybe [] (\c -> ["container_type" .= c]) (pmContainerType m)
+  ++ ["readonly" .= True | pmReadonly m]
   ++ maybe [] outputSchema (pmOutputType m)
   where
     -- 古いクライアント向けに、type_name だけの outputs も載せる (仕様 §6)

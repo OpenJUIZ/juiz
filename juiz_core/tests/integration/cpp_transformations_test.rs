@@ -12,11 +12,14 @@ use juiz_sdk::process_identifier::ProcessIdentifier;
 const EPS: f64 = 1e-9;
 const H: f64 = std::f64::consts::FRAC_1_SQRT_2;
 
-const PROCESSES: [&str; 4] = [
+const PROCESSES: [&str; 7] = [
     "cpp_part_pose",
     "cpp_part_set_pose",
     "cpp_part_try",
     "cpp_part_pose_unchecked",
+    "cpp_part_peek",
+    "cpp_part_sleep",
+    "cpp_part_try_readonly",
 ];
 
 fn part(name: &str) -> Value {
@@ -140,6 +143,76 @@ fn cpp_pose_errors_have_kinds() -> JuizResult<()> {
         let e = call(system, "lonely0", "cpp_part_pose_unchecked", jvalue!({"reference": "map"}))
             .unwrap_err();
         assert!(format!("{e:#}").contains("-902"), "{e:#}");
+        Ok(())
+    })
+}
+
+/// 同じ Container の 2 つの ContainerProcess を 2 つのスレッドから同時に呼び、かかった時間を返す
+fn call_two_at_once(
+    system: &System,
+    container: &str,
+    (t1, a1): (&str, Value),
+    (t2, a2): (&str, Value),
+) -> JuizResult<std::time::Duration> {
+    let broker = system.core_broker().clone();
+    let start = std::time::Instant::now();
+    std::thread::scope(|scope| -> JuizResult<()> {
+        let calls = [(t1, a1), (t2, a2)].map(|(t, a)| {
+            let broker = broker.clone();
+            let container = container.to_owned();
+            let t = t.to_owned();
+            scope.spawn(move || -> JuizResult<()> {
+                let id: ProcessIdentifier =
+                    format!("core://core/container_process/{container}_{t}::{t}:{container}").try_into()?;
+                let args: CapsuleMap = a.try_into()?;
+                broker.lock()?.container_process_call(&id, args)?;
+                Ok(())
+            })
+        });
+        for c in calls {
+            c.join().expect("the calling thread panicked")?;
+        }
+        Ok(())
+    })?;
+    Ok(start.elapsed())
+}
+
+/// readonly() の C++ の ContainerProcess (#377): 同じ Container の readonly 同士は並行に走り、
+/// 書き込みの口は JUIZ_POSE_NOT_WRITABLE_ERROR を返す
+#[test]
+fn cpp_readonly_container_process() -> JuizResult<()> {
+    crate::common::logger::init();
+    System::new(conf())?.setup()?.run_and_do_once(|system| {
+        let sleep = 300;
+        let both_readonly = call_two_at_once(
+            system,
+            "base0",
+            ("cpp_part_peek", jvalue!({"reference": "map", "sleep_ms": sleep})),
+            ("cpp_part_peek", jvalue!({"reference": "map", "sleep_ms": sleep / 2})),
+        )?;
+        assert!(
+            both_readonly.as_millis() < (sleep + sleep / 2 - 30) as u128,
+            "two readonly calls took {both_readonly:?}"
+        );
+        let mixed = call_two_at_once(
+            system,
+            "base0",
+            ("cpp_part_peek", jvalue!({"reference": "map", "sleep_ms": sleep})),
+            ("cpp_part_sleep", jvalue!({"sleep_ms": sleep})),
+        )?;
+        assert!(
+            mixed.as_millis() >= (sleep * 2) as u128,
+            "a readonly and a writing call took {mixed:?}"
+        );
+
+        let p = call(system, "camera0", "cpp_part_peek", jvalue!({"reference": "map"}))?;
+        assert_pose(&p, "map", &pose(1.0, 0.1, 0.3, z90()));
+        assert_eq!(
+            call(system, "camera0", "cpp_part_try_readonly", jvalue!({"reference": "map"}))?,
+            jvalue!("PoseNotWritableError")
+        );
+        let p = call(system, "camera0", "cpp_part_pose", jvalue!({"reference": "map"}))?;
+        assert_pose(&p, "map", &pose(1.0, 0.1, 0.3, z90()));
         Ok(())
     })
 }

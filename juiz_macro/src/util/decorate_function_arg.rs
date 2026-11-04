@@ -23,6 +23,29 @@ pub(crate) fn change_argument_to_capsule_map(ast: &mut ItemFn) -> Vec<(TypePath,
     arg_map
 }
 
+/// ContainerProcess の第 1 引数が `&ContainerImpl<T>` (mut なし) なら readonly (#377)。
+/// 属性に `readonly = true` があるのに `&mut` で受けているときは、コンパイルエラーにする
+pub(crate) fn container_process_is_readonly(ast: &ItemFn, manifest_attr: &serde_json::Value) -> bool {
+    let by_signature = match ast.sig.inputs.first() {
+        Some(syn::FnArg::Typed(pt)) => match &*pt.ty {
+            syn::Type::Reference(r) => r.mutability.is_none(),
+            _ => false,
+        },
+        _ => false,
+    };
+    let by_attr = manifest_attr
+        .get("readonly")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if by_attr && !by_signature {
+        panic!(
+            "readonly = true の ContainerProcess ({}) は、Container を &ContainerImpl<T> (mut なし) で受け取ってください。",
+            ast.sig.ident
+        );
+    }
+    by_signature
+}
+
 pub(crate) fn change_container_process_argument_to_capsule_map(
     ast: &mut ItemFn,
 ) -> Vec<(TypePath, syn::Ident)> {

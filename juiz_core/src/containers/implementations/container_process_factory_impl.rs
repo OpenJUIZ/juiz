@@ -118,6 +118,32 @@ pub fn bind_container_function<T: 'static>(
     })
 }
 
+/// readonly の ContainerProcess 用 (docs/spec/transformations.md §14、issue #377)。
+///
+/// Container を読み出しロックで取り、`&ContainerImpl<T>` で関数に渡す。同じ Container の readonly 同士は
+/// 並行に走る。呼び出しの間、そのスレッドからの ContainerPose への書き込みは `PoseNotWritableError` になる。
+/// ホストの中の他言語の Container (Python・C++ など) にも使うので `T: Sync` は求めない。
+/// 他言語の利用者の状態を書き換えないことは、それぞれの言語の書き方で守る
+pub fn bind_container_function_readonly<T: 'static>(
+    function: impl Fn(&ContainerImpl<T>, CapsuleMap) -> JuizResult<Capsule> + 'static,
+) -> BindedContainerFunctionType {
+    Arc::new(move |container, args| -> JuizResult<Capsule> {
+        let guard = container.lock()?;
+        match guard.downcast_ref::<ContainerImpl<T>>() {
+            Some(c) => {
+                let _readonly = juiz_sdk::transformations::ReadonlyScope::enter(&c.pose_handle());
+                (function)(c, args)
+            }
+            None => Err(anyhow!(JuizError::ContainerDowncastingError {
+                identifier: format!(
+                    "{} (the container is not the type this container process expects)",
+                    container.identifier()
+                )
+            })),
+        }
+    })
+}
+
 impl ContainerProcessFactory for ContainerProcessFactoryImpl {
     fn create_container_process(
         &self,

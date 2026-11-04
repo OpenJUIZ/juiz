@@ -15,7 +15,9 @@
 (ホストの口) を付けている。``__slots__`` を持つクラスや組み込みの型 (dict など) には付けられないので、
 Container の constructor は普通のクラスのオブジェクトを返すこと。
 
-読み出し (pose) と書き込み (set_pose) は別の関数にしてある (将来の readonly ContainerProcess に備える、§14)。
+読み出し (pose) と書き込み (set_pose) は別の関数にしてある (§14)。
+``@juiz_container_process(..., readonly=True)`` の ContainerProcess の中で set_pose を呼ぶと
+PoseNotWritableError になる (#377)。
 """
 
 POSE_HANDLE_ATTRIBUTE = "__juiz_pose__"
@@ -35,7 +37,7 @@ class NoCommonAnchorError(TransformationsError):
 
 
 class PoseNotWritableError(TransformationsError):
-    """根の Anchor・基準自身・基準が子孫の Container への書き込み"""
+    """根の Anchor・基準自身・基準が子孫の Container への書き込み、readonly の ContainerProcess からの書き込み"""
 
 
 class InvalidPoseValueError(TransformationsError):
