@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { JuizClient } from "./api/client.ts";
+import type { TransformRemote } from "./api/types.ts";
 import {
   anchorContainers,
   attachTransformations,
   buildModel,
+  isLocalContainer,
+  parseTransformIdentifier,
   type FetchedTransformations,
   type Model,
 } from "./model.ts";
@@ -23,6 +26,7 @@ function isTopicConnection(id: string): boolean {
 
 /**
  * 最上位の系の Transformations(Anchor ごとの木と Transform の一覧、#373)を取る。
+ * 別の系から取り込んだ写しの Anchor の木と、始点が別の系の Transform の取り込みの状態も取る(#416)。
  * Transformations の API が無い古い juiz では null
  */
 async function fetchTransformations(
@@ -37,15 +41,40 @@ async function fetchTransformations(
     if (e instanceof DOMException && e.name === "AbortError") throw e;
     return null;
   }
-  const anchors = anchorContainers(model);
-  const results = await Promise.allSettled(anchors.map((a) => client.transformationsTree(a.identifier, signal)));
+  const anchors: { anchorKey: string | null; anchorIdentifier: string }[] = anchorContainers(model).map((a) => ({
+    anchorKey: a.key,
+    anchorIdentifier: a.identifier,
+  }));
+  // 写しの Anchor は anchor/list にだけ出る(容器ではないので system/profile_full には無い)
+  const anchorIds = await client.anchorList(signal).catch((e: unknown) => {
+    if (e instanceof DOMException && e.name === "AbortError") throw e;
+    return [] as string[];
+  });
+  for (const id of anchorIds) {
+    if (!isLocalContainer(model, id)) anchors.push({ anchorKey: null, anchorIdentifier: id });
+  }
+  // 始点が自分の系の容器でない Transform は、System をまたぐ Transform(状態を transform/profile_full で取る)
+  const crossing = transforms.filter((id) => {
+    const ends = parseTransformIdentifier(id);
+    return !!ends && !isLocalContainer(model, ends[0]);
+  });
+  const [trees, profiles] = await Promise.all([
+    Promise.allSettled(anchors.map((a) => client.transformationsTree(a.anchorIdentifier, signal))),
+    Promise.allSettled(crossing.map((id) => client.transformProfileFull(id, signal))),
+  ]);
   if (signal.aborted) throw new DOMException("aborted", "AbortError");
+  const remotes = new Map<string, TransformRemote>();
+  crossing.forEach((id, i) => {
+    const r = profiles[i]!;
+    if (r.status === "fulfilled" && r.value.remote) remotes.set(id, r.value.remote);
+  });
   return {
     transforms,
+    remotes,
     trees: anchors.map((a, i) => {
-      const r = results[i]!;
+      const r = trees[i]!;
       return {
-        anchorKey: a.key,
+        ...a,
         tree: r.status === "fulfilled" ? r.value : r.reason instanceof Error ? r.reason.message : String(r.reason),
       };
     }),

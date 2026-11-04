@@ -1,9 +1,18 @@
 // 性質欄の Transformations の部分(#373)。Anchor の種類と木、容器の位置姿勢、容器につながる Transform を出す。
 import { useEffect, useState, type ReactNode } from "react";
 import { JuizClient } from "../api/client.ts";
-import type { Pose, PoseStamped, Quaternion, TransformValue, Vector3 } from "../api/types.ts";
-import { anchorKindLabel } from "../labels.ts";
-import type { ContainerElement, Model, PoseNode, TransformEdge } from "../model.ts";
+import type { Pose, PoseStamped, Quaternion, RemoteChild, TransformRemote, TransformValue, Vector3 } from "../api/types.ts";
+import { anchorKindLabel, formatTime, remoteStateDescription, remoteStateLabel } from "../labels.ts";
+import {
+  brokerOf,
+  findSystemByUuid,
+  nameOfIdentifier,
+  type ContainerElement,
+  type Model,
+  type PoseNode,
+  type SystemModel,
+  type TransformEdge,
+} from "../model.ts";
 import { ElementLink, Empty, Fields, Mono, Section } from "./props-parts.tsx";
 import { Term } from "./Term.tsx";
 
@@ -119,9 +128,53 @@ function TransformValueView({ value }: { value: TransformValue }) {
   return <PoseTable position={value.translation} orientation={value.rotation} />;
 }
 
-/** 木のノードの名前(容器が見つからなければ識別子) */
+/** 木のノードの名前(容器が見つからなければ識別子)。写しなら名前に「写し」と仲介を添える */
 function NodeLink({ model, node, onSelect }: { model: Model; node: { key: string | null; identifier: string }; onSelect: (key: string) => void }) {
+  if (!node.key || !model.elements.has(node.key)) return <ReplicaName identifier={node.identifier} />;
   return <ElementLink model={model} elementKey={node.key} fallback={node.identifier} onSelect={onSelect} />;
+}
+
+/** 別の系の容器(写し)の名前。名前に、取り込んだ仲介を添える */
+function ReplicaName({ identifier }: { identifier: string }) {
+  const broker = brokerOf(identifier);
+  return (
+    <span className="elem-link replica-name" title={identifier}>
+      {nameOfIdentifier(identifier)}
+      <span className="replica-badge">写し</span>
+      {broker && <span className="dim"> {broker}</span>}
+    </span>
+  );
+}
+
+/** 基準の選択肢の名前 */
+function nodeLabel(model: Model, node: { key: string | null; identifier: string }): string {
+  const e = node.key ? model.elements.get(node.key) : undefined;
+  if (e) return e.fullName;
+  const broker = brokerOf(node.identifier);
+  return `${nameOfIdentifier(node.identifier)}(写し${broker ? ` ${broker}` : ""})`;
+}
+
+/** 系の名前。表示中の系に見つからなければ UUID(分かれば取り込んだ仲介を添える) */
+function SystemName({
+  model,
+  uuid,
+  broker,
+  onSelect,
+}: {
+  model: Model;
+  uuid: string | null | undefined;
+  broker?: string | null;
+  onSelect: (key: string) => void;
+}) {
+  const s = findSystemByUuid(model, uuid);
+  if (s) return <ElementLink model={model} elementKey={s.key} onSelect={onSelect} />;
+  return (
+    <>
+      {broker && <Mono>{broker}</Mono>}
+      {broker && uuid && <br />}
+      {uuid ? <span className="dim mono">{uuid}</span> : !broker && <span className="none">まだ取り込んでいません</span>}
+    </>
+  );
 }
 
 /* ---------- Anchor ---------- */
@@ -152,7 +205,7 @@ export function AnchorSection({ element: e, model, onSelect }: Props) {
   if (!anchor) return null;
   const t = model.transformations;
   const tree = t?.trees.find((x) => x.anchorKey === e.key);
-  const error = t?.treeErrors.get(e.key);
+  const error = t?.treeErrors.find((x) => x.anchorKey === e.key)?.message;
   return (
     <>
       <Section title={<Term k="anchor" />}>
@@ -246,7 +299,7 @@ export function PoseSection({ element: e, model, onSelect, serverUrl }: FetchPro
 
   const options = [...candidates.values()].map((n) => ({
     identifier: n.identifier,
-    label: (n.key && model.elements.get(n.key)?.fullName) || n.identifier,
+    label: nodeLabel(model, n),
   }));
   return (
     <Section title={<Term k="pose" />}>
@@ -263,6 +316,77 @@ export function PoseSection({ element: e, model, onSelect, serverUrl }: FetchPro
         </label>{" "}
         <NodeLink model={model} node={candidates.get(reference) ?? { key: null, identifier: reference }} onSelect={onSelect} />
       </div>
+      {body}
+    </Section>
+  );
+}
+
+/**
+ * 副系の容器の位置姿勢(#416)。副系が System をまたぐ Transform で最上位の系の容器の位置を取り込んでいれば、
+ * その容器と、その容器が入っている木の Anchor(副系に写しがある)を基準にできる。
+ * container/pose を最上位の系に頼むと、副系に回して読んでくれる(transformations.md §19.8)
+ */
+export function SubsystemPoseSection({ element: e, model, onSelect, serverUrl }: FetchProps) {
+  const system = model.elements.get(e.systemKey) as SystemModel | undefined;
+  const uuid = system?.uuid;
+  const candidates = new Map<string, { key: string | null; identifier: string }>();
+  if (uuid) {
+    for (const c of model.root.containers) {
+      if (!(c.profile.remote_children ?? []).some((r) => r.system === uuid)) continue;
+      // 取りに来ている容器の PoseState の Anchor(= その容器が入っている木の根)と、その容器自身
+      for (const n of model.transformations?.nodesByKey.get(c.key) ?? []) {
+        if (!n.tree.replica) candidates.set(n.tree.anchorIdentifier, { key: n.tree.anchorKey, identifier: n.tree.anchorIdentifier });
+      }
+      candidates.set(c.identifier, { key: c.key, identifier: c.identifier });
+    }
+  }
+  const [chosen, setChosen] = useState<string | null>(null);
+  const [fetched, setFetched] = useState<Fetched | null>(null);
+  const first = candidates.keys().next();
+  const reference = chosen && candidates.has(chosen) ? chosen : first.done ? null : first.value;
+
+  useEffect(() => {
+    if (!reference) return;
+    const ac = new AbortController();
+    new JuizClient(serverUrl).containerPose(e.identifier, reference, ac.signal).then(
+      (p) => setFetched({ reference, model, result: p }),
+      (err: unknown) => {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setFetched({ reference, model, result: err instanceof Error ? err.message : String(err) });
+      },
+    );
+    return () => ac.abort();
+  }, [serverUrl, e.identifier, reference, model]);
+
+  // 最上位の系の基点を写しに持っていない副系の容器には、位置姿勢を出さない
+  if (!reference) return null;
+  let body: ReactNode;
+  if (fetched && fetched.reference === reference) {
+    body =
+      typeof fetched.result === "string" ? (
+        <span className="error-text">{fetched.result}</span>
+      ) : (
+        <PoseView pose={fetched.result.pose} stale={fetched.model !== model} />
+      );
+  } else {
+    body = <Empty>取得しています</Empty>;
+  }
+  return (
+    <Section title={<Term k="pose" />}>
+      <div className="pose-reference">
+        <label>
+          <Term k="reference" />{" "}
+          <select value={reference} onChange={(ev) => setChosen(ev.target.value)}>
+            {[...candidates.values()].map((n) => (
+              <option key={n.identifier} value={n.identifier}>
+                {nodeLabel(model, n)}
+              </option>
+            ))}
+          </select>
+        </label>{" "}
+        <NodeLink model={model} node={candidates.get(reference)!} onSelect={onSelect} />
+      </div>
+      <div className="dim hint">最上位の系の基点から見た位置です(この系が取り込んだ写しで計算)</div>
       {body}
     </Section>
   );
@@ -316,26 +440,103 @@ export function TransformSection({ element: e, model, onSelect, serverUrl }: Fet
       </Section>
     );
   }
-  const item = (t: TransformEdge, other: "source" | "destination") => (
-    <li key={t.identifier} className="transform-item" title={t.identifier}>
-      <div>
-        {other === "source" ? "親 " : "子 "}
-        <ElementLink
-          model={model}
-          elementKey={other === "source" ? t.sourceKey : t.destinationKey}
-          fallback={other === "source" ? t.source : t.destination}
-          onSelect={onSelect}
-        />
-        <span className="dim">{other === "source" ? " → この容器" : " ← この容器から"}</span>
-      </div>
-      <TransformEdgeValue edge={t} model={model} serverUrl={serverUrl} />
-    </li>
-  );
+  const item = (t: TransformEdge, other: "source" | "destination") => {
+    const id = other === "source" ? t.source : t.destination;
+    const key = other === "source" ? t.sourceKey : t.destinationKey;
+    return (
+      <li key={t.identifier} className="transform-item" title={t.identifier}>
+        <div>
+          {other === "source" ? "親 " : "子 "}
+          {key ? (
+            <ElementLink model={model} elementKey={key} fallback={id} onSelect={onSelect} />
+          ) : (
+            <ReplicaName identifier={id} />
+          )}
+          <span className="dim">{other === "source" ? " → この容器" : " ← この容器から"}</span>
+        </div>
+        {t.remote && <RemoteFields remote={t.remote} source={t.source} model={model} onSelect={onSelect} />}
+        <TransformEdgeValue edge={t} model={model} serverUrl={serverUrl} />
+      </li>
+    );
+  };
   return (
     <Section title={<Term k="transform" />}>
       <ul className="transform-list">
         {incoming.map((t) => item(t, "source"))}
         {outgoing.map((t) => item(t, "destination"))}
+      </ul>
+    </Section>
+  );
+}
+
+/** System をまたぐ Transform の取り込みの状態(#416) */
+function RemoteFields({
+  remote,
+  source,
+  model,
+  onSelect,
+}: {
+  remote: TransformRemote;
+  source: string;
+  model: Model;
+  onSelect: (key: string) => void;
+}) {
+  return (
+    <Fields
+      rows={[
+        [
+          "取り込み",
+          <span className={`remote-state ${remote.state}`} title={remoteStateDescription(remote.state)}>
+            {remoteStateLabel(remote.state)}
+          </span>,
+        ],
+        ["相手の系", <SystemName model={model} uuid={remote.system} broker={brokerOf(source)} onSelect={onSelect} />],
+        ["最後に取れた時刻", remote.last_success ? <Mono>{formatTime(remote.last_success)}</Mono> : null],
+        ["周期", remote.rate == null ? null : <>{remote.rate} Hz</>],
+        ["timeout", remote.timeout == null ? null : <>{remote.timeout} 秒</>],
+      ]}
+    />
+  );
+}
+
+/** 取りに来た系での終点の容器を探す。表示中の副系なら、その容器へ移れる */
+function destinationKey(system: SystemModel | undefined, destination: string): string | null {
+  return system?.containers.find((c) => c.profile.identifier === destination || c.identifier === destination)?.key ?? null;
+}
+
+/**
+ * この容器の位置を取りに来ている別の系(System をまたぐ Transform の子、#416)。
+ * 子の木は取り込まないので、どの系のどの容器が子なのかだけを出す
+ */
+export function RemoteChildrenSection({ element: e, model, onSelect }: Props) {
+  const children: RemoteChild[] = e.profile.remote_children ?? [];
+  if (children.length === 0) return null;
+  return (
+    <Section title={<Term k="remoteChild" />}>
+      <ul className="transform-list">
+        {children.map((c) => {
+          const system = findSystemByUuid(model, c.system);
+          return (
+            <li key={c.system} className="transform-item">
+              <Fields
+                rows={[
+                  ["系", <SystemName model={model} uuid={c.system} onSelect={onSelect} />],
+                  [
+                    "子",
+                    <>
+                      {c.destinations.map((d) => (
+                        <div key={d}>
+                          <ElementLink model={model} elementKey={destinationKey(system, d)} fallback={d} onSelect={onSelect} />
+                        </div>
+                      ))}
+                    </>,
+                  ],
+                  ["最後に来た時刻", c.last_access ? <Mono>{formatTime(c.last_access)}</Mono> : null],
+                ]}
+              />
+            </li>
+          );
+        })}
       </ul>
     </Section>
   );

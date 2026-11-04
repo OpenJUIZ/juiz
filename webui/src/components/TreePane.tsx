@@ -1,8 +1,12 @@
 import { Fragment, useEffect, useRef, type MouseEvent, type ReactNode } from "react";
 import { MARK_CLASS } from "../marks.ts";
 import {
+  brokerOf,
   categoryKey,
+  findSystemByUuid,
   joinNamespace,
+  nameOfIdentifier,
+  remoteOfSource,
   splitNamespace,
   type Element,
   type Model,
@@ -10,9 +14,16 @@ import {
   type SystemModel,
   type TransformationsModel,
 } from "../model.ts";
-import type { AnchorInfo } from "../api/types.ts";
+import type { AnchorInfo, RemoteChild, TransformRemote } from "../api/types.ts";
 import type { TermKey } from "../terms.ts";
-import { anchorKindLabel, connectionTypeLabel, ecStateLabel } from "../labels.ts";
+import {
+  anchorKindLabel,
+  connectionTypeLabel,
+  ecStateLabel,
+  formatTime,
+  remoteStateDescription,
+  remoteStateLabel,
+} from "../labels.ts";
 import { Term } from "./Term.tsx";
 
 interface Props {
@@ -63,9 +74,9 @@ function SystemNode({
   depth,
   rootModel,
   ...p
-}: NodeProps & { system: SystemModel; depth: number; rootModel?: Model }) {
+}: NodeProps & { system: SystemModel; depth: number; rootModel: Model }) {
   // Transformations は最上位の系の分だけ(#373)
-  const transformations = rootModel?.transformations;
+  const transformations = depth === 0 ? rootModel.transformations : null;
   const ck = (t: TermKey) => categoryKey(system.key, t);
   const orphanCps = system.containerProcesses.filter((cp) => cp.containerKey === null);
   return (
@@ -102,7 +113,13 @@ function SystemNode({
                   element={c}
                   label={c.name}
                   sub={c.typeName}
-                  badge={c.profile.anchor ? <AnchorBadge kind={c.profile.anchor.kind} /> : undefined}
+                  badge={
+                    <>
+                      {c.profile.anchor && <AnchorBadge kind={c.profile.anchor.kind} />}
+                      <IncomingRemoteBadge model={rootModel} transformations={transformations} identifier={c.identifier} />
+                      <RemoteChildBadge model={rootModel} items={c.profile.remote_children} />
+                    </>
+                  }
                 >
                   {c.processes.map((cp) => (
                     <TreeNode {...p} key={cp.key} element={cp} label={cp.name} sub={cp.typeName} />
@@ -143,14 +160,14 @@ function SystemNode({
           )}
           <Category {...p} k={ck("topic")} term="topic" items={system.topics} />
           <Category {...p} k={ck("broker")} term="broker" items={system.brokers} />
-          {transformations && (transformations.trees.length > 0 || transformations.treeErrors.size > 0) && (
+          {transformations && (transformations.trees.length > 0 || transformations.treeErrors.length > 0) && (
             <PoseTreeCategory {...p} k={ck("transformations")} model={rootModel} transformations={transformations} />
           )}
         </>
       )}
       {system.subsystems.length > 0 && (
         <Category {...p} k={ck("subsystem")} term="subsystem" items={system.subsystems}>
-          {(s) => s.kind === "system" && <SystemNode {...p} system={s} depth={depth + 1} />}
+          {(s) => s.kind === "system" && <SystemNode {...p} system={s} depth={depth + 1} rootModel={rootModel} />}
         </Category>
       )}
     </TreeNode>
@@ -345,7 +362,7 @@ function PoseTreeCategory({
   ...p
 }: NodeProps & { k: string; model: Model; transformations: TransformationsModel }) {
   const open = !p.collapsed.has(k);
-  const count = transformations.trees.length + transformations.treeErrors.size;
+  const count = transformations.trees.length + transformations.treeErrors.length;
   return (
     <li role="treeitem" aria-expanded={open}>
       <div className="row category">
@@ -358,20 +375,28 @@ function PoseTreeCategory({
       {open && (
         <ul role="group">
           {transformations.trees.map((t) => (
-            <PoseTreeNode {...p} key={t.anchorKey} model={model} node={t.root} pathKey={`${k}/${t.anchorKey}`} />
+            <PoseTreeNode
+              {...p}
+              key={t.anchorIdentifier}
+              model={model}
+              transformations={transformations}
+              node={t.root}
+              pathKey={`${k}/${t.anchorKey ?? t.anchorIdentifier}`}
+            />
           ))}
-          {[...transformations.treeErrors.entries()].map(([anchorKey, message]) => {
-            const e = model.elements.get(anchorKey);
+          {transformations.treeErrors.map((err) => {
+            const e = err.anchorKey ? model.elements.get(err.anchorKey) : undefined;
             return (
-              <li key={anchorKey} role="treeitem">
+              <li key={err.anchorIdentifier} role="treeitem">
                 <div
-                  className={`row element${p.selectedKey === anchorKey ? " selected" : ""}`}
-                  onClick={() => p.onSelect(anchorKey)}
-                  title={message}
+                  className={`row element${err.anchorKey && p.selectedKey === err.anchorKey ? " selected" : ""}`}
+                  onClick={() => err.anchorKey && p.onSelect(err.anchorKey)}
+                  title={err.message}
                 >
                   <span className="twisty" />
                   <span className="mark container" />
-                  <span className="label">{e?.fullName ?? anchorKey}</span>
+                  <span className="label">{e?.fullName ?? nameOfIdentifier(err.anchorIdentifier)}</span>
+                  {err.replica && <ReplicaBadge identifier={err.anchorIdentifier} />}
                   <span className="sys-error">取得不可</span>
                 </div>
               </li>
@@ -385,18 +410,22 @@ function PoseTreeCategory({
 
 function PoseTreeNode({
   model,
+  transformations,
   node,
   pathKey,
   ...p
-}: NodeProps & { model: Model; node: PoseNode; pathKey: string }) {
+}: NodeProps & { model: Model; transformations: TransformationsModel; node: PoseNode; pathKey: string }) {
   const e = node.key ? model.elements.get(node.key) : undefined;
   const open = !p.collapsed.has(pathKey);
   const selected = !!node.key && p.selectedKey === node.key;
-  const anchor = e?.kind === "container" ? e.profile.anchor : undefined;
+  const container = e?.kind === "container" ? e : undefined;
+  const anchor = container?.profile.anchor;
+  // 写しの始点なら、そこから出る System をまたぐ Transform の取り込みの状態
+  const remote = node.replica ? remoteOfSource(transformations, node.identifier) : null;
   return (
     <li role="treeitem" aria-selected={selected} aria-expanded={node.children.length > 0 ? open : undefined}>
       <div
-        className={`row element${selected ? " selected" : ""}`}
+        className={`row element${selected ? " selected" : ""}${node.replica ? " replica" : ""}`}
         onClick={() => node.key && p.onSelect(node.key)}
         title={node.identifier}
       >
@@ -408,18 +437,85 @@ function PoseTreeNode({
             p.onToggle(pathKey);
           }}
         />
-        <span className="mark container" />
-        <span className="label">{e?.fullName ?? node.identifier}</span>
+        <span className={`mark container${node.replica ? " replica" : ""}`} />
+        <span className="label">{e?.fullName ?? nameOfIdentifier(node.identifier)}</span>
         {e && <span className="sub">{e.typeName}</span>}
         {anchor && <AnchorBadge kind={anchor.kind} />}
+        {node.replica && <ReplicaBadge identifier={node.identifier} />}
+        {remote && <RemoteStateBadge remote={remote} model={model} />}
+        {container && <RemoteChildBadge model={model} items={container.profile.remote_children} />}
       </div>
       {open && node.children.length > 0 && (
         <ul role="group">
           {node.children.map((c) => (
-            <PoseTreeNode {...p} key={c.identifier} model={model} node={c} pathKey={`${pathKey}/${c.key ?? c.identifier}`} />
+            <PoseTreeNode
+              {...p}
+              key={c.identifier}
+              model={model}
+              transformations={transformations}
+              node={c}
+              pathKey={`${pathKey}/${c.key ?? c.identifier}`}
+            />
           ))}
         </ul>
       )}
     </li>
+  );
+}
+
+/** 別の系から取り込んだ写しの印。どの系(仲介)から取ったかをツールチップに出す */
+function ReplicaBadge({ identifier }: { identifier: string }) {
+  const broker = brokerOf(identifier);
+  return (
+    <span className="replica-badge" title={`別の系${broker ? `(${broker})` : ""}から取り込んだ写し\n${identifier}`}>
+      写し
+    </span>
+  );
+}
+
+/** System をまたぐ Transform の取り込みの状態 */
+export function RemoteStateBadge({ remote, model }: { remote: TransformRemote; model: Model }) {
+  const system = findSystemByUuid(model, remote.system);
+  const lines = [
+    remoteStateDescription(remote.state),
+    `相手の系: ${system ? system.name : (remote.system ?? "まだ取り込んでいない")}`,
+    `最後に取れた時刻: ${formatTime(remote.last_success)}`,
+  ];
+  return (
+    <span className={`remote-state ${remote.state}`} title={lines.join("\n")}>
+      {remoteStateLabel(remote.state)}
+    </span>
+  );
+}
+
+/**
+ * 別の系から来る Transform の取り込みが良好でない容器の印。
+ * 写しが消える(lost)と変換木からは容器が外れるので、容器の行で分かるようにする
+ */
+function IncomingRemoteBadge({
+  model,
+  transformations,
+  identifier,
+}: {
+  model: Model;
+  transformations: TransformationsModel | null;
+  identifier: string;
+}) {
+  const remote = transformations?.transforms.find((t) => t.destination === identifier && t.remote)?.remote;
+  if (!remote || remote.state === "ok") return null;
+  return <RemoteStateBadge remote={remote} model={model} />;
+}
+
+/** この容器の位置を別の系が取りに来ている(System をまたぐ Transform の親)印 */
+function RemoteChildBadge({ model, items }: { model: Model; items: RemoteChild[] | null | undefined }) {
+  if (!items || items.length === 0) return null;
+  const lines = items.map((c) => {
+    const s = findSystemByUuid(model, c.system);
+    return `${s ? s.name : c.system} → ${c.destinations.map(nameOfIdentifier).join(", ")}`;
+  });
+  return (
+    <span className="remote-child-badge" title={`別の系の子があります\n${lines.join("\n")}`}>
+      別系の子
+    </span>
   );
 }

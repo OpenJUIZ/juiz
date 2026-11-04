@@ -606,6 +606,55 @@ button.elem-link:hover {
   color: var(--kind-container);
 }
 
+/* System をまたぐ Transform(#416)。写しは破線の枠、取り込みの状態は色で分ける */
+.replica-badge,
+.remote-child-badge,
+.remote-state {
+  margin-left: 0.4em;
+  padding: 0 4px;
+  font-size: 0.8em;
+  white-space: nowrap;
+}
+
+.replica-badge {
+  border: 1px dashed var(--kind-container);
+  color: var(--kind-container);
+}
+
+.mark.container.replica {
+  border-style: dashed;
+  box-shadow: none;
+}
+
+.elem-link.replica-name {
+  color: var(--text-dim);
+}
+
+.row.replica .label {
+  color: var(--text-dim);
+}
+
+.remote-child-badge {
+  border: 1px dashed var(--text-dim);
+  color: var(--text-dim);
+}
+
+.remote-state {
+  border: 1px solid currentColor;
+}
+
+.remote-state.ok {
+  color: var(--ok);
+}
+
+.remote-state.stale {
+  color: var(--kind-ec);
+}
+
+.remote-state.lost {
+  color: var(--error);
+}
+
 /* 位置・姿勢・回転角の表。数は右寄せ */
 .pose-table {
   width: 100%;

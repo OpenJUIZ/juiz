@@ -306,6 +306,35 @@ fn check_http_json(system: &System) -> JuizResult<()> {
     assert!(body.contains("juiz_std.geometry.Pose"), "{body}");
     let _ = k;
 
+    // 取りに来た System は system/profile_full の容器の profile にも remote_children で出る
+    // (管理画面の「別 System の子あり」の印、transformations.md §19.14)
+    let r = client
+        .get(format!(
+            "{base_url}/container/pose_state?identifier=map_json&subscriber=uuid-of-child&destination=core://core/container/odom::part&timeout=30"
+        ))
+        .send()?;
+    assert_eq!(r.status(), 200);
+    let profile: Value = client
+        .get(format!("{base_url}/system/profile_full"))
+        .send()?
+        .json()?;
+    let containers = profile["core_store"]["containers"].as_array().unwrap();
+    let map = containers
+        .iter()
+        .find(|c| c["name"] == jvalue!("map_json"))
+        .expect("map_json in system/profile_full");
+    assert_eq!(map["remote_children"][0]["system"], jvalue!("uuid-of-child"), "{map}");
+    assert_eq!(
+        map["remote_children"][0]["destinations"],
+        jvalue!(["core://core/container/odom::part"]),
+        "{map}"
+    );
+    let base = containers
+        .iter()
+        .find(|c| c["name"] == jvalue!("base_json"))
+        .unwrap();
+    assert!(base.get("remote_children").is_none(), "{base}");
+
     // OpenAPI に値の型が載る
     let api: Value = client
         .get(format!("http://localhost:{PORT}/api-docs/openapi.json"))

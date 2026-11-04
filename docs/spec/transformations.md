@@ -534,7 +534,7 @@ Step 3(#370)で決めたこと:
 
 ### 13.3 管理画面
 
-Anchor ごとの木と、各 Container の Pose の数値を表示する。3D 表示はしない(§15)。Step 6(#373)。System をまたぐ Transform の表示は §19.10。
+Anchor ごとの木と、各 Container の Pose の数値を表示する。3D 表示はしない(§15)。Step 6(#373)。System をまたぐ Transform の表示は §19.10・§19.14(#416)。
 
 Step 6(#373)で決めたこと:
 
@@ -779,7 +779,7 @@ CLI(§13.2 への追加): `juiz transform create` に `--rate`・`--timeout`、`
 
 - 子の System: 写しの Anchor・写しの始点を、Anchor の木の中に「写し」の印で出す(Container ではないので容器の一覧には出さない)。またぐ Transform に状態(`ok` / `stale` / `lost`)を出す。
 - 親の System: 子の木は出さない。`remote_children` がある容器に「別 System の子あり」の印だけを出す。
-- 副系の容器への表示(§13.3 の「最上位の系だけ」)を広げるかは Step 3 で決める。
+- 副系の容器への表示(§13.3 の「最上位の系だけ」)を広げるかは Step 3 で決める(§19.14 で、写しのある基点から見た位置姿勢だけを出すことにした)。
 
 ### 19.11 範囲の外
 
@@ -821,3 +821,16 @@ API・CLI・pyjuiz で決めたこと。
 - **CLI**: `juiz transform create … --rate <Hz> --timeout <秒>`、`juiz transform list --long` はまたぐ Transform に `  (remote: ok | stale | lost)` を足す、`juiz container pose-state <id>`(PoseState を JSON で出す)。`juiz container pose` に別 System の Container の ID を渡すと回して読む。
 - **pyjuiz**: `SystemProxy.create_transform(…, rate=, timeout=)`、`SystemProxy.pose_state(container)`・`ContainerProxy.pose_state()`。`pose`・`set_pose`・`create_transform` に**別の SystemProxy の ObjectProxy** を渡すと、その System へのブローカー付きの ID(`ObjectProxy.broker_identifier()`、`http://host:port/container/…`)にして送る。
 - **残したもの**: Rust の Process の中から、別 System の Container を指す `ContainerProxy` の `pose` を呼んだときの回し方(登録所から CoreBroker を呼ぶ口が要る)。管理画面(Step 3、#416)。
+
+### 19.14 Step 3(#416)で決めたこと
+
+管理画面(§13.3)で決めたこと。
+
+- **取得**: 自動更新のたびに、§13.3 の取得に加えて `anchor/list` を取り、最上位の系の容器でない ID(写しの Anchor)ごとに `transformations/tree` を取る。始点が最上位の系の容器でない Transform(またぐ Transform)ごとに `transform/profile_full` を取り、`remote` を使う。
+- **`system/profile_full` の `remote_children`**: 管理画面が容器ごとに `container/profile_full` を呼ばずに済むように、`system/profile_full` の `core_store.containers` の各容器にも `remote_children`(§19.13 と同じ形、いなければ項目なし)を入れる。`recursive=true` の副系の中身にも入る。
+- **変換木(ツリー)**: 写しの Anchor の木は自分の系の Anchor の木の後に並べる。写しの Anchor・写しの始点の行は破線の印と「写し」の印を付け、名前は ID の名前の部分(`map`)、ツールチップに ID と取り込んだ仲介。写しの始点の行には、そこから出るまたぐ Transform の取り込みの状態(`ok` = 良好、`stale` = 途絶中、`lost` = 切断。複数なら悪い方)を出す。写しの行は容器ではないので選べない。
+- **容器の行**: 別 System から来る Transform の取り込みが `ok` でない容器に状態の印(`lost` で写しが消えると変換木から外れるため)。`remote_children` がある容器に「別系の子」の印(ツールチップに系と終点)。副系の容器にも出す。
+- **性質欄**: またぐ Transform の「親」に写しの名前と仲介、取り込みの状態・相手の系(表示中の系に UUID が見つかればその系へのリンク、なければ仲介と UUID)・最後に取れた時刻・周期・timeout。`remote_children` がある容器に「別系の子」の節(系・子の容器・最後に来た時刻。子が表示中の副系の容器ならリンク)。位置姿勢の基準の候補に写しの Anchor が入る(名前に「写し」と仲介)。
+- **副系の容器の位置姿勢**: 副系の木は取り込まない(§19.3)ので変換木・変換は今までどおり最上位の系だけ。ただし副系がまたぐ Transform で最上位の系の容器 P を取り込んでいれば(P の `remote_children` にその副系の UUID がある)、P と P が入っている木の Anchor を基準の候補にして、最上位の系の `container/pose`(§19.8 の回し方)で副系の容器の位置姿勢を出す。候補がなければ出さない。
+- 時刻は手元の時計の表記(年-月-日 時:分:秒.ミリ秒)。stamp は相手の System の時計の値のまま(§19.11)。
+- 用語: 写し = Replica、別系の子 = Remote child。

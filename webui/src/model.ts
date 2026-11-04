@@ -12,6 +12,7 @@ import type {
   SystemProfile,
   TopicProfile,
   TransformationsTreeNode,
+  TransformRemote,
   TransformValue,
 } from "./api/types.ts";
 import type { TermKey } from "./terms.ts";
@@ -134,12 +135,14 @@ export interface Model {
 
 /* ---------- Transformations(#366、#373) ---------- */
 
-/** Anchor の木のノード。Container 1 つに当たる */
+/** Anchor の木のノード。Container 1 つ(別の系から取り込んだ写しなら、その写し)に当たる */
 export interface PoseNode {
-  /** Container の識別子 */
+  /** Container の識別子(写しなら別の系の仲介付きの識別子) */
   identifier: string;
-  /** 系の中の容器の鍵。見つからなければ null */
+  /** 系の中の容器の鍵。見つからなければ(写しなら)null */
   key: string | null;
+  /** 別の系から取り込んだ写し(写しの Anchor・写しの始点、#416)か */
+  replica: boolean;
   /** 根の Anchor から見た位置姿勢 */
   pose: Pose;
   /** 木での親から自分への Transform の値。根は null */
@@ -151,8 +154,12 @@ export interface PoseNode {
 
 /** 1 つの Anchor を根とする木 */
 export interface PoseTree {
-  /** 根の Anchor の容器の鍵 */
-  anchorKey: string;
+  /** 根の Anchor の容器の鍵。写しの Anchor なら null */
+  anchorKey: string | null;
+  /** 根の Anchor の識別子 */
+  anchorIdentifier: string;
+  /** 別の系から取り込んだ写しの Anchor の木か(#416) */
+  replica: boolean;
   root: PoseNode;
 }
 
@@ -163,21 +170,34 @@ export interface TransformEdge {
   destination: string;
   sourceKey: string | null;
   destinationKey: string | null;
+  /** 始点が別の系の Transform の取り込みの状態(#416)。それ以外の Transform、取れなかったときは null */
+  remote: TransformRemote | null;
+}
+
+/** 木を取れなかった Anchor */
+export interface PoseTreeError {
+  anchorKey: string | null;
+  anchorIdentifier: string;
+  replica: boolean;
+  message: string;
 }
 
 export interface TransformationsModel {
+  /** 自分の系の Anchor の木、続いて写しの Anchor の木 */
   trees: PoseTree[];
-  /** 木を取れなかった Anchor の鍵と理由 */
-  treeErrors: Map<string, string>;
+  /** 木を取れなかった Anchor と理由 */
+  treeErrors: PoseTreeError[];
   transforms: TransformEdge[];
   /** 容器の鍵から、その容器が入っている木のノード(別の Anchor の木に同じ容器が入ることがある) */
   nodesByKey: Map<string, PoseNode[]>;
 }
 
-/** 取得した Transformations の中身。trees は Anchor の容器の鍵ごと(取れなければ理由の文字列) */
+/** 取得した Transformations の中身。trees は Anchor ごと(取れなければ理由の文字列) */
 export interface FetchedTransformations {
-  trees: { anchorKey: string; tree: TransformationsTreeNode | string }[];
+  trees: { anchorKey: string | null; anchorIdentifier: string; tree: TransformationsTreeNode | string }[];
   transforms: string[];
+  /** 始点が別の系の Transform の識別子 → 取り込みの状態 */
+  remotes: Map<string, TransformRemote>;
 }
 
 /** transform://<始点の ID>|<終点の ID> を始点と終点に分ける */
@@ -191,22 +211,52 @@ export function anchorContainers(model: Model): ContainerElement[] {
   return model.root.containers.filter((c) => !!c.profile.anchor);
 }
 
+/** 識別子が最上位の系の容器を指すか(写しや別の系の容器でないか) */
+export function isLocalContainer(model: Model, identifier: string): boolean {
+  return model.root.containers.some((c) => c.identifier === identifier);
+}
+
+/** 仲介付きの識別子(http://127.0.0.1:8000/container/map::static_anchor)の仲介の部分(http://127.0.0.1:8000) */
+export function brokerOf(identifier: string): string | null {
+  const m = /^([a-z][a-z0-9+.-]*:\/\/[^/]+)\//i.exec(identifier);
+  return m && !identifier.startsWith("core://") ? m[1]! : null;
+}
+
+/** 識別子の名前の部分(…/container/robot1/map::static_anchor なら robot1/map) */
+export function nameOfIdentifier(identifier: string): string {
+  const m = /^.+?:\/\/.+?\/.+?\/(.+?)::.+$/.exec(identifier);
+  return m?.[1] ?? identifier;
+}
+
+/** UUID の系を、表示中の系(最上位と副系)から探す */
+export function findSystemByUuid(model: Model, uuid: string | null | undefined): SystemModel | undefined {
+  if (!uuid) return undefined;
+  const walk = (s: SystemModel): SystemModel | undefined =>
+    s.uuid === uuid ? s : s.subsystems.map(walk).find((x) => x !== undefined);
+  return walk(model.root);
+}
+
 /** 取得した Transformations をモデルにつなぐ */
 export function attachTransformations(model: Model, fetched: FetchedTransformations): void {
   const keyOf = new Map(model.root.containers.map((c) => [c.identifier, c.key]));
   const nodesByKey = new Map<string, PoseNode[]>();
-  const treeErrors = new Map<string, string>();
+  const treeErrors: PoseTreeError[] = [];
   const trees: PoseTree[] = [];
-  for (const { anchorKey, tree } of fetched.trees) {
+  const name = (x: { key: string | null; identifier: string }) =>
+    x.key ? (model.elements.get(x.key)?.fullName ?? x.identifier) : x.identifier;
+  for (const { anchorKey, anchorIdentifier, tree } of fetched.trees) {
+    const replica = anchorKey === null;
     if (typeof tree === "string") {
-      treeErrors.set(anchorKey, tree);
+      treeErrors.push({ anchorKey, anchorIdentifier, replica, message: tree });
       continue;
     }
-    const t = { anchorKey } as PoseTree;
+    const t = { anchorKey, anchorIdentifier, replica } as PoseTree;
     const build = (n: TransformationsTreeNode, parent: PoseNode | null): PoseNode => {
+      const key = keyOf.get(n.identifier) ?? null;
       const node: PoseNode = {
         identifier: n.identifier,
-        key: keyOf.get(n.identifier) ?? null,
+        key,
+        replica: key === null,
         pose: n.pose,
         transform: n.transform ?? null,
         parent,
@@ -215,15 +265,17 @@ export function attachTransformations(model: Model, fetched: FetchedTransformati
       };
       if (node.key) nodesByKey.set(node.key, [...(nodesByKey.get(node.key) ?? []), node]);
       node.children = (n.children ?? []).map((c) => build(c, node));
-      const name = (x: PoseNode) => (x.key ? (model.elements.get(x.key)?.fullName ?? x.identifier) : x.identifier);
       node.children.sort((a, b) => name(a).localeCompare(name(b)));
       return node;
     };
     t.root = build(tree, null);
     trees.push(t);
   }
-  const name = (t: PoseTree) => model.elements.get(t.anchorKey)?.fullName ?? "";
-  trees.sort((a, b) => name(a).localeCompare(name(b)));
+  // 自分の系の Anchor を先に、写しの Anchor を後に、それぞれ名前順
+  const order = (t: { replica: boolean; anchorKey: string | null; anchorIdentifier: string }) =>
+    `${t.replica ? 1 : 0}${name({ key: t.anchorKey, identifier: t.anchorIdentifier })}`;
+  trees.sort((a, b) => order(a).localeCompare(order(b)));
+  treeErrors.sort((a, b) => order(a).localeCompare(order(b)));
   const transforms = fetched.transforms
     .flatMap((identifier) => {
       const ends = parseTransformIdentifier(identifier);
@@ -236,11 +288,21 @@ export function attachTransformations(model: Model, fetched: FetchedTransformati
           destination,
           sourceKey: keyOf.get(source) ?? null,
           destinationKey: keyOf.get(destination) ?? null,
+          remote: fetched.remotes.get(identifier) ?? null,
         },
       ];
     })
     .sort((a, b) => a.identifier.localeCompare(b.identifier));
   model.transformations = { trees, treeErrors, transforms, nodesByKey };
+}
+
+/** 写しの始点(別の系の容器)から出る Transform の取り込みの状態。いちばん悪いものを返す */
+export function remoteOfSource(t: TransformationsModel, source: string): TransformRemote | null {
+  const rank = (s: string) => (s === "lost" ? 2 : s === "stale" ? 1 : 0);
+  return t.transforms
+    .filter((e) => e.source === source && e.remote)
+    .map((e) => e.remote!)
+    .reduce<TransformRemote | null>((a, b) => (!a || rank(b.state) > rank(a.state) ? b : a), null);
 }
 
 /** 容器処理の type_name は API によって "型:容器名" で返るので型だけにそろえる */
