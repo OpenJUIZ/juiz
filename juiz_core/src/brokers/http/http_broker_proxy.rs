@@ -59,10 +59,33 @@ impl HTTPBrokerProxy {
         let name = obj_get_str(manifest, "name")?.to_string();
         let (addr, port) = name_to_host_and_port(&name)?;
         Ok(HTTPBrokerProxy {
-            client: reqwest::blocking::Client::new(),
+            client: new_client(addr)?,
             base_url: "http://".to_string() + addr + ":" + i64::to_string(&port).as_str() + "/api",
         })
     }
+}
+
+/// HTTP クライアントを作る。
+///
+/// 宛先が `localhost` のときは、名前解決の結果を 127.0.0.1 → ::1 の順に固定する (issue #407)。
+/// HTTP ブローカーは既定で 0.0.0.0 (IPv4 だけ) で待つが、Windows では `localhost` が ::1 を先に返し、
+/// しかも ::1 への接続は拒否されてもすぐに失敗にならない (SYN を再送する)。reqwest (hyper-util) は
+/// Happy Eyeballs で 300ms 待ってから IPv4 を試すので、新しい接続のたびに 300ms 余分にかかっていた。
+/// IPv4 を先にすれば、IPv6 だけで待つサーバー (`host: "::"`) にも 300ms 後に ::1 でつながる。
+/// URL の名前は `localhost` のままなので、Host ヘッダ (自分宛の判定、issue #361) は変わらない。
+fn new_client(host: &str) -> JuizResult<reqwest::blocking::Client> {
+    let mut builder = reqwest::blocking::Client::builder();
+    if host.eq_ignore_ascii_case("localhost") {
+        // ポート 0 は「URL のポートを使う」の意味
+        builder = builder.resolve_to_addrs(
+            host,
+            &[
+                std::net::SocketAddr::from(([127, 0, 0, 1], 0)),
+                std::net::SocketAddr::from((std::net::Ipv6Addr::LOCALHOST, 0)),
+            ],
+        );
+    }
+    Ok(builder.build()?)
 }
 
 fn construct_param(key: &String, value: &String) -> String {
@@ -303,7 +326,8 @@ fn capsule_map_to_multipart(payload: &CapsuleMap, boundary: &str) -> JuizResult<
     for (name, capsule) in payload.iter() {
         let (content_type, data) = if capsule.is_image()? {
             let mut png = std::io::Cursor::new(Vec::new());
-            capsule.lock_as_image(|img| img.write_to(&mut png, juiz_sdk::image::ImageFormat::Png))??;
+            capsule
+                .lock_as_image(|img| img.write_to(&mut png, juiz_sdk::image::ImageFormat::Png))??;
             ("image/png", png.into_inner())
         } else {
             let v = capsule.lock_as_value(|v| serde_json::to_vec(v))??;
