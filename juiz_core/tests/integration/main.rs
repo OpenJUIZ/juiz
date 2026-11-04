@@ -29,6 +29,7 @@ mod core_broker_api_test;
 mod core_broker_integration_test;
 mod core_broker_test;
 mod cpp_container_destroy_test;
+mod cpp_exception_test;
 mod cpp_return_type_test;
 mod cpp_transformations_test;
 mod cpp_typed_test;

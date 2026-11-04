@@ -119,8 +119,29 @@ std::optional<std::string> cpp_part_try_readonly(const CppPart* part, const std:
 }
 COMPONENT_CONTAINER_PROCESS_FACTORY(CppPart, cpp_part_try_readonly_manif, cpp_part_try_readonly);
 
+// 四元数と角度の変換 (#412)。roll・pitch・yaw から作った四元数、それを戻した roll・pitch・yaw、
+// make_pose_2d(x, y, yaw) とその yaw を返す (Container は要らない)
+static auto cpp_pose_angles_manif = ProcessManifest("cpp_pose_angles")
+    .add_float_arg("roll", "", 0.0).add_float_arg("pitch", "", 0.0).add_float_arg("yaw", "", 0.0)
+    .add_float_arg("x", "", 0.0).add_float_arg("y", "", 0.0);
+std::optional<juiz::Value> cpp_pose_angles(const double roll, const double pitch, const double yaw,
+                                           const double x, const double y) {
+    juiz_quaternion q = juiz::from_rpy(roll, pitch, yaw);
+    juiz::Rpy rpy = juiz::to_rpy(q);
+    juiz_pose p2 = juiz::make_pose_2d(x, y, yaw);
+    return juiz::Value{
+        {"quaternion", juiz::Value{{"x", q.x}, {"y", q.y}, {"z", q.z}, {"w", q.w}}},
+        {"rpy", juiz::Value{{"roll", rpy.roll}, {"pitch", rpy.pitch}, {"yaw", rpy.yaw}}},
+        {"pose_2d", juiz::pose_to_value(p2)},
+        {"yaw_2d", juiz::yaw(p2)},
+        {"rpy_of_pose", juiz::Value{{"roll", juiz::to_rpy(juiz::make_pose(0, 0, 0, q)).roll}}},
+    };
+}
+COMPONENT_PROCESS_FACTORY(cpp_pose_angles_manif, cpp_pose_angles);
+
 auto component_manifest() {
     return ComponentManifest("cpp_pose_component")
+      .add_process(cpp_pose_angles_manifest())
       .add_container(cpp_part_manifest()
         .add_process(cpp_part_pose_manifest())
         .add_process(cpp_part_set_pose_manifest())

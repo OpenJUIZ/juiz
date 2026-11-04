@@ -1,6 +1,8 @@
 #pragma once
 #include "core.h"
 #include <cstdint>
+#include <cstdio>
+#include <exception>
 #include <vector>
 #include <functional>
 #include <string>
@@ -42,6 +44,22 @@ extern "C" {
 }
 
 namespace juiz {
+    namespace detail {
+        // entry point が juiz の例外ではない例外を捕まえたとき (#400) に、エラー文を戻り値の capsule に入れて
+        // コードを返す。extern "C" の境界の外へ例外を出すと juiz ごと落ちる (C++ では未定義動作) ので、
+        // entry point は最後に std::exception と ... を捕まえる。
+        // cp が無い (Container の作成) ときはエラー文を標準エラーに出す。
+        inline int64_t exception_to_error(capsule* cp, int64_t code, const char* what) noexcept {
+            const char* message = (what && *what) ? what : "(no message)";
+            if (cp) {
+                capsule_set_string(cp, message);
+            } else {
+                std::fprintf(stderr, "[juiz] C++ plugin threw an exception: %s\n", message);
+            }
+            return code;
+        }
+    }
+
     // Container の解放関数 (<シンボル名>_destroy_entry_point) から呼ぶ。
     // juiz は Container を削除するときにこの関数を呼ぶので、construct_function が new したオブジェクトを delete する。
     // construct_function が void* を返す場合は型が分からないので何もしない。
@@ -54,6 +72,16 @@ namespace juiz {
         }
     }
 }
+
+// entry point の try の最後に付ける catch (#400)。juiz の例外 (ValueNotFoundError など) の catch より後に置く。
+// cp は戻り値の capsule (Container の作成では nullptr)
+#define JUIZ_DETAIL_CATCH_OTHER_EXCEPTIONS(cp) \
+    catch (const std::exception& juiz_exception_) {\
+        return juiz::detail::exception_to_error((cp), JUIZ_CPP_EXCEPTION_ERROR, juiz_exception_.what());\
+    } catch (...) {\
+        return juiz::detail::exception_to_error((cp), JUIZ_CPP_UNKNOWN_EXCEPTION_ERROR,\
+            "unknown exception (not derived from std::exception)");\
+    }
 
 #define DEFINE_PROCESS_ENTRY_POINT(func, deser, ser)\
 \
@@ -70,7 +98,7 @@ JUIZ_API int64_t process_entry_point(capsule_map* cm, capsule* cp) {\
         return ser(cp, return_value.value());\
     } catch (juiz::ValueNotFoundError &e) {\
         return -11;\
-    }\
+    } JUIZ_DETAIL_CATCH_OTHER_EXCEPTIONS(cp)\
 }\
 \
 JUIZ_API int64_t (*process_factory())(capsule_map*,capsule*) {\
@@ -158,7 +186,7 @@ JUIZ_API int64_t process_entry_point(capsule_map* cm, capsule* cp) {\
         return JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR;\
     } catch (juiz::ImageFormatError &e) {\
         return JUIZ_IMAGE_FORMAT_ERROR;\
-    }\
+    } JUIZ_DETAIL_CATCH_OTHER_EXCEPTIONS(cp)\
 }\
 \
 extern "C" { JUIZ_API int64_t (*process_factory_entry_point())(capsule_map*,capsule*) {\
@@ -184,7 +212,7 @@ JUIZ_API int64_t container_create_entry_point(capsule_map* cm, void** container_
         return JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR;\
     } catch (juiz::ImageFormatError &e) {\
         return JUIZ_IMAGE_FORMAT_ERROR;\
-    }\
+    } JUIZ_DETAIL_CATCH_OTHER_EXCEPTIONS(nullptr)\
 }\
 \
 JUIZ_API int64_t (*container_factory_entry_point())(capsule_map*, void**) {\
@@ -224,7 +252,7 @@ JUIZ_API int64_t container_process_entry_point(void* container, capsule_map* cm,
         return JUIZ_IMAGE_FORMAT_ERROR;\
     } catch (juiz::TransformationsError &e) {\
         return e.code();\
-    }\
+    } JUIZ_DETAIL_CATCH_OTHER_EXCEPTIONS(cp)\
 }\
 \
 JUIZ_API int64_t (*container_process_factory_entry_point())(void*, capsule_map*,capsule*) {\
@@ -257,7 +285,7 @@ int64_t container_process_entry_point(container_type* container, capsule_map* cm
         return JUIZ_IMAGE_FORMAT_ERROR;\
     } catch (juiz::TransformationsError &e) {\
         return e.code();\
-    }\
+    } JUIZ_DETAIL_CATCH_OTHER_EXCEPTIONS(cp)\
 }\
 int64_t (*container_process_factory())(container_type*,capsule_map*,capsule*) {\
     return container_process_entry_point;\
@@ -293,7 +321,7 @@ JUIZ_API int64_t process_function##_entry_point(capsule_map* cm, capsule* cp) {\
         return JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR;\
     } catch (juiz::ImageFormatError &e) {\
         return JUIZ_IMAGE_FORMAT_ERROR;\
-    }\
+    } JUIZ_DETAIL_CATCH_OTHER_EXCEPTIONS(cp)\
 }\
 JUIZ_API int64_t (*process_function##_factory_entry_point())(capsule_map*,capsule*) {\
     return process_function##_entry_point;\
@@ -321,7 +349,7 @@ JUIZ_API int64_t construct_function##_entry_point(capsule_map* cm, void** contai
         return JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR;\
     } catch (juiz::ImageFormatError &e) {\
         return JUIZ_IMAGE_FORMAT_ERROR;\
-    }\
+    } JUIZ_DETAIL_CATCH_OTHER_EXCEPTIONS(nullptr)\
 }\
 \
 JUIZ_API int64_t (* construct_function##_factory_entry_point())(capsule_map*, void**) {\
@@ -365,7 +393,7 @@ JUIZ_API int64_t process_function##_entry_point(void* container, capsule_map* cm
         return JUIZ_IMAGE_FORMAT_ERROR;\
     } catch (juiz::TransformationsError &e) {\
         return e.code();\
-    }\
+    } JUIZ_DETAIL_CATCH_OTHER_EXCEPTIONS(cp)\
 }\
 \
 JUIZ_API int64_t (*process_function##_factory_entry_point())(void*, capsule_map*,capsule*) {\

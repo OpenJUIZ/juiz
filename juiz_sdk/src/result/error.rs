@@ -267,6 +267,13 @@ pub enum JuizError {
         function_name: String,
         return_value: i64,
     },
+    /// C++ のプラグインの関数が juiz の例外ではない例外 (std::runtime_error など) を投げた (#400)。
+    /// message は what() (std::exception の子でなければ、そう書いた文)
+    #[error("C++ plugin function ({function_name}) threw an exception: {message}")]
+    CppPluginExceptionError {
+        function_name: String,
+        message: String,
+    },
 
     #[error("ArgumentType parse string failed (target={target}")]
     UnknownArgumentTypeStringError { target: String },
