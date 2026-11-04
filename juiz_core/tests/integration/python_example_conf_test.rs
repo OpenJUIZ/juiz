@@ -47,3 +47,41 @@ fn talker_listener_py_conf_runs() -> JuizResult<()> {
             Ok(())
         })
 }
+
+fn as_int(out: JuizResult<CapsulePtr>) -> JuizResult<i64> {
+    out?.lock_as_value(|v| v.as_i64())?
+        .ok_or_else(|| anyhow::anyhow!("戻り値が整数ではない"))
+}
+
+/// conf の `publishes` / `subscribes` で Topic を通って値が届くこと (issue #401)
+///
+/// この conf は `publish` / `subscribe` と書かれていて、Topic が黙って作られていなかった。
+#[test]
+fn increment_process_topic_conf_delivers_values() -> JuizResult<()> {
+    crate::common::logger::init();
+    let dir = "process/increment_process";
+    System::new(load_example(dir, "increment_process_topic.conf")?)?
+        .set_working_dir(&Path::new("../examples/python").join(dir))
+        .setup()?
+        .run_and_do_once(|system| {
+            let id = |s: &str| -> JuizResult<ProcessIdentifier> { s.to_owned().try_into() };
+            let pyinc0 = id("core://core/process/pyinc0::increment_process_python")?;
+            let pyinc1 = id("core://core/process/pyinc1::increment_process_python")?;
+            let pyprint = id("core://core/process/pyprint::print_value_python")?;
+            // /api/topic/list と同じ一覧に 2 つの Topic が載る
+            let mut topics: Vec<String> = {
+                let cb = system.core_broker().lock()?;
+                let bp: &dyn BrokerProxy = &*cb;
+                bp.topic_list()?.into_iter().map(|t| t.name).collect()
+            };
+            topics.sort();
+            assert_eq!(topics, vec!["print_topic", "value_topic"]);
+
+            let cb = system.core_broker().lock_mut()?;
+            // pyinc0 の出力が value_topic で pyinc1 の arg1 に、その出力が print_topic で pyprint に届く
+            let v0 = as_int(cb.process_execute(&pyinc0))?;
+            assert_eq!(as_int(cb.process_execute(&pyinc1))?, v0 + 1);
+            assert_eq!(as_int(cb.process_execute(&pyprint))?, v0 + 1);
+            Ok(())
+        })
+}

@@ -373,6 +373,83 @@ impl ProcessManifest {
         Ok(self)
     }
 
+    /// conf の Process の書き方 (`processes` の 1 件) で使えるキー。
+    /// [`ProcessManifest`] のフィールドに、conf だけで使う `p_apply` を足したもの。
+    pub const CONF_KEYS: &'static [&'static str] = &[
+        "name",
+        "namespace",
+        "type_name",
+        "description",
+        "arguments",
+        "factory",
+        "use_memo",
+        "language",
+        "broker_type_name",
+        "broker_name",
+        "publishes",
+        "subscribes",
+        "container_name",
+        "container_type",
+        "outputs",
+        "output_schema",
+        "composition",
+        "trace",
+        "readonly",
+        "p_apply",
+    ];
+
+    /// conf の Process の書き方 `value` にある、juiz が読まないキーを返す (issue #401)。
+    ///
+    /// 知らないキーは読み飛ばされるので、`publish` のような書き間違いに気づけない。
+    /// 呼び出し側で警告を出すために使う。返す文字列はキーと、似たキーがあればその案内。
+    ///
+    /// ```
+    /// use juiz_sdk::prelude::*;
+    /// let v = jvalue!({"type_name": "t", "name": "p0", "publish": ["topic"], "foo": 1});
+    /// assert_eq!(
+    ///     ProcessManifest::unknown_conf_keys(&v),
+    ///     vec![
+    ///         "'foo'".to_owned(),
+    ///         "'publish' (did you mean 'publishes'?)".to_owned(),
+    ///     ]
+    /// );
+    /// ```
+    pub fn unknown_conf_keys(value: &Value) -> Vec<String> {
+        let Some(obj) = value.as_object() else {
+            return Vec::new();
+        };
+        let mut keys: Vec<String> = obj
+            .keys()
+            .filter(|k| !Self::CONF_KEYS.contains(&k.as_str()))
+            .map(|k| match k.as_str() {
+                "publish" => format!("'{k}' (did you mean 'publishes'?)"),
+                "subscribe" => format!("'{k}' (did you mean 'subscribes'?)"),
+                _ => format!("'{k}'"),
+            })
+            .collect();
+        keys.sort();
+        keys
+    }
+
+    /// [`Self::unknown_conf_keys`] があれば `log::warn!` で知らせる。`place` は警告に添える場所の説明
+    pub fn warn_unknown_conf_keys(value: &Value, place: &str) {
+        let unknown = Self::unknown_conf_keys(value);
+        if unknown.is_empty() {
+            return;
+        }
+        let type_name = value
+            .get("type_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
+        let name = value.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+        log::warn!(
+            "unknown key(s) {} in {place} '{name}' (type_name='{type_name}') are ignored. \
+             Known keys: {}",
+            unknown.join(", "),
+            Self::CONF_KEYS.join(", ")
+        );
+    }
+
     pub fn identifier(&self) -> JuizResult<ProcessIdentifier> {
         // if let Some(name) = self.name.as_ref() {
         //     Ok(identifier_new(
@@ -441,7 +518,8 @@ impl ProcessManifest {
         schema: TypeSchema,
         default: Value,
     ) -> JuizResult<Self> {
-        Ok(self.add_arg(ArgumentManifest::new_typed(name, schema, default)?.description(description)))
+        Ok(self
+            .add_arg(ArgumentManifest::new_typed(name, schema, default)?.description(description)))
     }
 
     /// 引数と戻り値の型参照を検査する (型なしの引数・戻り値は何もしない、仕様 §8 の「manifest を作るとき」)

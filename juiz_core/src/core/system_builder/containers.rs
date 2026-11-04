@@ -173,6 +173,10 @@ pub(crate) fn create_container_processes(
     values: Option<&Vec<Value>>,
 ) -> JuizResult<()> {
     let cid = container.identifier();
+    // publish / subscribe のような書き間違いは黙って無視されるので警告する (issue #401)
+    for v in values.into_iter().flatten() {
+        ProcessManifest::warn_unknown_conf_keys(v, "container process");
+    }
     for (i, container_process_manifest_original) in process_manifests.iter().enumerate() {
         let container_process_manifest = container_process_manifest_original
             .clone()

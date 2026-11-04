@@ -24,6 +24,7 @@ mod composite_container_test;
 mod composite_display_test;
 mod composite_process_test;
 mod composite_type_check_test;
+mod conf_keys_test;
 mod connection_test;
 mod core_broker_api_test;
 mod core_broker_integration_test;
