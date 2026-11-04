@@ -214,7 +214,78 @@ pub(crate) fn resolve(
     if !all.is_empty() {
         obj.insert("subsystems".to_owned(), Value::Array(all));
     }
+    rewrite_ids(m, obj, &out)?;
     Ok(out)
+}
+
+/// 依存の名前で書いた ID を、決まったつなぎ先のブローカー付きの ID にする(§10.4、#425)
+///
+/// - `package://<名前>/<残り>` → `<つなぎ先の URL>/<残り>`
+/// - `ipc://<名前>/<残り>`(既定のつなぎ先のまま書いたもの)→ `<つなぎ先の URL>/<残り>`(移行のため)
+///
+/// 対象は `transforms` の `source`・`destination`、`connections` の `source`・`destination`、
+/// `ecs` の `bind`(どれも文字列か `identifier` / `id` を持つ辞書)。
+fn rewrite_ids(m: &Manifest, obj: &mut Map<String, Value>, deps: &[Depend]) -> Result<()> {
+    let rewrite = |s: &str| -> Result<Option<String>> {
+        if let Some(rest) = s.strip_prefix("package://") {
+            let (name, path) = rest.split_once('/').unwrap_or((rest, ""));
+            let Some(d) = deps.iter().find(|d| d.name == name) else {
+                bail!(
+                    "'{s}' in the conf refers to package {name}, but {} does not depend on {name}. Add it to 'depends' in juizapp.yaml.",
+                    m.name
+                );
+            };
+            if path.is_empty() {
+                bail!("'{s}' in the conf must be package://{name}/<ID> (ex., package://{name}/container/odom0::static_anchor)");
+            }
+            return Ok(Some(format!("{}/{path}", d.url())));
+        }
+        if let Some(rest) = s.strip_prefix("ipc://") {
+            if let Some((name, path)) = rest.split_once('/') {
+                if let Some(d) = deps.iter().find(|d| d.name == name) {
+                    return Ok(Some(format!("{}/{path}", d.url())));
+                }
+            }
+        }
+        Ok(None)
+    };
+    let rewrite_end = |v: &mut Value| -> Result<()> {
+        let target = match v {
+            Value::String(_) => Some(v),
+            Value::Object(map) => ["identifier", "id"]
+                .into_iter()
+                .find(|k| map.get(*k).is_some_and(Value::is_string))
+                .and_then(|k| map.get_mut(k)),
+            _ => None,
+        };
+        if let Some(t) = target {
+            if let Some(new) = rewrite(t.as_str().unwrap())? {
+                *t = Value::String(new);
+            }
+        }
+        Ok(())
+    };
+    for key in ["transforms", "connections"] {
+        if let Some(Value::Array(items)) = obj.get_mut(key) {
+            for item in items.iter_mut() {
+                for end in ["source", "destination"] {
+                    if let Some(v) = item.get_mut(end) {
+                        rewrite_end(v)?;
+                    }
+                }
+            }
+        }
+    }
+    if let Some(Value::Array(ecs)) = obj.get_mut("ecs") {
+        for ec in ecs.iter_mut() {
+            if let Some(Value::Array(binds)) = ec.get_mut("bind") {
+                for b in binds.iter_mut() {
+                    rewrite_end(b)?;
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// depends につなぐために、アプリ自身が持たなければならないブローカーを conf に足す
@@ -401,6 +472,60 @@ mod tests {
         let cli = vec![("robot_base".to_owned(), "http://10.0.0.1:8100".to_owned())];
         let d = resolve(&m, &mut json!({}), &cli, &[]).unwrap();
         assert_eq!(d[0].url(), "http://10.0.0.1:8100");
+    }
+
+    #[test]
+    fn rewrites_ids_of_depends() {
+        let m = app();
+        let conf_text = json!({
+            "transforms": [
+                { "source": "slam_odom0", "destination": "ipc://robot_base/container/odom0::static_anchor" },
+                { "source": "package://robot_base/container/map::periodic_anchor", "destination": "base0" },
+                { "source": "ipc://other/container/x::static_anchor", "destination": "y" },
+                { "source": "http://h:8000/container/x::static_anchor", "destination": "z" },
+            ],
+            "connections": [
+                { "source": { "identifier": "package://robot_base/process/odom0::odom" }, "destination": "planner0", "arg_name": "odom" },
+            ],
+            "ecs": [ { "type_name": "main_loop_ec", "name": "ec0", "bind": [ "package://robot_base/process/a::b", { "name": "c" } ] } ],
+        });
+        // 既定のつなぎ先なら ipc://<名前>/ はそのまま、package:// は ipc://<名前>/ に
+        let mut conf = conf_text.clone();
+        resolve(&m, &mut conf, &[], &[]).unwrap();
+        assert_eq!(conf["transforms"][0]["destination"], "ipc://robot_base/container/odom0::static_anchor");
+        assert_eq!(conf["transforms"][1]["source"], "ipc://robot_base/container/map::periodic_anchor");
+        assert_eq!(conf["connections"][0]["source"]["identifier"], "ipc://robot_base/process/odom0::odom");
+        assert_eq!(conf["ecs"][0]["bind"][0], "ipc://robot_base/process/a::b");
+        // --depend で http にすると、どちらの書き方も http のつなぎ先に。依存でない名前・別のブローカーは変えない
+        let mut conf = conf_text.clone();
+        let cli = vec![("robot_base".to_owned(), "http://192.168.0.10:8100".to_owned())];
+        resolve(&m, &mut conf, &cli, &[]).unwrap();
+        assert_eq!(conf["transforms"][0]["source"], "slam_odom0");
+        assert_eq!(conf["transforms"][0]["destination"], "http://192.168.0.10:8100/container/odom0::static_anchor");
+        assert_eq!(conf["transforms"][1]["source"], "http://192.168.0.10:8100/container/map::periodic_anchor");
+        assert_eq!(conf["transforms"][2]["source"], "ipc://other/container/x::static_anchor");
+        assert_eq!(conf["transforms"][3]["source"], "http://h:8000/container/x::static_anchor");
+        assert_eq!(conf["connections"][0]["source"]["identifier"], "http://192.168.0.10:8100/process/odom0::odom");
+        assert_eq!(conf["ecs"][0]["bind"][0], "http://192.168.0.10:8100/process/a::b");
+        assert_eq!(conf["ecs"][0]["bind"][1], json!({ "name": "c" }));
+        // ipc の別名でも
+        let mut conf = conf_text.clone();
+        let cli = vec![("robot_base".to_owned(), "ipc://robot_base2".to_owned())];
+        resolve(&m, &mut conf, &cli, &[]).unwrap();
+        assert_eq!(conf["transforms"][0]["destination"], "ipc://robot_base2/container/odom0::static_anchor");
+        assert_eq!(conf["transforms"][1]["source"], "ipc://robot_base2/container/map::periodic_anchor");
+        // conf の package 付き subsystem(ポートは基礎の base.http_port)
+        let mut conf = conf_text.clone();
+        conf["subsystems"] = json!([ { "package": "robot_base", "type_name": "http", "name": "10.0.0.2" } ]);
+        resolve(&m, &mut conf, &[], &[installed(base(Some(8100)))]).unwrap();
+        assert_eq!(conf["transforms"][0]["destination"], "http://10.0.0.2:8100/container/odom0::static_anchor");
+        // 依存にない名前の package://、ID のない package:// はエラー
+        let mut conf = json!({ "transforms": [ { "source": "package://arm/container/a::b", "destination": "x" } ] });
+        let e = resolve(&m, &mut conf, &[], &[]).unwrap_err().to_string();
+        assert_eq!(e, "'package://arm/container/a::b' in the conf refers to package arm, but my_patrol does not depend on arm. Add it to 'depends' in juizapp.yaml.");
+        let mut conf = json!({ "transforms": [ { "source": "package://robot_base", "destination": "x" } ] });
+        let e = resolve(&m, &mut conf, &[], &[]).unwrap_err().to_string();
+        assert_eq!(e, "'package://robot_base' in the conf must be package://robot_base/<ID> (ex., package://robot_base/container/odom0::static_anchor)");
     }
 
     #[test]

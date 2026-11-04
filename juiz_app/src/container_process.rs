@@ -6,7 +6,7 @@ use juiz_core::utils::yaml_conf_load;
 
 use clap::Subcommand;
 
-use crate::composition::composition_lines;
+use crate::composition::process_lines;
 use crate::namespace::{format_list, ListEntry};
 use crate::process::composite_details;
 use crate::Args;
@@ -136,8 +136,8 @@ fn on_container_process_info(system: &mut System, id: String) -> JuizResult<()> 
         Ok(ps) => {
             let profile = ps.lock()?.profile()?;
             println!("{profile}");
-            // Composite の中身 (issue #170)
-            for line in composition_lines(&profile) {
+            // readonly の印 (issue #377) と Composite の中身 (issue #170)
+            for line in process_lines(&profile) {
                 println!("  {line}");
             }
         }

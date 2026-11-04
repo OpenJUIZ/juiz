@@ -553,6 +553,8 @@ readonly の ContainerProcess(#377)は、Container を**読み出しロック**�
 - ProcessManifest に `readonly`(真偽値、既定 `false`)を足した。`false` のときは JSON に出さない。
 - `readonly` は Factory の manifest で決まる(関数の書き方で決まる)。conf のインスタンスの manifest では変えられない。
 - ProcessProfile にも `readonly` が載る(`false` なら出さない)。API・CLI・管理画面の profile で見える。
+  - CLI: `juiz container-process list --long`(と `process list --long`)は readonly の行の下に `readonly` の 1 行を出す。`container-process info` も profile の後に同じ行を出す。
+  - 管理画面: ツリーの容器処理の行に「読取」の印(破線の枠)、性質欄の基本に「読み取り専用 readonly」(する/しない)。
 - readonly でない ContainerProcess は今まで通り書き込みロックで呼ぶ。readonly と readonly でないものは並行に走らない(書き込みロックを待つ)。
 
 ### 14.2 ロックと書き込みの止め方
@@ -659,7 +661,7 @@ Step 0(#413)で足した節。親 issue #376。「(Step n で決める)」と書
 ### 19.2 持ち主と端点
 
 1. またぐ Transform は**終点(子)の System** が持つ。木の規則(§5.2)で各 Container の親はちょうど 1 つなので、Transform は子に属する情報である。`set_pose(C, R, p)` は親 → C の Transform を書き換える(§7.2)ので、子の System が持てば `set_pose` は今どおり C の System の中だけで終わり、ブローカー越しの書き込みやロックは要らない。
-2. 始点 `source` は別 System の Container を**ブローカー付きの ID** で書く(`http://host:8000/container/map::periodic_anchor`、`qmp://…`、`ipc://…` など、`container/pose_state`(§19.4)を呼べるブローカーなら何でもよい)。名前では書けない(名前は自分の System の中で解決する)。終点 `destination` はいつも自分の System の Container(名前か ID)。
+2. 始点 `source` は別 System の Container を**ブローカー付きの ID** で書く(`http://host:8000/container/map::periodic_anchor`、`qmp://…`、`ipc://…` など、`container/pose_state`(§19.4)を呼べるブローカーなら何でもよい)。名前では書けない(名前は自分の System の中で解決する)。終点 `destination` はいつも自分の System の Container(名前か ID)。`.juizapp` のアプリで依存する基礎の Container を書くときは `package://<名前>/<ID>` と書け、`juiz run` が app-package.md §10.4 の規則でつなぎ先のブローカーに置き換える(#425)。
 3. 始点の Container は相手の System に登録された Container(Anchor を含む)でなければならない。相手の System にとっても別 System の Container(相手の `ContainerProxy`)なら、相手が `container/pose_state` をエラーで返す。
 4. Transform の ID は今と同じ `transform://<source の ID>|<destination の ID>`。source はブローカー付きの ID のまま入る。
 5. **親の System で作ろうとしたとき**(conf の `transforms:` や `transform/create` で、始点が自分の Container で終点が別 System の Container): 終点の System の `transform/create` に回して作る。引数の `source` は自分の core の ID、`source_system` に自分の System の UUID を付ける。回された System は、`source_system` の UUID を自分がつないでいる System(マスターシステム・サブシステム)から探し、その BrokerProxy で source を書き換えて作る。こちらには何も残さない。戻り値は相手の profile。
