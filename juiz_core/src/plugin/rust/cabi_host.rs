@@ -869,17 +869,30 @@ pub fn container_factory(entry: CabiEntry) -> JuizResult<ContainerFactoryPtr> {
 }
 
 /// ContainerProcess (kind 3) のファクトリを作る
+///
+/// manifest が `readonly` (transformations.md §14、#377) なら、コンテナの読み出しロックで呼ぶ。
+/// プラグインのグルー (`call_container_process_readonly`) は `&ContainerImpl<T>` で受け取るので、並行に呼んでよい
 pub fn container_process_factory(entry: CabiEntry) -> JuizResult<ContainerProcessFactoryPtr> {
     let manifest: ProcessManifest = entry.manifest_as()?;
     let container_tag = entry.container_tag()?;
+    let readonly = manifest.readonly;
     let entry = Arc::new(entry);
     let function = move |container: ContainerPtr, args: CapsuleMap| -> JuizResult<Capsule> {
         let container_call = entry
             .container_call
             .ok_or_else(|| entry.error("container_call", 0, Some("is null".to_owned())))?;
-        // ロックは呼び出しが終わるまで持つ。同じコンテナのコンテナプロセスは同時に呼ばれない (§8.3)
-        let mut guard = container.lock_mut()?;
-        let Some(c) = guard.downcast_mut::<ContainerImpl<RustCabiContainer>>() else {
+        // ロックは呼び出しが終わるまで持つ。同じコンテナのコンテナプロセスは同時に呼ばれない (§8.3)。
+        // readonly は読み出しロックなので、readonly 同士は並行に呼ばれる
+        let read_guard;
+        let write_guard;
+        let c: &dyn Container = if readonly {
+            read_guard = container.lock()?;
+            &*read_guard
+        } else {
+            write_guard = container.lock_mut()?;
+            &*write_guard
+        };
+        let Some(c) = c.downcast_ref::<ContainerImpl<RustCabiContainer>>() else {
             log::error!(
                 "【失敗】{} expects a container loaded through the Rust plugin C ABI, but the container is not",
                 entry.symbol
@@ -899,8 +912,16 @@ pub fn container_process_factory(entry: CabiEntry) -> JuizResult<ContainerProces
             }));
         }
         let handle = c.t.handle;
-        // 呼び出しの間だけ有効な ContainerPose の口を引数のフレームに載せる (transformations.md §12.3)
-        let pose_port = PosePortOwner::new(c.pose_handle());
+        // 呼び出しの間だけ有効な ContainerPose の口を引数のフレームに載せる (transformations.md §12.3)。
+        // readonly では書き込みの口が PoseNotWritableError を返す (§14)
+        let (pose_port, _readonly) = if readonly {
+            (
+                PosePortOwner::new_readonly(c.pose_handle()),
+                Some(juiz_sdk::transformations::ReadonlyScope::enter(&c.pose_handle())),
+            )
+        } else {
+            (PosePortOwner::new(c.pose_handle()), None)
+        };
         with_frame_in(entry.native_abi_tag.as_deref(), Some(pose_port.addr()), args, |frame_in| {
             entry.call_with_out("container_call", |out| container_call(handle, frame_in, out))
         })

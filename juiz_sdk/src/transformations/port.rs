@@ -202,13 +202,22 @@ pub struct PosePortOwner {
 
 impl PosePortOwner {
     pub fn new(handle: ContainerPoseHandle) -> Self {
+        Self::with_set(handle, host_port_set)
+    }
+
+    /// readonly の ContainerProcess に渡す口 (§14、#377)。書き込みは `PoseNotWritableError` (JUIZ_POSE_NOT_WRITABLE_ERROR)
+    pub fn new_readonly(handle: ContainerPoseHandle) -> Self {
+        Self::with_set(handle, host_port_set_readonly)
+    }
+
+    fn with_set(handle: ContainerPoseHandle, set: JuizPosePortSetFn) -> Self {
         let handle = Box::new(handle);
         let port = Box::new(JuizPosePort {
             abi_version: POSE_PORT_ABI_VERSION,
             struct_size: std::mem::size_of::<JuizPosePort>() as u32,
             ctx: &*handle as *const ContainerPoseHandle as *const c_void,
             get: Some(host_port_get),
-            set: Some(host_port_set),
+            set: Some(set),
         });
         PosePortOwner {
             port,
@@ -331,6 +340,25 @@ extern "C" fn host_port_set(
         // SAFETY: 呼び手は pose を呼び出しの間有効に保つ
         let pose: Pose = unsafe { &*pose }.into();
         handle.set_pose(reference_str(&reference)?, &pose)
+    })
+}
+
+extern "C" fn host_port_set_readonly(
+    ctx: *const c_void,
+    reference: JuizBytes,
+    _pose: *const JuizPose,
+    out: *mut JuizPoseStamped,
+    frame_id: *const JuizBytesSink,
+    error: *const JuizBytesSink,
+) -> i64 {
+    host_guarded(error, out, frame_id, || {
+        // SAFETY: ctx は PosePortOwner が持つ ContainerPoseHandle
+        let handle = unsafe { &*(ctx as *const ContainerPoseHandle) };
+        Err(anyhow!(JuizError::PoseNotWritableError {
+            container: handle.identifier().to_string(),
+            reference: reference_str(&reference).unwrap_or("").to_owned(),
+            message: "the pose can not be written from a readonly container process".to_owned(),
+        }))
     })
 }
 
@@ -552,6 +580,117 @@ impl Drop for PortAttachment {
     fn drop(&mut self) {
         if self._registry.is_some() {
             let _ = self.handle.detach();
+        }
+    }
+}
+
+// ---- readonly のコンテナプロセス (§14、#377) ----
+//
+// readonly のコンテナプロセスは同じコンテナに対して並行に呼ばれる。呼び出しごとに口をつなぎ替えると、
+// 先に終わった呼び出しが後の呼び出しの口を外してしまうので、コンテナには「このスレッドで呼び出し中の口」を
+// 引く登録所を 1 つだけつなぎ、呼び出しの数を数えて最後の 1 つが終わったら外す。
+
+thread_local! {
+    /// このスレッドで呼び出し中の (コンテナのキー, 口のアドレス)。入れ子があるので積む
+    static CALL_PORTS: RefCell<Vec<(usize, usize)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// コンテナのキー → (呼び出し中の数, つないだ登録所)
+type SharedPorts = std::sync::Mutex<std::collections::HashMap<usize, (usize, Arc<dyn TransformationsRegistry>)>>;
+
+fn shared_ports() -> &'static SharedPorts {
+    static PORTS: std::sync::OnceLock<SharedPorts> = std::sync::OnceLock::new();
+    PORTS.get_or_init(Default::default)
+}
+
+/// 呼び出したスレッドの口を引く [`TransformationsRegistry`]。別のスレッドからは `TransformationsNotAttachedError`
+struct ThreadPortRegistry {
+    key: usize,
+}
+
+impl ThreadPortRegistry {
+    fn port(&self) -> Option<&JuizPosePort> {
+        let addr = CALL_PORTS
+            .try_with(|c| c.borrow().iter().rev().find(|(k, _)| *k == self.key).map(|(_, a)| *a))
+            .ok()
+            .flatten()?;
+        // SAFETY: addr はこのスレッドで呼び出し中のコンテナプロセスにホストが渡した口で、呼び出しが終わるまで有効
+        unsafe { port_from_addr(addr) }
+    }
+}
+
+impl TransformationsRegistry for ThreadPortRegistry {
+    fn pose(&self, container: &ContainerIdentifier, reference: &str) -> JuizResult<PoseStamped> {
+        let (p, frame_id) =
+            port_get(self.port(), reference).map_err(|f| f.into_error(&container.to_string(), reference))?;
+        Ok(p.to_pose_stamped(&frame_id))
+    }
+
+    fn set_pose(
+        &self,
+        container: &ContainerIdentifier,
+        reference: &str,
+        pose: &Pose,
+    ) -> JuizResult<PoseStamped> {
+        let (p, frame_id) = port_set(self.port(), reference, &pose.into())
+            .map_err(|f| f.into_error(&container.to_string(), reference))?;
+        Ok(p.to_pose_stamped(&frame_id))
+    }
+}
+
+/// readonly のコンテナプロセスの呼び出しの間、プラグインの中の Container に口をつなぐ。落とすと外す。
+/// 同じ Container の呼び出しが並行していても、最後の 1 つが終わるまで外さない
+pub struct SharedPortAttachment {
+    handle: ContainerPoseHandle,
+    key: usize,
+    attached: bool,
+}
+
+impl SharedPortAttachment {
+    /// addr が 0 なら何もつながない (読み書きは `TransformationsNotAttachedError`)
+    pub fn attach(handle: ContainerPoseHandle, addr: usize) -> JuizResult<Self> {
+        let key = super::readonly::key_of(&handle);
+        if addr == 0 {
+            return Ok(SharedPortAttachment { handle, key, attached: false });
+        }
+        let mut ports = shared_ports().lock().map_err(|_| {
+            anyhow!(JuizError::ObjectLockError {
+                target: "SharedPortAttachment".to_owned()
+            })
+        })?;
+        match ports.get_mut(&key) {
+            Some((count, _)) => *count += 1,
+            None => {
+                let registry: Arc<dyn TransformationsRegistry> = Arc::new(ThreadPortRegistry { key });
+                handle.attach(Arc::downgrade(&registry))?;
+                ports.insert(key, (1, registry));
+            }
+        }
+        let _ = CALL_PORTS.try_with(|c| c.borrow_mut().push((key, addr)));
+        Ok(SharedPortAttachment { handle, key, attached: true })
+    }
+}
+
+impl Drop for SharedPortAttachment {
+    fn drop(&mut self) {
+        if !self.attached {
+            return;
+        }
+        let key = self.key;
+        let _ = CALL_PORTS.try_with(|c| {
+            let mut c = c.borrow_mut();
+            if let Some(i) = c.iter().rposition(|(k, _)| *k == key) {
+                c.remove(i);
+            }
+        });
+        if let Ok(mut ports) = shared_ports().lock() {
+            if let Some((count, _)) = ports.get_mut(&key) {
+                *count -= 1;
+                if *count == 0 {
+                    ports.remove(&key);
+                    let _ = self.handle.detach();
+                }
+            }
         }
     }
 }

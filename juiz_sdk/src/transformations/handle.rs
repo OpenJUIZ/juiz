@@ -138,7 +138,16 @@ impl ContainerPoseHandle {
 
     /// この Container を、基準 `reference` から見て `pose` の位置姿勢にする (§7.2)。
     /// 値は検査・正規化してから登録所に渡す (`InvalidPoseValueError`)
+    ///
+    /// このスレッドでこの Container の readonly ContainerProcess を呼び出し中なら `PoseNotWritableError` (§14)
     pub fn set_pose(&self, reference: &str, pose: &Pose) -> JuizResult<PoseStamped> {
+        if super::readonly::in_readonly_call(self) {
+            return Err(anyhow!(JuizError::PoseNotWritableError {
+                container: self.identifier.to_string(),
+                reference: reference.to_owned(),
+                message: "the pose can not be written from a readonly container process".to_owned(),
+            }));
+        }
         let pose = pose.normalized()?;
         let registry = self.registry()?;
         registry.set_pose(&self.identifier, reference, &pose)
@@ -153,7 +162,7 @@ impl ContainerPoseHandle {
 }
 
 /// ContainerPose の読み出しだけの口 (§14)。書き込みのメソッドを持たない。
-/// 将来の readonly ContainerProcess (#377) や、他言語の読み出し用アクセサに渡す
+/// readonly ContainerProcess (#377) や、他言語の読み出し用アクセサに渡す
 #[derive(Clone, Debug)]
 pub struct ContainerPoseReader {
     inner: ContainerPoseHandle,

@@ -137,6 +137,14 @@ public:
     return *this;
   }
 
+  // readonly の ContainerProcess にする (docs/spec/transformations.md §14、issue #377)。
+  // juiz は Container を読み出しロックで呼ぶので、同じ Container の readonly 同士は並行に走る。
+  // 関数は Container を const のポインタ (const T*) で受け取ること。juiz::set_pose は使えない
+  ProcessManifest readonly(const bool readonly = true) {
+    readonly_ = readonly;
+    return *this;
+  }
+
   ProcessManifest use_memo(const bool use_memo) {
     use_memo_ = use_memo;
     return *this;
@@ -169,6 +177,9 @@ public:
     if (name_) {
         v["name"] = juiz::Value{name_.value()};
     }
+    if (readonly_) {
+        v["readonly"] = juiz::Value{true};
+    }
     if (output_schema_) {
         v["output_schema"] = output_schema_.value();
         v["outputs"] = juiz::Value{
@@ -190,6 +201,7 @@ public:
   std::string language_;
   std::string factory_;
   bool use_memo_;
+  bool readonly_ = false;
   std::string broker_type_name_;
   std::string broker_name_;
   std::vector<TopicManifest> publishes_;

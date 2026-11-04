@@ -708,6 +708,14 @@ where
     write_info(out, KIND_CONTAINER_PROCESS, || Some(container_tag::<T>()))
 }
 
+/// readonly の ContainerProcess (kind 3) の info を書く (transformations.md §14、#377)
+pub fn container_process_info_readonly<T: 'static, F>(out: *const JuizBytesSink, _function: F) -> i64
+where
+    F: Fn(&ContainerImpl<T>, CapsuleMap) -> JuizResult<Capsule>,
+{
+    write_info(out, KIND_CONTAINER_PROCESS, || Some(container_tag::<T>()))
+}
+
 /// Process を呼ぶ (§5.2・§5.3)。引数のフレームから CapsuleMap を作って function を呼び、戻り値を out に書く
 pub fn call_process<F>(args: *const JuizFrameIn, out: *const JuizFrameOut, function: F) -> i64
 where
@@ -822,6 +830,46 @@ where
                 map.pose_port(),
             )
             .map_err(call_failure)?;
+            let result = function(container, map).map_err(call_failure)?;
+            write_result(out, result)
+        },
+    )
+}
+
+/// readonly のコンテナプロセスを呼ぶ (transformations.md §14、#377)。handle を &ContainerImpl<T> に戻して function を呼ぶ
+///
+/// ホストは manifest の `readonly` を見て、コンテナの読み出しロックを持って呼ぶ。同じコンテナに対して並行に
+/// 呼ばれるので `T: Sync`。ContainerPose の口は呼んだスレッドだけが使え、書き込みは `PoseNotWritableError`
+pub fn call_container_process_readonly<T: Sync + 'static, F>(
+    handle: *mut c_void,
+    args: *const JuizFrameIn,
+    out: *const JuizFrameOut,
+    function: F,
+) -> i64
+where
+    F: Fn(&ContainerImpl<T>, CapsuleMap) -> JuizResult<Capsule>,
+{
+    if out.is_null() {
+        let _ = guarded(|_| {}, || read_args(args).map(drop));
+        return JUIZ_RUST_NULL_ARGUMENT;
+    }
+    // SAFETY: ホストは out を呼び出しの間有効に保つ
+    let out = unsafe { &*out };
+    guarded(
+        |m| report_to_frame_out(out, m),
+        || {
+            let map = read_args(args)?;
+            if handle.is_null() {
+                return Err(Failure::Null);
+            }
+            // SAFETY: handle は同じ型タグの create_container が作ったもので、ホストは読み出しロックを持って呼ぶ
+            let container = unsafe { &*(handle as *const ContainerImpl<T>) };
+            let _pose = crate::transformations::port::SharedPortAttachment::attach(
+                container.pose_handle(),
+                map.pose_port(),
+            )
+            .map_err(call_failure)?;
+            let _readonly = crate::transformations::ReadonlyScope::enter(&container.pose_handle());
             let result = function(container, map).map_err(call_failure)?;
             write_result(out, result)
         },

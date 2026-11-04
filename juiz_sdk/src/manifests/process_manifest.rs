@@ -76,6 +76,11 @@ pub struct ProcessManifest {
     /// Composite のインスタンスで、各ノードの戻り値をログに出す (仕様 §5.4、issue #167)
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub trace: bool,
+    /// readonly の ContainerProcess (docs/spec/transformations.md §14、issue #377)。
+    /// Container を読み出しロックで呼ぶので、同じ Container の readonly 同士は並行に走る。
+    /// 中から Container の状態・ContainerPose へ書き込むことはできない。false なら JSON には出さない
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub readonly: bool,
 }
 
 impl Display for ProcessManifest {
@@ -150,6 +155,8 @@ impl ProcessManifest {
         partial_instance_manifest.outputs = self.outputs.clone();
         partial_instance_manifest.output_schema = self.output_schema.clone();
         partial_instance_manifest.composition = self.composition.clone();
+        // readonly は関数の書き方で決まるので、インスタンスの設定では変えられない
+        partial_instance_manifest.readonly = self.readonly;
         Ok(partial_instance_manifest)
     }
 
@@ -187,7 +194,14 @@ impl ProcessManifest {
             output_schema: None,
             composition: None,
             trace: false,
+            readonly: false,
         }
+    }
+
+    /// readonly の ContainerProcess にする (docs/spec/transformations.md §14、issue #377)
+    pub fn readonly(mut self, readonly: bool) -> Self {
+        self.readonly = readonly;
+        self
     }
 
     /// Composite のインスタンスで、各ノードの戻り値をログに出すか (仕様 §5.4)
@@ -571,6 +585,9 @@ impl TryFrom<Value> for ProcessManifest {
         }
         if let Ok(flag) = obj_get_bool(&value, "trace") {
             p = p.trace(flag);
+        }
+        if let Ok(flag) = obj_get_bool(&value, "readonly") {
+            p = p.readonly(flag);
         }
         match obj_get_str(&value, "container_type") {
             Ok(container_type) => {

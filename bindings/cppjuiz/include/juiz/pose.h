@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 namespace juiz {
@@ -130,9 +131,12 @@ namespace juiz {
         return out;
     }
 
-    // container を、基準 reference から見て p の位置姿勢にする (§7.2)。書いた後の値を返す
+    // container を、基準 reference から見て p の位置姿勢にする (§7.2)。書いた後の値を返す。
+    // readonly の ContainerProcess (Container を const T* で受け取る) からは呼べない (§14、#377)
     template<typename U>
     juiz_pose_stamped set_pose(U* container, const std::string& reference, const juiz_pose& p) {
+        static_assert(!std::is_const_v<U>,
+            "juiz::set_pose can not be called from a readonly container process (the container is const)");
         capsule_map* cm = detail::require_pose_call(static_cast<const void*>(container));
         juiz_pose_stamped out{};
         int64_t r = juiz_container_pose_set(cm, reference.c_str(), &p, &out);

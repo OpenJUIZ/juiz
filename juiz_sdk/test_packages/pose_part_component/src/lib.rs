@@ -74,13 +74,55 @@ fn rust_part_try(c: &mut ContainerImpl<RustPart>, op: String, reference: String)
     Ok(jvalue!(name).into())
 }
 
+/// readonly の ContainerProcess (#377)。sleep_ms だけ待ってから、基準 reference から見た自分の ContainerPose を返す。
+/// Container を &ContainerImpl で受け取るので readonly になり、同じ Container の readonly 同士は並行に走る
+#[juiz_component_container_process(container_type = "rust_part" arguments = { default = { reference = "map" sleep_ms = 0 } })]
+fn rust_part_peek(c: &ContainerImpl<RustPart>, reference: String, sleep_ms: i64) -> JuizResult<Capsule> {
+    std::thread::sleep(std::time::Duration::from_millis(sleep_ms.max(0) as u64));
+    let p = c.pose(&reference)?;
+    Ok(p.into())
+}
+
+/// readonly でない ContainerProcess。sleep_ms だけ待って id を返す (並行に走らないことの比較用)
+#[juiz_component_container_process(container_type = "rust_part" arguments = { default = { sleep_ms = 0 } })]
+fn rust_part_sleep(c: &mut ContainerImpl<RustPart>, sleep_ms: i64) -> JuizResult<Capsule> {
+    std::thread::sleep(std::time::Duration::from_millis(sleep_ms.max(0) as u64));
+    c.t.id += 1;
+    Ok(jvalue!(c.t.id).into())
+}
+
+/// readonly の中から読み書きを試す (#377)。&ContainerImpl では set_pose を呼べないので、
+/// 口 (pose_handle) を取り出して書こうとする。PoseNotWritableError になる
+#[juiz_component_container_process(container_type = "rust_part" arguments = { default = { op = "pose" reference = "map" } })]
+fn rust_part_try_readonly(c: &ContainerImpl<RustPart>, op: String, reference: String) -> JuizResult<Capsule> {
+    let r = match op.as_str() {
+        "pose" => c.pose(&reference).map(|_| ()),
+        "set_pose" => c
+            .pose_handle()
+            .set_pose(&reference, &Pose::new(Vector3::new(1.0, 0.0, 0.0), Quaternion::identity()))
+            .map(|_| ()),
+        _ => Ok(()),
+    };
+    let name = match r {
+        Ok(()) => "ok".to_owned(),
+        Err(e) => match e.chain().find_map(|c| c.downcast_ref::<JuizError>()) {
+            Some(JuizError::PoseNotWritableError { .. }) => "PoseNotWritableError".to_owned(),
+            _ => format!("other: {e:#}"),
+        },
+    };
+    Ok(jvalue!(name).into())
+}
+
 juiz_component_manifest!(
     component_name = "pose_part_component"
     containers = {
         rust_part = [
             rust_part_pose,
             rust_part_set_pose,
-            rust_part_try
+            rust_part_try,
+            rust_part_peek,
+            rust_part_sleep,
+            rust_part_try_readonly
         ]
     }
 );

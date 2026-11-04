@@ -59,6 +59,32 @@ pub fn container_process_factory<T: 'static>(
     )
 }
 
+/// readonly の ContainerProcess の Factory (docs/spec/transformations.md §14、issue #377)。
+///
+/// 関数は Container を `&ContainerImpl<T>` で受け取る。juiz は Container を読み出しロックで呼ぶので、
+/// 同じ Container の readonly 同士は並行に走る (だから `T: Sync`)。manifest には `readonly: true` を付ける。
+/// 中から `pose()` は読めるが、ContainerPose への書き込みは `PoseNotWritableError` になる
+pub fn container_process_factory_readonly<T: Sync + 'static>(
+    manifest: ProcessManifest,
+    function: impl Fn(&ContainerImpl<T>, CapsuleMap) -> JuizResult<Capsule> + 'static,
+) -> ContainerProcessFactoryStruct {
+    ContainerProcessFactoryStruct(
+        manifest.readonly(true),
+        Arc::new(bind_container_process_function_readonly(function)),
+    )
+}
+
+fn bind_container_process_function_readonly<T: Sync + 'static>(
+    function: impl Fn(&ContainerImpl<T>, CapsuleMap) -> JuizResult<Capsule>,
+) -> impl Fn(ContainerPtr, CapsuleMap) -> JuizResult<Capsule> {
+    move |container_ptr: ContainerPtr, capmap: CapsuleMap| -> JuizResult<Capsule> {
+        let container = container_ptr.lock()?;
+        let cn = downcast_container_ref::<T>(&*container)?;
+        let _readonly = crate::transformations::ReadonlyScope::enter(&cn.pose_handle());
+        (function)(cn, capmap)
+    }
+}
+
 fn bind_container_process_function<T: 'static>(
     function: impl Fn(&mut ContainerImpl<T>, CapsuleMap) -> JuizResult<Capsule>,
 ) -> impl Fn(ContainerPtr, CapsuleMap) -> JuizResult<Capsule> {
@@ -97,6 +123,29 @@ fn downcast_container_mut<T: 'static>(
     log::debug!("downcast container by type info ({expected:?})");
     // SAFETY: 型名、juiz_sdk のバージョン、サイズ、アラインメントが一致するので同じ型とみなす。
     Ok(unsafe { container.downcast_mut_unchecked::<ContainerImpl<T>>() })
+}
+
+/// [`downcast_container_mut`] の読み出し版 (readonly の ContainerProcess 用)
+fn downcast_container_ref<T: 'static>(container: &dyn Container) -> JuizResult<&ContainerImpl<T>> {
+    if container.is::<ContainerImpl<T>>() {
+        return Ok(container.downcast_ref::<ContainerImpl<T>>().unwrap());
+    }
+    let expected = ContainerTypeInfo::of::<ContainerImpl<T>>();
+    let actual = container.container_type_info();
+    if actual.type_name != expected.type_name {
+        return Err(anyhow!(JuizError::ContainerDowncastingError {
+            identifier: "ContainerPTr".to_owned()
+        }));
+    }
+    if actual != expected {
+        return Err(anyhow!(JuizError::ContainerTypeMismatchError {
+            expected: format!("{expected:?}"),
+            actual: format!("{actual:?}"),
+        }));
+    }
+    log::debug!("downcast container by type info ({expected:?})");
+    // SAFETY: 型名、juiz_sdk のバージョン、サイズ、アラインメントが一致するので同じ型とみなす。
+    Ok(unsafe { container.downcast_ref_unchecked::<ContainerImpl<T>>() })
 }
 
 pub struct ContainerStackFactoryStruct(

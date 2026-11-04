@@ -301,11 +301,11 @@ def juiz_component_container(constructor_function, description="Default Descript
     return JuizContainer(constructor_function)
 
 class JuizContainerProcess(object):
-    def __init__(self, proc, container_type):
+    def __init__(self, proc, container_type, readonly=False):
         self.__proc = proc
         self.name = proc.__name__
         self.signature = _signature(proc)
-        self._manifest = ProcessManifest.new(self.name).set_description(proc.__doc__).set_container_type(container_type)
+        self._manifest = ProcessManifest.new(self.name).set_description(proc.__doc__).set_container_type(container_type).set_readonly(bool(readonly))
         self._arg_names = list(self.signature.parameters)
         self._arg_types = []
         for i, p in enumerate(self.signature.parameters):
@@ -329,9 +329,12 @@ def convert_process_result(retval):
     return retval
 
 @allow_no_arg_decorator
-def juiz_container_process(constructor_function, container_type:str, description="Default Description"):
-    return JuizContainerProcess(constructor_function, container_type)
+def juiz_container_process(constructor_function, container_type:str, description="Default Description", readonly:bool=False):
+    """ContainerProcess にする。readonly=True なら Container を読み出しロックで呼び、同じ Container の
+    readonly 同士は並行に走る。中で juiz.set_pose を呼ぶと PoseNotWritableError。Container のオブジェクト
+    (第 1 引数) の書き換えは juiz では止められないので、書き換えないこと (transformations.md §14、#377)"""
+    return JuizContainerProcess(constructor_function, container_type, readonly)
 
 @allow_no_arg_decorator
-def juiz_component_container_process(constructor_function, container_type:str, description="Default Description"):
-    return JuizContainerProcess(constructor_function, container_type)
+def juiz_component_container_process(constructor_function, container_type:str, description="Default Description", readonly:bool=False):
+    return JuizContainerProcess(constructor_function, container_type, readonly)

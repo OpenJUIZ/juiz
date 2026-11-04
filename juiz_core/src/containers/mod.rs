@@ -43,6 +43,6 @@ pub fn container_process_factory_create_from_trait(
     ))
 }
 
-pub use implementations::bind_container_function;
+pub use implementations::{bind_container_function, bind_container_function_readonly};
 pub use implementations::container_factory_create;
 pub use implementations::container_process_factory_create;

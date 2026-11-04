@@ -12,6 +12,8 @@ pub(crate) enum CabiKind {
     Process,
     Container,
     ContainerProcess,
+    /// readonly の ContainerProcess (関数が Container を `&ContainerImpl<T>` で受け取る、#377)
+    ContainerProcessReadonly,
     Component,
 }
 
@@ -81,6 +83,24 @@ pub(crate) fn cabi_entry_tokenstream(
                     out: *const juiz_sdk::cabi::JuizFrameOut,
                 ) -> i64 {
                     juiz_sdk::cabi::call_container_process(handle, args, out, #function)
+                }
+            },
+            quote! {
+                juiz_sdk::cabi::JuizRustEntry::container_process(
+                    __juiz_cabi_manifest, __juiz_cabi_info, __juiz_cabi_container_call)
+            },
+        ),
+        CabiKind::ContainerProcessReadonly => (
+            quote! {
+                extern "C" fn __juiz_cabi_info(out: *const juiz_sdk::cabi::JuizBytesSink) -> i64 {
+                    juiz_sdk::cabi::container_process_info_readonly(out, #function)
+                }
+                extern "C" fn __juiz_cabi_container_call(
+                    handle: *mut ::std::ffi::c_void,
+                    args: *const juiz_sdk::cabi::JuizFrameIn,
+                    out: *const juiz_sdk::cabi::JuizFrameOut,
+                ) -> i64 {
+                    juiz_sdk::cabi::call_container_process_readonly(handle, args, out, #function)
                 }
             },
             quote! {

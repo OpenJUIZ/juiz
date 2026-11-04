@@ -13,7 +13,14 @@ const EPS: f64 = 1e-9;
 const H: f64 = std::f64::consts::FRAC_1_SQRT_2;
 const ABIS: [&str; 2] = ["c", "rust"];
 
-const PROCESSES: [&str; 3] = ["rust_part_pose", "rust_part_set_pose", "rust_part_try"];
+const PROCESSES: [&str; 6] = [
+    "rust_part_pose",
+    "rust_part_set_pose",
+    "rust_part_try",
+    "rust_part_peek",
+    "rust_part_sleep",
+    "rust_part_try_readonly",
+];
 
 fn part(name: &str) -> Value {
     jvalue!({
@@ -137,6 +144,123 @@ fn rust_pose_errors_have_kinds() -> JuizResult<()> {
         // エラーを返すとホストの呼び出しのエラーになる
         let e = call(system, "lonely0", "rust_part_pose", jvalue!({"reference": "map"})).unwrap_err();
         assert!(format!("{e:#}").contains("lonely0"), "{e:#}");
+        Ok(())
+    })
+}
+
+/// 同じ Container の 2 つの ContainerProcess を 2 つのスレッドから同時に呼び、かかった時間を返す
+fn call_two_at_once(
+    system: &System,
+    container: &str,
+    (t1, a1): (&str, Value),
+    (t2, a2): (&str, Value),
+) -> JuizResult<std::time::Duration> {
+    let broker = system.core_broker().clone();
+    let start = std::time::Instant::now();
+    std::thread::scope(|scope| -> JuizResult<()> {
+        let calls = [(t1, a1), (t2, a2)].map(|(t, a)| {
+            let broker = broker.clone();
+            let container = container.to_owned();
+            let t = t.to_owned();
+            scope.spawn(move || -> JuizResult<()> {
+                let id: ProcessIdentifier =
+                    format!("core://core/container_process/{container}_{t}::{t}:{container}").try_into()?;
+                let args: CapsuleMap = a.try_into()?;
+                broker.lock()?.container_process_call(&id, args)?;
+                Ok(())
+            })
+        });
+        for c in calls {
+            c.join().expect("the calling thread panicked")?;
+        }
+        Ok(())
+    })?;
+    Ok(start.elapsed())
+}
+
+/// readonly の ContainerProcess (#377) は Container を読み出しロックで呼ぶので、同じ Container の readonly 同士は
+/// 並行に走る。readonly でないものとは並行に走らない
+#[test]
+fn rust_readonly_container_processes_run_concurrently() -> JuizResult<()> {
+    for_each_abi(|system, abi| {
+        let sleep = 300;
+        // readonly 同士: 長いほう 1 回分の時間で終わる。短いほうが先に終わっても、長いほうは
+        // 終わった後に ContainerPose を読める (C ABI で口を外すのは最後の呼び出しが終わったとき)
+        let both_readonly = call_two_at_once(
+            system,
+            "base0",
+            ("rust_part_peek", jvalue!({"reference": "map", "sleep_ms": sleep})),
+            ("rust_part_peek", jvalue!({"reference": "map", "sleep_ms": sleep / 2})),
+        )?;
+        assert!(
+            both_readonly.as_millis() < (sleep + sleep / 2 - 30) as u128,
+            "abi={abi}: two readonly calls took {both_readonly:?}"
+        );
+        // readonly と書き込みのもの: 書き込みロックを待つので 2 回分かかる
+        let mixed = call_two_at_once(
+            system,
+            "base0",
+            ("rust_part_peek", jvalue!({"reference": "map", "sleep_ms": sleep})),
+            ("rust_part_sleep", jvalue!({"sleep_ms": sleep})),
+        )?;
+        assert!(
+            mixed.as_millis() >= (sleep * 2) as u128,
+            "abi={abi}: a readonly and a writing call took {mixed:?}"
+        );
+        // readonly の中でも ContainerPose は読める
+        let p = call(system, "camera0", "rust_part_peek", jvalue!({"reference": "map"}))?;
+        assert_pose(&p, "map", &pose(1.0, 0.1, 0.3, z90()));
+        Ok(())
+    })
+}
+
+/// readonly の ContainerProcess からの ContainerPose への書き込みは PoseNotWritableError (#377)
+#[test]
+fn rust_readonly_container_process_can_not_write_pose() -> JuizResult<()> {
+    for_each_abi(|system, abi| {
+        let try_op = |op: &str| -> JuizResult<String> {
+            let v = call(system, "camera0", "rust_part_try_readonly", jvalue!({"op": op, "reference": "map"}))?;
+            Ok(v.as_str().unwrap_or_default().to_owned())
+        };
+        assert_eq!(try_op("pose")?, "ok");
+        let actual = try_op("set_pose")?;
+        // Rust ABI ではホストの juiz_sdk の JuizError が渡るので、プラグインからは downcast できない (上と同じ)
+        if abi == "c" {
+            assert_eq!(actual, "PoseNotWritableError");
+        } else {
+            assert!(actual == "PoseNotWritableError" || actual.contains("readonly"), "{actual}");
+        }
+        // 書き込みは何も変えていない
+        let p = call(system, "camera0", "rust_part_pose", jvalue!({"reference": "map"}))?;
+        assert_pose(&p, "map", &pose(1.0, 0.1, 0.3, z90()));
+        // readonly の呼び出しが終われば、普通の ContainerProcess からは書ける
+        let p = call(
+            system,
+            "camera0",
+            "rust_part_set_pose",
+            jvalue!({"reference": "map", "x": 1.0, "y": 0.2, "z": 0.3, "qz": H, "qw": H}),
+        )?;
+        assert_pose(&p, "map", &pose(1.0, 0.2, 0.3, z90()));
+        Ok(())
+    })
+}
+
+/// manifest と profile に readonly が載る (#377)
+#[test]
+fn rust_readonly_is_shown_in_profile() -> JuizResult<()> {
+    for_each_abi(|system, abi| {
+        let profile = |t: &str| -> JuizResult<ProcessProfile> {
+            let id: ProcessIdentifier =
+                format!("core://core/container_process/base0_{t}::{t}:base0").try_into()?;
+            system.core_broker().lock()?.worker().store().container_processes.get(&id.to_string())?.lock()?.profile()
+        };
+        let p = profile("rust_part_peek")?;
+        assert!(p.readonly, "abi={abi}: {p}");
+        // JSON (API・CLI・管理画面が見るもの) にも載る
+        assert_eq!(serde_json::to_value(&p)?["readonly"], jvalue!(true));
+        let p = profile("rust_part_sleep")?;
+        assert!(!p.readonly, "abi={abi}: {p}");
+        assert!(serde_json::to_value(&p)?.get("readonly").is_none());
         Ok(())
     })
 }

@@ -1,6 +1,6 @@
 use crate::{
     containers::{
-        bind_container_function, container_factory_create,
+        bind_container_function, bind_container_function_readonly, container_factory_create,
         container_process_factory_create_from_trait,
     },
     prelude::*,
@@ -418,7 +418,7 @@ if not r"{path_str:}" in sys.path:
         }?;
 
         let signature = get_python_function_signature(&pyfunc2)?;
-        let function = move |container: &mut ContainerImpl<PythonContainerStruct>,
+        let function = move |container: &ContainerImpl<PythonContainerStruct>,
                              argument: CapsuleMap|
               -> JuizResult<Capsule> {
             // println!("container process impl called: {argument:?}");
@@ -433,10 +433,15 @@ if not r"{path_str:}" in sys.path:
             .or_else(|e| Err(anyhow!(e)))
         };
 
-        container_process_factory_create_from_trait(
-            serde_json::from_value(manifest)?,
-            bind_container_function(function),
-        )
+        let manifest: ProcessManifest = serde_json::from_value(manifest)?;
+        // readonly (transformations.md §14、#377) なら Container を読み出しロックで呼ぶ。
+        // Python のオブジェクトの書き換えは止められないので、利用者の状態を書き換えないのは書き手が守る
+        let binded = if manifest.readonly {
+            bind_container_function_readonly(function)
+        } else {
+            bind_container_function(move |c: &mut ContainerImpl<PythonContainerStruct>, a| function(c, a))
+        };
+        container_process_factory_create_from_trait(manifest, binded)
         .or_else(|e| {
             log::error!("container_process_factory_create_from_trait() failed.");
             Err(e)
@@ -581,7 +586,7 @@ fn to_cstring(s: &str) -> PyResult<CString> {
 }
 
 fn arg_to_pyargs<'a>(
-    c: &'a mut ContainerImpl<PythonContainerStruct>,
+    c: &'a ContainerImpl<PythonContainerStruct>,
     arg: &'a Vec<Py<PyAny>>,
 ) -> Vec<&'a Py<PyAny>> {
     let mut vec_arg: Vec<&Py<PyAny>> = Vec::new();

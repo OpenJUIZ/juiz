@@ -34,6 +34,9 @@ pub struct ProcessProfile {
     /// Composite の式の木とスロット (Composite でなければ `None`、issue #166)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub composition: Option<Composition>,
+    /// readonly の ContainerProcess (docs/spec/transformations.md §14、issue #377)。false なら JSON には出さない
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub readonly: bool,
 }
 
 impl TryFrom<ProcessManifest> for ProcessProfile {
@@ -70,6 +73,7 @@ impl TryFrom<ProcessManifest> for ProcessProfile {
             outputs: value.outputs,
             output_schema: value.output_schema,
             composition: value.composition,
+            readonly: value.readonly,
         })
     }
 }
@@ -163,6 +167,7 @@ impl ProcessProfile {
         }
         partial_instance_manifest.arguments.clear();
         partial_instance_manifest.arguments = new_argument_manif;
+        partial_instance_manifest.readonly = self.readonly;
 
         Ok(partial_instance_manifest)
     }
@@ -200,6 +205,7 @@ impl ProcessProfile {
             outputs: None, // OutputProfile::default()
             output_schema: None,
             composition: None,
+            readonly: false,
         }
     }
 

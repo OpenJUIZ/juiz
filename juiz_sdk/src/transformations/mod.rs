@@ -7,12 +7,16 @@
 //! - [`ContainerPoseHandle`]: Container ごとの PoseState と登録所への口の組。`ContainerImpl` と
 //!   `ContainerPtr` が同じものを指すので、ContainerProcess が Container の書き込みロックを持っている間も
 //!   登録所は Container のロックを取らずに PoseState を読み書きできる。
-//!   読み出しだけの口 [`ContainerPoseReader`] を別に取り出せる (§14、将来の readonly ContainerProcess 用)。
+//!   読み出しだけの口 [`ContainerPoseReader`] を別に取り出せる (§14)。
+//! - [`ReadonlyScope`]: readonly の ContainerProcess の呼び出し中は、その Container の ContainerPose への
+//!   書き込みを `PoseNotWritableError` にする (§14、#377)。
 //! - [`port`]: C ABI のプラグイン (C++・Haskell・Rust の C ABI) の ContainerProcess に渡す口 (§12.3)。
 
 mod handle;
 pub mod port;
 mod pose_state;
+mod readonly;
 
 pub use handle::{ContainerPoseHandle, ContainerPoseReader, TransformationsRegistry};
 pub use pose_state::{PoseEntry, PoseState, PoseStatePtr};
+pub use readonly::{in_readonly_call, ReadonlyScope};

@@ -7,7 +7,10 @@ use super::gen_process_factory::factory_tokenstream;
 use crate::util::parse_attr;
 use crate::util::typed::{all_typed, change_return_to_capsule};
 use crate::util::{argument_statement, exit_tokenstream};
-use crate::util::{change_container_process_argument_to_capsule_map, get_body_tokenstream};
+use crate::util::{
+    change_container_process_argument_to_capsule_map, container_process_is_readonly,
+    get_body_tokenstream,
+};
 
 pub(crate) fn juiz_container_process_inner(attr: TokenStream, item: TokenStream) -> TokenStream {
     let manifest_attr = parse_attr(attr);
@@ -29,6 +32,8 @@ pub(crate) fn juiz_container_process_inner(attr: TokenStream, item: TokenStream)
     let mut ast = parse_macro_input!(item as ItemFn);
     let function_name = ast.sig.ident.clone().to_string();
 
+    // 第 1 引数が &ContainerImpl<T> なら readonly (#377)
+    let readonly = container_process_is_readonly(&ast, &manifest_attr);
     // ここで全部 CapsuleMapにしてしまう。元の引数のデータはarg_mapで受け取る
     let arg_map = change_container_process_argument_to_capsule_map(&mut ast);
     // このあとclearしちゃうのでまずbodyを保存。
@@ -64,6 +69,7 @@ pub(crate) fn juiz_container_process_inner(attr: TokenStream, item: TokenStream)
         &manifest_attr,
         &arg_map,
         &return_kind,
+        readonly,
     );
     manifest2_item_fn
         .block
@@ -71,7 +77,7 @@ pub(crate) fn juiz_container_process_inner(attr: TokenStream, item: TokenStream)
         .push(parse_macro_input!(return_manifest as Stmt));
 
     // factoryを自動生成する
-    let fts = factory_tokenstream(ast.sig.ident.clone());
+    let fts = factory_tokenstream(ast.sig.ident.clone(), readonly);
     let factory_item_fn = proc_macro2::TokenStream::from(fts);
 
     //println!("ast: {}", ast.to_token_stream().to_string());

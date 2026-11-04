@@ -78,6 +78,7 @@ module Juiz
   , description
   , factory
   , useMemo
+  , readonly
   , containerType
   , addArg
   , addBoolArg
