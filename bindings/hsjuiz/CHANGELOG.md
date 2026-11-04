@@ -3,6 +3,11 @@
 hsjuiz の版は juiz(crates.io の juiz_app、PyPI の pyjuiz / juiz-cli)と同じ番号にそろえています。
 使う libjuiz_sdk も同じ版にしてください。
 
+## 0.2.3
+
+- hsjuiz の API は 0.2.2 から変えていない(juiz 本体の不具合修正 #400〜#437 に版をそろえた)。
+  Windows で readonly の ContainerProcess を公開する例の .def の書き忘れを直した(#435)。
+
 ## 0.2.2
 
 - readonly の ContainerProcess を書けるようにした。manifest に `& readonly True` を付けると、juiz は Container を
