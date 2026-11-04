@@ -239,11 +239,17 @@ Anchor の周期更新・Static の再計算で値が変わっても通知しな
 | `arg` | Y の引数の名前。Y の引数が 1 つなら省略可、2 つ以上なら必須 |
 | `reference` | 渡す値の基準 Container。省略時は書き込みで指定された基準(Transform の変更なら始点) |
 | `on_update` | `true` なら Anchor の更新で値が変わったときも呼ぶ。既定 `false`。このとき `reference` は必須 |
+| `initial` | `true` なら登録したときに今の値で 1 回呼ぶ。既定 `false`(#411) |
 
 - ID は `pose_listener://<X の ID>|<Y の ID>|<arg>`。同じ組の二重登録はエラー。
 - Y の引数には `pose(X, reference)` の値を `juiz_std.geometry.PoseStamped` で渡す。他の引数は Y の既定値か今の値(push 接続で `execute` するのと同じ)。
 - 呼ぶのは書き込みを確定させた後、登録所のロックを外してから、書き込んだスレッドで行う。Y のエラーは WARN を出して捨て、書き込みは成功のまま。
 - Y の引数の型が `juiz_std.geometry.PoseStamped` 以外(か any 以外)なら、登録のときにエラー(データ型の接続時の型検査と同じ規則)。
+- `initial: true` の 1 回(#411): conf では `transforms:` の後に `pose_listeners:` を読むので、作成時の通知は登録より前に終わっている。動かない Transform(センサの取付位置など)を受け手に知らせるために使う。
+  - 基準は `reference`。省略時は X を終点とする Transform の始点(Transform の変更のときの基準と同じ)。そのような始点が 1 つに決まらない(0 個か 2 個以上)ときは呼ばない。
+  - `pose(X, 基準)` を計算できなければ(共通の Anchor が無い など)呼ばない。どちらも DEBUG を出すだけで、登録は成功する。
+  - 呼ぶのは登録を確定させた後、登録所のロックを外してから、登録したスレッドで行う。Y のエラーは WARN を出して捨て、登録は成功のまま。§8.4 の再入の止め方も同じ(Pose 通知の中で登録したなら呼ばない)。
+  - その後は他の Pose 通知と同じ(書き込み・`on_update` で呼ぶ)。
 
 ### 8.4 再入の止め方
 
@@ -327,12 +333,15 @@ pose_listeners:
     process: map_view0
     arg: pose
     reference: map
+  - container: camera0       # 取付位置を登録したときに 1 回知らせる (§8.3、基準は始点の pantilt0)
+    process: camera_mount_view0
+    initial: true
 ```
 
 - `transforms:` の `translation` / `rotation` は省略時それぞれ 0 と回転なし。辞書のキーは `juiz_std.geometry.Transform` と同じ。
 - SDK の manifest(Step 1、`juiz_sdk::manifests`):
   - Anchor の `rate` は `ContainerManifest.rate: Option<f64>`(Anchor 以外では使わず、`None` なら直列化しない)。`ContainerManifest::anchor_manifest()` が `AnchorManifest { kind: AnchorKind, rate: Option<f64> }` を返す(Anchor でなければ `None`)。§4.3 の既定値と検査、§4.1 の `processes:` の禁止はここで行い、不備は `ContainerManifestInvalidError`。Static に `rate` を書くと WARN を出して使わない。`AnchorManifest::to_profile_value()` が §4.1 の `anchor` の値を返す。定数 `PERIODIC_ANCHOR_TYPE_NAME`・`STATIC_ANCHOR_TYPE_NAME`・`DEFAULT_ANCHOR_RATE`。
-  - `TransformManifest { source, destination, translation, rotation }`、`PoseListenerManifest { container, process, arg, reference, on_update }`。`list_from_conf(&conf)` で conf 全体から `transforms:` / `pose_listeners:` を読む(なければ空)。1 項目だけで分かる不備(端点が空・同じ名前、`on_update` で `reference` なし など)はここで検査し、名前の解決・木の規則・引数の型は core(Step 2)が検査する。Transform の回転はここで正規化する。
+  - `TransformManifest { source, destination, translation, rotation }`、`PoseListenerManifest { container, process, arg, reference, on_update, initial }`(`initial` は `false` なら直列化しない)。`list_from_conf(&conf)` で conf 全体から `transforms:` / `pose_listeners:` を読む(なければ空)。1 項目だけで分かる不備(端点が空・同じ名前、`on_update` で `reference` なし など)はここで検査し、名前の解決・木の規則・引数の型は core(Step 2)が検査する。Transform の回転はここで正規化する。
   - ID は `transform_identifier(src, dst)`・`pose_listener_identifier(x, y, arg)` で作る。
 - `transforms:` は `containers:` の後、`pose_listeners:` は `processes:`・`containers:` の後に読む。
 - 名前の解決は §5.4。
@@ -493,13 +502,13 @@ Step 3(#370)で決めたこと:
   | `transformations/tree` | READ | `anchor` | |
   | `pose_listener/create` | CREATE | | §8.3 の項目(`__manifest__` に包んでもよい) |
 
-- 表にない `anchor/list`(Anchor の ID の配列)と `pose_listener/profile_full`(`{identifier, container, process, arg, reference, on_update}`)も足した。
+- 表にない `anchor/list`(Anchor の ID の配列)と `pose_listener/profile_full`(`{identifier, container, process, arg, reference, on_update, initial}`)も足した。
 - `reference`・`anchor` のクエリに HTTP の ID(`http://<host>:<port>/container/...`)を渡すと、`identifier` と同じく自分を指すものは core の ID に直す。
 - ボディの `pose`・`translation`・`rotation` は `juiz_std.geometry` の `Pose`・`Vector3`・`Quaternion` で検査し、合わなければエラー(データ型の検査と同じ規則)。
 - `juiz_std.geometry` の `Pose`・`PoseStamped`・`Transform`・`TransformStamped`(と中の型)は、型の登録所(`type/list`、使う側の名前 `transformations`)と OpenAPI の `components.schemas` にいつも載る。OpenAPI の Transformations の API の応答・ボディはこれらを参照する。そのため `juiz_core` は `juiz_std_types` に依存する。
 - Rust は `BrokerProxy` の親に `TransformationsBrokerProxy` を足した(`container_pose`・`container_set_pose`・`transform_*`・`anchor_*`・`transformations_tree`・`pose_listener_*`)。`pose_listener_create` 以外は `&self`(登録所は自分の Mutex を持つ)。ブローカー越しの Transform・Pose 通知の ID(`transform://…`・`pose_listener://…`)は中の core の ID を書き換えずに送る。
 - `container_create` は manifest の `namespace` と `rate` も使う(引数に無いとき)。Rust・ブローカー越しに Periodic Anchor の rate を指定できる。
-- pyjuiz の `SystemProxy` に `create_anchor(name, kind='static', rate=None, namespace=None)`・`pose`・`set_pose`・`transforms`・`transform`・`create_transform`・`update_transform`・`destroy_transform`・`anchors`・`update_anchor`・`tree`・`pose_listeners`・`pose_listener`・`create_pose_listener`・`destroy_pose_listener` を、`ContainerProxy` に `pose(reference)`・`set_pose(reference, pose)` を足した。値は dict(`juiz_std.geometry` のオブジェクトも渡せる)、`translation`・`rotation` はタプルでもよい。クエリの値は URL 用に符号化する。
+- pyjuiz の `SystemProxy` に `create_anchor(name, kind='static', rate=None, namespace=None)`・`pose`・`set_pose`・`transforms`・`transform`・`create_transform`・`update_transform`・`destroy_transform`・`anchors`・`update_anchor`・`tree`・`pose_listeners`・`pose_listener`・`create_pose_listener`・`destroy_pose_listener` を、`ContainerProxy` に `pose(reference)`・`set_pose(reference, pose)` を足した。`create_pose_listener` は `initial=True` で §8.3 の `initial` を渡す(#411)。値は dict(`juiz_std.geometry` のオブジェクトも渡せる)、`translation`・`rotation` はタプルでもよい。クエリの値は URL 用に符号化する。
 
 ### 13.2 CLI
 

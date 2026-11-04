@@ -188,7 +188,7 @@ pub fn pose_listener_list_dummy() {}
     get,
     path = "/api/pose_listener/profile_full",
     params(IdentifierQuery),
-    responses((status = 200, description = "{identifier, container, process, arg, reference, on_update}")),
+    responses((status = 200, description = "{identifier, container, process, arg, reference, on_update, initial}")),
     tag = "universal.transformations",
 )]
 pub fn pose_listener_profile_dummy(_query: Query<IdentifierQuery>) {}
@@ -197,7 +197,7 @@ pub fn pose_listener_profile_dummy(_query: Query<IdentifierQuery>) {}
 #[utoipa::path(
     post,
     path = "/api/pose_listener/create",
-    request_body(content = Value, description = "{\"container\", \"process\", \"arg\"?, \"reference\"?, \"on_update\"?}"),
+    request_body(content = Value, description = "{\"container\", \"process\", \"arg\"?, \"reference\"?, \"on_update\"?, \"initial\"?}"),
     responses((status = 200, description = "Pose 通知の profile")),
     tag = "universal.transformations",
 )]

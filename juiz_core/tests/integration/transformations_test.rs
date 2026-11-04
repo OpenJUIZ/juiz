@@ -492,6 +492,7 @@ fn destroy_removes_transforms_and_pose_state() -> JuizResult<()> {
 
 recorder!(record_basic, RECORD_BASIC);
 recorder!(record_update, RECORD_UPDATE);
+recorder!(record_initial, RECORD_INITIAL);
 
 #[test]
 fn pose_listener_is_called_on_explicit_write() -> JuizResult<()> {
@@ -573,6 +574,58 @@ fn pose_listener_on_update() -> JuizResult<()> {
         // 値が変わらない更新では呼ばない
         registry(worker).update_anchor("map", "")?;
         assert_eq!(RECORD_UPDATE.lock().unwrap().len(), 1);
+        Ok(())
+    })
+}
+
+#[test]
+fn pose_listener_initial_call() -> JuizResult<()> {
+    run("tf_listener_initial", |system| {
+        let mut cb = system.core_broker().lock_mut()?;
+        let worker = cb.worker_mut();
+        let c = build_example(worker, "static_anchor")?;
+        let camera0 = c[2].clone();
+        register_process(
+            worker,
+            ProcessManifest::new("record_initial").add_object_arg("pose", "pose", jvalue!({})),
+            record_initial,
+            "ini0",
+        )?;
+        for name in ["ini1", "ini2", "ini3"] {
+            worker.create_process_ref(&ProcessManifest::new("record_initial").name(name))?;
+        }
+        // initial なしでは登録しても呼ばない
+        let profile = worker.create_pose_listener(PoseListenerManifest::new("camera0", "ini0"), "")?;
+        assert_eq!(profile["initial"], jvalue!(false));
+        assert!(RECORD_INITIAL.lock().unwrap().is_empty());
+        // reference を省くと、Container を終点とする Transform の始点が基準
+        let profile = worker.create_pose_listener(
+            PoseListenerManifest::new("camera0", "ini1").initial(true),
+            "",
+        )?;
+        assert_eq!(profile["initial"], jvalue!(true));
+        let got = RECORD_INITIAL.lock().unwrap().clone();
+        assert_eq!(got.len(), 1);
+        let p: PoseStamped = (&got[0]).try_into()?;
+        assert_eq!(p.reference(), "base0");
+        assert_pose(&p.pose, &pose(0.1, 0.0, 0.3, Quaternion::identity()));
+        // reference を指定すればその基準
+        worker.create_pose_listener(
+            PoseListenerManifest::new("camera0", "ini2").reference("map").initial(true),
+            "",
+        )?;
+        let got = RECORD_INITIAL.lock().unwrap().clone();
+        assert_eq!(got.len(), 2);
+        let p: PoseStamped = (&got[1]).try_into()?;
+        assert_eq!(p.reference(), "map");
+        assert_pose(&p.pose, &pose(1.0, 0.1, 0.3, z90()));
+        // 値を計算できない (map を終点とする Transform が無く reference も無い) ときは呼ばないが、登録はする
+        worker.create_pose_listener(PoseListenerManifest::new("map", "ini3").initial(true), "")?;
+        assert_eq!(RECORD_INITIAL.lock().unwrap().len(), 2);
+        assert_eq!(registry(worker).pose_listener_list()?.len(), 4);
+        // 登録の後は普通の Pose 通知 (書き込みで呼ぶ)
+        camera0.set_pose("map", &pose(1.0, 0.2, 0.3, z90()))?;
+        assert_eq!(RECORD_INITIAL.lock().unwrap().len(), 5);
         Ok(())
     })
 }

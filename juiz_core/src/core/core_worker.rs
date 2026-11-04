@@ -1582,6 +1582,7 @@ impl CoreWorker {
             &arg,
             manifest.reference.as_deref(),
             manifest.on_update,
+            manifest.initial,
             namespace,
         )
     }

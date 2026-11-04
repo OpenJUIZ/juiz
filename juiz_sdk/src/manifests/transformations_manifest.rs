@@ -312,6 +312,9 @@ pub struct PoseListenerManifest {
     /// Anchor の更新で値が変わったときも呼ぶか。`true` なら `reference` が必須
     #[serde(default)]
     pub on_update: bool,
+    /// 登録したときに今の値で 1 回呼ぶか (値を計算できなければ呼ばない)。既定 `false` なら書き出さない
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub initial: bool,
 }
 
 impl PoseListenerManifest {
@@ -322,6 +325,7 @@ impl PoseListenerManifest {
             arg: None,
             reference: None,
             on_update: false,
+            initial: false,
         }
     }
 
@@ -337,6 +341,11 @@ impl PoseListenerManifest {
 
     pub fn on_update(mut self, on_update: bool) -> Self {
         self.on_update = on_update;
+        self
+    }
+
+    pub fn initial(mut self, initial: bool) -> Self {
+        self.initial = initial;
         self
     }
 

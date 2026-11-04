@@ -243,6 +243,20 @@ fn check_pose_listener(bp: &mut dyn BrokerProxy, k: &str) -> JuizResult<()> {
 
     assert_eq!(bp.pose_listener_destroy(&id)?["identifier"], jvalue!(id));
     assert!(!bp.pose_listener_list()?.contains(&id));
+
+    // initial: true なら登録したときに今の値で 1 回呼ぶ (§8.3)
+    RECEIVED.lock().unwrap().clear();
+    let p = bp.pose_listener_create(
+        &PoseListenerManifest::new(&base, "recorder")
+            .reference(&map)
+            .initial(true),
+    )?;
+    assert_eq!(p["initial"], jvalue!(true));
+    let received = RECEIVED.lock().unwrap().clone();
+    assert_eq!(received.len(), 1, "{received:?}");
+    assert_eq!(received[0]["header"]["frame_id"], jvalue!(map));
+    assert_eq!(received[0]["pose"]["position"]["x"], jvalue!(2.0));
+    bp.pose_listener_destroy(&id)?;
     Ok(())
 }
 

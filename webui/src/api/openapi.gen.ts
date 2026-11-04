@@ -1198,7 +1198,7 @@ export interface paths {
                 path?: never;
                 cookie?: never;
             };
-            /** @description {"container", "process", "arg"?, "reference"?, "on_update"?} */
+            /** @description {"container", "process", "arg"?, "reference"?, "on_update"?, "initial"?} */
             requestBody: {
                 content: {
                     "application/json": unknown;
@@ -1306,7 +1306,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description {identifier, container, process, arg, reference, on_update} */
+                /** @description {identifier, container, process, arg, reference, on_update, initial} */
                 200: {
                     headers: {
                         [name: string]: unknown;

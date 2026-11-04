@@ -87,6 +87,7 @@ struct Listener {
     arg: String,
     reference: Option<String>,
     on_update: bool,
+    initial: bool,
 }
 
 /// 登録所のロックを外してから呼ぶ Pose 通知
@@ -541,6 +542,89 @@ impl Inner {
             }
         }
         out
+    }
+
+    /// Pose 通知を登録する。`initial` なら登録したときに今の値で呼ぶ通知も返す (§8.3)
+    fn add_listener(
+        &mut self,
+        container: &str,
+        process: ProcessPtr,
+        arg: &str,
+        reference: Option<&str>,
+        on_update: bool,
+        initial: bool,
+        namespace: &str,
+    ) -> JuizResult<(Value, Option<Notification>)> {
+        let container = self.resolve(container, namespace)?;
+        let reference = reference.map(|r| self.resolve(r, namespace)).transpose()?;
+        let process_id = process.identifier().to_string();
+        let id = pose_listener_identifier(&container, &process_id, arg);
+        if self.listeners.contains_key(&id) {
+            return Err(listener_error(format!(
+                "Pose listener ({id}) already exists."
+            )));
+        }
+        let notification = if initial {
+            self.initial_notification(&id, &container, &reference, &process, arg)
+        } else {
+            None
+        };
+        self.listeners.insert(
+            id.clone(),
+            Listener {
+                container,
+                process,
+                process_id,
+                arg: arg.to_owned(),
+                reference,
+                on_update,
+                initial,
+            },
+        );
+        Ok((listener_profile(self, &id)?, notification))
+    }
+
+    /// 登録したときの 1 回 (`initial: true`、§8.3)。基準は `reference`、省略時は Container を終点とする
+    /// Transform の始点 (1 本だけのとき)。値を計算できなければ呼ばない
+    fn initial_notification(
+        &self,
+        lid: &str,
+        container: &str,
+        reference: &Option<String>,
+        process: &ProcessPtr,
+        arg: &str,
+    ) -> Option<Notification> {
+        let reference = match reference {
+            Some(r) => r.clone(),
+            None => {
+                let mut sources = self
+                    .transforms
+                    .values()
+                    .filter(|t| t.destination == container)
+                    .map(|t| t.source.clone())
+                    .collect::<BTreeSet<String>>();
+                if sources.len() != 1 {
+                    log::debug!(
+                        "Pose listener ({lid}) initial call is skipped: reference is not given and Container({container}) is the destination of {} Transform source(s).",
+                        sources.len()
+                    );
+                    return None;
+                }
+                sources.pop_first()?
+            }
+        };
+        match self.pose(container, &reference) {
+            Ok(p) => Some(Notification {
+                listener: lid.to_owned(),
+                process: process.clone(),
+                arg: arg.to_owned(),
+                value: p.into(),
+            }),
+            Err(e) => {
+                log::debug!("Pose listener ({lid}) initial call is skipped: {e}");
+                None
+            }
+        }
     }
 
     // ---- 後始末 ----
@@ -1119,30 +1203,18 @@ impl Transformations {
         arg: &str,
         reference: Option<&str>,
         on_update: bool,
+        initial: bool,
         namespace: &str,
     ) -> JuizResult<Value> {
-        let mut inner = self.lock()?;
-        let container = inner.resolve(container, namespace)?;
-        let reference = reference.map(|r| inner.resolve(r, namespace)).transpose()?;
-        let process_id = process.identifier().to_string();
-        let id = pose_listener_identifier(&container, &process_id, arg);
-        if inner.listeners.contains_key(&id) {
-            return Err(listener_error(format!(
-                "Pose listener ({id}) already exists."
-            )));
-        }
-        inner.listeners.insert(
-            id.clone(),
-            Listener {
-                container,
-                process,
-                process_id,
-                arg: arg.to_owned(),
-                reference,
-                on_update,
-            },
-        );
-        listener_profile(&inner, &id)
+        let (profile, notifications) = {
+            let mut inner = self.lock()?;
+            let (profile, notification) =
+                inner.add_listener(container, process, arg, reference, on_update, initial, namespace)?;
+            (profile, notification.into_iter().collect::<Vec<_>>())
+        };
+        // 登録したときの 1 回 (`initial: true`)。登録は書き込みではないが、呼ぶ規則は通知と同じ (§8.3)
+        fire_unless_reentrant(notifications);
+        Ok(profile)
     }
 
     pub fn destroy_pose_listener(&self, identifier: &str) -> JuizResult<Value> {
@@ -1197,6 +1269,7 @@ fn listener_profile(inner: &Inner, identifier: &str) -> JuizResult<Value> {
         "arg": l.arg,
         "reference": l.reference,
         "on_update": l.on_update,
+        "initial": l.initial,
     }))
 }
 

@@ -158,6 +158,10 @@ def check_transformations(port):
     l = system.create_pose_listener("c0", "inc0", reference="pymap")
     assert l["identifier"] in system.pose_listeners()
     assert system.pose_listener(l["identifier"])["arg"] == "arg1"
+    assert system.pose_listener(l["identifier"])["initial"] is False
+    system.destroy_pose_listener(l["identifier"])
+    l = system.create_pose_listener("c0", "inc0", reference="pymap", initial=True)
+    assert system.pose_listener(l["identifier"])["initial"] is True
     system.destroy_pose_listener(l["identifier"])
     assert l["identifier"] not in system.pose_listeners()
 

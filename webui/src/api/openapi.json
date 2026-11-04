@@ -1252,7 +1252,7 @@
               "schema": {}
             }
           },
-          "description": "{\"container\", \"process\", \"arg\"?, \"reference\"?, \"on_update\"?}",
+          "description": "{\"container\", \"process\", \"arg\"?, \"reference\"?, \"on_update\"?, \"initial\"?}",
           "required": true
         },
         "responses": {
@@ -1318,7 +1318,7 @@
         ],
         "responses": {
           "200": {
-            "description": "{identifier, container, process, arg, reference, on_update}"
+            "description": "{identifier, container, process, arg, reference, on_update, initial}"
           }
         },
         "tags": [

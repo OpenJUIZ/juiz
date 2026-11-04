@@ -15,7 +15,7 @@
 //! | `transformations/tree` (READ) | param `anchor` (`identifier` でもよい) | 木 |
 //! | `pose_listener/list` (READ) | | ID の配列 |
 //! | `pose_listener/profile_full` (READ) | param `identifier` | profile |
-//! | `pose_listener/create` (CREATE) | ボディ `container`・`process`・`arg`・`reference`・`on_update` (`__manifest__` に包んでもよい) | profile |
+//! | `pose_listener/create` (CREATE) | ボディ `container`・`process`・`arg`・`reference`・`on_update`・`initial` (`__manifest__` に包んでもよい) | profile |
 //! | `pose_listener/destroy` (DELETE) | param `identifier` | profile |
 //!
 //! ボディの値は param で渡してもよい (`reference` など文字列のもの)。
@@ -292,12 +292,13 @@ pub(crate) fn pose_listener_create_callbacks() -> CallbackContainerType {
         log::debug!("[CREATE] pose_listener/create called");
         let mut v = manifest_value(
             &args,
-            &["container", "process", "arg", "reference", "on_update"],
+            &["container", "process", "arg", "reference", "on_update", "initial"],
         )?;
-        // param で来た on_update は文字列
-        if let Some(Value::String(s)) = v.get("on_update").cloned() {
-            v["on_update"] =
-                Value::Bool(s.parse::<bool>().map_err(|e| invalid("on_update", e, &v))?);
+        // param で来た on_update・initial は文字列
+        for key in ["on_update", "initial"] {
+            if let Some(Value::String(s)) = v.get(key).cloned() {
+                v[key] = Value::Bool(s.parse::<bool>().map_err(|e| invalid(key, e, &v))?);
+            }
         }
         let manifest: PoseListenerManifest = serde_json::from_value(v.clone()).map_err(|e| {
             anyhow!(JuizError::PoseListenerError {
