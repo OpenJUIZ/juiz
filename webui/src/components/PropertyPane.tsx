@@ -286,6 +286,7 @@ function ProcessBody({ element: e, model, onSelect, serverUrl }: BodyProps<Proce
                       onSelect={onSelect}
                     />,
                   ],
+                  [<Term k="readonly" />, <YesNo v={p.readonly} />],
                 ] as [ReactNode, ReactNode][])
               : []),
             ["結果の再利用", <YesNo v={p.use_memo} />],

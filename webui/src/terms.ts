@@ -6,6 +6,7 @@ export const TERMS = {
   process: { ja: "処理", en: "Process" },
   container: { ja: "容器", en: "Container" },
   containerProcess: { ja: "容器処理", en: "ContainerProcess" },
+  readonly: { ja: "読み取り専用", en: "readonly" },
   ec: { ja: "実行文脈", en: "ExecutionContext" },
   connection: { ja: "接続", en: "Connection" },
   topic: { ja: "話題", en: "Topic" },

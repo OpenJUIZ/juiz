@@ -606,6 +606,15 @@ button.elem-link:hover {
   color: var(--kind-container);
 }
 
+/* readonly の容器処理(#377) */
+.readonly-badge {
+  margin-left: 0.4em;
+  padding: 0 4px;
+  font-size: 0.8em;
+  border: 1px dashed var(--kind-process);
+  color: var(--kind-process);
+}
+
 /* System をまたぐ Transform(#416)。写しは破線の枠、取り込みの状態は色で分ける */
 .replica-badge,
 .remote-child-badge,

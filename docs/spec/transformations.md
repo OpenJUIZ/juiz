@@ -553,6 +553,8 @@ readonly の ContainerProcess(#377)は、Container を**読み出しロック**�
 - ProcessManifest に `readonly`(真偽値、既定 `false`)を足した。`false` のときは JSON に出さない。
 - `readonly` は Factory の manifest で決まる(関数の書き方で決まる)。conf のインスタンスの manifest では変えられない。
 - ProcessProfile にも `readonly` が載る(`false` なら出さない)。API・CLI・管理画面の profile で見える。
+  - CLI: `juiz container-process list --long`(と `process list --long`)は readonly の行の下に `readonly` の 1 行を出す。`container-process info` も profile の後に同じ行を出す。
+  - 管理画面: ツリーの容器処理の行に「読取」の印(破線の枠)、性質欄の基本に「読み取り専用 readonly」(する/しない)。
 - readonly でない ContainerProcess は今まで通り書き込みロックで呼ぶ。readonly と readonly でないものは並行に走らない(書き込みロックを待つ)。
 
 ### 14.2 ロックと書き込みの止め方
