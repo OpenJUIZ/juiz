@@ -500,8 +500,18 @@ fn replica_tree_breaking_the_rule_is_not_made() -> JuizResult<()> {
         "",
     )?;
     s2.start()?;
-    std::thread::sleep(Duration::from_millis(200));
-    assert!(s2.reg().anchor_list()?.is_empty());
+    // 取り込みは P' ごとに別々に当てはまるので、一部だけの間も B' が一瞬でも作られないこと (#437)。
+    // start の直後から 1 秒間 (取り込み 100 回分) 見続ける
+    let begin = std::time::Instant::now();
+    let (mut checks, mut seen) = (0u32, 0u32);
+    while begin.elapsed() < Duration::from_secs(1) {
+        checks += 1;
+        if !s2.reg().anchor_list()?.is_empty() {
+            seen += 1;
+        }
+        std::thread::sleep(Duration::from_micros(200));
+    }
+    assert_eq!(seen, 0, "replica Anchor was seen {seen} times in {checks} checks");
     assert!(c.pose("map").is_err());
 
     // 片方を消せば作れる (木の形が変われば検査し直す)
