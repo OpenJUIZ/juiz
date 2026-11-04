@@ -110,6 +110,11 @@ pub(super) struct RemoteSource {
     last_version: Option<u64>,
     /// この P' から取り込んでいる写しの Anchor B' の ID → 取り込んだ項目の版番号
     anchors: BTreeMap<String, u64>,
+    /// 最後に取れた P の PoseState にあった Anchor B ((origin_system, origin_anchor))。
+    /// B' を作らなかったものも入る。B' の木の検査で、まだ当てはめていない P' も B' の子として数える (#437)
+    seen: BTreeSet<(String, String)>,
+    /// 取り込みを 1 度でも終えたか (成功・失敗どちらでも)。終えていない P' があるうちは新しい B' を作らない (#437)
+    attempted: bool,
     /// 取り込みを始めた時刻 (1 度も取れないときの timeout の起点)
     started_at: Instant,
     last_success: Option<(Instant, Time)>,
@@ -139,6 +144,8 @@ impl RemoteSource {
             remote_system: None,
             last_version: None,
             anchors: BTreeMap::new(),
+            seen: BTreeSet::new(),
+            attempted: false,
             started_at: Instant::now(),
             last_success: None,
             failing: false,
@@ -540,6 +547,7 @@ impl Inner {
         let anchors = match self.sources.get_mut(p) {
             Some(s) => {
                 s.last_version = None;
+                s.seen.clear();
                 s.anchors.keys().cloned().collect::<Vec<String>>()
             }
             None => return,
@@ -563,11 +571,41 @@ impl Inner {
         }
     }
 
+    /// 写しの Anchor B' → P' のうち、P の PoseState に B があると分かっているのに、
+    /// まだ取り込みの辺がないもの ((Transform の ID, B', P')) (#437)
+    fn pending_replica_edges(&self) -> Vec<(String, String, String)> {
+        let mut edges = Vec::new();
+        for (bid, a) in self.anchors.iter() {
+            let Some(r) = a.remote.as_ref() else {
+                continue;
+            };
+            let key = (r.origin_system.clone(), r.origin_anchor.clone());
+            for (p, s) in self.sources.iter() {
+                if p == bid || !s.seen.contains(&key) {
+                    continue;
+                }
+                let tid = transform_identifier(bid, p);
+                if !self.transforms.contains_key(&tid) {
+                    edges.push((tid, bid.clone(), p.clone()));
+                }
+            }
+        }
+        edges
+    }
+
     /// 木の規則 (§5.2) を破る写しの Anchor を作らない (WARN は 1 回)。そのあと木を作り直す
     fn rebuild_trees_dropping_bad_replicas(&mut self) {
         loop {
             let bad = {
-                let out = out_edges(&self.transforms);
+                // まだ当てはめていない P' も、B を PoseState に持つなら B' の子として数える。
+                // P' ごとに別々に当てはめると、一部だけの間は規則を破らず B' が一瞬作られてしまう (#437)
+                let pending = self.pending_replica_edges();
+                let mut out = out_edges(&self.transforms);
+                for (tid, b, p) in pending.iter() {
+                    out.entry(b.as_str())
+                        .or_default()
+                        .push((tid.as_str(), p.as_str()));
+                }
                 self.anchors
                     .iter()
                     .filter(|(_, a)| a.remote.is_some())
@@ -620,6 +658,7 @@ impl Inner {
         let Some(src) = self.sources.get_mut(p) else {
             return Ok(BTreeSet::new());
         };
+        src.attempted = true;
         if src.failing {
             log::info!("Importing poses from Container({p}) of another System is restored.");
             src.failing = false;
@@ -637,12 +676,14 @@ impl Inner {
         }
 
         let mut desired = BTreeMap::new();
+        let mut seen = BTreeSet::new();
         for e in resp.entries.into_iter() {
             // 回ってきた自分の Anchor の値は取り込まない (循環、§19.5)
             if e.origin_system == my {
                 continue;
             }
             let key = (e.origin_system.clone(), e.origin_anchor.clone());
+            seen.insert(key.clone());
             let bid = match self.replica_index.get(&key) {
                 Some(b) => b.clone(),
                 None => replica_anchor_id(&source_id, &e.anchor)?,
@@ -656,9 +697,17 @@ impl Inner {
             .cloned()
             .collect::<Vec<String>>();
         let mut structural = !old.is_empty();
+        if self.sources[p].seen != seen {
+            structural = true;
+            self.sources.get_mut(p).unwrap().seen = seen;
+        }
         for b in old.iter() {
             self.detach(p, b);
         }
+        // 1 度も取り込みを終えていない P' があるうちは新しい B' を作らない。
+        // その P' の PoseState にも B があれば、木の規則を破るかもしれないので (#437)
+        let waiting = self.sources.values().any(|s| !s.attempted);
+        let mut deferred = false;
         let mut touched = BTreeSet::new();
         for (bid, (key, e)) in desired.into_iter() {
             let prev = self.sources[p].anchors.get(&bid).copied();
@@ -666,6 +715,10 @@ impl Inner {
                 continue;
             }
             if !self.anchors.contains_key(&bid) {
+                if waiting {
+                    deferred = true;
+                    continue;
+                }
                 if let Err(err) = self.ensure_replica_anchor(&bid, &key) {
                     log::warn!("replica Anchor ({bid}) is not made: {err}");
                     continue;
@@ -710,6 +763,12 @@ impl Inner {
             }
             touched.insert(bid);
         }
+        if deferred {
+            // 待っている P' が取れたら、次の取り込みで全部取り直して作る
+            if let Some(s) = self.sources.get_mut(p) {
+                s.last_version = None;
+            }
+        }
         if structural {
             self.rebuild_trees_dropping_bad_replicas();
         }
@@ -728,6 +787,7 @@ impl Inner {
             return;
         };
         src.last_version = None;
+        src.attempted = true;
         if !src.failing {
             log::warn!(
                 "Importing poses from Container({p}) of another System failed. The last values are kept for {}s: {e}",

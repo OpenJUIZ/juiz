@@ -681,6 +681,7 @@ Step 0(#413)で足した節。親 issue #376。「(Step n で決める)」と書
 - **写しの Anchor B'**: P の PoseState の項目 B ごとに 1 つ。B' の木の直下の子は、PoseState に B の項目を持つすべての P' で、`pose_B'(P') = pose_B(P)`(取り込んだ値)。B' の木はそこから先、S2 の Transform を今どおりたどる。P 自身が Anchor なら(`pose_P(P)` = 単位なので)P' がそのまま P の写しの Anchor になる。
 - B' の木の値は §3.4 の計算規則のまま(根の直下の値が単位でないだけ)。S2 の Container の PoseState に B' の項目が入るので、`pose(camera0, map)` は今の規則(§7.1)のまま答えられ、S2 からさらに取り込む S3 には B' の項目も渡る(多段のつながり)。
 - 木の規則(§5.2)は B' の木にもそのまま当てはめる。取り込みで B' の木が規則を破るとき(2 つの P' から同じ Container に届くなど)は、その B' を作らず WARN を 1 回出す。木の形が変わったら検査し直す。
+  - 取り込みは P' ごとに別々に当てはまるので、一部の P' だけを当てはめた間も B' が一瞬でも作られないようにする(#437)。検査では、最後に取れた PoseState に B があった P' を、まだ当てはめていなくても B' の子として数える。また、取り込みを 1 度も終えていない(成功も失敗もしていない)P' があるうちは新しい B' を作らない。
 - 写しの値の更新は StaticAnchor と同じく、取り込んだ値が変わったときに登録所のロックの下で計算する(§6.2)。木の stamp は**取り込んだ値の stamp**(相手の System の時計の値)のまま。
 - P'・B' への `set_pose` と、P' → C 以外の P'・B' を端点にする Transform の作成は `PoseNotWritableError` / `CrossSystemTransformError`。C 以下の `set_pose` は §7.2 のまま(P' → C の Transform を書き換えてよい)。
 - **親の System S1 は子の木を取り込まない**。S1 の登録所に S2 の Container は入らず、木の形は各 System の中で閉じる。S1 から S2 の Container の位置を読むのは §19.8 の回し方で行う。
