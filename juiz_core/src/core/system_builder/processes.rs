@@ -75,6 +75,8 @@ fn setup_process_factory(
 pub(super) fn setup_processes(system: &System, manifest: &Value) -> JuizResult<()> {
     log::trace!("【呼出】setup_processes({manifest})");
     for process_manifest_value in get_array(manifest)?.iter() {
+        // publish / subscribe のような書き間違いは黙って無視されるので警告する (issue #401)
+        ProcessManifest::warn_unknown_conf_keys(process_manifest_value, "process");
         // Topic 名は Process のネームスペースで解決しておく (issue #149)
         let process_manifest =
             ProcessManifest::try_from(process_manifest_value.clone())?.resolve_topic_names()?;

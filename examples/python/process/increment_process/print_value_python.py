@@ -1,20 +1,6 @@
+from juiz import juiz_process
 
-
-def pyprint(arg1):
+@juiz_process
+def print_value_python(arg1: int = 1) -> int:
     print('print', arg1)
     return arg1
-
-def manifest():
-    return {
-        "type_name": "print_value_python",
-        "arguments" : { 
-            "arg1": {
-                "type": "int",
-                "description": "test_argument",
-                "default": 1,
-            }, 
-        }, 
-    }
-
-def process_factory():
-    return pyprint

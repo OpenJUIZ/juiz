@@ -812,11 +812,15 @@ fn process_manifest_readonly() -> JuizResult<()> {
     let m = ProcessManifest::new("peek").readonly(true);
     let v = serde_json::to_value(&m)?;
     assert_eq!(v["readonly"], jvalue!(true));
-    assert!(serde_json::to_value(ProcessManifest::new("p"))?.get("readonly").is_none());
+    assert!(serde_json::to_value(ProcessManifest::new("p"))?
+        .get("readonly")
+        .is_none());
 
-    let from_value: ProcessManifest = jvalue!({"type_name": "peek", "readonly": true}).try_into()?;
+    let from_value: ProcessManifest =
+        jvalue!({"type_name": "peek", "readonly": true}).try_into()?;
     assert!(from_value.readonly);
-    let from_serde: ProcessManifest = serde_json::from_value(jvalue!({"type_name": "peek", "readonly": true}))?;
+    let from_serde: ProcessManifest =
+        serde_json::from_value(jvalue!({"type_name": "peek", "readonly": true}))?;
     assert!(from_serde.readonly);
     let default: ProcessManifest = serde_json::from_value(jvalue!({"type_name": "p"}))?;
     assert!(!default.readonly);
@@ -829,5 +833,52 @@ fn process_manifest_readonly() -> JuizResult<()> {
 
     let profile: ProcessProfile = m.name("peek0").try_into()?;
     assert!(profile.readonly);
+    Ok(())
+}
+
+/// conf の Process の知らないキー (issue #401)
+#[test]
+fn process_manifest_unknown_conf_keys() -> JuizResult<()> {
+    // 正しい書き方なら何も返さない
+    let ok = jvalue!({
+        "type_name": "t", "name": "p0", "namespace": "robot1", "use_memo": false,
+        "publishes": ["a"], "subscribes": {"arg1": "b"}, "p_apply": {"arg1": 1},
+    });
+    assert!(ProcessManifest::unknown_conf_keys(&ok).is_empty());
+
+    // publish / subscribe は別名として受け付けず、知らないキーとして案内を付ける
+    let ng = jvalue!({"type_name": "t", "publish": ["a"], "subscribe": {"arg1": "b"}});
+    assert_eq!(
+        ProcessManifest::unknown_conf_keys(&ng),
+        vec![
+            "'publish' (did you mean 'publishes'?)".to_owned(),
+            "'subscribe' (did you mean 'subscribes'?)".to_owned(),
+        ]
+    );
+    let m: ProcessManifest = ng.try_into()?;
+    assert!(m.publishes.is_empty());
+    assert!(m.subscribes.is_empty());
+
+    // object でなければ何も返さない
+    assert!(ProcessManifest::unknown_conf_keys(&jvalue!([1, 2])).is_empty());
+    Ok(())
+}
+
+/// ProcessManifest に足したフィールドを CONF_KEYS に足し忘れると、正しい conf に警告が出てしまう
+#[test]
+fn process_manifest_conf_keys_cover_all_fields() -> JuizResult<()> {
+    let m = ProcessManifest::new("t")
+        .name("p0")
+        .trace(true)
+        .readonly(true)
+        .container_name(Some("c".to_owned()))
+        .container_type(Some("ct".to_owned()));
+    let v = serde_json::to_value(&m)?;
+    for key in v.as_object().unwrap().keys() {
+        assert!(
+            ProcessManifest::CONF_KEYS.contains(&key.as_str()),
+            "ProcessManifest::CONF_KEYS に '{key}' がない"
+        );
+    }
     Ok(())
 }
