@@ -405,13 +405,17 @@ class SystemProxy():
         return self.crud.read('pose_listener', 'list')
 
     def pose_listener(self, identifier: str):
-        """Pose 通知の profile {identifier, container, process, arg, reference, on_update}"""
+        """Pose 通知の profile {identifier, container, process, arg, reference, on_update, initial}"""
         return self.crud.read('pose_listener', 'profile_full', {'identifier': identifier})
 
     def create_pose_listener(self, container: str, process: str, arg: str = None,
-                             reference: str = None, on_update: bool = False):
-        """「Container の Pose が書かれたら Process を呼ぶ」を登録し、profile を返す"""
+                             reference: str = None, on_update: bool = False,
+                             initial: bool = False):
+        """「Container の Pose が書かれたら Process を呼ぶ」を登録し、profile を返す。
+        initial=True なら登録したときに今の値で 1 回呼ぶ (値を計算できなければ呼ばない)"""
         manifest = {'container': _id_str(container), 'process': _id_str(process), 'on_update': bool(on_update)}
+        if initial:
+            manifest['initial'] = True
         if arg is not None:
             manifest['arg'] = arg
         if reference is not None:

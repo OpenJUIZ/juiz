@@ -368,7 +368,8 @@ fn pose_listener_manifests_from_conf() -> JuizResult<()> {
         "pose_listeners": [
             {"container": "base0", "process": "map_view0", "arg": "pose", "reference": "map"},
             {"container": "base0", "process": "logger0"},
-            {"container": "camera0", "process": "view0", "reference": "map", "on_update": true}
+            {"container": "camera0", "process": "view0", "reference": "map", "on_update": true},
+            {"container": "lidar0", "process": "view0", "initial": true}
         ]
     });
     let ls = PoseListenerManifest::list_from_conf(&conf)?;
@@ -381,6 +382,8 @@ fn pose_listener_manifests_from_conf() -> JuizResult<()> {
     assert_eq!(ls[1].arg, None);
     assert!(!ls[1].on_update);
     assert!(ls[2].on_update);
+    assert!(!ls[2].initial);
+    assert_eq!(ls[3], PoseListenerManifest::new("lidar0", "view0").initial(true));
 
     for bad in [
         jvalue!({"container": "base0", "process": "view0", "on_update": true}),
@@ -399,6 +402,8 @@ fn pose_listener_manifests_from_conf() -> JuizResult<()> {
         v,
         jvalue!({"container": "a", "process": "b", "on_update": false})
     );
+    let v: Value = PoseListenerManifest::new("a", "b").initial(true).into();
+    assert_eq!(v["initial"], jvalue!(true));
     Ok(())
 }
 

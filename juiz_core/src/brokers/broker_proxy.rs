@@ -449,7 +449,7 @@ pub trait TransformationsBrokerProxy {
     /// Pose 通知の ID (`pose_listener://<Container の ID>|<Process の ID>|<arg>`) の一覧
     fn pose_listener_list(&self) -> JuizResult<Vec<String>>;
 
-    /// `{identifier, container, process, arg, reference, on_update}`
+    /// `{identifier, container, process, arg, reference, on_update, initial}`
     fn pose_listener_profile_full(&self, identifier: &str) -> JuizResult<Value>;
 
     /// Pose 通知を登録し、profile を返す (§8.3)

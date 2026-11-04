@@ -164,6 +164,23 @@ fn python_container_process_reads_and_writes_pose() -> JuizResult<()> {
     })
 }
 
+/// conf の `pose_listeners:` で `initial: true` にすると、起動したときに今の値で 1 回届く (§8.3、#411)。
+/// 基準を省くと Container を終点とする Transform の始点
+#[test]
+fn python_pose_listener_initial_in_conf() -> JuizResult<()> {
+    crate::common::logger::init();
+    let mut c = conf();
+    c["name"] = jvalue!("python_transformations_initial_test");
+    c["pose_listeners"] = jvalue!([
+        { "container": "camera0", "process": "recorder0_py_part_on_pose", "initial": true }
+    ]);
+    System::new(c)?.setup()?.run_and_do_once(|system| {
+        let last = call(system, "recorder0", "py_part_last", jvalue!({}))?;
+        assert_pose(&last, "base0", &pose(0.1, 0.0, 0.3, Quaternion::identity()));
+        Ok(())
+    })
+}
+
 #[test]
 fn python_pose_errors_have_kinds() -> JuizResult<()> {
     crate::common::logger::init();
