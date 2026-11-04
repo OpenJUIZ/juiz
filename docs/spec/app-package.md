@@ -406,12 +406,31 @@ subsystems:
 
 - `type_name: http` でポートを省いたときは、インストール済みの基礎(範囲に合う一番新しい版)の `base.http_port` を使う。基礎が入っていないか `base.http_port` が無ければエラー(`cannot decide the port for robot_base. Write the port in the conf or --depend.`)。
 - `package` を持たない `subsystems` は今までどおり扱い、依存の確認はしない。
+- conf に書いた依存先の ID(`transforms` のつなぎ先など)も同じ規則で決まったつなぎ先にする(§10.4)。
 - つないだ後、相手の profile の `package` を見て、`name` が一致し、`version` が範囲に入ることを確かめる(§10.3)。
 - subsystem としてつなぐと、相手は同じ種類のブローカーでこちらへつなぎ返す(mastersystem)。そのため `juiz run` は、アプリ側にもブローカーを用意する。
   - ipc でつなぐとき、conf に ipc ブローカーが無く `--ipc` も無ければ、`<アプリ名>-<プロセス ID>` の名前で ipc ブローカーを足す(同じアプリを複数動かせるように)。
   - http でつなぐときは、`--http` が無くても HTTP ブローカーを立てる(ポートは conf の `option.http_broker.port`、既定 8000)。`--no-http` とは両立しないのでエラーにする(§7.1)。
 - 確認(つないで profile を見る)は、アプリのブローカーを立てる前に行う。確認に失敗したときにソケットなどを残さないため。juiz_core の `System::set_subsystem_check` で、conf の `subsystems` の各要素について呼ぶ。
 - 基礎とアプリの名前の衝突を避けるには、ネームスペースを分ける(基礎 `/robot1/base`、アプリ `/robot1/patrol` など)。juiz run はネームスペースを自動では付けない。
+
+### 10.4 conf の ID のつなぎ先(#425)
+
+アプリの conf に、依存する基礎の Process・Container をブローカー付きの ID で書くとき(System をまたぐ Transform の始点・終点(transformations.md §19.2)、Connection の端、EC の bind)、つなぎ先は §10.2 の `subsystems` と同じ規則で決める。`juiz run` は §10.2 でつなぎ先を決めた後、conf の次の項目を書き換える。
+
+- 対象: `transforms` の `source`・`destination`、`connections` の `source`・`destination`、`ecs` の `bind`。値が文字列か、`identifier` / `id` を持つ辞書のもの。
+- **`package://<名前>/<ID の残り>`**(推奨): `<名前>` は `depends` の名前。§10.2 で決まったつなぎ先の URL に置き換える(`package://mobile_sim/container/odom0::static_anchor` → `ipc://mobile_sim/container/odom0::static_anchor`、`--depend mobile_sim=http://192.168.0.10:8100` なら `http://192.168.0.10:8100/container/odom0::static_anchor`)。conf が特定のつなぎ先に縛られない。
+  - `<名前>` が `depends` に無ければエラー(`'package://arm/…' in the conf refers to package arm, but my_patrol does not depend on arm. Add it to 'depends' in juizapp.yaml.`)。`package://<名前>` の後に ID が無ければエラー。
+- **`ipc://<名前>/<ID の残り>`**(既定のつなぎ先をそのまま書いたもの、移行のため): `<名前>` が `depends` の名前なら、同じく決まったつなぎ先の URL に置き換える。既定のままなら変わらない。
+- それ以外(依存でない名前の `ipc://`、`http://…` などを直に書いたもの、名前)は書き換えない。
+- `package://` は `juiz run` だけが解決する。`juiz -f` で conf を直接読んだときは解決しない(ブローカーが見つからないエラーになる)。
+
+```yaml
+transforms:
+  - source: slam_odom0
+    destination: package://mobile_sim/container/odom0::static_anchor
+    rate: 20.0
+```
 
 ### 10.3 依存のエラー
 
@@ -508,4 +527,5 @@ format 1 では行わない。足すときは format を上げるか、format 1 
 | 4 `juiz install` と依存、基礎 | #286 | §8、§10 |
 | 5 C++ / Haskell の同梱 | #287 | §12.2 |
 | 6 サンプルとサイト | #288 | — |
+| conf の ID のつなぎ先 | #425 | §10.4 |
 | Rust プラグインの C ABI(#291 の Step 4) | #332 | §4.1 の `rust.abi`・`rust.rustc`、§4.3、§6.3 の 6、§9 の段 6・10、§12.1(#328 で直し、#332 で実装) |
