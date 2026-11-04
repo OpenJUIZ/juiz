@@ -312,7 +312,7 @@
       "name": "MIT OR Apache-2.0"
     },
     "title": "juiz_core",
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "openapi": "3.0.3",
   "paths": {
@@ -701,6 +701,16 @@
               "nullable": true,
               "type": "string"
             }
+          },
+          {
+            "description": "基準を、この UUID の System から取り込んだ写しだけから探す (別 System から回されたとき、§19.8)",
+            "in": "query",
+            "name": "reference_system",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -713,6 +723,81 @@
               }
             },
             "description": "基準から見た ContainerPose (juiz_std.geometry.PoseStamped)"
+          }
+        },
+        "tags": [
+          "universal.transformations"
+        ]
+      }
+    },
+    "/api/container/pose_state": {
+      "get": {
+        "operationId": "pose_state_dummy",
+        "parameters": [
+          {
+            "description": "Container の ID か名前",
+            "in": "query",
+            "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "前回受け取った version。同じなら entries を省く",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "前回受け取った system (相手の UUID)。今の UUID と違えば since を無視する",
+            "in": "query",
+            "name": "system",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "取りに来た System の UUID (container/profile_full の remote_children に出る)",
+            "in": "query",
+            "name": "subscriber",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "取りに来た System での終点の ID (複数なら `,` 区切り)",
+            "in": "query",
+            "name": "destination",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "取りに来た側の timeout [秒] (remote_children から消すまでの時間、既定 3.0)",
+            "in": "query",
+            "name": "timeout",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{identifier, system, version, changed, entries: [{anchor, origin_system, origin_anchor, pose, stamp, version}]} (System をまたぐ Transform の取り込みに使う、§19.4)"
           }
         },
         "tags": [
@@ -749,8 +834,19 @@
         "operationId": "set_pose_dummy",
         "parameters": [
           {
+            "description": "Container の ID か名前",
             "in": "query",
             "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "基準を、この UUID の System から取り込んだ写しだけから探す (§19.8)",
+            "in": "query",
+            "name": "reference_system",
             "required": false,
             "schema": {
               "nullable": true,
@@ -1529,6 +1625,73 @@
               "nullable": true,
               "type": "string"
             }
+          },
+          {
+            "description": "`container/pose_state` の前回の版番号・相手の UUID (transformations.md §19.4)",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "system",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "`container/pose_state` を取りに来た System の UUID・終点 (`,` 区切り)・timeout (§19.10)",
+            "in": "query",
+            "name": "subscriber",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "destination",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "timeout",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "基準を写しから探す System の UUID (`container/pose`・`set_pose`、§19.8)",
+            "in": "query",
+            "name": "reference_system",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "回された Transform の始点の System の UUID (`transform/*`、§19.2 の 7)",
+            "in": "query",
+            "name": "source_system",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -1782,12 +1945,24 @@
                     "description": "終点 (子) の Container の ID か名前",
                     "type": "string"
                   },
+                  "rate": {
+                    "description": "System をまたぐ Transform の取り込みの周期 [Hz] (既定 10.0)",
+                    "type": "number"
+                  },
                   "rotation": {
                     "$ref": "#/components/schemas/juiz_std.geometry.Quaternion"
                   },
                   "source": {
                     "description": "始点 (親) の Container の ID か名前",
                     "type": "string"
+                  },
+                  "source_system": {
+                    "description": "別 System から回されたとき、始点の System の UUID",
+                    "type": "string"
+                  },
+                  "timeout": {
+                    "description": "取り込めないとき写しを消すまでの時間 [秒] (既定 3.0)",
+                    "type": "number"
                   },
                   "translation": {
                     "$ref": "#/components/schemas/juiz_std.geometry.Vector3"
@@ -1801,7 +1976,7 @@
               }
             }
           },
-          "description": "{\"source\": <始点>, \"destination\": <終点>, \"translation\": <juiz_std.geometry.Vector3>, \"rotation\": <juiz_std.geometry.Quaternion>}。translation・rotation は省略可",
+          "description": "{\"source\": <始点>, \"destination\": <終点>, \"translation\": <juiz_std.geometry.Vector3>, \"rotation\": <juiz_std.geometry.Quaternion>, \"rate\": <Hz>, \"timeout\": <秒>}。translation・rotation・rate・timeout は省略可。終点が別 System なら、その System で作る",
           "required": true
         },
         "responses": {
@@ -1815,6 +1990,33 @@
                     },
                     "identifier": {
                       "type": "string"
+                    },
+                    "remote": {
+                      "description": "System をまたぐ Transform の取り込みの様子 (§19.10)",
+                      "properties": {
+                        "last_success": {
+                          "$ref": "#/components/schemas/juiz_std.common.Time"
+                        },
+                        "rate": {
+                          "type": "number"
+                        },
+                        "state": {
+                          "enum": [
+                            "ok",
+                            "stale",
+                            "lost"
+                          ],
+                          "type": "string"
+                        },
+                        "system": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "timeout": {
+                          "type": "number"
+                        }
+                      },
+                      "type": "object"
                     },
                     "source": {
                       "type": "string"
@@ -1843,8 +2045,19 @@
         "operationId": "transform_destroy_dummy",
         "parameters": [
           {
+            "description": "Transform の ID (transform://<始点>|<終点>)",
             "in": "query",
             "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "別 System から回されたとき、始点の System の UUID (§19.2 の 7)",
+            "in": "query",
+            "name": "source_system",
             "required": false,
             "schema": {
               "nullable": true,
@@ -1863,6 +2076,33 @@
                     },
                     "identifier": {
                       "type": "string"
+                    },
+                    "remote": {
+                      "description": "System をまたぐ Transform の取り込みの様子 (§19.10)",
+                      "properties": {
+                        "last_success": {
+                          "$ref": "#/components/schemas/juiz_std.common.Time"
+                        },
+                        "rate": {
+                          "type": "number"
+                        },
+                        "state": {
+                          "enum": [
+                            "ok",
+                            "stale",
+                            "lost"
+                          ],
+                          "type": "string"
+                        },
+                        "system": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "timeout": {
+                          "type": "number"
+                        }
+                      },
+                      "type": "object"
                     },
                     "source": {
                       "type": "string"
@@ -1904,8 +2144,19 @@
         "operationId": "transform_profile_dummy",
         "parameters": [
           {
+            "description": "Transform の ID (transform://<始点>|<終点>)",
             "in": "query",
             "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "別 System から回されたとき、始点の System の UUID (§19.2 の 7)",
+            "in": "query",
+            "name": "source_system",
             "required": false,
             "schema": {
               "nullable": true,
@@ -1925,6 +2176,33 @@
                     "identifier": {
                       "type": "string"
                     },
+                    "remote": {
+                      "description": "System をまたぐ Transform の取り込みの様子 (§19.10)",
+                      "properties": {
+                        "last_success": {
+                          "$ref": "#/components/schemas/juiz_std.common.Time"
+                        },
+                        "rate": {
+                          "type": "number"
+                        },
+                        "state": {
+                          "enum": [
+                            "ok",
+                            "stale",
+                            "lost"
+                          ],
+                          "type": "string"
+                        },
+                        "system": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "timeout": {
+                          "type": "number"
+                        }
+                      },
+                      "type": "object"
+                    },
                     "source": {
                       "type": "string"
                     },
@@ -1939,7 +2217,7 @@
                 }
               }
             },
-            "description": "{identifier, source, destination, transform, stamp}"
+            "description": "{identifier, source, destination, transform, stamp, remote?}"
           }
         },
         "tags": [
@@ -1952,8 +2230,19 @@
         "operationId": "transform_update_dummy",
         "parameters": [
           {
+            "description": "Transform の ID (transform://<始点>|<終点>)",
             "in": "query",
             "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "別 System から回されたとき、始点の System の UUID (§19.2 の 7)",
+            "in": "query",
+            "name": "source_system",
             "required": false,
             "schema": {
               "nullable": true,
@@ -1991,6 +2280,33 @@
                     },
                     "identifier": {
                       "type": "string"
+                    },
+                    "remote": {
+                      "description": "System をまたぐ Transform の取り込みの様子 (§19.10)",
+                      "properties": {
+                        "last_success": {
+                          "$ref": "#/components/schemas/juiz_std.common.Time"
+                        },
+                        "rate": {
+                          "type": "number"
+                        },
+                        "state": {
+                          "enum": [
+                            "ok",
+                            "stale",
+                            "lost"
+                          ],
+                          "type": "string"
+                        },
+                        "system": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "timeout": {
+                          "type": "number"
+                        }
+                      },
+                      "type": "object"
                     },
                     "source": {
                       "type": "string"

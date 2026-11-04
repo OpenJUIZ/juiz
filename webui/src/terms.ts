@@ -18,6 +18,8 @@ export const TERMS = {
   transform: { ja: "変換", en: "Transform" },
   pose: { ja: "位置姿勢", en: "ContainerPose" },
   reference: { ja: "基準", en: "Reference" },
+  replica: { ja: "写し", en: "Replica" },
+  remoteChild: { ja: "別系の子", en: "Remote child" },
 } as const;
 
 export type TermKey = keyof typeof TERMS;

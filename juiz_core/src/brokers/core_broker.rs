@@ -219,6 +219,23 @@ impl CoreBroker {
         &self.worker.store().transformations
     }
 
+    /// core_store の containers に、写しを取りに来ている別 System (`remote_children`) を足す。
+    /// 管理画面が system/profile_full だけで「別 System の子あり」の印を出せるように (transformations.md §19.14)
+    fn add_remote_children(&self, core_store: &mut Value) -> JuizResult<()> {
+        let Some(containers) = core_store.get_mut("containers").and_then(|v| v.as_array_mut()) else {
+            return Ok(());
+        };
+        for c in containers.iter_mut() {
+            let Some(id) = c.get("identifier").and_then(|v| v.as_str()).map(str::to_owned) else {
+                continue;
+            };
+            if let Some(rc) = self.transformations().remote_children(&id)? {
+                get_hashmap_mut(c)?.insert("remote_children".to_owned(), rc);
+            }
+        }
+        Ok(())
+    }
+
     pub fn worker(&self) -> &CoreWorker {
         &self.worker
     }
@@ -274,10 +291,12 @@ impl JuizObjectCoreHolder for CoreBroker {
 
 impl JuizObject for CoreBroker {
     fn profile_full(&self) -> JuizResult<Value> {
+        let mut core_store = self.worker().store().profile_full()?;
+        self.add_remote_children(&mut core_store)?;
         let v = obj_merge(
             self.core.profile_full()?,
             &jvalue!({
-                "core_store" : self.worker().store().profile_full()?,
+                "core_store" : core_store,
             }),
         )?;
         let master_profile = if let Some(system) = self.master_system_proxy.as_ref() {

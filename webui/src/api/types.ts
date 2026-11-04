@@ -105,6 +105,17 @@ export interface ContainerProfile extends ObjectProfile {
   slots?: Record<string, string> | null;
   /** Anchor のときだけ。種類と、Periodic なら周期 [Hz](#369) */
   anchor?: AnchorInfo | null;
+  /** この容器の位置を取りに来ている別の系(System をまたぐ Transform の子、#416)。いなければ無い */
+  remote_children?: RemoteChild[] | null;
+}
+
+/** 容器の位置を取りに来ている別の系(transformations.md §19.10) */
+export interface RemoteChild {
+  /** 取りに来た系の UUID */
+  system: string;
+  /** 取りに来た系での変換の終点(その系での core の識別子) */
+  destinations: string[];
+  last_access?: Time | null;
 }
 
 /* ---------- Transformations(#366) ---------- */
@@ -160,6 +171,20 @@ export interface TransformationsTreeNode {
   children: TransformationsTreeNode[];
 }
 
+/** System をまたぐ Transform の取り込みの状態(transformations.md §19.10) */
+export type RemoteState = "ok" | "stale" | "lost";
+
+/** transform/profile_full の remote。始点が別の系の Transform にだけ付く */
+export interface TransformRemote {
+  /** 始点を持つ系の UUID。1 回目が届くまでは null */
+  system: string | null;
+  rate?: number | null;
+  timeout?: number | null;
+  state: RemoteState | string;
+  /** 最後に取り込めた時刻 */
+  last_success?: Time | null;
+}
+
 /** GET /api/transform/profile_full */
 export interface TransformProfile {
   identifier: string;
@@ -167,6 +192,7 @@ export interface TransformProfile {
   destination: string;
   transform: TransformValue;
   stamp?: Time;
+  remote?: TransformRemote | null;
 }
 
 export interface ExecutionContextProfile extends ObjectProfile {

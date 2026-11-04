@@ -19,7 +19,7 @@ import {
 } from "../model.ts";
 import type { TermKey } from "../terms.ts";
 import { CallForm } from "./CallForm.tsx";
-import { AnchorSection, PoseSection, TransformSection } from "./PoseSections.tsx";
+import { AnchorSection, PoseSection, RemoteChildrenSection, SubsystemPoseSection, TransformSection } from "./PoseSections.tsx";
 import { ElementLink, Empty, Fields, LinkList, Mono, Section } from "./props-parts.tsx";
 import { Term } from "./Term.tsx";
 
@@ -446,13 +446,17 @@ function ContainerBody({ element: e, model, onSelect, serverUrl }: BodyProps<Con
         />
       </Section>
       {p.anchor && <AnchorSection element={e} model={model} onSelect={onSelect} />}
-      {/* Transformations は最上位の系の分だけ取っている(システムをまたぐ Transform は対象外) */}
+      {/* 変換木は最上位の系の分だけ取っている。副系の容器は、最上位の系の基点の写しを持っていればそこから読む(#416) */}
       {model.transformations && e.systemKey === model.root.key && (
         <>
           <PoseSection key={e.key} element={e} model={model} onSelect={onSelect} serverUrl={serverUrl} />
           <TransformSection element={e} model={model} onSelect={onSelect} serverUrl={serverUrl} />
         </>
       )}
+      {model.transformations && e.systemKey !== model.root.key && (
+        <SubsystemPoseSection key={e.key} element={e} model={model} onSelect={onSelect} serverUrl={serverUrl} />
+      )}
+      <RemoteChildrenSection element={e} model={model} onSelect={onSelect} />
       <Section title="引数">
         <ArgumentTable
           args={p.arguments ?? []}

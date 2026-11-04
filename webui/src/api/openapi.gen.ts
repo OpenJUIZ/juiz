@@ -582,6 +582,8 @@ export interface paths {
                     identifier?: string | null;
                     /** @description 基準 Container の ID か名前 */
                     reference?: string | null;
+                    /** @description 基準を、この UUID の System から取り込んだ写しだけから探す (別 System から回されたとき、§19.8) */
+                    reference_system?: string | null;
                 };
                 header?: never;
                 path?: never;
@@ -597,6 +599,52 @@ export interface paths {
                     content: {
                         "application/json": components["schemas"]["juiz_std.geometry.PoseStamped"];
                     };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/container/pose_state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Container の ID か名前 */
+                    identifier?: string | null;
+                    /** @description 前回受け取った version。同じなら entries を省く */
+                    since?: string | null;
+                    /** @description 前回受け取った system (相手の UUID)。今の UUID と違えば since を無視する */
+                    system?: string | null;
+                    /** @description 取りに来た System の UUID (container/profile_full の remote_children に出る) */
+                    subscriber?: string | null;
+                    /** @description 取りに来た System での終点の ID (複数なら `,` 区切り) */
+                    destination?: string | null;
+                    /** @description 取りに来た側の timeout [秒] (remote_children から消すまでの時間、既定 3.0) */
+                    timeout?: string | null;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {identifier, system, version, changed, entries: [{anchor, origin_system, origin_anchor, pose, stamp, version}]} (System をまたぐ Transform の取り込みに使う、§19.4) */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
                 };
             };
         };
@@ -659,7 +707,10 @@ export interface paths {
         patch: {
             parameters: {
                 query?: {
+                    /** @description Container の ID か名前 */
                     identifier?: string | null;
+                    /** @description 基準を、この UUID の System から取り込んだ写しだけから探す (§19.8) */
+                    reference_system?: string | null;
                 };
                 header?: never;
                 path?: never;
@@ -1593,6 +1644,17 @@ export interface paths {
                     reference?: string | null;
                     /** @description Transformations の Anchor (`transformations/tree`、issue #370) */
                     anchor?: string | null;
+                    /** @description `container/pose_state` の前回の版番号・相手の UUID (transformations.md §19.4) */
+                    since?: string | null;
+                    system?: string | null;
+                    /** @description `container/pose_state` を取りに来た System の UUID・終点 (`,` 区切り)・timeout (§19.10) */
+                    subscriber?: string | null;
+                    destination?: string | null;
+                    timeout?: string | null;
+                    /** @description 基準を写しから探す System の UUID (`container/pose`・`set_pose`、§19.8) */
+                    reference_system?: string | null;
+                    /** @description 回された Transform の始点の System の UUID (`transform/*`、§19.2 の 7) */
+                    source_system?: string | null;
                 };
                 header?: never;
                 path?: never;
@@ -1926,15 +1988,21 @@ export interface paths {
                 path?: never;
                 cookie?: never;
             };
-            /** @description {"source": <始点>, "destination": <終点>, "translation": <juiz_std.geometry.Vector3>, "rotation": <juiz_std.geometry.Quaternion>}。translation・rotation は省略可 */
+            /** @description {"source": <始点>, "destination": <終点>, "translation": <juiz_std.geometry.Vector3>, "rotation": <juiz_std.geometry.Quaternion>, "rate": <Hz>, "timeout": <秒>}。translation・rotation・rate・timeout は省略可。終点が別 System なら、その System で作る */
             requestBody: {
                 content: {
                     "application/json": {
                         /** @description 終点 (子) の Container の ID か名前 */
                         destination: string;
+                        /** @description System をまたぐ Transform の取り込みの周期 [Hz] (既定 10.0) */
+                        rate?: number;
                         rotation?: components["schemas"]["juiz_std.geometry.Quaternion"];
                         /** @description 始点 (親) の Container の ID か名前 */
                         source: string;
+                        /** @description 別 System から回されたとき、始点の System の UUID */
+                        source_system?: string;
+                        /** @description 取り込めないとき写しを消すまでの時間 [秒] (既定 3.0) */
+                        timeout?: number;
                         translation?: components["schemas"]["juiz_std.geometry.Vector3"];
                     };
                 };
@@ -1949,6 +2017,15 @@ export interface paths {
                         "application/json": {
                             destination?: string;
                             identifier?: string;
+                            /** @description System をまたぐ Transform の取り込みの様子 (§19.10) */
+                            remote?: {
+                                last_success?: components["schemas"]["juiz_std.common.Time"];
+                                rate?: number;
+                                /** @enum {string} */
+                                state?: "ok" | "stale" | "lost";
+                                system?: string | null;
+                                timeout?: number;
+                            };
                             source?: string;
                             stamp?: components["schemas"]["juiz_std.common.Time"];
                             transform?: components["schemas"]["juiz_std.geometry.Transform"];
@@ -1976,7 +2053,10 @@ export interface paths {
         delete: {
             parameters: {
                 query?: {
+                    /** @description Transform の ID (transform://<始点>|<終点>) */
                     identifier?: string | null;
+                    /** @description 別 System から回されたとき、始点の System の UUID (§19.2 の 7) */
+                    source_system?: string | null;
                 };
                 header?: never;
                 path?: never;
@@ -1993,6 +2073,15 @@ export interface paths {
                         "application/json": {
                             destination?: string;
                             identifier?: string;
+                            /** @description System をまたぐ Transform の取り込みの様子 (§19.10) */
+                            remote?: {
+                                last_success?: components["schemas"]["juiz_std.common.Time"];
+                                rate?: number;
+                                /** @enum {string} */
+                                state?: "ok" | "stale" | "lost";
+                                system?: string | null;
+                                timeout?: number;
+                            };
                             source?: string;
                             stamp?: components["schemas"]["juiz_std.common.Time"];
                             transform?: components["schemas"]["juiz_std.geometry.Transform"];
@@ -2049,7 +2138,10 @@ export interface paths {
         get: {
             parameters: {
                 query?: {
+                    /** @description Transform の ID (transform://<始点>|<終点>) */
                     identifier?: string | null;
+                    /** @description 別 System から回されたとき、始点の System の UUID (§19.2 の 7) */
+                    source_system?: string | null;
                 };
                 header?: never;
                 path?: never;
@@ -2057,7 +2149,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description {identifier, source, destination, transform, stamp} */
+                /** @description {identifier, source, destination, transform, stamp, remote?} */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -2066,6 +2158,15 @@ export interface paths {
                         "application/json": {
                             destination?: string;
                             identifier?: string;
+                            /** @description System をまたぐ Transform の取り込みの様子 (§19.10) */
+                            remote?: {
+                                last_success?: components["schemas"]["juiz_std.common.Time"];
+                                rate?: number;
+                                /** @enum {string} */
+                                state?: "ok" | "stale" | "lost";
+                                system?: string | null;
+                                timeout?: number;
+                            };
                             source?: string;
                             stamp?: components["schemas"]["juiz_std.common.Time"];
                             transform?: components["schemas"]["juiz_std.geometry.Transform"];
@@ -2098,7 +2199,10 @@ export interface paths {
         patch: {
             parameters: {
                 query?: {
+                    /** @description Transform の ID (transform://<始点>|<終点>) */
                     identifier?: string | null;
+                    /** @description 別 System から回されたとき、始点の System の UUID (§19.2 の 7) */
+                    source_system?: string | null;
                 };
                 header?: never;
                 path?: never;
@@ -2123,6 +2227,15 @@ export interface paths {
                         "application/json": {
                             destination?: string;
                             identifier?: string;
+                            /** @description System をまたぐ Transform の取り込みの様子 (§19.10) */
+                            remote?: {
+                                last_success?: components["schemas"]["juiz_std.common.Time"];
+                                rate?: number;
+                                /** @enum {string} */
+                                state?: "ok" | "stale" | "lost";
+                                system?: string | null;
+                                timeout?: number;
+                            };
                             source?: string;
                             stamp?: components["schemas"]["juiz_std.common.Time"];
                             transform?: components["schemas"]["juiz_std.geometry.Transform"];

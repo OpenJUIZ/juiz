@@ -121,6 +121,11 @@ export class JuizClient {
     return (await this.get("/api/transform/list", undefined, signal)) as string[];
   }
 
+  /** Anchor の識別子の一覧。別の系から取り込んだ写しの Anchor も入る(#416) */
+  async anchorList(signal?: AbortSignal): Promise<string[]> {
+    return (await this.get("/api/anchor/list", undefined, signal)) as string[];
+  }
+
   async transformProfileFull(identifier: string, signal?: AbortSignal): Promise<TransformProfile> {
     return (await this.get("/api/transform/profile_full", { identifier }, signal)) as TransformProfile;
   }
