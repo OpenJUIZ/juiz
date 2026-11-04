@@ -114,7 +114,9 @@ fn http_broker_runs_calls_to_different_processes_in_parallel() -> JuizResult<()>
         );
 
         // 呼ぶ側 (#362): ストアの HTTPBrokerProxy を 4 スレッドで共有して、眠る Process を同時に呼ぶ。
-        // プロキシのロックで直列になると 4 つ分 (1200ms) 以上かかる
+        // プロキシのロックで直列になると 4 つ分 (1200ms) 以上かかる。
+        // 宛先は localhost なので、新しい接続が ::1 を待たずに 127.0.0.1 へつながることも確かめている。
+        // Windows では ::1 を先に試して 300ms 待つため、1 本ごとに 600ms かかっていた (issue #407)
         let pid0 = find_process(&ids, "sleep0").clone();
         let pid1 = find_process(&ids, "sleep1").clone();
         let shared =
@@ -143,18 +145,22 @@ fn call_concurrently_with_proxy(
         .map(|id| {
             let barrier = barrier.clone();
             let proxy = proxy.clone();
-            std::thread::spawn(move || -> Result<(), String> {
+            std::thread::spawn(move || -> Result<Duration, String> {
                 barrier.wait();
+                let t = Instant::now();
                 juiz_borrow(&proxy)
                     .map_err(|e| e.to_string())?
                     .any_process_call(&id, CapsuleMap::new())
                     .map_err(|e| format!("{id}: {e:#}"))?;
-                Ok(())
+                Ok(t.elapsed())
             })
         })
         .collect();
-    for h in handles {
-        h.join().expect("thread panicked").expect("call failed");
-    }
+    // 1 本ずつの所要時間も出す。全部が 1 つ分より長いなら直列ではなく 1 本ごとに遅い (issue #407)
+    let each: Vec<Duration> = handles
+        .into_iter()
+        .map(|h| h.join().expect("thread panicked").expect("call failed"))
+        .collect();
+    println!("  each call: {each:?}");
     Ok(start.elapsed())
 }
