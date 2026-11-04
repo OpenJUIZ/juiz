@@ -11,3 +11,9 @@ EXPORTS
     partSetPose_factory_entry_point
     partTry_manifest_entry_point
     partTry_factory_entry_point
+    partPeek_manifest_entry_point
+    partPeek_factory_entry_point
+    partSleep_manifest_entry_point
+    partSleep_factory_entry_point
+    partTryReadonly_manifest_entry_point
+    partTryReadonly_factory_entry_point
