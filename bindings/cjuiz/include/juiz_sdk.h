@@ -294,7 +294,11 @@ int64_t juiz_container_pose_get(capsule_map* cm, const char* reference, juiz_pos
 /* 呼び出し元 Container を、基準 reference から見て pose の位置姿勢にする (§7.2)。値は正規化して書く。
  * 書き換わるのは親 → この Container の Transform。out (NULL 可) に書いた後の値を書く */
 int64_t juiz_container_pose_set(capsule_map* cm, const char* reference, const juiz_pose* pose, juiz_pose_stamped* out);
-/* このスレッドで最後に呼んだ juiz_container_pose_get / _set のエラー文 (成功なら空文字列)。
+/* 呼び出し元 Container 以外の Container target (名前か ID) の、基準 reference から見た ContainerPose を out に書く
+ * (§7.4、#409。tf の lookupTransform に当たる)。名前は呼び出し元 Container のネームスペースで解決する。
+ * 読み出しだけなので readonly の ContainerProcess からも呼べる */
+int64_t juiz_container_pose_lookup(capsule_map* cm, const char* target, const char* reference, juiz_pose_stamped* out);
+/* このスレッドで最後に呼んだ juiz_container_pose_get / _set / _lookup のエラー文 (成功なら空文字列)。
  * 次にこのスレッドでそれらを呼ぶまで有効で、解放しない */
 const char* juiz_container_pose_last_error(void);
 

@@ -119,6 +119,21 @@ std::optional<std::string> cpp_part_try_readonly(const CppPart* part, const std:
 }
 COMPONENT_CONTAINER_PROCESS_FACTORY(CppPart, cpp_part_try_readonly_manif, cpp_part_try_readonly);
 
+// 自分以外の Container target を基準 reference から見た ContainerPose (#409、tf の lookupTransform)。
+// 読み出しだけなので readonly の ContainerProcess から呼べる
+static auto cpp_part_lookup_manif = ProcessManifest("cpp_part_lookup")
+    .readonly()
+    .add_string_arg("target", "読みたい Container", "base0")
+    .add_string_arg("reference", "基準 Container", "map");
+std::optional<juiz::Value> cpp_part_lookup(const CppPart* part, const std::string& target, const std::string& reference) {
+    try {
+        return juiz::pose_to_value(juiz::lookup(part, target, reference), reference);
+    } catch (juiz::NoCommonAnchorError&) {
+        return juiz::Value("NoCommonAnchorError");
+    }
+}
+COMPONENT_CONTAINER_PROCESS_FACTORY(CppPart, cpp_part_lookup_manif, cpp_part_lookup);
+
 // 四元数と角度の変換 (#412)。roll・pitch・yaw から作った四元数、それを戻した roll・pitch・yaw、
 // make_pose_2d(x, y, yaw) とその yaw を返す (Container は要らない)
 static auto cpp_pose_angles_manif = ProcessManifest("cpp_pose_angles")
@@ -150,6 +165,7 @@ auto component_manifest() {
         .add_process(cpp_part_peek_manifest())
         .add_process(cpp_part_sleep_manifest())
         .add_process(cpp_part_try_readonly_manifest())
+        .add_process(cpp_part_lookup_manifest())
       );
 }
 DEFINE_COMPONENT_MANIFEST_ENTRY_POINT(component_manifest)

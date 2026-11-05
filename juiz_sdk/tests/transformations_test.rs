@@ -86,6 +86,19 @@ impl TransformationsRegistry for FakeRegistry {
             .set(ANCHOR, *pose, stamp);
         self.pose(container, reference)
     }
+
+    fn lookup(
+        &self,
+        caller: &ContainerIdentifier,
+        target: &str,
+        reference: &str,
+    ) -> JuizResult<PoseStamped> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("lookup({}, {target}, {reference})", caller.name));
+        Ok(PoseStamped::new(reference, Time::new(7, 0), z90(0.5, 0.0)))
+    }
 }
 
 struct MobileBase {
@@ -219,6 +232,40 @@ fn container_process_reads_and_writes_through_registry() -> JuizResult<()> {
             "pose(base0, odom)",
         ]
     );
+    Ok(())
+}
+
+#[test]
+fn container_process_looks_up_another_container() -> JuizResult<()> {
+    let ptr = base0();
+    let registry = FakeRegistry::new();
+    registry.register(&ptr);
+    {
+        // readonly ContainerProcess と同じく、読み出しロックのまま読める
+        let guard = ptr.lock()?;
+        let c = guard.downcast_ref::<ContainerImpl<MobileBase>>().unwrap();
+        let p = c.lookup("lidar0", "robot0")?;
+        assert_eq!(p.reference(), "robot0");
+        assert!(p.pose.approx_eq(&z90(0.5, 0.0), 1e-9));
+        let r = c.pose_reader().lookup("lidar0", "map")?;
+        assert_eq!(r.reference(), "map");
+    }
+    ptr.lookup("lidar0", "robot0")?;
+    assert_eq!(
+        *registry.calls.lock().unwrap(),
+        vec![
+            "lookup(base0, lidar0, robot0)",
+            "lookup(base0, lidar0, map)",
+            "lookup(base0, lidar0, robot0)",
+        ]
+    );
+
+    // 登録所につながっていない Container では読めない
+    let lonely = base0();
+    assert!(matches!(
+        lonely.lookup("lidar0", "robot0").unwrap_err().downcast_ref::<JuizError>(),
+        Some(JuizError::TransformationsNotAttachedError { .. })
+    ));
     Ok(())
 }
 

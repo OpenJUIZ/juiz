@@ -119,6 +119,7 @@ module Juiz
   , identityPose
   , containerPose
   , setContainerPose
+  , lookupContainerPose
   , poseToValue
   , poseStampedToValue
     -- * エラー

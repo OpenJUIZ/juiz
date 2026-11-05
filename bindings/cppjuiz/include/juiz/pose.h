@@ -10,6 +10,7 @@
 //       return juiz::pose_to_value(p);
 //   }
 //
+// 自分以外の Container の位置は juiz::lookup(base, "lidar0", "robot0") で読む (robot0 から見た lidar0、§7.4、#409)。
 // 値は C の構造体 juiz_pose / juiz_pose_stamped (juiz_sdk.h)。四元数の並びは (x, y, z, w)。
 // 平面の移動ロボットは juiz::make_pose_2d(x, y, yaw) / juiz::yaw(pose)、3 次元の向きは
 // juiz::from_rpy / juiz::to_rpy で四元数と roll・pitch・yaw を変換できる (#412)。
@@ -107,7 +108,7 @@ namespace juiz {
             capsule_map* cm = pose_call_of(container);
             if (!cm) {
                 throw TransformationsNotAttachedError(
-                    "juiz::pose / juiz::set_pose can be used only while a container process of the container is running "
+                    "juiz::pose / juiz::set_pose / juiz::lookup can be used only while a container process of the container is running "
                     "(on the thread that juiz called it)");
             }
             return cm;
@@ -207,6 +208,20 @@ namespace juiz {
         capsule_map* cm = detail::require_pose_call(static_cast<const void*>(container));
         juiz_pose_stamped out{};
         int64_t r = juiz_container_pose_set(cm, reference.c_str(), &p, &out);
+        if (r != JUIZ_OK) {
+            detail::throw_transformations_error(r);
+        }
+        return out;
+    }
+
+    // 自分以外の Container target (名前か ID) の、基準 reference から見た ContainerPose (§7.4、#409)。
+    // tf の lookupTransform に当たる。container は今呼ばれている ContainerProcess の Container で、
+    // 名前はそのネームスペースで解決する。読み出しだけなので readonly の ContainerProcess (const T*) からも呼べる
+    template<typename U>
+    juiz_pose_stamped lookup(const U* container, const std::string& target, const std::string& reference) {
+        capsule_map* cm = detail::require_pose_call(static_cast<const void*>(container));
+        juiz_pose_stamped out{};
+        int64_t r = juiz_container_pose_lookup(cm, target.c_str(), reference.c_str(), &out);
         if (r != JUIZ_OK) {
             detail::throw_transformations_error(r);
         }

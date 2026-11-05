@@ -214,6 +214,29 @@ Container C を、基準 R から見て p の位置姿勢にする。
 
 API `transform/update` で値を変えると、§7.2 の 5・6・7 と同じことが起きる(C は終点、通知の基準は始点)。
 
+### 7.4 別の Container を読む `lookup(T, R)`(#409)
+
+ContainerProcess の中から、呼び出し元 Container C 以外の Container T の、基準 R から見た ContainerPose を読む。tf の lookupTransform に当たる。例: SLAM の Container が、LiDAR(`lidar0`)が台車(`robot0`)から見てどこにあるかを読む(SLAM 自身は `lidar0` でも `robot0` でもない)。
+
+- 計算は §7.1 の `pose(T, R)` と同じ(戻り値も同じ `PoseStamped`、stamp の決め方も同じ)。見つからなければ `NoCommonAnchorError`。
+- C は計算に関わらない。C がどの木にも入っていなくてもよい。
+- T・R の名前は C のネームスペースで解決する(§5.4。`pose` の基準と同じ)。ID も渡せる。写しの Anchor・写しの始点(§19.5)も同じように探す。
+- 読み出しだけなので readonly の ContainerProcess(§14)からも呼べる。ロックの決めごとも `pose` と同じ(Container の利用者の状態のロックを取らない、§9.2)。
+- 口は呼び出し元 Container の口(Rust の `ContainerPoseHandle`、Python の `__juiz_pose__`、C ABI の `JuizPosePort`)を通す。登録所につながっていない Container からは `TransformationsNotAttachedError`。
+- API の `container/pose`(§13.1)は今まで通り。API から読むときは `identifier` に T を渡せばよい。
+
+言語ごとの書き方:
+
+| 言語 | 書き方 |
+|---|---|
+| Rust | `c.lookup("lidar0", "robot0")`(`ContainerImpl`・`ContainerPoseHandle`・`ContainerPoseReader`・`ContainerPtr` の `&self` のメソッド) |
+| Python | `juiz.lookup(slam, "lidar0", "robot0")`(第 1 引数は ContainerProcess の第 1 引数) |
+| C | `juiz_container_pose_lookup(cm, "lidar0", "robot0", &out)` |
+| C++ | `juiz::lookup(slam, "lidar0", "robot0")`(`const T*` でも呼べる) |
+| Haskell | `lookupContainerPose "lidar0" "robot0"` |
+
+C ABI の口 `JuizPosePort` には関数 `lookup(ctx, target, reference, out, frame_id, error)` を後ろに足した(表の版は 1 のまま)。プラグインの側は `struct_size` が `lookup` を含むときだけ使い、含まない古いホストの口では `JUIZ_TRANSFORMATIONS_ERROR`(読み書きは今まで通り使える)。口の表の最小の大きさは `lookup` を足す前の大きさ(`POSE_PORT_MIN_STRUCT_SIZE`)。
+
 ## 8. Pose 通知
 
 ### 8.1 きっかけ
@@ -373,7 +396,7 @@ fn mobile_base_update(c: &mut ContainerImpl<MobileBase>, odom: Value) -> JuizRes
   | `Time`・`Header`・`PoseStamped`・`TransformStamped` | `juiz_std.common.Time`・`Header`、`PoseStamped`・`TransformStamped` | `Time::now()`、`PoseStamped::reference()`(= `header.frame_id`) |
 
   どれも `Value`(辞書)・`Capsule` と `From` / `TryFrom` で行き来できる。足りないキーは juiz_std の既定値で埋め、形が違えば `DataConversionError`。`juiz_std_types` の型とはこの辞書で行き来する(`juiz_sdk` は `juiz_std_types` に依存できないため)。geometry の型は prelude に入れない(`juiz_std_types` の同名の型とぶつかるため)。
-- `ContainerImpl<S>` のメソッド: `pose(&self, reference: &str) -> JuizResult<PoseStamped>`、`set_pose(&mut self, reference: &str, pose: Pose) -> JuizResult<PoseStamped>`、`pose_reader(&self)`(読み出しだけの口)、`pose_state(&self)`。`set_pose` は値を正規化してから登録所に渡す(不正な値は登録所に届く前に `InvalidPoseValueError`)。
+- `ContainerImpl<S>` のメソッド: `pose(&self, reference: &str) -> JuizResult<PoseStamped>`、`lookup(&self, target: &str, reference: &str) -> JuizResult<PoseStamped>`(§7.4)、`set_pose(&mut self, reference: &str, pose: Pose) -> JuizResult<PoseStamped>`、`pose_reader(&self)`(読み出しだけの口)、`pose_state(&self)`。`set_pose` は値を正規化してから登録所に渡す(不正な値は登録所に届く前に `InvalidPoseValueError`)。
 
 ### 12.2 Python
 
@@ -559,7 +582,7 @@ Step 6(#373)で決めたこと:
 
 ## 14. readonly ContainerProcess
 
-readonly の ContainerProcess(#377)は、Container を**読み出しロック**で呼ぶ ContainerProcess。同じ Container の readonly 同士は並行に走る。中から ContainerPose は読めるが、書き込みはエラー(`PoseNotWritableError`)になる。Container の利用者の状態も書き換えない約束で、Rust と C++ は型で止める。
+readonly の ContainerProcess(#377)は、Container を**読み出しロック**で呼ぶ ContainerProcess。同じ Container の readonly 同士は並行に走る。中から ContainerPose は読める(自分の `pose`、別の Container の `lookup`(§7.4))が、書き込みはエラー(`PoseNotWritableError`)になる。Container の利用者の状態も書き換えない約束で、Rust と C++ は型で止める。
 
 ### 14.1 manifest
 
@@ -641,6 +664,7 @@ Step 1 で上の名前のまま `JuizError` に足した。あわせて `Transfo
 | 6 管理画面 | #373 | §13.3 |
 | 7 サンプル 4 言語 | #374 | §3.5 の値、§11 の形 |
 | 11 readonly ContainerProcess | #377 | §14 |
+| 別の Container を読む lookup | #409 | §7.4 |
 
 System をまたぐ Transform(#376、§19):
 
