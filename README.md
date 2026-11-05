@@ -8,6 +8,8 @@
 
 # juiz - the robot middleware
 
+[English](README.en.md) | 日本語
+
 [![Linux](https://github.com/OpenJUIZ/juiz/actions/workflows/test-linux.yml/badge.svg?branch=main)](https://github.com/OpenJUIZ/juiz/actions/workflows/test-linux.yml?query=branch%3Amain)
 [![macOS](https://github.com/OpenJUIZ/juiz/actions/workflows/test-macos.yml/badge.svg?branch=main)](https://github.com/OpenJUIZ/juiz/actions/workflows/test-macos.yml?query=branch%3Amain)
 [![Windows](https://github.com/OpenJUIZ/juiz/actions/workflows/test-windows.yml/badge.svg?branch=main)](https://github.com/OpenJUIZ/juiz/actions/workflows/test-windows.yml?query=branch%3Amain)
