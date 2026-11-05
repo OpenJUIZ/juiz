@@ -320,7 +320,7 @@ impl CRUDBrokerProxy for HTTPBrokerProxy {
 }
 
 /// CapsuleMap の値を multipart/form-data の本文にする。画像は PNG (image/png)、それ以外は JSON (application/json)。
-/// サーバー側の読み方は http_router の multipart_to_capsule_map
+/// サーバー側の読み方は http_router の read_multipart / multipart_parts_to_capsule_map
 fn capsule_map_to_multipart(payload: &CapsuleMap, boundary: &str) -> JuizResult<Vec<u8>> {
     let mut body = Vec::new();
     for (name, capsule) in payload.iter() {

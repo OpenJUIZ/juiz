@@ -169,28 +169,25 @@ pub fn full_query_to_map(query: &Query<FullQuery>) -> HashMap<String, String> {
     map
 }
 
-pub fn json_output_wrap(result: JuizResult<CapsulePtr>) -> impl IntoResponse {
-    //log::trace!("json_output_wrap() called");
-    if result.is_err() {
-        let e = result.err().unwrap();
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(jvalue!({
-                "message": format!("Internal Server Error:  {:#}, {:}", e, e.to_string())
-            })),
-        )
-            .into_response();
-    }
+/// Process の戻り値を HTTP の応答にする。
+///
+/// 画像の PNG 化や Native の encode など重い処理を含むので、tokio のワーカーの上では呼ばず、
+/// Process の実行と同じ spawn_blocking の中で呼ぶこと (issue #363)
+pub fn json_output_wrap(result: JuizResult<CapsulePtr>) -> Response {
     match result {
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(jvalue!({
-                "message": format!("Internal Server Error:  {:#}, {:}", e, e.to_string())
-            })),
-        )
-            .into_response(),
+        Err(e) => internal_server_error(e),
         Ok(v) => capsule_ptr_to_response(v),
     }
+}
+
+fn internal_server_error(e: juiz_sdk::anyhow::Error) -> Response {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(jvalue!({
+            "message": format!("Internal Server Error:  {:#}, {:}", e, e.to_string())
+        })),
+    )
+        .into_response()
 }
 
 //#[cfg(not(feature= "opencv4"))]
@@ -198,15 +195,7 @@ fn capsule_ptr_to_response(v: CapsulePtr) -> axum::http::Response<Body> {
     use juiz_sdk::image::ImageFormat;
 
     // Native の値はここで encode する。失敗したらエラーの応答にする (lazy-evaluation.md §5)
-    let encode_error = |e: juiz_sdk::anyhow::Error| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(jvalue!({
-                "message": format!("Internal Server Error:  {:#}, {:}", e, e.to_string())
-            })),
-        )
-            .into_response()
-    };
+    let encode_error = internal_server_error;
     if v.is_value().unwrap() {
         v.lock_as_value(|value| {
             let mut r = Json(value).into_response();
@@ -216,21 +205,22 @@ fn capsule_ptr_to_response(v: CapsulePtr) -> axum::http::Response<Body> {
         })
         .unwrap_or_else(encode_error)
     } else if v.is_image().unwrap() {
-        use std::io::{BufWriter, Cursor};
-        // log::trace!("Detect Image Response v={v:?}");
+        use std::io::Cursor;
+        // 720p で約 10ms かかる。呼び出し側が spawn_blocking の中で呼ぶ (issue #363)
         v.lock_as_image(|image| {
-            let mut buffer = BufWriter::new(Cursor::new(Vec::new()));
-            image.write_to(&mut buffer, ImageFormat::Png).unwrap();
-
-            //let bytes = buffer.into_inner().unwrap().into_inner().as_bytes();
-            Response::builder()
-                .extension("png")
-                .header("Content-Type", "image/png")
-                .status(StatusCode::OK)
-                .body(Body::from(buffer.into_inner().unwrap().into_inner()))
-                .unwrap()
-                .into_response()
+            let mut buffer = Cursor::new(Vec::new());
+            image.write_to(&mut buffer, ImageFormat::Png)?;
+            Ok::<_, juiz_sdk::anyhow::Error>(
+                Response::builder()
+                    .extension("png")
+                    .header("Content-Type", "image/png")
+                    .status(StatusCode::OK)
+                    .body(Body::from(buffer.into_inner()))
+                    .unwrap()
+                    .into_response(),
+            )
         })
+        .and_then(|r| r)
         .unwrap_or_else(encode_error)
     } else {
         Json(jvalue!({})).into_response()
@@ -305,12 +295,22 @@ impl MultipartReadError {
     }
 }
 
-/// multipart/form-data の本文を CapsuleMap にする。部分の Content-Type が image/png なら画像、
-/// application/json なら JSON (読めなければ文字列のまま) にする
-pub async fn multipart_to_capsule_map(
+/// multipart/form-data の部分を読んだだけの、まだ展開していない値
+pub enum MultipartPart {
+    /// image/png の部分。PNG のまま持つ
+    Png(axum::body::Bytes),
+    /// application/json の部分 (読めなければ文字列のまま)
+    Value(Value),
+}
+
+/// multipart/form-data の本文を読む。部分の Content-Type が image/png なら PNG のまま、
+/// application/json なら JSON (読めなければ文字列のまま) にする。
+///
+/// PNG の展開は重いので、ここではせず [`multipart_parts_to_capsule_map`] で spawn_blocking の中で行う (issue #363)
+pub async fn read_multipart(
     mut multipart: Multipart,
-) -> Result<CapsuleMap, MultipartReadError> {
-    let mut cm = CapsuleMap::new();
+) -> Result<Vec<(String, MultipartPart)>, MultipartReadError> {
+    let mut parts = Vec::new();
     while let Some(field) = multipart
         .next_field()
         .await
@@ -332,13 +332,7 @@ pub async fn multipart_to_capsule_map(
                     .bytes()
                     .await
                     .map_err(MultipartReadError::from_multipart)?;
-                let img = image::load_from_memory_with_format(bytes.as_bytes(), image::ImageFormat::Png)
-                    .map_err(|e| {
-                        MultipartReadError::bad_request(format!(
-                            "Multipart/FormData part '{field_name}' is not a PNG image ({e})"
-                        ))
-                    })?;
-                cm.insert(field_name, img.into());
+                parts.push((field_name, MultipartPart::Png(bytes)));
             }
             "application/json" => {
                 let text = field
@@ -347,12 +341,37 @@ pub async fn multipart_to_capsule_map(
                     .map_err(MultipartReadError::from_multipart)?;
                 // pyjuiz などは値を JSON の文字列にして送る。JSON として読めないものは文字列のまま渡す
                 let v = serde_json::from_str::<Value>(&text).unwrap_or(Value::String(text));
-                cm.insert(field_name, v.into());
+                parts.push((field_name, MultipartPart::Value(v)));
             }
             _ => {
                 return Err(MultipartReadError::bad_request(format!(
                     "Multipart/FormData part '{field_name}' has unsupported 'content-type' ({content_type}). Use image/png or application/json."
                 )));
+            }
+        }
+    }
+    Ok(parts)
+}
+
+/// [`read_multipart`] で読んだ部分を CapsuleMap にする。PNG はここで展開する。
+/// 重いので tokio のワーカーの上では呼ばず、spawn_blocking の中で呼ぶこと (issue #363)
+pub fn multipart_parts_to_capsule_map(
+    parts: Vec<(String, MultipartPart)>,
+) -> Result<CapsuleMap, MultipartReadError> {
+    let mut cm = CapsuleMap::new();
+    for (field_name, part) in parts {
+        match part {
+            MultipartPart::Png(bytes) => {
+                let img = image::load_from_memory_with_format(bytes.as_bytes(), image::ImageFormat::Png)
+                    .map_err(|e| {
+                        MultipartReadError::bad_request(format!(
+                            "Multipart/FormData part '{field_name}' is not a PNG image ({e})"
+                        ))
+                    })?;
+                cm.insert(field_name, img.into());
+            }
+            MultipartPart::Value(v) => {
+                cm.insert(field_name, v.into());
             }
         }
     }
