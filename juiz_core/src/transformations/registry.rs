@@ -11,7 +11,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use juiz_sdk::anyhow::{self, anyhow};
-use juiz_sdk::geometry::{Pose, PoseStamped, Quaternion, Time, Transform, Vector3};
+use juiz_sdk::geometry::{Pose, PoseStamped, Quaternion, Time, Transform, TransformStamped, Vector3};
 use juiz_sdk::identifier::split_namespace;
 use juiz_sdk::manifests::{
     pose_listener_identifier, transform_identifier, AnchorKind, AnchorManifest,
@@ -627,6 +627,49 @@ impl Inner {
         }
     }
 
+    // ---- Transform の値の書き換え (§7.3・§7.5) ----
+
+    /// 値を書き換えてよい Transform (取り込みの辺は書けない、§19.3)。無ければ `TransformNotFoundError`
+    fn writable_transform(&self, identifier: &str) -> JuizResult<&TransformEntry> {
+        self.transforms
+            .get(identifier)
+            .filter(|t| !t.imported)
+            .ok_or_else(|| {
+                anyhow!(JuizError::TransformNotFoundError {
+                    identifier: identifier.to_owned()
+                })
+            })
+    }
+
+    /// Transform の値を `value` (正規化済み) にし、StaticAnchor を更新して、出す Pose 通知を返す (§7.3)
+    fn write_transform_value(&mut self, identifier: &str, value: Transform) -> Vec<Notification> {
+        let version = self.next_version();
+        let written = {
+            let t = self.transforms.get_mut(identifier).unwrap();
+            t.value = value;
+            t.stamp = Time::now();
+            t.version = version;
+            vec![(t.destination.clone(), t.source.clone())]
+        };
+        let changed = self.after_transform_value_changed(identifier);
+        self.notifications(&written, &changed)
+    }
+
+    /// `writers` (§7.5) の名前を自分の System の Container の ID にする
+    fn resolve_writer(&self, writer: &str, namespace: &str) -> JuizResult<String> {
+        self.resolve_local(writer, namespace).map_err(|e| {
+            if is_not_found(&e) {
+                anyhow!(JuizError::TransformManifestInvalidError {
+                    message: format!(
+                        "writer ({writer}) is not found. writers must be Containers of this System."
+                    ),
+                })
+            } else {
+                e
+            }
+        })
+    }
+
     // ---- 後始末 ----
 
     /// Container を外す (§10)。止めるべき Periodic のスレッドと、消えた Transform の終点への通知を返す
@@ -648,6 +691,9 @@ impl Inner {
             .collect::<Vec<(String, String, String)>>();
         for (tid, _, _) in removed.iter() {
             self.transforms.remove(tid);
+        }
+        for t in self.transforms.values_mut() {
+            t.writers.retain(|w| w != id);
         }
         let mut thread = None;
         if let Some(a) = self.anchors.remove(id) {
@@ -997,6 +1043,11 @@ impl Transformations {
                             ),
                         }));
                     }
+                    let writers = m
+                        .writers
+                        .iter()
+                        .map(|w| inner.resolve_writer(w, namespace))
+                        .collect::<JuizResult<Vec<String>>>()?;
                     let tid = transform_identifier(&source, &destination);
                     if inner.transforms.contains_key(&tid) {
                         return Err(anyhow!(JuizError::TransformAlreadyExistsError {
@@ -1014,6 +1065,7 @@ impl Transformations {
                             version,
                             imported: false,
                             remote,
+                            writers,
                         },
                     );
                     added.push(tid);
@@ -1058,36 +1110,59 @@ impl Transformations {
     ) -> JuizResult<Value> {
         let (profile, notifications) = {
             let mut inner = self.lock()?;
-            let t = inner
-                .transforms
-                .get(identifier)
-                .filter(|t| !t.imported)
-                .ok_or_else(|| {
-                    anyhow!(JuizError::TransformNotFoundError {
-                        identifier: identifier.to_owned()
-                    })
-                })?;
+            let t = inner.writable_transform(identifier)?;
             let value = Transform::new(
                 translation.unwrap_or(t.value.translation),
                 rotation.unwrap_or(t.value.rotation),
             )
             .normalized()?;
-            let written = vec![(t.destination.clone(), t.source.clone())];
-            let version = inner.next_version();
-            {
-                let t = inner.transforms.get_mut(identifier).unwrap();
-                t.value = value;
-                t.stamp = Time::now();
-                t.version = version;
-            }
-            let changed = inner.after_transform_value_changed(identifier);
-            (
-                transform_profile(&inner, identifier)?,
-                inner.notifications(&written, &changed),
-            )
+            let notifications = inner.write_transform_value(identifier, value);
+            (transform_profile(&inner, identifier)?, notifications)
         };
         fire_unless_reentrant(notifications);
         Ok(profile)
+    }
+
+    /// ContainerProcess の `set_transform` (§7.5、#410)。Container `caller` から Transform (`source` → `destination`)
+    /// の値を `value` にする。名前は `caller` のネームスペースで解決する。書けるのは `caller` が端点か
+    /// `writers` に入っているときだけ (`TransformNotWritableError`)。結果は `transform/update` と同じ
+    pub fn set_transform_by(
+        &self,
+        caller: &ContainerIdentifier,
+        source: &str,
+        destination: &str,
+        value: &Transform,
+    ) -> JuizResult<TransformStamped> {
+        let value = value.normalized()?;
+        let (written, notifications) = {
+            let mut inner = self.lock()?;
+            let ns = &caller.namespace;
+            let s = inner.resolve(source, ns)?;
+            let d = inner.resolve(destination, ns)?;
+            let tid = transform_identifier(&s, &d);
+            let t = inner.writable_transform(&tid)?;
+            let caller_id = caller.to_string();
+            if t.source != caller_id && t.destination != caller_id && !t.writers.contains(&caller_id) {
+                return Err(anyhow!(JuizError::TransformNotWritableError {
+                    identifier: tid,
+                    container: caller_id,
+                    message: "the container is neither an endpoint of the transform nor in its writers \
+                              (add it to `writers` of the transform in the conf)"
+                        .to_owned(),
+                }));
+            }
+            let notifications = inner.write_transform_value(&tid, value);
+            let t = &inner.transforms[&tid];
+            let written = TransformStamped::new(
+                &inner.node(&t.source)?.frame_id(),
+                &inner.node(&t.destination)?.frame_id(),
+                t.stamp,
+                t.value,
+            );
+            (written, notifications)
+        };
+        fire_unless_reentrant(notifications);
+        Ok(written)
     }
 
     /// Transform を消す (§10)
@@ -1250,6 +1325,10 @@ fn transform_profile(inner: &Inner, identifier: &str) -> JuizResult<Value> {
         "transform": Value::from(t.value),
         "stamp": Value::from(t.stamp),
     });
+    // set_transform で書いてよい Container (§7.5)。空なら出さない
+    if !t.writers.is_empty() {
+        v["writers"] = t.writers.clone().into();
+    }
     // System をまたぐ Transform の取り込みの状態 (§19.10)
     if let (Some(params), Some(src)) = (t.remote, inner.sources.get(&t.source)) {
         v["remote"] = src.profile(&params);
@@ -1298,5 +1377,15 @@ impl TransformationsRegistry for Transformations {
         // 名前は呼び出し元 Container のネームスペースで解決する (§5.4、§7.4)
         let inner = self.lock()?;
         inner.pose_explained(target, reference, &caller.namespace)
+    }
+
+    fn set_transform(
+        &self,
+        caller: &ContainerIdentifier,
+        source: &str,
+        destination: &str,
+        value: &Transform,
+    ) -> JuizResult<TransformStamped> {
+        self.set_transform_by(caller, source, destination, value)
     }
 }

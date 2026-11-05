@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::{mpsc, Arc, Mutex, Weak};
 use std::time::Duration;
 
-use juiz_sdk::geometry::{Pose, PoseStamped, Quaternion, Time, Vector3};
+use juiz_sdk::geometry::{Pose, PoseStamped, Quaternion, Time, Transform, TransformStamped, Vector3};
 use juiz_sdk::manifests::{
     pose_listener_identifier, transform_identifier, AnchorKind, DEFAULT_ANCHOR_RATE,
 };
@@ -98,6 +98,20 @@ impl TransformationsRegistry for FakeRegistry {
             .unwrap()
             .push(format!("lookup({}, {target}, {reference})", caller.name));
         Ok(PoseStamped::new(reference, Time::new(7, 0), z90(0.5, 0.0)))
+    }
+
+    fn set_transform(
+        &self,
+        caller: &ContainerIdentifier,
+        source: &str,
+        destination: &str,
+        value: &Transform,
+    ) -> JuizResult<TransformStamped> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(format!("set_transform({}, {source}, {destination})", caller.name));
+        Ok(TransformStamped::new(source, destination, Time::new(8, 0), *value))
     }
 }
 
@@ -266,6 +280,51 @@ fn container_process_looks_up_another_container() -> JuizResult<()> {
         lonely.lookup("lidar0", "robot0").unwrap_err().downcast_ref::<JuizError>(),
         Some(JuizError::TransformationsNotAttachedError { .. })
     ));
+    Ok(())
+}
+
+#[test]
+fn container_process_sets_a_transform() -> JuizResult<()> {
+    let ptr = base0();
+    let registry = FakeRegistry::new();
+    registry.register(&ptr);
+    {
+        let mut guard = ptr.lock_mut()?;
+        let c = guard.downcast_mut::<ContainerImpl<MobileBase>>().unwrap();
+        // 値は正規化してから登録所に渡す
+        let t = c.set_transform(
+            "map",
+            "odom",
+            Transform::new(Vector3::new(0.1, 0.0, 0.0), Quaternion::new(0.0, 0.0, 0.0, 2.0)),
+        )?;
+        assert_eq!((t.source(), t.destination()), ("map", "odom"));
+        assert_eq!(t.transform.rotation, Quaternion::identity());
+    }
+    ptr.set_transform("map", "odom", &Transform::identity())?;
+    assert_eq!(
+        *registry.calls.lock().unwrap(),
+        vec!["set_transform(base0, map, odom)", "set_transform(base0, map, odom)"]
+    );
+
+    // 不正な値は登録所に届く前にエラー
+    let bad = Transform::new(Vector3::zero(), Quaternion::new(0.0, 0.0, 0.0, 0.0));
+    assert!(matches!(
+        ptr.set_transform("map", "odom", &bad).unwrap_err().downcast_ref::<JuizError>(),
+        Some(JuizError::InvalidPoseValueError { .. })
+    ));
+    assert_eq!(registry.calls.lock().unwrap().len(), 2);
+
+    // readonly の呼び出しの間は書けない (§14)
+    {
+        let _scope = juiz_sdk::transformations::ReadonlyScope::enter(&ptr.pose_handle());
+        assert!(matches!(
+            ptr.set_transform("map", "odom", &Transform::identity())
+                .unwrap_err()
+                .downcast_ref::<JuizError>(),
+            Some(JuizError::TransformNotWritableError { .. })
+        ));
+    }
+    assert_eq!(registry.calls.lock().unwrap().len(), 2);
     Ok(())
 }
 

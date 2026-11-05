@@ -23,7 +23,7 @@ use anyhow::anyhow;
 
 use super::handle::{ContainerPoseHandle, TransformationsRegistry};
 use crate::cabi::{JuizBytes, JuizBytesSink, JUIZ_OK};
-use crate::geometry::{Header, Pose, PoseStamped, Quaternion, Time, Vector3};
+use crate::geometry::{Header, Pose, PoseStamped, Quaternion, Time, Transform, TransformStamped, Vector3};
 use crate::prelude::*;
 
 /// [`JuizPosePort`] の版。並びと型を変えるときに上げる (後ろに足すだけなら `struct_size` で見分ける)
@@ -41,6 +41,10 @@ pub const JUIZ_POSE_NOT_WRITABLE_ERROR: i64 = -903;
 pub const JUIZ_INVALID_POSE_VALUE_ERROR: i64 = -904;
 /// そのほかの失敗 (引数が null、ロック、panic など)
 pub const JUIZ_TRANSFORMATIONS_ERROR: i64 = -905;
+/// 呼び出し元 Container が書いてはいけない Transform への `set_transform` (§7.5、#410)
+pub const JUIZ_TRANSFORM_NOT_WRITABLE_ERROR: i64 = -906;
+/// `set_transform` の Transform が無い (§7.5、#410)
+pub const JUIZ_TRANSFORM_NOT_FOUND_ERROR: i64 = -907;
 
 // ---- 構造体 (juiz_sdk.h と同じ並び) ----
 
@@ -96,6 +100,77 @@ pub struct JuizTime {
 pub struct JuizPoseStamped {
     pub pose: JuizPose,
     pub stamp: JuizTime,
+}
+
+/// Transform の値 (`juiz_std.geometry.Transform`、§7.5、#410)。並びは JuizPose と同じ
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct JuizTransform {
+    pub translation: JuizVector3,
+    pub rotation: JuizQuaternion,
+}
+
+/// 時刻つきの Transform の値。端点 (`header.frame_id`・`child_frame_id`) は渡した source / destination なので持たない
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct JuizTransformStamped {
+    pub transform: JuizTransform,
+    pub stamp: JuizTime,
+}
+
+impl From<&Transform> for JuizTransform {
+    fn from(t: &Transform) -> Self {
+        JuizTransform {
+            translation: JuizVector3 {
+                x: t.translation.x,
+                y: t.translation.y,
+                z: t.translation.z,
+            },
+            rotation: JuizQuaternion {
+                x: t.rotation.x,
+                y: t.rotation.y,
+                z: t.rotation.z,
+                w: t.rotation.w,
+            },
+        }
+    }
+}
+
+impl From<&JuizTransform> for Transform {
+    fn from(t: &JuizTransform) -> Self {
+        Transform::new(
+            Vector3::new(t.translation.x, t.translation.y, t.translation.z),
+            Quaternion::new(t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w),
+        )
+    }
+}
+
+impl From<&TransformStamped> for JuizTransformStamped {
+    fn from(t: &TransformStamped) -> Self {
+        JuizTransformStamped {
+            transform: (&t.transform).into(),
+            stamp: JuizTime {
+                sec: t.header.stamp.sec,
+                nanosec: t.header.stamp.nanosec,
+                reserved: 0,
+            },
+        }
+    }
+}
+
+impl JuizTransformStamped {
+    /// 端点の名前を付けて [`TransformStamped`] にする
+    pub fn to_transform_stamped(&self, source: &str, destination: &str) -> TransformStamped {
+        TransformStamped::new(
+            source,
+            destination,
+            Time {
+                sec: self.stamp.sec,
+                nanosec: self.stamp.nanosec,
+            },
+            (&self.transform).into(),
+        )
+    }
 }
 
 impl From<&Pose> for JuizPose {
@@ -190,6 +265,20 @@ pub type JuizPosePortLookupFn = extern "C" fn(
     error: *const JuizBytesSink,
 ) -> i64;
 
+/// Transform の値を書く関数 (§7.5、#410)。`source` / `destination` は端点の Container の名前か ID (UTF-8)。
+/// 名前は呼び出し元 Container のネームスペースで解決する。成功なら 0 を返し、`out` に書いた後の値を、
+/// `frame_id` / `child_frame_id` (null 可) に端点の名前を書く。失敗なら負のコードを返し、`error` (null 可) に文を書く
+pub type JuizPosePortSetTransformFn = extern "C" fn(
+    ctx: *const c_void,
+    source: JuizBytes,
+    destination: JuizBytes,
+    value: *const JuizTransform,
+    out: *mut JuizTransformStamped,
+    frame_id: *const JuizBytesSink,
+    child_frame_id: *const JuizBytesSink,
+    error: *const JuizBytesSink,
+) -> i64;
+
 /// 呼び出し元 Container の ContainerPose の口 (§12.3)。ホストが作り、呼び出しの間だけ有効
 #[repr(C)]
 pub struct JuizPosePort {
@@ -202,6 +291,8 @@ pub struct JuizPosePort {
     pub set: Option<JuizPosePortSetFn>,
     /// #409 で足した。`struct_size` がこの項目を含まない古いホストの口では使わない
     pub lookup: Option<JuizPosePortLookupFn>,
+    /// #410 で足した。`struct_size` がこの項目を含まない古いホストの口では使わない
+    pub set_transform: Option<JuizPosePortSetTransformFn>,
 }
 
 /// 版 1 の最初の表の大きさ (`lookup` を足す前)。これより小さい表は受け付けない
@@ -214,6 +305,17 @@ impl JuizPosePort {
             return None;
         }
         self.lookup
+    }
+
+    /// `set_transform` を持つ口なら、その関数 (#410 より古いホストの口では None)
+    pub fn set_transform_fn(&self) -> Option<JuizPosePortSetTransformFn> {
+        if (self.struct_size as usize)
+            < std::mem::offset_of!(JuizPosePort, set_transform)
+                + std::mem::size_of::<Option<JuizPosePortSetTransformFn>>()
+        {
+            return None;
+        }
+        self.set_transform
     }
 }
 
@@ -228,15 +330,19 @@ pub struct PosePortOwner {
 
 impl PosePortOwner {
     pub fn new(handle: ContainerPoseHandle) -> Self {
-        Self::with_set(handle, host_port_set)
+        Self::with_set(handle, host_port_set, host_port_set_transform)
     }
 
     /// readonly の ContainerProcess に渡す口 (§14、#377)。書き込みは `PoseNotWritableError` (JUIZ_POSE_NOT_WRITABLE_ERROR)
     pub fn new_readonly(handle: ContainerPoseHandle) -> Self {
-        Self::with_set(handle, host_port_set_readonly)
+        Self::with_set(handle, host_port_set_readonly, host_port_set_transform_readonly)
     }
 
-    fn with_set(handle: ContainerPoseHandle, set: JuizPosePortSetFn) -> Self {
+    fn with_set(
+        handle: ContainerPoseHandle,
+        set: JuizPosePortSetFn,
+        set_transform: JuizPosePortSetTransformFn,
+    ) -> Self {
         let handle = Box::new(handle);
         let port = Box::new(JuizPosePort {
             abi_version: POSE_PORT_ABI_VERSION,
@@ -245,6 +351,7 @@ impl PosePortOwner {
             get: Some(host_port_get),
             set: Some(set),
             lookup: Some(host_port_lookup),
+            set_transform: Some(set_transform),
         });
         PosePortOwner {
             port,
@@ -267,6 +374,8 @@ pub fn transformations_error_code(e: &anyhow::Error) -> i64 {
         Some(JuizError::NoCommonAnchorError { .. }) => JUIZ_NO_COMMON_ANCHOR_ERROR,
         Some(JuizError::PoseNotWritableError { .. }) => JUIZ_POSE_NOT_WRITABLE_ERROR,
         Some(JuizError::InvalidPoseValueError { .. }) => JUIZ_INVALID_POSE_VALUE_ERROR,
+        Some(JuizError::TransformNotWritableError { .. }) => JUIZ_TRANSFORM_NOT_WRITABLE_ERROR,
+        Some(JuizError::TransformNotFoundError { .. }) => JUIZ_TRANSFORM_NOT_FOUND_ERROR,
         _ => JUIZ_TRANSFORMATIONS_ERROR,
     }
 }
@@ -278,6 +387,8 @@ pub fn transformations_error_name(code: i64) -> &'static str {
         JUIZ_NO_COMMON_ANCHOR_ERROR => "NoCommonAnchorError",
         JUIZ_POSE_NOT_WRITABLE_ERROR => "PoseNotWritableError",
         JUIZ_INVALID_POSE_VALUE_ERROR => "InvalidPoseValueError",
+        JUIZ_TRANSFORM_NOT_WRITABLE_ERROR => "TransformNotWritableError",
+        JUIZ_TRANSFORM_NOT_FOUND_ERROR => "TransformNotFoundError",
         _ => "TransformationsError",
     }
 }
@@ -314,6 +425,35 @@ fn host_guarded(
         Err(_) => (
             JUIZ_TRANSFORMATIONS_ERROR,
             "panicked while reading or writing ContainerPose".to_owned(),
+        ),
+    };
+    let _ = catch_unwind(AssertUnwindSafe(|| sink_write(error, message.as_bytes())));
+    code
+}
+
+/// [`host_guarded`] の Transform 版 (§7.5)
+fn host_guarded_transform(
+    error: *const JuizBytesSink,
+    out: *mut JuizTransformStamped,
+    frame_id: *const JuizBytesSink,
+    child_frame_id: *const JuizBytesSink,
+    body: impl FnOnce() -> JuizResult<TransformStamped>,
+) -> i64 {
+    let r = catch_unwind(AssertUnwindSafe(body));
+    let (code, message) = match r {
+        Ok(Ok(t)) => {
+            if !out.is_null() {
+                // SAFETY: 呼び手は out を呼び出しの間有効に保つ
+                unsafe { *out = (&t).into() };
+            }
+            sink_write(frame_id, t.header.frame_id.as_bytes());
+            sink_write(child_frame_id, t.child_frame_id.as_bytes());
+            return JUIZ_OK;
+        }
+        Ok(Err(e)) => (transformations_error_code(&e), format!("{e:#}")),
+        Err(_) => (
+            JUIZ_TRANSFORMATIONS_ERROR,
+            "panicked while writing a Transform".to_owned(),
         ),
     };
     let _ = catch_unwind(AssertUnwindSafe(|| sink_write(error, message.as_bytes())));
@@ -408,6 +548,59 @@ extern "C" fn host_port_set_readonly(
     })
 }
 
+extern "C" fn host_port_set_transform(
+    ctx: *const c_void,
+    source: JuizBytes,
+    destination: JuizBytes,
+    value: *const JuizTransform,
+    out: *mut JuizTransformStamped,
+    frame_id: *const JuizBytesSink,
+    child_frame_id: *const JuizBytesSink,
+    error: *const JuizBytesSink,
+) -> i64 {
+    host_guarded_transform(error, out, frame_id, child_frame_id, || {
+        // SAFETY: ctx は PosePortOwner が持つ ContainerPoseHandle
+        let handle = unsafe { &*(ctx as *const ContainerPoseHandle) };
+        if value.is_null() {
+            return Err(anyhow!(JuizError::ArgumentError {
+                message: "transform is null".to_owned()
+            }));
+        }
+        // SAFETY: 呼び手は value を呼び出しの間有効に保つ
+        let value: Transform = unsafe { &*value }.into();
+        handle.set_transform(
+            bytes_str(&source, "source")?,
+            bytes_str(&destination, "destination")?,
+            &value,
+        )
+    })
+}
+
+extern "C" fn host_port_set_transform_readonly(
+    ctx: *const c_void,
+    source: JuizBytes,
+    destination: JuizBytes,
+    _value: *const JuizTransform,
+    out: *mut JuizTransformStamped,
+    frame_id: *const JuizBytesSink,
+    child_frame_id: *const JuizBytesSink,
+    error: *const JuizBytesSink,
+) -> i64 {
+    host_guarded_transform(error, out, frame_id, child_frame_id, || {
+        // SAFETY: ctx は PosePortOwner が持つ ContainerPoseHandle
+        let handle = unsafe { &*(ctx as *const ContainerPoseHandle) };
+        Err(anyhow!(JuizError::TransformNotWritableError {
+            identifier: format!(
+                "{} -> {}",
+                bytes_str(&source, "source").unwrap_or(""),
+                bytes_str(&destination, "destination").unwrap_or("")
+            ),
+            container: handle.identifier().to_string(),
+            message: "the transform can not be written from a readonly container process".to_owned(),
+        }))
+    })
+}
+
 // ---- プラグインの側 ----
 
 /// アドレスから口を取り出す。0・知らない版・小さすぎる表なら None
@@ -471,6 +664,14 @@ impl PortFailure {
             },
             JUIZ_INVALID_POSE_VALUE_ERROR => JuizError::InvalidPoseValueError {
                 message: self.message.clone(),
+            },
+            JUIZ_TRANSFORM_NOT_WRITABLE_ERROR => JuizError::TransformNotWritableError {
+                identifier: reference.to_owned(),
+                container: container.to_owned(),
+                message: self.message.clone(),
+            },
+            JUIZ_TRANSFORM_NOT_FOUND_ERROR => JuizError::TransformNotFoundError {
+                identifier: reference.to_owned(),
             },
             _ => {
                 return anyhow!(
@@ -576,6 +777,65 @@ pub fn port_set(
     finish(code, out, frame_id, error, reference)
 }
 
+/// 口で Transform (`source` → `destination`) の値を書く (§7.5、#410)。書いた後の値と端点の名前を返す。
+/// `set_transform` を持たない古いホストの口では `JUIZ_TRANSFORMATIONS_ERROR`
+pub fn port_set_transform(
+    port: Option<&JuizPosePort>,
+    source: &str,
+    destination: &str,
+    value: &JuizTransform,
+) -> Result<(JuizTransformStamped, String, String), PortFailure> {
+    let port = port.ok_or_else(PortFailure::not_attached)?;
+    let set_transform = port.set_transform_fn().ok_or_else(|| PortFailure {
+        code: JUIZ_TRANSFORMATIONS_ERROR,
+        message: "the host of this container process is too old to support set_transform \
+                  (update juiz)"
+            .to_owned(),
+    })?;
+    let mut out = JuizTransformStamped::default();
+    let mut frame_id: Vec<u8> = Vec::new();
+    let mut child_frame_id: Vec<u8> = Vec::new();
+    let mut error: Vec<u8> = Vec::new();
+    let frame_sink = JuizBytesSink {
+        ctx: &mut frame_id as *mut Vec<u8> as *mut c_void,
+        write: Some(collect_into_vec),
+    };
+    let child_sink = JuizBytesSink {
+        ctx: &mut child_frame_id as *mut Vec<u8> as *mut c_void,
+        write: Some(collect_into_vec),
+    };
+    let error_sink = JuizBytesSink {
+        ctx: &mut error as *mut Vec<u8> as *mut c_void,
+        write: Some(collect_into_vec),
+    };
+    let code = set_transform(
+        port.ctx,
+        JuizBytes::from_slice(source.as_bytes()),
+        JuizBytes::from_slice(destination.as_bytes()),
+        value,
+        &mut out,
+        &frame_sink,
+        &child_sink,
+        &error_sink,
+    );
+    if code != JUIZ_OK {
+        let message = if error.is_empty() {
+            format!("returned {code} ({})", transformations_error_name(code))
+        } else {
+            String::from_utf8_lossy(&error).into_owned()
+        };
+        return Err(PortFailure { code, message });
+    }
+    let name = |v: Vec<u8>, given: &str| {
+        if v.is_empty() {
+            given.to_owned()
+        } else {
+            String::from_utf8_lossy(&v).into_owned()
+        }
+    };
+    Ok((out, name(frame_id, source), name(child_frame_id, destination)))
+}
+
 fn finish(
     code: i64,
     out: JuizPoseStamped,
@@ -643,6 +903,18 @@ impl TransformationsRegistry for PortRegistry {
         let (p, frame_id) =
             port_lookup(self.port(), target, reference).map_err(|f| f.into_error(target, reference))?;
         Ok(p.to_pose_stamped(&frame_id))
+    }
+
+    fn set_transform(
+        &self,
+        caller: &ContainerIdentifier,
+        source: &str,
+        destination: &str,
+        value: &Transform,
+    ) -> JuizResult<TransformStamped> {
+        let (t, s, d) = port_set_transform(self.port(), source, destination, &value.into())
+            .map_err(|f| f.into_error(&caller.to_string(), &format!("{source} -> {destination}")))?;
+        Ok(t.to_transform_stamped(&s, &d))
     }
 }
 
@@ -740,6 +1012,18 @@ impl TransformationsRegistry for ThreadPortRegistry {
         let (p, frame_id) =
             port_lookup(self.port(), target, reference).map_err(|f| f.into_error(target, reference))?;
         Ok(p.to_pose_stamped(&frame_id))
+    }
+
+    fn set_transform(
+        &self,
+        caller: &ContainerIdentifier,
+        source: &str,
+        destination: &str,
+        value: &Transform,
+    ) -> JuizResult<TransformStamped> {
+        let (t, s, d) = port_set_transform(self.port(), source, destination, &value.into())
+            .map_err(|f| f.into_error(&caller.to_string(), &format!("{source} -> {destination}")))?;
+        Ok(t.to_transform_stamped(&s, &d))
     }
 }
 
@@ -912,7 +1196,32 @@ pub unsafe extern "C" fn juiz_container_pose_lookup(
     })
 }
 
-/// このスレッドで最後に呼んだ `juiz_container_pose_get` / `_set` / `_lookup` のエラー文 (成功なら空)。
+/// 呼び出し元 Container から、Transform (`source` → `destination`、名前か ID) の値を `value` にする (§7.5、#410)。
+/// 結果は API の `transform/update` と同じ。名前は呼び出し元 Container のネームスペースで解決する。
+/// 書けるのは呼び出し元 Container が端点か、conf の `transforms:` の `writers` に入っている Transform だけ
+/// (`JUIZ_TRANSFORM_NOT_WRITABLE_ERROR`)。`out` (null 可) に書いた後の値を書く
+#[no_mangle]
+pub unsafe extern "C" fn juiz_container_transform_set(
+    cm: *mut CapsuleMap,
+    source: *const c_char,
+    destination: *const c_char,
+    value: *const JuizTransform,
+    out: *mut JuizTransformStamped,
+) -> i64 {
+    c_guarded(|| {
+        let cm = cm.as_ref().ok_or_else(|| null_argument("capsule_map"))?;
+        let source = c_string(source, "source")?;
+        let destination = c_string(destination, "destination")?;
+        let value = value.as_ref().ok_or_else(|| null_argument("transform"))?;
+        let (t, _, _) = port_set_transform(port_from_addr(cm.pose_port()), source, destination, value)?;
+        if !out.is_null() {
+            *out = t;
+        }
+        Ok(())
+    })
+}
+
+/// このスレッドで最後に呼んだ `juiz_container_pose_get` / `_set` / `_lookup`・`juiz_container_transform_set` のエラー文 (成功なら空)。
 /// 文字列は次にこのスレッドでそれらを呼ぶまで有効で、解放しない
 #[no_mangle]
 pub extern "C" fn juiz_container_pose_last_error() -> *const c_char {

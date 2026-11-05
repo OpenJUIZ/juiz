@@ -2,13 +2,14 @@
 //! (docs/spec/transformations.md §12.2、issue #371)
 //!
 //! Python の Container を作ったとき、ホストは利用者のオブジェクトに属性 `__juiz_pose__` として
-//! [`PyContainerPoseHandle`] を付ける。pyjuiz の `juiz.pose(self, ref)` / `juiz.set_pose(self, ref, p)` / `juiz.lookup(self, target, ref)` は
+//! [`PyContainerPoseHandle`] を付ける。pyjuiz の `juiz.pose(self, ref)` / `juiz.set_pose(self, ref, p)` / `juiz.lookup(self, target, ref)` /
+//! `juiz.set_transform(self, source, destination, t)` は
 //! この属性を通してホストの ContainerPoseHandle を呼ぶ。値は辞書 (`juiz_std.geometry` の表し方) で行き来し、
 //! 型の値への変換は pyjuiz がする。
 
 use crate::prelude::*;
 use juiz_sdk::anyhow;
-use juiz_sdk::geometry::Pose;
+use juiz_sdk::geometry::{Pose, Transform};
 use juiz_sdk::transformations::ContainerPoseHandle;
 use pyo3::{exceptions::PyRuntimeError, prelude::*};
 
@@ -67,6 +68,22 @@ impl PyContainerPoseHandle {
         // Pose 通知の受け手 (Python の Process もありうる) は書き込んだスレッドで呼ばれるが、
         // その中で GIL を取り直すので、ここで手放してよい
         let r = py.detach(|| self.handle.set_pose(reference, &pose));
+        let v: Value = r.map_err(to_py_error)?.into();
+        Ok(value_to_pyany(py, &v))
+    }
+
+    /// Transform (`source` → `destination`) の値を `value` (Transform の辞書) にする (§7.5、#410)。
+    /// 書いた後の TransformStamped の辞書を返す
+    fn set_transform(
+        &self,
+        py: Python<'_>,
+        source: &str,
+        destination: &str,
+        value: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<PyAny>> {
+        let value = pyany_to_value(value)?;
+        let t = Transform::try_from(&value).map_err(to_py_error)?;
+        let r = py.detach(|| self.handle.set_transform(source, destination, &t));
         let v: Value = r.map_err(to_py_error)?.into();
         Ok(value_to_pyany(py, &v))
     }

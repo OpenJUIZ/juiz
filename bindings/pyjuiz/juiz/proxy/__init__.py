@@ -357,13 +357,15 @@ class SystemProxy():
         return self.crud.read('transform', 'profile_full', {'identifier': identifier})
 
     def create_transform(self, source: str, destination: str, translation=None, rotation=None,
-                         rate: float = None, timeout: float = None):
+                         rate: float = None, timeout: float = None, writers=None):
         """source (親) から destination (子) への Transform を作り、profile を返す。
         translation は {'x','y','z'} か (x, y, z)、rotation は {'x','y','z','w'} か (x, y, z, w)。省略時は 0 と回転なし。
 
         source に別 System の Container を渡すと System をまたぐ Transform になる (§19)。rate [Hz] は
         その位置を取り込む周期 (既定 10.0)、timeout [秒] は取り込めないとき写しを消すまでの時間 (既定 3.0)。
-        destination に別 System の Container を渡すと、その System で作る"""
+        destination に別 System の Container を渡すと、その System で作る。
+        writers は端点のほかに ContainerProcess の set_transform でこの Transform を書いてよい Container の
+        名前か ID の並び (§7.5、#410)"""
         manifest = {'source': self._ref(source), 'destination': self._ref(destination)}
         if translation is not None:
             manifest['translation'] = _vector3(translation)
@@ -373,6 +375,10 @@ class SystemProxy():
             manifest['rate'] = float(rate)
         if timeout is not None:
             manifest['timeout'] = float(timeout)
+        if writers:
+            if isinstance(writers, str):
+                writers = [writers]
+            manifest['writers'] = [self._ref(w) for w in writers]
         return self.crud.create('transform', 'create', {'__manifest__': manifest})
 
     def update_transform(self, identifier: str, translation=None, rotation=None):

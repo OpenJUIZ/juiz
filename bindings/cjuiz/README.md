@@ -86,7 +86,7 @@ Process の引数・戻り値の画像(Rust の `Capsule::Image`)を読み書き
 (行の余白を取り除き、`JUIZ_IMAGE_FORMAT_BGR8` / `BGRA8` は RGB に並べ替えます)。C++ では `bindings/cppjuiz/include/juiz/image.h` の
 `juiz::Image`(OpenCV との変換は `juiz/opencv.h`)、Haskell では hsjuiz の `Juiz.Image` がこれらを使います。
 
-## ContainerPose(`juiz_container_pose_get`、`juiz_container_pose_set`、`juiz_container_pose_lookup`)
+## ContainerPose(`juiz_container_pose_get`、`juiz_container_pose_set`、`juiz_container_pose_lookup`、`juiz_container_transform_set`)
 
 ContainerProcess の中から、呼び出し元 Container の位置姿勢(ContainerPose)を読み書きする関数です
 (docs/spec/transformations.md §12.3)。juiz は ContainerProcess を呼ぶとき、引数の `capsule_map*` に呼び出し元 Container の口を
@@ -95,8 +95,13 @@ ContainerProcess の中から、呼び出し元 Container の位置姿勢(Contai
 `JUIZ_TRANSFORMATIONS_ERROR`(-905)を返し、`juiz_container_pose_last_error()` で理由の文を読めます。
 `juiz_container_pose_lookup(cm, target, reference, out)` は呼び出し元以外の Container `target` を基準 `reference` から見て読みます
 (tf の lookupTransform に当たる、§7.4)。読み出しだけなので readonly の ContainerProcess からも呼べます。
-C++ では `bindings/cppjuiz/include/juiz/pose.h` の `juiz::pose(container, "map")` / `juiz::set_pose(...)` / `juiz::lookup(container, "lidar0", "robot0")`、
-Haskell では hsjuiz の `Juiz.Pose` の `containerPose "map"` / `setContainerPose ...` / `lookupContainerPose "lidar0" "robot0"` がこれらを使います。
+`juiz_container_transform_set(cm, source, destination, value, out)` は Transform(source → destination)の値を `juiz_transform` で書きます
+(§7.5、#410)。書けるのは呼び出し元が端点か、conf の `transforms:` の `writers` に入っている Transform だけで、そうでなければ
+`JUIZ_TRANSFORM_NOT_WRITABLE_ERROR`(-906)、Transform が無ければ `JUIZ_TRANSFORM_NOT_FOUND_ERROR`(-907)を返します。
+C++ では `bindings/cppjuiz/include/juiz/pose.h` の `juiz::pose(container, "map")` / `juiz::set_pose(...)` / `juiz::lookup(container, "lidar0", "robot0")` /
+`juiz::set_transform(container, "map", "odom", juiz::make_transform(...))`、
+Haskell では hsjuiz の `Juiz.Pose` の `containerPose "map"` / `setContainerPose ...` / `lookupContainerPose "lidar0" "robot0"` /
+`setTransform "map" "odom" ...` がこれらを使います。
 
 ## Haskell のプラグイン(`language: "haskell"`)
 

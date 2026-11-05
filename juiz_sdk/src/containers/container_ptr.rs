@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::{
-    geometry::{Pose, PoseStamped},
+    geometry::{Pose, PoseStamped, Transform, TransformStamped},
     prelude::*,
     transformations::{ContainerPoseHandle, ContainerPoseReader, PoseStatePtr, TransformationsRegistry},
 };
@@ -68,6 +68,16 @@ impl ContainerPtr {
     /// 別の Container `target` の、基準 `reference` から見た ContainerPose (§7.4)。Container のロックは取らない
     pub fn lookup(&self, target: &str, reference: &str) -> JuizResult<PoseStamped> {
         self.pose.lookup(target, reference)
+    }
+
+    /// この Container から Transform (`source` → `destination`) の値を書く (§7.5、#410)。Container のロックは取らない
+    pub fn set_transform(
+        &self,
+        source: &str,
+        destination: &str,
+        value: &Transform,
+    ) -> JuizResult<TransformStamped> {
+        self.pose.set_transform(source, destination, value)
     }
 
     /// この Container を基準 `reference` から見て `pose` にする (§7.2)。Container のロックは取らない

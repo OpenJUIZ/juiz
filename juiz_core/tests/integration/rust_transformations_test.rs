@@ -6,14 +6,14 @@
 //! 数値は transformations.md §3.5 の例。
 
 use juiz_core::prelude::*;
-use juiz_sdk::geometry::{Pose, PoseStamped, Quaternion, Vector3};
+use juiz_sdk::geometry::{Pose, PoseStamped, Quaternion, TransformStamped, Vector3};
 use juiz_sdk::process_identifier::ProcessIdentifier;
 
 const EPS: f64 = 1e-9;
 const H: f64 = std::f64::consts::FRAC_1_SQRT_2;
 const ABIS: [&str; 2] = ["c", "rust"];
 
-const PROCESSES: [&str; 7] = [
+const PROCESSES: [&str; 8] = [
     "rust_part_pose",
     "rust_part_set_pose",
     "rust_part_try",
@@ -21,6 +21,7 @@ const PROCESSES: [&str; 7] = [
     "rust_part_sleep",
     "rust_part_try_readonly",
     "rust_part_lookup",
+    "rust_part_set_transform",
 ];
 
 fn part(name: &str) -> Value {
@@ -47,9 +48,11 @@ fn conf(abi: &str) -> Value {
             part("lonely0"),
         ],
         "transforms": [
+            // lonely0 は端点ではないが set_transform で書いてよい (#410)
             { "source": "map", "destination": "base0",
               "translation": {"x": 1.0, "y": 0.0, "z": 0.0},
-              "rotation": {"x": 0.0, "y": 0.0, "z": H, "w": H} },
+              "rotation": {"x": 0.0, "y": 0.0, "z": H, "w": H},
+              "writers": ["lonely0"] },
             { "source": "base0", "destination": "camera0",
               "translation": {"x": 0.1, "y": 0.0, "z": 0.3} },
         ],
@@ -291,6 +294,56 @@ fn rust_readonly_is_shown_in_profile() -> JuizResult<()> {
         let p = profile("rust_part_sleep")?;
         assert!(!p.readonly, "abi={abi}: {p}");
         assert!(serde_json::to_value(&p)?.get("readonly").is_none());
+        Ok(())
+    })
+}
+
+/// set_transform (#410): 端点か writers の Container だけが Transform の値を書ける。結果は transform/update と同じ
+#[test]
+fn rust_container_process_sets_transforms() -> JuizResult<()> {
+    for_each_abi(|system, abi| {
+        let set = |caller: &str, source: &str, destination: &str, v: Value| {
+            let mut args = v;
+            args["source"] = jvalue!(source);
+            args["destination"] = jvalue!(destination);
+            call(system, caller, "rust_part_set_transform", args)
+        };
+        // writers の lonely0 が map → base0 を書く。camera0 は base0 の子なので一緒に動く
+        let t = set("lonely0", "map", "base0", jvalue!({"x": 2.0, "qz": H, "qw": H}))?;
+        let t: TransformStamped = (&t).try_into()?;
+        assert_eq!((t.source(), t.destination()), ("map", "base0"));
+        assert!((t.transform.translation.x - 2.0).abs() < EPS);
+        let p = call(system, "camera0", "rust_part_pose", jvalue!({"reference": "map"}))?;
+        assert_pose(&p, "map", &pose(2.0, 0.1, 0.3, z90()));
+        // 端点の camera0 は base0 → camera0 を書ける。値は正規化される
+        let t = set("camera0", "base0", "camera0", jvalue!({"x": 0.2, "z": 0.3, "qw": 2.0}))?;
+        let t: TransformStamped = (&t).try_into()?;
+        assert!((t.transform.rotation.w - 1.0).abs() < EPS);
+        let p = call(system, "camera0", "rust_part_pose", jvalue!({"reference": "base0"}))?;
+        assert_pose(&p, "base0", &pose(0.2, 0.0, 0.3, Quaternion::identity()));
+
+        // 端点でも writers でもない / 無い Transform。Rust ABI ではホストの JuizError を downcast できないので文で確かめる
+        let expect = |r: JuizResult<Value>, kind: &str, text: &str| match r {
+            Ok(v) => assert_eq!(v, jvalue!(kind), "abi: {abi}"),
+            Err(e) => {
+                assert_eq!(abi, "rust", "{e:#}");
+                assert!(format!("{e:#}").contains(text), "{e:#}");
+            }
+        };
+        expect(set("camera0", "map", "base0", jvalue!({})), "TransformNotWritableError", "can not be written by");
+        expect(set("lonely0", "base0", "lonely0", jvalue!({})), "TransformNotFoundError", "is not found");
+        // 書けなかった値は変わらない
+        let p = call(system, "camera0", "rust_part_pose", jvalue!({"reference": "map"}))?;
+        assert_pose(&p, "map", &pose(2.0, 0.2, 0.3, z90()));
+
+        // readonly の中からは書けない (§14)
+        let r = call(system, "base0", "rust_part_try_readonly", jvalue!({"op": "set_transform", "reference": "map"}))?;
+        let r = r.as_str().unwrap_or_default();
+        if abi == "c" {
+            assert_eq!(r, "TransformNotWritableError");
+        } else {
+            assert!(r == "TransformNotWritableError" || r.contains("readonly"), "{r}");
+        }
         Ok(())
     })
 }

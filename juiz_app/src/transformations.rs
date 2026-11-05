@@ -6,7 +6,7 @@
 //! juiz container pose-state <id>                                 # PoseState と版番号 (§19.4)
 //! juiz transform list [--long]
 //! juiz transform info <id | source destination>
-//! juiz transform create <source> <destination> [--translation x,y,z] [--rotation x,y,z,w] [--rate Hz] [--timeout 秒]
+//! juiz transform create <source> <destination> [--translation x,y,z] [--rotation x,y,z,w] [--rate Hz] [--timeout 秒] [--writer <Container>]...
 //! juiz transform update <id | source destination> [--translation ...] [--rotation ...]
 //! juiz transform delete <id | source destination>
 //! juiz anchor list
@@ -79,6 +79,11 @@ pub(crate) enum TransformSubCommands {
             help = "Seconds to keep the last imported poses when the source System is not reachable (default: 3.0)"
         )]
         timeout: Option<f64>,
+        #[arg(
+            long = "writer",
+            help = "Container (ID or name) that may write this Transform with set_transform from its container processes, besides the endpoints. Repeatable"
+        )]
+        writers: Vec<String>,
     },
 
     /// Change the value of a Transform. Omitted values are kept
@@ -226,10 +231,12 @@ pub(crate) fn on_transform(
                 rotation,
                 rate,
                 timeout,
+                writers,
             } => {
                 let mut m = TransformManifest::new(&source, &destination);
                 m.rate = rate;
                 m.timeout = timeout;
+                m.writers = writers;
                 if let Some(t) = translation {
                     m = m.translation(parse_vector3(&t)?);
                 }

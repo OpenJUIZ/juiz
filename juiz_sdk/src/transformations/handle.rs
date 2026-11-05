@@ -3,7 +3,7 @@ use std::sync::{Arc, RwLock, Weak};
 use anyhow::anyhow;
 
 use super::pose_state::{PoseEntry, PoseState, PoseStatePtr};
-use crate::geometry::{Pose, PoseStamped};
+use crate::geometry::{Pose, PoseStamped, Transform, TransformStamped};
 use crate::prelude::*;
 
 /// System の Transformations 登録所への口 (docs/spec/transformations.md §7・§9)。
@@ -36,6 +36,19 @@ pub trait TransformationsRegistry: Send + Sync {
         target: &str,
         reference: &str,
     ) -> JuizResult<PoseStamped>;
+
+    /// Transform (`source` → `destination`、どちらも ID か名前) の値を `value` にする (§7.5、#410)。
+    /// 結果は API の `transform/update` (§7.3) と同じ。名前は呼び出し元 Container `caller` の
+    /// ネームスペースで解決する。書けるのは `caller` が端点か、Transform の `writers` に入っているときだけで、
+    /// そうでなければ `TransformNotWritableError`。戻り値は書いた後の値 (`header.frame_id` が始点、
+    /// `child_frame_id` が終点の名前)
+    fn set_transform(
+        &self,
+        caller: &ContainerIdentifier,
+        source: &str,
+        destination: &str,
+        value: &Transform,
+    ) -> JuizResult<TransformStamped>;
 }
 
 type RegistrySlot = Arc<RwLock<Option<Weak<dyn TransformationsRegistry>>>>;
@@ -168,6 +181,29 @@ impl ContainerPoseHandle {
         let pose = pose.normalized()?;
         let registry = self.registry()?;
         registry.set_pose(&self.identifier, reference, &pose)
+    }
+
+    /// Transform (`source` → `destination`) の値を `value` にする (§7.5、#410)。値は検査・正規化してから
+    /// 登録所に渡す (`InvalidPoseValueError`)。書けるのはこの Container が端点か `writers` に入っている
+    /// Transform だけ (`TransformNotWritableError`)
+    ///
+    /// このスレッドでこの Container の readonly ContainerProcess を呼び出し中なら `TransformNotWritableError` (§14)
+    pub fn set_transform(
+        &self,
+        source: &str,
+        destination: &str,
+        value: &Transform,
+    ) -> JuizResult<TransformStamped> {
+        if super::readonly::in_readonly_call(self) {
+            return Err(anyhow!(JuizError::TransformNotWritableError {
+                identifier: format!("{source} -> {destination}"),
+                container: self.identifier.to_string(),
+                message: "the transform can not be written from a readonly container process".to_owned(),
+            }));
+        }
+        let value = value.normalized()?;
+        let registry = self.registry()?;
+        registry.set_transform(&self.identifier, source, destination, &value)
     }
 
     /// 読み出しだけの口 (§14)
