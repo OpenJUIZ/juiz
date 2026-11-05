@@ -1,6 +1,6 @@
 use axum::{
     extract::{ConnectInfo, Multipart, Path, Query, State},
-    http::HeaderMap,
+    http::{HeaderMap, Uri},
     response::IntoResponse,
     routing, Json, Router,
 };
@@ -37,6 +37,7 @@ pub async fn object_post_handler(
     Path((class_name, function_name)): Path<(String, String)>,
     query: Query<FullQuery>, //, path_query: Query<PathQuery>,
     headers: HeaderMap,
+    uri: Uri,
     remote_addr: ConnectInfo<SocketAddr>,
     State(crud_broker): State<Arc<Mutex<CRUDBroker>>>,
     Json(body): Json<Value>,
@@ -57,6 +58,7 @@ pub async fn object_post_handler(
                 function_name.as_str(),
                 query,
                 headers,
+                uri,
                 remote_addr,
             ),
         )
@@ -70,6 +72,18 @@ fn body_to_capsule_map(body: Value, _headers: &HeaderMap) -> Result<CapsuleMap, 
     body.try_into()
 }
 
+/// リクエストがアクセスした住所 (host[:port]) を返す。
+///
+/// HTTP/1.1 は Host ヘッダに入る。HTTP/2 には Host ヘッダが無く `:authority` 疑似ヘッダで送られ、
+/// hyper はそれをリクエストの URI の authority に入れるので、Host が無いときはそちらを使う (issue #361)。
+fn accessed_host(headers: &HeaderMap, uri: &Uri) -> Option<String> {
+    headers
+        .get(axum::http::header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .map(|h| h.to_owned())
+        .or_else(|| uri.authority().map(|a| a.as_str().to_owned()))
+}
+
 fn construct_capsule_map(
     mut capsule_map: CapsuleMap,
     method_name: &str,
@@ -77,16 +91,22 @@ fn construct_capsule_map(
     function_name: &str,
     query: Query<FullQuery>,
     headers: HeaderMap,
+    uri: Uri,
     remote_addr: ConnectInfo<SocketAddr>,
 ) -> CapsuleMap {
     capsule_map.set_param("method_name", method_name);
     capsule_map.set_param("class_name", class_name);
     capsule_map.set_param("function_name", function_name);
+    // アクセスされた住所 (host[:port])。HTTP/2 では Host ヘッダが無いので URI の authority を使う (issue #361)
+    let accessed_host = accessed_host(&headers, &uri);
+    let host = accessed_host.as_deref();
     match query.identifier.clone() {
         None => {}
         Some(v) => {
-            let host = headers.get("host").and_then(|h| h.to_str().ok());
-            capsule_map.set_param("identifier", localize_identifier(v.as_str(), "http", host).as_str());
+            capsule_map.set_param(
+                "identifier",
+                localize_identifier(v.as_str(), "http", host).as_str(),
+            );
         }
     }
     match query.path.clone() {
@@ -121,32 +141,26 @@ fn construct_capsule_map(
     }
     // Transformations (issue #370)。reference は ID なら identifier と同じく自分を指す http の ID を core に直す
     if let Some(v) = query.reference.clone() {
-        let host = headers.get("host").and_then(|h| h.to_str().ok());
-        capsule_map.set_param("reference", localize_identifier(v.as_str(), "http", host).as_str());
+        capsule_map.set_param(
+            "reference",
+            localize_identifier(v.as_str(), "http", host).as_str(),
+        );
     }
     if let Some(v) = query.anchor.clone() {
-        let host = headers.get("host").and_then(|h| h.to_str().ok());
-        capsule_map.set_param("anchor", localize_identifier(v.as_str(), "http", host).as_str());
+        capsule_map.set_param(
+            "anchor",
+            localize_identifier(v.as_str(), "http", host).as_str(),
+        );
     }
     // System をまたぐ Transform (transformations.md §19)。UUID・版番号などなので書き換えない
     for (k, v) in query.transformations_params() {
         capsule_map.set_param(k, v.as_str());
     }
     // println!("HEADER>>>> {headers:?}");
-    match headers.get("host") {
-        Some(header) => match header.to_str() {
-            Ok(host) => {
-                let accessed_broker_id = format!("http://{}", host);
-                capsule_map.set_param("accessed_broker_id", accessed_broker_id.as_str());
-
-                let accessed_broker_type = "http".to_owned();
-                capsule_map.set_param("accessed_broker_type", accessed_broker_type.as_str());
-                let accessed_broker_name = host.to_owned();
-                capsule_map.set_param("accessed_broker_name", accessed_broker_name.as_str());
-            }
-            Err(_) => {}
-        },
-        None => {}
+    if let Some(host) = host {
+        capsule_map.set_param("accessed_broker_id", format!("http://{host}").as_str());
+        capsule_map.set_param("accessed_broker_type", "http");
+        capsule_map.set_param("accessed_broker_name", host);
     }
     let remote_addr_str = remote_addr.0.to_string().as_str().to_owned();
     capsule_map.set_param("remote_addr", remote_addr_str.as_str());
@@ -198,6 +212,7 @@ pub async fn object_patch_handler(
     Path((class_name, function_name)): Path<(String, String)>,
     query: Query<FullQuery>,
     headers: HeaderMap,
+    uri: Uri,
     // multipart: Multipart,
     remote_addr: ConnectInfo<SocketAddr>,
     State(crud_broker): State<Arc<Mutex<CRUDBroker>>>,
@@ -218,6 +233,7 @@ pub async fn object_patch_handler(
                 function_name.as_str(),
                 query,
                 headers,
+                uri,
                 remote_addr,
             ),
         )
@@ -244,6 +260,7 @@ pub async fn object_put_handler(
     Path((class_name, function_name)): Path<(String, String)>,
     query: Query<FullQuery>,
     headers: HeaderMap,
+    uri: Uri,
     //multipart: Multipart,
     remote_addr: ConnectInfo<SocketAddr>,
     State(crud_broker): State<Arc<Mutex<CRUDBroker>>>,
@@ -266,6 +283,7 @@ pub async fn object_put_handler(
                         function_name.as_str(),
                         query,
                         headers,
+                        uri,
                         remote_addr,
                     ),
                 )
@@ -296,6 +314,7 @@ pub async fn object_get_handler(
     Path((class_name, function_name)): Path<(String, String)>,
     query: Query<FullQuery>,
     headers: HeaderMap,
+    uri: Uri,
     remote_addr: ConnectInfo<SocketAddr>,
     State(crud_broker): State<Arc<Mutex<CRUDBroker>>>,
 ) -> impl IntoResponse {
@@ -321,6 +340,7 @@ pub async fn object_get_handler(
                     function_name.as_str(),
                     query,
                     headers,
+                    uri,
                     remote_addr,
                 ),
             )
@@ -345,6 +365,7 @@ pub async fn object_delete_handler(
     Path((class_name, function_name)): Path<(String, String)>,
     query: Query<FullQuery>,
     headers: HeaderMap,
+    uri: Uri,
     remote_addr: ConnectInfo<SocketAddr>,
     State(crud_broker): State<Arc<Mutex<CRUDBroker>>>,
 ) -> impl IntoResponse {
@@ -363,6 +384,7 @@ pub async fn object_delete_handler(
                 function_name.as_str(),
                 query,
                 headers,
+                uri,
                 remote_addr,
             ),
         )
@@ -398,3 +420,35 @@ pub fn object_router(crud_broker: Arc<Mutex<CRUDBroker>>) -> Router {
 )]
 #[allow(unused)]
 pub struct ApiDoc;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accessed_host_prefers_host_header() {
+        let mut headers = HeaderMap::new();
+        headers.insert("host", "localhost:8000".parse().unwrap());
+        let uri: Uri = "http://127.0.0.1:9000/api/process/call".parse().unwrap();
+        assert_eq!(
+            accessed_host(&headers, &uri).as_deref(),
+            Some("localhost:8000")
+        );
+    }
+
+    #[test]
+    fn accessed_host_falls_back_to_uri_authority_for_http2() {
+        // HTTP/2 では Host ヘッダが無く、:authority が URI に入る (issue #361)
+        let uri: Uri = "http://127.0.0.1:8000/api/process/call".parse().unwrap();
+        assert_eq!(
+            accessed_host(&HeaderMap::new(), &uri).as_deref(),
+            Some("127.0.0.1:8000")
+        );
+    }
+
+    #[test]
+    fn accessed_host_is_none_without_host_and_authority() {
+        let uri: Uri = "/api/process/call".parse().unwrap();
+        assert_eq!(accessed_host(&HeaderMap::new(), &uri), None);
+    }
+}

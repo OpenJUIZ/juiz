@@ -10,6 +10,11 @@
 //! HTTP の往復を待っていたので、同じ System から別の System を何本同時に呼んでも 1 本ずつになった。
 //!
 //! - System のストアの HTTPBrokerProxy を複数のスレッドで共有して同時に呼ぶと、合計の時間が 1 つ分に近い
+//!
+//! HTTP/2 (h2c prior knowledge) も確かめる (issue #361)。HTTP/2 には Host ヘッダが無いので、
+//! 以前は http:// の識別子をサーバー自身のものと判定できず、自分の HTTPBrokerProxy で呼び直して直列になった。
+//!
+//! - h2c の 1 本の接続で http:// の識別子を同時に呼ぶと、合計の時間が 1 つ分に近い
 
 use std::time::{Duration, Instant};
 
@@ -127,7 +132,83 @@ fn http_broker_runs_calls_to_different_processes_in_parallel() -> JuizResult<()>
             "calls through one shared broker proxy must run in parallel ({shared:?})"
         );
 
+        // HTTP/2 (#361): h2c の 1 本の接続に多重化して、http:// の識別子で同時に呼ぶ。
+        // 自分宛と分からないと自分を HTTP/1.1 で呼び直し、プロキシ越しに直列になって 4 つ分 (1200ms) かかる
+        let h2 = call_concurrently_h2c(&[
+            sleep0.clone(),
+            sleep1.clone(),
+            sleep0.clone(),
+            sleep1.clone(),
+        ])?;
+        println!("4 calls over one h2c connection with http:// identifiers: {h2:?}");
+        assert!(
+            h2 < SLEEP * 3 / 2,
+            "h2c calls with http:// identifiers must run in parallel ({h2:?})"
+        );
+
         Ok(())
+    })
+}
+
+/// h2c (HTTP/2 prior knowledge) の 1 本の接続で identifier の Process を同時に呼び、
+/// 全部が返るまでの時間を返す (issue #361)
+fn call_concurrently_h2c(identifiers: &[String]) -> JuizResult<Duration> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    rt.block_on(async {
+        let client = reqwest::Client::builder()
+            .http2_prior_knowledge()
+            .timeout(Duration::from_secs(10))
+            .build()?;
+        let url = format!("http://127.0.0.1:{PORT}/api/process/call");
+        // HTTP/2 で応答し、アクセスされた住所を Host ヘッダが無くても分かっていること。
+        // 分かっていれば process/list の ID はアクセスした住所 (http / 127.0.0.1:PORT) に書き換わる
+        let res = client
+            .get(format!("http://127.0.0.1:{PORT}/api/process/list"))
+            .send()
+            .await?;
+        assert_eq!(res.version(), reqwest::Version::HTTP_2);
+        let ids: Value = res.json().await?;
+        let accessed = format!("127.0.0.1:{PORT}");
+        assert!(
+            ids.as_array().is_some_and(|a| !a.is_empty()
+                && a.iter().all(|id| id["broker_type_name"] == "http"
+                    && id["broker_name"].as_str() == Some(accessed.as_str()))),
+            "process/list over h2c must return identifiers of the accessed address: {ids}"
+        );
+
+        // 接続を温める
+        let res = client
+            .patch(&url)
+            .query(&[("identifier", identifiers[0].as_str())])
+            .json(&jvalue!({}))
+            .send()
+            .await?;
+        assert_eq!(res.version(), reqwest::Version::HTTP_2);
+        assert!(res.status().is_success(), "{:?}", res.text().await);
+
+        let start = Instant::now();
+        let calls = identifiers.iter().map(|id| {
+            let client = client.clone();
+            let url = url.clone();
+            async move {
+                let res = client
+                    .patch(&url)
+                    .query(&[("identifier", id.as_str())])
+                    .json(&jvalue!({}))
+                    .send()
+                    .await?;
+                if !res.status().is_success() {
+                    return Err(juiz_sdk::anyhow::anyhow!("{id}: {:?}", res.text().await));
+                }
+                Ok::<_, juiz_sdk::anyhow::Error>(())
+            }
+        });
+        for r in futures::future::join_all(calls).await {
+            r?;
+        }
+        Ok(start.elapsed())
     })
 }
 
