@@ -113,7 +113,8 @@ pub(crate) fn find_newest<'a>(
         .max_by(|a, b| a.manifest.version.cmp(&b.manifest.version))
 }
 
-/// `juiz install <file.juizapp>`(§8.2)。§9 の段 1〜6 を行ってから置く
+/// `juiz install <file.juizapp>`(§8.2)。§9 の段 1〜4・6 を行ってから、段 5 で展開して置く。
+/// 段 6 を展開の前に見るので、ホストに合わないパッケージでは `packages/<name>/` を作らない(#325)
 pub(crate) fn install(file: &Path, data: &Path, host: &Host) -> Result<InstallOutcome> {
     let label = file.display().to_string();
     if !file.is_file() {
@@ -121,6 +122,7 @@ pub(crate) fn install(file: &Path, data: &Path, host: &Host) -> Result<InstallOu
     }
     let (mut zip, m) = open_package(file)?;
     check_host(&m, host)?;
+    check_rust_build(&m, host)?;
     let id = format!("{} {}", m.name, m.version);
     let parent = packages_dir(data).join(&m.name);
     let dest = parent.join(m.version.to_string());
@@ -130,7 +132,6 @@ pub(crate) fn install(file: &Path, data: &Path, host: &Host) -> Result<InstallOu
             .with_context(|| format!("cannot read {}", path.display()))?;
         let old = Manifest::parse_str(&text, &dest.display().to_string())?;
         if old.files == m.files {
-            check_rust_build(&m, host)?;
             return Ok(InstallOutcome::AlreadyInstalled(Installed {
                 manifest: old,
                 dir: std::path::absolute(&dest)?,
@@ -150,11 +151,6 @@ pub(crate) fn install(file: &Path, data: &Path, host: &Host) -> Result<InstallOu
     std::fs::create_dir_all(&parent)
         .with_context(|| format!("cannot create {}", parent.display()))?;
     extract(&mut zip, &m, &dest)?;
-    if let Err(e) = check_rust_build(&m, host) {
-        let _ = std::fs::remove_dir_all(&dest);
-        let _ = std::fs::remove_dir(&parent);
-        return Err(e);
-    }
     let installed = Installed {
         manifest: m,
         dir: std::path::absolute(&dest)?,
@@ -238,7 +234,7 @@ pub(crate) fn format_table(installed: &[Installed]) -> String {
     s
 }
 
-/// インストール済みのパッケージを `juiz run <name>[@<version>]` するときの検証(§9: 段 1・5 を省く)
+/// インストール済みのパッケージを `juiz run <name>[@<version>]` するときの検証(§9: 段 1・5 を省く。段 7・8 は呼び出し元が行う)
 pub(crate) fn prepare_installed(spec: &str, data: &Path, host: &Host) -> Result<Prepared> {
     let (name, version) = parse_spec(spec)?;
     let installed = list(data)?;
@@ -374,6 +370,24 @@ mod tests {
         let ok = d.join("app.juizapp");
         write_pkg(&ok, HEAD, &[("app.conf", b"name: a\n")], None);
         install(&ok, &d.join("data"), &host()).unwrap();
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// rustc が合わないパッケージは展開の前に止め、packages/<name>/ を作らない(#325)
+    #[test]
+    fn install_rejects_rustc_mismatch_before_extract() {
+        let d = tmp("install_rustc");
+        let pkg = d.join("x.juizapp");
+        write_pkg(
+            &pkg,
+            "format: 1\nname: app\nversion: 0.1.0\njuiz: \">=0.0.1\"\nlanguages: [rust]\ntargets: [any]\nrust: {juiz_sdk: 0.0.28, rustc: rustc 1.90.0}",
+            &[("app.conf", b"name: a\n")],
+            None,
+        );
+        let data = d.join("data");
+        let e = install(&pkg, &data, &host()).unwrap_err().to_string();
+        assert!(e.contains("built with rustc 1.90.0"), "{e}");
+        assert!(!packages_dir(&data).join("app").exists());
         let _ = std::fs::remove_dir_all(&d);
     }
 

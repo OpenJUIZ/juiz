@@ -107,12 +107,14 @@ pub(crate) fn run_package(opts: &RunOptions) -> Result<()> {
         if !file.is_file() {
             bail!("{} is not found", opts.package);
         }
-        prepare(&file, &cache_dir()?, &host)?
+        // 段 7・8 も展開(段 5)の前に見る(#325)
+        prepare(&file, &cache_dir()?, &host, check_python)?
     } else {
-        install::prepare_installed(&opts.package, &data, &host)?
+        let prepared = install::prepare_installed(&opts.package, &data, &host)?;
+        check_python(&prepared.manifest)?;
+        prepared
     };
     let m = &prepared.manifest;
-    check_python(m)?;
     let entry_raw = opts.entry.clone().unwrap_or_else(|| m.entry.clone());
     let entry = normalize_relative(&entry_raw)
         .filter(|e| !e.is_empty())
@@ -235,7 +237,7 @@ fn subsystem_check(
     })
 }
 
-/// §9 の段 7・8(Python)
+/// §9 の段 7・8(Python)。ファイルからの起動では展開(段 5)の前に行う(#325)
 fn check_python(m: &Manifest) -> Result<()> {
     let needs =
         m.has_language("python") || !m.python_requires.is_empty() || m.python_version.is_some();
@@ -457,10 +459,19 @@ pub(crate) fn check_rust_build(m: &Manifest, host: &Host) -> Result<()> {
     Ok(())
 }
 
-/// §9 の段 1〜6 を行い、キャッシュに展開する
-pub(crate) fn prepare(file: &Path, cache_root: &Path, host: &Host) -> Result<Prepared> {
+/// §9 の段 1〜4・6 と `before_extract`(`juiz run` では段 7・8)を行ってから、段 5 でキャッシュに展開する。
+/// マニフェストだけで決まる段を展開の前に見るので、ホストに合わないパッケージでは何も書かない(#325)
+pub(crate) fn prepare(
+    file: &Path,
+    cache_root: &Path,
+    host: &Host,
+    before_extract: impl FnOnce(&Manifest) -> Result<()>,
+) -> Result<Prepared> {
     let (mut zip, m) = open_package(file)?;
     check_host(&m, host)?;
+    // 6. ビルド情報
+    check_rust_build(&m, host)?;
+    before_extract(&m)?;
 
     // 5. ファイル(キャッシュに展開済みなら省く)
     let hash = {
@@ -474,9 +485,6 @@ pub(crate) fn prepare(file: &Path, cache_root: &Path, host: &Host) -> Result<Pre
             .with_context(|| format!("cannot create {}", apps.display()))?;
         extract(&mut zip, &m, &dest)?;
     }
-
-    // 6. ビルド情報
-    check_rust_build(&m, host)?;
     let dir = std::path::absolute(&dest)?;
     Ok(Prepared { manifest: m, dir })
 }
@@ -814,7 +822,7 @@ pub(crate) mod tests {
             &[("app.conf", b"name: a\n"), ("python/x.py", b"print(1)\n")],
             None,
         );
-        let p = prepare(&pkg, &d.join("cache"), &host()).unwrap();
+        let p = prepare(&pkg, &d.join("cache"), &host(), |_| Ok(())).unwrap();
         assert!(p.dir.join(COMPLETE_MARK).is_file());
         assert_eq!(
             std::fs::read(p.dir.join("python/x.py")).unwrap(),
@@ -828,7 +836,7 @@ pub(crate) mod tests {
         );
         // 展開済みなら中身を見ない(消したファイルが戻らない)
         std::fs::remove_file(p.dir.join("python/x.py")).unwrap();
-        let p2 = prepare(&pkg, &d.join("cache"), &host()).unwrap();
+        let p2 = prepare(&pkg, &d.join("cache"), &host(), |_| Ok(())).unwrap();
         assert_eq!(p2.dir, p.dir);
         assert!(!p2.dir.join("python/x.py").exists());
         // 一時ディレクトリは残らない
@@ -847,7 +855,9 @@ pub(crate) mod tests {
         let d = tmp(name);
         let pkg = d.join("p.juizapp");
         write_pkg(&pkg, head, entries, files);
-        let e = prepare(&pkg, &d.join("cache"), h).unwrap_err().to_string();
+        let e = prepare(&pkg, &d.join("cache"), h, |_| Ok(()))
+            .unwrap_err()
+            .to_string();
         // 展開途中の一時ディレクトリは残さない
         let apps = d.join("cache/apps");
         if apps.exists() {
@@ -858,6 +868,57 @@ pub(crate) mod tests {
         }
         let _ = std::fs::remove_dir_all(&d);
         e
+    }
+
+    /// マニフェストだけで決まる段(6〜8)で止まるときは、キャッシュに何も展開しない(#325)
+    #[test]
+    fn manifest_stages_fail_before_extract() {
+        let conf: &[(&str, &[u8])] = &[("app.conf", b"name: a\n")];
+        // 段 6: rustc が合わない
+        let d = tmp("pre_rustc");
+        let pkg = d.join("p.juizapp");
+        write_pkg(
+            &pkg,
+            "format: 1\nname: app\nversion: 0.1.0\njuiz: \">=0.0.28\"\nlanguages: [rust]\ntargets: [any]\nrust: {juiz_sdk: 0.0.28, rustc: rustc 1.90.0}",
+            conf,
+            None,
+        );
+        let called = std::cell::Cell::new(false);
+        let e = prepare(&pkg, &d.join("cache"), &host(), |_| {
+            called.set(true);
+            Ok(())
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(e.contains("built with rustc 1.90.0"), "{e}");
+        // 段 6 で止まれば段 7・8 も行わない
+        assert!(!called.get());
+        assert!(!d.join("cache/apps").exists());
+        let _ = std::fs::remove_dir_all(&d);
+
+        // 段 7・8: juiz run は check_python を展開の前に呼ぶ。入っていない依存なら止まる
+        // (Python 無しのビルドでは段 7 で止まる)
+        let d = tmp("pre_python");
+        let pkg = d.join("p.juizapp");
+        write_pkg(
+            &pkg,
+            &format!("{HEAD}\npython:\n  requires: [\"juiz-no-such-package-325\"]"),
+            conf,
+            None,
+        );
+        let e = prepare(&pkg, &d.join("cache"), &host(), check_python)
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("Python"), "{e}");
+        assert!(!d.join("cache/apps").exists());
+        // 前の段を通れば展開する
+        let p = prepare(&pkg, &d.join("cache"), &host(), |m| {
+            assert_eq!(m.name, "app");
+            Ok(())
+        })
+        .unwrap();
+        assert!(p.dir.join(COMPLETE_MARK).is_file());
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
@@ -1034,7 +1095,7 @@ pub(crate) mod tests {
         let d = tmp("nonpkg");
         let p = d.join("x.juizapp");
         std::fs::write(&p, b"not a zip").unwrap();
-        let e = prepare(&p, &d.join("cache"), &host())
+        let e = prepare(&p, &d.join("cache"), &host(), |_| Ok(()))
             .unwrap_err()
             .to_string();
         assert!(
@@ -1045,7 +1106,7 @@ pub(crate) mod tests {
         zip.start_file("app.conf", SimpleFileOptions::default())
             .unwrap();
         zip.finish().unwrap();
-        let e = prepare(&p, &d.join("cache"), &host())
+        let e = prepare(&p, &d.join("cache"), &host(), |_| Ok(()))
             .unwrap_err()
             .to_string();
         assert!(e.contains("no juizapp.yaml"), "{e}");
