@@ -3,6 +3,13 @@
 hsjuiz の版は juiz(crates.io の juiz_app、PyPI の pyjuiz / juiz-cli)と同じ番号にそろえています。
 使う libjuiz_sdk も同じ版にしてください。
 
+## 0.2.4
+
+- ContainerProcess の中から自分以外の Container の位置姿勢を読む `lookupContainerPose` を足した(issue #409)。
+- ContainerProcess の中から Transform の値を書く `setTransform` と、`ContainerTransform`・`identityTransform`・
+  `transformToValue`・`transformStampedToValue` を足した。書けないときは `juizTransformNotWritableError`、
+  Transform が無いときは `juizTransformNotFoundError`(issue #410)。
+
 ## 0.2.3
 
 - hsjuiz の API は 0.2.2 から変えていない(juiz 本体の不具合修正 #400〜#437 に版をそろえた)。
