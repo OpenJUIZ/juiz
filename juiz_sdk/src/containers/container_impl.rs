@@ -1,5 +1,5 @@
 use crate::{
-    geometry::{Pose, PoseStamped},
+    geometry::{Pose, PoseStamped, Transform, TransformStamped},
     manifests::ContainerProfile,
     prelude::*,
     processes::ProcessPtr,
@@ -123,6 +123,31 @@ impl<S: 'static> ContainerImpl<S> {
     /// Container ではエラーになり、Transform は自動では作られない。戻り値は書いた後の `pose(reference)`。
     pub fn set_pose(&mut self, reference: &str, pose: Pose) -> JuizResult<PoseStamped> {
         self.pose.set_pose(reference, &pose)
+    }
+
+    /// Transform (`source` → `destination`、ID か名前) の値を `value` にする (docs/spec/transformations.md §7.5、#410)。
+    /// 結果は API の `transform/update` と同じ (StaticAnchor の更新・Pose 通知も起きる)。名前はこの Container の
+    /// ネームスペースで解決する。書き込みなので `&mut self` (§14)。
+    ///
+    /// 書けるのは、この Container が Transform の端点 (`source` か `destination`) か、conf の `transforms:` の
+    /// `writers` に入っているときだけ。そうでなければ `TransformNotWritableError`。Transform は自動では作らない
+    /// (無ければ `TransformNotFoundError`)。
+    ///
+    /// ```ignore
+    /// #[juiz_component_container_process(container_type = "slam")]
+    /// fn slam_correct(c: &mut ContainerImpl<Slam>) -> JuizResult<Capsule> {
+    ///     // conf の transforms: に {source: map, destination: odom, writers: [slam0]} と書いておく
+    ///     let t = c.set_transform("map", "odom", Transform::new(Vector3::new(0.1, 0.0, 0.0), Quaternion::identity()))?;
+    ///     Ok(t.into())
+    /// }
+    /// ```
+    pub fn set_transform(
+        &mut self,
+        source: &str,
+        destination: &str,
+        value: Transform,
+    ) -> JuizResult<TransformStamped> {
+        self.pose.set_transform(source, destination, &value)
     }
 
     /// ContainerPose の読み出しだけの口 (§14)

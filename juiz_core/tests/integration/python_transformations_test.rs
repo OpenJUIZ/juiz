@@ -11,7 +11,7 @@ use juiz_sdk::process_identifier::ProcessIdentifier;
 const EPS: f64 = 1e-9;
 const H: f64 = std::f64::consts::FRAC_1_SQRT_2;
 
-const PROCESSES: [&str; 9] = [
+const PROCESSES: [&str; 10] = [
     "py_part_pose",
     "py_part_set_pose",
     "py_part_try",
@@ -21,6 +21,7 @@ const PROCESSES: [&str; 9] = [
     "py_part_sleep",
     "py_part_try_readonly",
     "py_part_lookup",
+    "py_part_set_transform",
 ];
 
 fn part(name: &str) -> Value {
@@ -54,9 +55,11 @@ fn conf() -> Value {
             part("recorder0"),
         ],
         "transforms": [
+            // lonely0 は端点ではないが set_transform で書いてよい (#410)
             { "source": "map", "destination": "base0",
               "translation": {"x": 1.0, "y": 0.0, "z": 0.0},
-              "rotation": {"x": 0.0, "y": 0.0, "z": H, "w": H} },
+              "rotation": {"x": 0.0, "y": 0.0, "z": H, "w": H},
+              "writers": ["lonely0"] },
             { "source": "base0", "destination": "camera0",
               "translation": {"x": 0.1, "y": 0.0, "z": 0.3} },
         ],
@@ -310,6 +313,37 @@ fn python_readonly_container_process() -> JuizResult<()> {
             call(system, "camera0", "py_part_try", jvalue!({"op": "set_pose", "reference": "base0"}))?,
             jvalue!("ok")
         );
+        Ok(())
+    })
+}
+
+/// juiz.set_transform (#410): 端点か writers の Container だけが Transform の値を書ける
+#[test]
+fn python_container_process_sets_transforms() -> JuizResult<()> {
+    crate::common::logger::init();
+    System::new(conf())?.setup()?.run_and_do_once(|system| {
+        let set = |caller: &str, source: &str, destination: &str, v: Value| {
+            let mut args = v;
+            args["source"] = jvalue!(source);
+            args["destination"] = jvalue!(destination);
+            call(system, caller, "py_part_set_transform", args)
+        };
+        let t = set("lonely0", "map", "base0", jvalue!({"x": 2.0, "qz": H, "qw": H}))?;
+        let t: juiz_sdk::geometry::TransformStamped = (&t).try_into()?;
+        assert_eq!((t.source(), t.destination()), ("map", "base0"));
+        let p = call(system, "camera0", "py_part_pose", jvalue!({"reference": "map"}))?;
+        assert_pose(&p, "map", &pose(2.0, 0.1, 0.3, z90()));
+        set("camera0", "base0", "camera0", jvalue!({"x": 0.2, "z": 0.3}))?;
+        let p = call(system, "camera0", "py_part_pose", jvalue!({"reference": "base0"}))?;
+        assert_pose(&p, "base0", &pose(0.2, 0.0, 0.3, Quaternion::identity()));
+        assert_eq!(set("camera0", "map", "base0", jvalue!({}))?, jvalue!("TransformNotWritableError"));
+        assert_eq!(set("lonely0", "base0", "lonely0", jvalue!({}))?, jvalue!("TransformNotFoundError"));
+        assert_eq!(
+            call(system, "base0", "py_part_try_readonly", jvalue!({"op": "set_transform", "reference": "map"}))?,
+            jvalue!("TransformNotWritableError")
+        );
+        let p = call(system, "camera0", "py_part_pose", jvalue!({"reference": "map"}))?;
+        assert_pose(&p, "map", &pose(2.0, 0.2, 0.3, z90()));
         Ok(())
     })
 }

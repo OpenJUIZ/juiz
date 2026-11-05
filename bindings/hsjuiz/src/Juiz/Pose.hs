@@ -13,6 +13,11 @@
 --
 -- > (p, _) <- lookupContainerPose "lidar0" "robot0"     -- robot0 から見た lidar0 の位置姿勢
 --
+-- Transform の値は 'setTransform' で書く (§7.5、#410。この Container が端点か、conf の transforms: の
+-- writers に入っている Transform だけ):
+--
+-- > (t, _) <- setTransform "map" "odom" (ContainerTransform (0.1, 0, 0) (0, 0, 0, 1))
+--
 -- ContainerProcess の関数は Container の状態だけを受け取り、Container そのものは受け取らないので、
 -- 読み書きの相手は「今呼ばれている ContainerProcess の Container」になる。juiz が呼んだスレッドの上
 -- (関数の中) でだけ使える。'Control.Concurrent.forkIO' した先や、関数から戻った後では
@@ -24,6 +29,11 @@ module Juiz.Pose
   , containerPose
   , setContainerPose
   , lookupContainerPose
+  , ContainerTransform (..)
+  , identityTransform
+  , setTransform
+  , transformToValue
+  , transformStampedToValue
   , poseToValue
   , poseStampedToValue
     -- * 内部 (ContainerProcess のエントリポイントが使う)
@@ -65,6 +75,17 @@ data PoseTime = PoseTime
 identityPose :: ContainerPose
 identityPose = ContainerPose (0, 0, 0) (0, 0, 0, 1)
 
+-- | Transform の値 (@juiz_std.geometry.Transform@)。平行移動 (x, y, z) [m] と四元数 (x, y, z, w)
+data ContainerTransform = ContainerTransform
+  { ctTranslation :: !(Double, Double, Double)
+  , ctRotation :: !(Double, Double, Double, Double)
+  }
+  deriving (Eq, Show)
+
+-- | 平行移動なし・回転なし
+identityTransform :: ContainerTransform
+identityTransform = ContainerTransform (0, 0, 0) (0, 0, 0, 1)
+
 foreign import ccall unsafe "hsjuiz_swap_pose_call"
   c_hsjuiz_swap_pose_call :: Ptr CCapsuleMap -> IO (Ptr CCapsuleMap)
 
@@ -75,6 +96,8 @@ foreign import ccall safe "juiz_container_pose_set"
   c_juiz_container_pose_set :: Ptr CCapsuleMap -> CString -> Ptr () -> Ptr () -> IO Int64
 foreign import ccall safe "juiz_container_pose_lookup"
   c_juiz_container_pose_lookup :: Ptr CCapsuleMap -> CString -> CString -> Ptr () -> IO Int64
+foreign import ccall safe "juiz_container_transform_set"
+  c_juiz_container_transform_set :: Ptr CCapsuleMap -> CString -> CString -> Ptr () -> Ptr () -> IO Int64
 foreign import ccall unsafe "juiz_container_pose_last_error"
   c_juiz_container_pose_last_error :: IO CString
 
@@ -91,7 +114,7 @@ currentPoseCall = do
   _ <- c_hsjuiz_swap_pose_call cm
   when (cm == nullPtr) $
     throwJuiz juizTransformationsNotAttachedError
-      "containerPose / setContainerPose / lookupContainerPose can be used only inside a container process (on the thread that juiz called it)"
+      "containerPose / setContainerPose / lookupContainerPose / setTransform can be used only inside a container process (on the thread that juiz called it)"
   pure cm
 
 -- juiz_pose_stamped の並び: position (0, 8, 16)、orientation (24, 32, 40, 48)、stamp.sec 56、stamp.nanosec 64
@@ -144,6 +167,45 @@ lookupContainerPose target reference = do
       withUtf8 reference $ \ref -> do
         c_juiz_container_pose_lookup cm tgt ref out >>= check
         peekStamped out
+
+-- | 今呼ばれている ContainerProcess の Container から、Transform (source → destination、名前か ID) の値を
+-- t にする (§7.5、#410)。結果は API の transform/update と同じ。名前はこの Container のネームスペースで解決する。
+-- 書けるのはこの Container が端点か、conf の transforms: の writers に入っている Transform だけ
+-- ('juizTransformNotWritableError')。書いた後の値を返す
+setTransform :: Text -> Text -> ContainerTransform -> IO (ContainerTransform, PoseTime)
+setTransform source destination (ContainerTransform t q) = do
+  cm <- currentPoseCall
+  -- juiz_transform / juiz_transform_stamped の並びは juiz_pose / juiz_pose_stamped と同じ
+  allocaBytes 56 $ \inp ->
+    allocaBytes 72 $ \out ->
+      withUtf8 source $ \src ->
+        withUtf8 destination $ \dst -> do
+          pokePose inp (ContainerPose t q)
+          c_juiz_container_transform_set cm src dst inp out >>= check
+          (ContainerPose t' q', stamp) <- peekStamped out
+          pure (ContainerTransform t' q', stamp)
+
+-- | @juiz_std.geometry.Transform@ の辞書にする
+transformToValue :: ContainerTransform -> Value
+transformToValue (ContainerTransform (x, y, z) (qx, qy, qz, qw)) =
+  JObject $ Map.fromList
+    [ ("translation", JObject $ Map.fromList [("x", JFloat x), ("y", JFloat y), ("z", JFloat z)])
+    , ("rotation", JObject $ Map.fromList [("x", JFloat qx), ("y", JFloat qy), ("z", JFloat qz), ("w", JFloat qw)])
+    ]
+
+-- | @juiz_std.geometry.TransformStamped@ の辞書にする (@header.frame_id@ は source、@child_frame_id@ は destination)
+transformStampedToValue :: Text -> Text -> (ContainerTransform, PoseTime) -> Value
+transformStampedToValue source destination (t, PoseTime sec nsec) =
+  JObject $ Map.fromList
+    [ ( "header"
+      , JObject $ Map.fromList
+          [ ("stamp", JObject $ Map.fromList [("sec", JInt sec), ("nanosec", JInt (fromIntegral nsec))])
+          , ("frame_id", JString source)
+          ]
+      )
+    , ("child_frame_id", JString destination)
+    , ("transform", transformToValue t)
+    ]
 
 -- | @juiz_std.geometry.Pose@ の辞書にする
 poseToValue :: ContainerPose -> Value

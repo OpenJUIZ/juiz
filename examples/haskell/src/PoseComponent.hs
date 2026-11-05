@@ -119,6 +119,39 @@ partLookup _ target reference = do
       | code == juizNoCommonAnchorError -> JString "NoCommonAnchorError"
       | otherwise -> JString "TransformationsError"
 
+-- | Transform (source → destination) の値を平面の (x, y, yaw) にする (#410)。書いた後の TransformStamped の辞書を返す。
+-- 端点でも writers でもない・Transform が無いときは "TransformNotWritableError" / "TransformNotFoundError" を返す
+partSetTransformManifest :: ProcessManifest
+partSetTransformManifest = containerProcessManifest "hs_part_set_transform" "hs_part"
+  & addStringArg "source" "source container" "map"
+  & addStringArg "destination" "destination container" "base0"
+  & addFloatArg "x" "" 0 & addFloatArg "y" "" 0 & addFloatArg "yaw" "" 0
+
+partSetTransform :: IORef Int64 -> Text -> Text -> Double -> Double -> Double -> IO Value
+partSetTransform _ source destination x y yaw = do
+  r <- try (setTransform source destination (ContainerTransform (x, y, 0) (0, 0, sin (yaw / 2), cos (yaw / 2))))
+  pure $ case r of
+    Right t -> transformStampedToValue source destination t
+    Left (JuizError code _)
+      | code == juizTransformNotWritableError -> JString "TransformNotWritableError"
+      | code == juizTransformNotFoundError -> JString "TransformNotFoundError"
+      | otherwise -> JString "TransformationsError"
+
+-- | readonly の中から Transform を書こうとする (#410)。'juizTransformNotWritableError' になる
+partTryReadonlyTransformManifest :: ProcessManifest
+partTryReadonlyTransformManifest = containerProcessManifest "hs_part_try_readonly_transform" "hs_part"
+  & readonly True
+  & addStringArg "source" "source container" "map"
+
+partTryReadonlyTransform :: IORef Int64 -> Text -> IO Text
+partTryReadonlyTransform _ source = do
+  r <- try (setTransform source "base0" identityTransform)
+  pure $ case r of
+    Right _ -> "ok"
+    Left (JuizError code _)
+      | code == juizTransformNotWritableError -> "TransformNotWritableError"
+      | otherwise -> "TransformationsError"
+
 juizComponent 'component
   [ componentContainer 'createPart 'partManifest
   , componentContainerProcess 'partPose 'partPoseManifest
@@ -128,4 +161,6 @@ juizComponent 'component
   , componentContainerProcess 'partSleep 'partSleepManifest
   , componentContainerProcess 'partTryReadonly 'partTryReadonlyManifest
   , componentContainerProcess 'partLookup 'partLookupManifest
+  , componentContainerProcess 'partSetTransform 'partSetTransformManifest
+  , componentContainerProcess 'partTryReadonlyTransform 'partTryReadonlyTransformManifest
   ]

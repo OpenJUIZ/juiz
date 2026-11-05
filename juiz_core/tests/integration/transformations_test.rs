@@ -494,6 +494,107 @@ recorder!(record_basic, RECORD_BASIC);
 recorder!(record_update, RECORD_UPDATE);
 recorder!(record_initial, RECORD_INITIAL);
 
+/// set_transform (§7.5、#410): 端点と writers だけが書ける。結果は transform/update と同じ (Static の更新・Pose 通知)
+#[test]
+fn set_transform_by_endpoints_and_writers() -> JuizResult<()> {
+    run("tf_set_transform", |system| {
+        let mut cb = system.core_broker().lock_mut()?;
+        let worker = cb.worker_mut();
+        let map = create(worker, "static_anchor", "map")?;
+        let odom = create(worker, "static_anchor", "odom")?;
+        let base0 = create(worker, "part", "base0")?;
+        let slam0 = create(worker, "part", "slam0")?;
+        let sim0 = create(worker, "part", "sim0")?;
+        registry(worker).create_transforms(
+            &[
+                tf("map", "odom", (0.0, 0.0, 0.0), Quaternion::identity()).writer("slam0"),
+                tf("odom", "base0", (1.0, 0.0, 0.0), z90()).writer("sim0").writer("slam0"),
+            ],
+            "",
+        )?;
+        let id = |c: &ContainerPtr| c.identifier().to_string();
+        let map_odom = juiz_sdk::manifests::transform_identifier(&id(&map), &id(&odom));
+        let odom_base = juiz_sdk::manifests::transform_identifier(&id(&odom), &id(&base0));
+        // profile に writers が ID で出る。無ければ出さない
+        let p = registry(worker).transform_profile(&odom_base)?;
+        assert_eq!(p["writers"], jvalue!([id(&sim0), id(&slam0)]));
+
+        // SLAM が map → odom の補正を書く (SLAM 自身は端点ではない)。StaticAnchor の map の木がすぐ更新される
+        let t = slam0.set_transform("map", "odom", &juiz_sdk::geometry::Transform::new(Vector3::new(0.5, 0.0, 0.0), Quaternion::identity()))?;
+        assert_eq!((t.source(), t.destination()), ("map", "odom"));
+        assert_pose(&base0.pose("map")?.pose, &pose(1.5, 0.0, 0.0, z90()));
+        // シミュレータが odom → base0 を書く。名前の代わりに ID も使える
+        sim0.set_transform(&id(&odom), "base0", &juiz_sdk::geometry::Transform::new(Vector3::new(2.0, 0.0, 0.0), Quaternion::identity()))?;
+        assert_pose(&base0.pose("map")?.pose, &pose(2.5, 0.0, 0.0, Quaternion::identity()));
+        // 端点 (base0) は writers に無くても書ける
+        base0.set_transform("odom", "base0", &juiz_sdk::geometry::Transform::new(Vector3::new(3.0, 0.0, 0.0), Quaternion::identity()))?;
+        assert_pose(&base0.pose("odom")?.pose, &pose(3.0, 0.0, 0.0, Quaternion::identity()));
+
+        // 端点でも writers でもない
+        let e = error_text(sim0.set_transform("map", "odom", &juiz_sdk::geometry::Transform::identity()));
+        assert!(e.contains("TransformNotWritableError"), "{e}");
+        // 無い Transform・無い Container
+        let e = error_text(slam0.set_transform("odom", "map", &juiz_sdk::geometry::Transform::identity()));
+        assert!(e.contains("TransformNotFoundError"), "{e}");
+        let e = error_text(slam0.set_transform("map", "nothing", &juiz_sdk::geometry::Transform::identity()));
+        assert!(e.contains("ObjectCanNotFoundByIdError"), "{e}");
+        // 不正な値は書かない
+        let e = error_text(slam0.set_transform("map", "odom", &juiz_sdk::geometry::Transform::new(Vector3::zero(), Quaternion::new(0.0, 0.0, 0.0, 0.0))));
+        assert!(e.contains("InvalidPoseValueError"), "{e}");
+        assert_pose(&odom.pose("map")?.pose, &pose(0.5, 0.0, 0.0, Quaternion::identity()));
+
+        // writers の Container を消すと writers からも消える
+        worker.destroy_container_ref(&sim0.identifier())?;
+        let p = registry(worker).transform_profile(&odom_base)?;
+        assert_eq!(p["writers"], jvalue!([id(&slam0)]));
+        worker.destroy_container_ref(&slam0.identifier())?;
+        let p = registry(worker).transform_profile(&map_odom)?;
+        assert!(p.get("writers").is_none(), "{p}");
+
+        // 見つからない writers は作成のエラーで、何も作らない
+        let e = error_text(registry(worker).create_transforms(
+            &[tf("base0", "lonely", (0.0, 0.0, 0.0), Quaternion::identity())],
+            "",
+        ));
+        assert!(e.contains("ObjectCanNotFoundByIdError") || e.contains("not found"), "{e}");
+        create(worker, "part", "camera0")?;
+        let e = error_text(registry(worker).create_transforms(
+            &[tf("base0", "camera0", (0.0, 0.0, 0.0), Quaternion::identity()).writer("nobody")],
+            "",
+        ));
+        assert!(e.contains("TransformManifestInvalidError") && e.contains("nobody"), "{e}");
+        assert_eq!(registry(worker).transform_list()?.len(), 2);
+        Ok(())
+    })
+}
+
+/// conf の transforms: の writers (§7.5・§11)
+#[test]
+fn transform_writers_in_conf() -> JuizResult<()> {
+    crate::common::logger::init();
+    System::new(jvalue!({
+        "name": "tf_writers_conf",
+        "option": { "http_broker": { "start": false } },
+        "containers": [
+            { "type_name": "static_anchor", "name": "map" },
+            { "type_name": "static_anchor", "name": "odom" },
+        ],
+        "transforms": [
+            { "source": "map", "destination": "odom", "writers": ["odom"] },
+        ],
+    }))?
+    .setup()?
+    .run_and_do_once(|system| {
+        let cb = system.core_broker().lock()?;
+        let r = cb.worker().store().transformations.clone();
+        let list = r.transform_list()?;
+        assert_eq!(list.len(), 1);
+        let p = r.transform_profile(&list[0])?;
+        assert_eq!(p["writers"], jvalue!(["core://core/container/odom::static_anchor"]));
+        Ok(())
+    })
+}
+
 #[test]
 fn pose_listener_is_called_on_explicit_write() -> JuizResult<()> {
     run("tf_listener", |system| {

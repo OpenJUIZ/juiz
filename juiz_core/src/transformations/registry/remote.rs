@@ -749,6 +749,7 @@ impl Inner {
                                 version,
                                 imported: true,
                                 remote: None,
+                                writers: Vec::new(),
                             },
                         );
                         structural = true;

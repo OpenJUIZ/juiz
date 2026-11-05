@@ -185,6 +185,10 @@ pub struct TransformManifest {
     /// `source` はその System での core の ID で、受けた System がその System へのブローカーで書き換える
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_system: Option<String>,
+    /// 端点のほかに、ContainerProcess の `set_transform` でこの Transform の値を書いてよい Container の
+    /// ID か名前 (§7.5、#410)。名前は Transform の端点と同じく解決する。省略時は空 (端点だけが書ける)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub writers: Vec<String>,
 }
 
 impl TransformManifest {
@@ -197,7 +201,14 @@ impl TransformManifest {
             rate: None,
             timeout: None,
             source_system: None,
+            writers: Vec::new(),
         }
+    }
+
+    /// `set_transform` でこの Transform を書いてよい Container を足す (§7.5、#410)
+    pub fn writer(mut self, container: &str) -> Self {
+        self.writers.push(container.to_owned());
+        self
     }
 
     /// 取り込みの周期 [Hz] (System をまたぐ Transform だけ、§19.4)
@@ -250,6 +261,11 @@ impl TransformManifest {
                     )));
                 }
             }
+        }
+        if self.writers.iter().any(|w| w.is_empty()) {
+            return Err(transform_manifest_invalid(format!(
+                "writers must not contain an empty name: {self:?}"
+            )));
         }
         let t = self.transform().normalized()?;
         Ok(Self {

@@ -237,6 +237,48 @@ ContainerProcess の中から、呼び出し元 Container C 以外の Container 
 
 C ABI の口 `JuizPosePort` には関数 `lookup(ctx, target, reference, out, frame_id, error)` を後ろに足した(表の版は 1 のまま)。プラグインの側は `struct_size` が `lookup` を含むときだけ使い、含まない古いホストの口では `JUIZ_TRANSFORMATIONS_ERROR`(読み書きは今まで通り使える)。口の表の最小の大きさは `lookup` を足す前の大きさ(`POSE_PORT_MIN_STRUCT_SIZE`)。
 
+### 7.5 ContainerProcess から Transform を書く `set_transform(S, D, t)`(#410)
+
+ContainerProcess の中から、呼び出し元 Container C が Transform(S → D)の値を t にする。結果は API の `transform/update`(§7.3)と同じ(StaticAnchor の更新・Pose 通知も同じ。通知の基準は始点)。`set_pose` が「自分の親 → 自分」の Transform しか書けないのに対し、これは**名前で指定した Transform** を書く。例:
+
+- SLAM の Container `slam0` が、ROS と同じく `map → odom` の補正を書く(`odom` は Anchor なので ContainerProcess を持てない)。
+- 1 つのシミュレータの Container `sim0` が、複数台のロボットの `odom → robotN` を書く。
+
+**書ける範囲**: 次のどちらかに当てはまる Transform だけ。どちらでもなければ `TransformNotWritableError`。
+
+1. C が端点(S か D)である。
+2. Transform の `writers`(conf の `transforms:` の項目・`transform/create` の引数、§11)に C が入っている。
+
+```yaml
+transforms:
+  - source: map
+    destination: odom
+    writers: [slam0]          # slam0 は端点ではないが set_transform で書ける
+  - source: odom
+    destination: robot0
+    writers: [sim0]
+```
+
+- S・D は名前か ID。名前は C のネームスペースで解決する(§5.4、`lookup` と同じ)。System をまたぐ Transform(§19)は終点の System の Container から、始点を写しの名前かブローカー付きの ID で指定して書ける。別 System の Transform を書く口はない(API の `transform/update` を使う)。
+- Transform を自動では作らない。無ければ `TransformNotFoundError`。取り込みの辺(§19.3 の B' → P')も書けない(`TransformNotFoundError`)。
+- 値は検査・正規化してから書く(`InvalidPoseValueError`)。戻り値は書いた後の `TransformStamped`(`header.frame_id` が始点、`child_frame_id` が終点の名前(§5.4)、stamp は書いた時刻)。
+- readonly の ContainerProcess(§14)からは書けない(`TransformNotWritableError`)。Rust・C++ は型で止まる(`&mut self`・`const T*` では呼べない)。
+- `writers` は自分の System の Container(Anchor を含む)の名前か ID で、作るときに ID に直して持つ。見つからなければ `TransformManifestInvalidError`(作成ごと失敗する)。`writers` の Container を消すと、その Container を `writers` から外す(§10)。
+- `writers` は ContainerProcess からの書き込みにだけ効く。API・CLI の `transform/update` は今まで通り誰でも書ける(管理の操作として扱う)。
+- ロックは `set_pose` と同じ(Container の利用者の状態のロックを取らない。§9.2)。
+
+言語ごとの書き方:
+
+| 言語 | 書き方 |
+|---|---|
+| Rust | `c.set_transform("map", "odom", Transform::new(..))`(`ContainerImpl` の `&mut self`、`ContainerPtr`・`ContainerPoseHandle` の `&self`) |
+| Python | `juiz.set_transform(slam, "map", "odom", Transform(...))`(値は `Transform`・`TransformStamped`・それぞれの辞書。例外 `juiz.TransformNotWritableError`・`juiz.TransformNotFoundError`) |
+| C | `juiz_container_transform_set(cm, "map", "odom", &t, &out)`(`juiz_transform` / `juiz_transform_stamped`、並びは `juiz_pose` / `juiz_pose_stamped` と同じ) |
+| C++ | `juiz::set_transform(slam, "map", "odom", juiz::make_transform(x, y, z, qx, qy, qz, qw))`、平面は `juiz::make_transform_2d(x, y, yaw)`。辞書にするのは `juiz::transform_to_value` |
+| Haskell | `setTransform "map" "odom" (ContainerTransform (x, y, z) (qx, qy, qz, qw))`、辞書にするのは `transformStampedToValue` |
+
+C ABI の口 `JuizPosePort` には `lookup` の後ろに関数 `set_transform(ctx, source, destination, value, out, frame_id, child_frame_id, error)` を足した(表の版は 1 のまま)。プラグインの側は `struct_size` が `set_transform` を含むときだけ使い、含まない古いホストの口では `JUIZ_TRANSFORMATIONS_ERROR`。エラーコードに `JUIZ_TRANSFORM_NOT_WRITABLE_ERROR`(-906)と `JUIZ_TRANSFORM_NOT_FOUND_ERROR`(-907)を足した。
+
 ## 8. Pose 通知
 
 ### 8.1 きっかけ
@@ -362,6 +404,7 @@ pose_listeners:
 ```
 
 - `transforms:` の `translation` / `rotation` は省略時それぞれ 0 と回転なし。辞書のキーは `juiz_std.geometry.Transform` と同じ。
+- `transforms:` の `writers`(省略時は空): 端点のほかに、ContainerProcess の `set_transform` でこの Transform を書いてよい Container の名前か ID の配列(§7.5、#410)。`TransformManifest.writers`(`Vec<String>`、空なら直列化しない)、`TransformManifest::writer(name)` で足す。
 - SDK の manifest(Step 1、`juiz_sdk::manifests`):
   - Anchor の `rate` は `ContainerManifest.rate: Option<f64>`(Anchor 以外では使わず、`None` なら直列化しない)。`ContainerManifest::anchor_manifest()` が `AnchorManifest { kind: AnchorKind, rate: Option<f64> }` を返す(Anchor でなければ `None`)。§4.3 の既定値と検査、§4.1 の `processes:` の禁止はここで行い、不備は `ContainerManifestInvalidError`。Static に `rate` を書くと WARN を出して使わない。`AnchorManifest::to_profile_value()` が §4.1 の `anchor` の値を返す。定数 `PERIODIC_ANCHOR_TYPE_NAME`・`STATIC_ANCHOR_TYPE_NAME`・`DEFAULT_ANCHOR_RATE`。
   - `TransformManifest { source, destination, translation, rotation }`、`PoseListenerManifest { container, process, arg, reference, on_update, initial }`(`initial` は `false` なら直列化しない)。`list_from_conf(&conf)` で conf 全体から `transforms:` / `pose_listeners:` を読む(なければ空)。1 項目だけで分かる不備(端点が空・同じ名前、`on_update` で `reference` なし など)はここで検査し、名前の解決・木の規則・引数の型は core(Step 2)が検査する。Transform の回転はここで正規化する。
@@ -493,8 +536,8 @@ Step 5(#372)で決めたこと:
 | read | `container/pose` | `identifier`、`reference` | `PoseStamped` |
 | update | `container/set_pose` | `identifier`、`reference`、`pose`(`Pose`) | `PoseStamped`(書いた後の値) |
 | read | `transform/list` | (なし) | Transform の ID の配列 |
-| read | `transform/profile_full` | `identifier` | `{identifier, source, destination, transform: Transform, stamp}` |
-| create | `transform/create` | `source`、`destination`、`translation`、`rotation` | profile |
+| read | `transform/profile_full` | `identifier` | `{identifier, source, destination, transform: Transform, stamp, writers?}`(`writers` は §7.5 の ID の配列、空なら出さない) |
+| create | `transform/create` | `source`、`destination`、`translation`、`rotation`、`writers`(省略可、§7.5) | profile |
 | update | `transform/update` | `identifier`、`translation`、`rotation`(省いたものは今のまま) | profile |
 | delete | `transform/destroy` | `identifier` | profile |
 | update | `anchor/update` | `identifier` | `{identifier, stamp}` |
@@ -582,7 +625,7 @@ Step 6(#373)で決めたこと:
 
 ## 14. readonly ContainerProcess
 
-readonly の ContainerProcess(#377)は、Container を**読み出しロック**で呼ぶ ContainerProcess。同じ Container の readonly 同士は並行に走る。中から ContainerPose は読める(自分の `pose`、別の Container の `lookup`(§7.4))が、書き込みはエラー(`PoseNotWritableError`)になる。Container の利用者の状態も書き換えない約束で、Rust と C++ は型で止める。
+readonly の ContainerProcess(#377)は、Container を**読み出しロック**で呼ぶ ContainerProcess。同じ Container の readonly 同士は並行に走る。中から ContainerPose は読める(自分の `pose`、別の Container の `lookup`(§7.4))が、書き込みはエラー(`set_pose` は `PoseNotWritableError`、`set_transform`(§7.5)は `TransformNotWritableError`)になる。Container の利用者の状態も書き換えない約束で、Rust と C++ は型で止める。
 
 ### 14.1 manifest
 
@@ -646,6 +689,7 @@ fn mobile_base_where(c: &ContainerImpl<MobileBase>, reference: String) -> JuizRe
 | `TransformAlreadyExistsError` | 同じ (source, destination) の Transform |
 | `TransformTreeError` | §5.2 の木の規則を破る変更 |
 | `TransformNotFoundError` | 指定の Transform がない |
+| `TransformNotWritableError` | `set_transform`(§7.5)で、呼び出し元 Container が端点でも `writers` でもない Transform、readonly の ContainerProcess からの書き込み(#410) |
 | `PoseListenerError` | Pose 通知の登録の不備(引数・型・二重登録) |
 | `CrossSystemTransformError` | System をまたぐ Transform の不備(§19.2: 終点が別 System なのに回す先の System につながっていない、両端とも別 System、`source_system` が分からない、始点が相手の System の Container でない) |
 
@@ -665,6 +709,7 @@ Step 1 で上の名前のまま `JuizError` に足した。あわせて `Transfo
 | 7 サンプル 4 言語 | #374 | §3.5 の値、§11 の形 |
 | 11 readonly ContainerProcess | #377 | §14 |
 | 別の Container を読む lookup | #409 | §7.4 |
+| ContainerProcess から Transform を書く set_transform | #410 | §7.5 |
 
 System をまたぐ Transform(#376、§19):
 

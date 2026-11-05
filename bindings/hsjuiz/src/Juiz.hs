@@ -120,6 +120,11 @@ module Juiz
   , containerPose
   , setContainerPose
   , lookupContainerPose
+  , ContainerTransform (..)
+  , identityTransform
+  , setTransform
+  , transformToValue
+  , transformStampedToValue
   , poseToValue
   , poseStampedToValue
     -- * エラー
@@ -133,6 +138,8 @@ module Juiz
   , juizPoseNotWritableError
   , juizInvalidPoseValueError
   , juizTransformationsError
+  , juizTransformNotWritableError
+  , juizTransformNotFoundError
     -- * よく使う型
   , Int64
   , Word64

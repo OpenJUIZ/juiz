@@ -55,6 +55,11 @@ extern "C" {
 #define JUIZ_INVALID_POSE_VALUE_ERROR                      INT64_C(-904)
 /* そのほかの失敗 (引数が null など) */
 #define JUIZ_TRANSFORMATIONS_ERROR                         INT64_C(-905)
+/* juiz_container_transform_set で、呼び出し元 Container が端点でも writers でもない Transform、
+ * readonly の ContainerProcess からの書き込み (§7.5、#410) */
+#define JUIZ_TRANSFORM_NOT_WRITABLE_ERROR                  INT64_C(-906)
+/* juiz_container_transform_set の Transform が無い (§7.5、#410) */
+#define JUIZ_TRANSFORM_NOT_FOUND_ERROR                     INT64_C(-907)
 /* C++ のプラグイン (cppjuiz の entry point) で、juiz の例外ではない例外が投げられた (#400)。
  * extern "C" の境界の外へ例外を出すと juiz ごと落ちるので、entry point が捕まえてこのコードにする。
  * Process / ContainerProcess では戻り値の capsule にエラー文 (what()) を文字列で入れる */
@@ -298,7 +303,26 @@ int64_t juiz_container_pose_set(capsule_map* cm, const char* reference, const ju
  * (§7.4、#409。tf の lookupTransform に当たる)。名前は呼び出し元 Container のネームスペースで解決する。
  * 読み出しだけなので readonly の ContainerProcess からも呼べる */
 int64_t juiz_container_pose_lookup(capsule_map* cm, const char* target, const char* reference, juiz_pose_stamped* out);
-/* このスレッドで最後に呼んだ juiz_container_pose_get / _set / _lookup のエラー文 (成功なら空文字列)。
+/* Transform の値 (juiz_std.geometry.Transform)。並びは juiz_pose と同じ */
+typedef struct juiz_transform {
+    juiz_vector3 translation;
+    juiz_quaternion rotation;
+} juiz_transform;
+
+/* 時刻つきの Transform の値。端点 (header.frame_id・child_frame_id) は渡した source / destination */
+typedef struct juiz_transform_stamped {
+    juiz_transform transform;
+    juiz_time stamp;
+} juiz_transform_stamped;
+
+/* 呼び出し元 Container から、Transform (source → destination、名前か ID) の値を value にする (§7.5、#410)。
+ * 結果は API の transform/update と同じ。名前は呼び出し元 Container のネームスペースで解決する。値は正規化して書く。
+ * 書けるのは呼び出し元 Container が端点か、conf の transforms: の writers に入っている Transform だけ
+ * (JUIZ_TRANSFORM_NOT_WRITABLE_ERROR)。Transform が無ければ JUIZ_TRANSFORM_NOT_FOUND_ERROR。
+ * out (NULL 可) に書いた後の値を書く */
+int64_t juiz_container_transform_set(capsule_map* cm, const char* source, const char* destination,
+                                     const juiz_transform* value, juiz_transform_stamped* out);
+/* このスレッドで最後に呼んだ juiz_container_pose_get / _set / _lookup・juiz_container_transform_set のエラー文 (成功なら空文字列)。
  * 次にこのスレッドでそれらを呼ぶまで有効で、解放しない */
 const char* juiz_container_pose_last_error(void);
 
