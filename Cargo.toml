@@ -30,7 +30,8 @@ juiz_qmp_broker = {version="0.2.3", path="brokers/qmp_broker"}
 juiz_webui = {version="0.2.3", path="juiz_webui"}
 
 anyhow = "1.0.89"
-axum = {version="0.7.7", features = ["multipart"]}
+# http2: h2c (prior knowledge) にも応答する。reqwest の http2 経由でたまたま入っていたのを明示する (issue #361)
+axum = {version="0.7.7", features = ["multipart", "http2"]}
 base64 = "0.22.1"
 
 
