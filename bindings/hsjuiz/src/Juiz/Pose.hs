@@ -9,6 +9,10 @@
 -- >   (q, _) <- setContainerPose "map" p { cpPosition = (x + dx, y, z) }   -- 親 → この Container の Transform を書き換える
 -- >   pure (poseToValue q)
 --
+-- 自分以外の Container の位置は 'lookupContainerPose' で読む (§7.4、#409。tf の lookupTransform に当たる):
+--
+-- > (p, _) <- lookupContainerPose "lidar0" "robot0"     -- robot0 から見た lidar0 の位置姿勢
+--
 -- ContainerProcess の関数は Container の状態だけを受け取り、Container そのものは受け取らないので、
 -- 読み書きの相手は「今呼ばれている ContainerProcess の Container」になる。juiz が呼んだスレッドの上
 -- (関数の中) でだけ使える。'Control.Concurrent.forkIO' した先や、関数から戻った後では
@@ -19,6 +23,7 @@ module Juiz.Pose
   , identityPose
   , containerPose
   , setContainerPose
+  , lookupContainerPose
   , poseToValue
   , poseStampedToValue
     -- * 内部 (ContainerProcess のエントリポイントが使う)
@@ -68,6 +73,8 @@ foreign import ccall safe "juiz_container_pose_get"
   c_juiz_container_pose_get :: Ptr CCapsuleMap -> CString -> Ptr () -> IO Int64
 foreign import ccall safe "juiz_container_pose_set"
   c_juiz_container_pose_set :: Ptr CCapsuleMap -> CString -> Ptr () -> Ptr () -> IO Int64
+foreign import ccall safe "juiz_container_pose_lookup"
+  c_juiz_container_pose_lookup :: Ptr CCapsuleMap -> CString -> CString -> Ptr () -> IO Int64
 foreign import ccall unsafe "juiz_container_pose_last_error"
   c_juiz_container_pose_last_error :: IO CString
 
@@ -84,7 +91,7 @@ currentPoseCall = do
   _ <- c_hsjuiz_swap_pose_call cm
   when (cm == nullPtr) $
     throwJuiz juizTransformationsNotAttachedError
-      "containerPose / setContainerPose can be used only inside a container process (on the thread that juiz called it)"
+      "containerPose / setContainerPose / lookupContainerPose can be used only inside a container process (on the thread that juiz called it)"
   pure cm
 
 -- juiz_pose_stamped の並び: position (0, 8, 16)、orientation (24, 32, 40, 48)、stamp.sec 56、stamp.nanosec 64
@@ -124,6 +131,18 @@ setContainerPose reference pose = do
       withUtf8 reference $ \ref -> do
         pokePose inp pose
         c_juiz_container_pose_set cm ref inp out >>= check
+        peekStamped out
+
+-- | 今呼ばれている ContainerProcess の Container 以外の Container target (名前か ID) の、
+-- 基準 reference から見た位置姿勢 (§7.4、#409)。名前は呼び出し元 Container のネームスペースで解決する。
+-- 読み出しだけなので readonly の ContainerProcess からも呼べる
+lookupContainerPose :: Text -> Text -> IO (ContainerPose, PoseTime)
+lookupContainerPose target reference = do
+  cm <- currentPoseCall
+  allocaBytes 72 $ \out ->
+    withUtf8 target $ \tgt ->
+      withUtf8 reference $ \ref -> do
+        c_juiz_container_pose_lookup cm tgt ref out >>= check
         peekStamped out
 
 -- | @juiz_std.geometry.Pose@ の辞書にする

@@ -113,6 +113,19 @@ fn rust_part_try_readonly(c: &ContainerImpl<RustPart>, op: String, reference: St
     Ok(jvalue!(name).into())
 }
 
+/// 自分以外の Container target を基準 reference から見た ContainerPose (#409、tf の lookupTransform)。
+/// 読み出しだけなので readonly (&ContainerImpl) で呼べる。木の外れは "NoCommonAnchorError" を返す
+#[juiz_component_container_process(container_type = "rust_part" arguments = { default = { target = "base0" reference = "map" } })]
+fn rust_part_lookup(c: &ContainerImpl<RustPart>, target: String, reference: String) -> JuizResult<Capsule> {
+    match c.lookup(&target, &reference) {
+        Ok(p) => Ok(p.into()),
+        Err(e) => match e.chain().find_map(|c| c.downcast_ref::<JuizError>()) {
+            Some(JuizError::NoCommonAnchorError { .. }) => Ok(jvalue!("NoCommonAnchorError").into()),
+            _ => Err(e),
+        },
+    }
+}
+
 juiz_component_manifest!(
     component_name = "pose_part_component"
     containers = {
@@ -122,7 +135,8 @@ juiz_component_manifest!(
             rust_part_try,
             rust_part_peek,
             rust_part_sleep,
-            rust_part_try_readonly
+            rust_part_try_readonly,
+            rust_part_lookup
         ]
     }
 );

@@ -1288,4 +1288,15 @@ impl TransformationsRegistry for Transformations {
         let r = self.lock()?.resolve(reference, &container.namespace)?;
         self.set_pose_ids(&container.to_string(), &r, pose)
     }
+
+    fn lookup(
+        &self,
+        caller: &ContainerIdentifier,
+        target: &str,
+        reference: &str,
+    ) -> JuizResult<PoseStamped> {
+        // 名前は呼び出し元 Container のネームスペースで解決する (§5.4、§7.4)
+        let inner = self.lock()?;
+        inner.pose_explained(target, reference, &caller.namespace)
+    }
 }

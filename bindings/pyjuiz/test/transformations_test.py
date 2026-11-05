@@ -1,4 +1,4 @@
-"""juiz.pose / juiz.set_pose (issue #371) の Python 側のテスト
+"""juiz.pose / juiz.set_pose / juiz.lookup (issue #371、#409) の Python 側のテスト
 
 ホストの口 (属性 __juiz_pose__) の代わりに偽物を付け、値の変換とエラーの振り分けを確かめる。
 ホストとつないだ確認は juiz_core の tests/integration/python_transformations_test.rs。
@@ -31,6 +31,13 @@ class FakeHandle:
             raise RuntimeError(self.error, 'message')
         assert isinstance(reference, str)
         return dict(STAMPED, header={'stamp': {'sec': 1, 'nanosec': 2}, 'frame_id': reference})
+
+    def lookup(self, target, reference):
+        if self.error:
+            raise RuntimeError(self.error, 'message')
+        assert isinstance(target, str) and isinstance(reference, str)
+        self.looked_up = (target, reference)
+        return dict(STAMPED, header={'stamp': {'sec': 3, 'nanosec': 4}, 'frame_id': reference})
 
     def set_pose(self, reference, value):
         if self.error:
@@ -66,6 +73,24 @@ class Ref:
 
 assert juiz.pose(part(), Ref()).header.frame_id == 'core://core/container/map::static_anchor'
 
+# 別の Container を読む: target と基準がそのまま渡り、PoseStamped になる
+c = part()
+p = juiz.lookup(c, 'lidar0', 'robot0')
+assert isinstance(p, PoseStamped)
+assert c.__juiz_pose__.looked_up == ('lidar0', 'robot0')
+assert p.header.frame_id == 'robot0'
+assert p.header.stamp.sec == 3
+assert p.pose.position == Point3D(x=1.0, y=0.1, z=0.3)
+c = part()
+juiz.lookup(c, Ref(), 'robot0')
+assert c.__juiz_pose__.looked_up == ('core://core/container/map::static_anchor', 'robot0')
+for bad in [(1, 'robot0'), ('lidar0', None)]:
+    try:
+        juiz.lookup(part(), *bad)
+        raise AssertionError('should fail')
+    except TypeError:
+        pass
+
 # 書く: Pose・PoseStamped・それぞれの dict を受け付け、ホストには Pose の dict が渡る
 pose = Pose(position=Point3D(x=2.0), orientation=Quaternion(z=1.0, w=0.0))
 for value in [pose, pose.to_value(), PoseStamped(pose=pose), PoseStamped(pose=pose).to_value(), {'position': {'x': 2.0}, 'orientation': {'z': 1.0, 'w': 0.0}}]:
@@ -96,7 +121,8 @@ for kind, cls in [('NoCommonAnchorError', juiz.NoCommonAnchorError),
                   ('InvalidPoseValueError', juiz.InvalidPoseValueError),
                   ('TransformationsNotAttachedError', juiz.TransformationsNotAttachedError),
                   ('ObjectLockError', juiz.TransformationsError)]:
-    for f in [lambda c: juiz.pose(c, 'map'), lambda c: juiz.set_pose(c, 'map', pose)]:
+    for f in [lambda c: juiz.pose(c, 'map'), lambda c: juiz.set_pose(c, 'map', pose),
+              lambda c: juiz.lookup(c, 'lidar0', 'map')]:
         try:
             f(part(kind))
             raise AssertionError('should fail')

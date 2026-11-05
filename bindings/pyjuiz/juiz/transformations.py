@@ -11,11 +11,15 @@
         p.pose.position.x += dx
         return set_pose(base, "map", p.pose)   # 親 → base の Transform を書き換える
 
+自分以外の Container の位置は lookup で読む (§7.4、#409。tf の lookupTransform に当たる)::
+
+    lookup(slam, "lidar0", "robot0")           # robot0 から見た lidar0 の位置姿勢 (PoseStamped)
+
 第 1 引数 (利用者のオブジェクト) には、juiz が Container を作ったときに属性 ``__juiz_pose__``
 (ホストの口) を付けている。``__slots__`` を持つクラスや組み込みの型 (dict など) には付けられないので、
 Container の constructor は普通のクラスのオブジェクトを返すこと。
 
-読み出し (pose) と書き込み (set_pose) は別の関数にしてある (§14)。
+読み出し (pose・lookup) と書き込み (set_pose) は別の関数にしてある (§14)。
 ``@juiz_container_process(..., readonly=True)`` の ContainerProcess の中で set_pose を呼ぶと
 PoseNotWritableError になる (#377)。
 """
@@ -76,12 +80,12 @@ def _call(f, *args):
         raise
 
 
-def _reference(reference) -> str:
+def _reference(reference, name: str = "reference") -> str:
     # ContainerProxy など identifier() を持つものも受け付ける
     if hasattr(reference, "identifier") and callable(reference.identifier):
         return reference.identifier()
     if not isinstance(reference, str):
-        raise TypeError("reference は Container の名前か ID (str) を渡してください: {!r}".format(reference))
+        raise TypeError("{} は Container の名前か ID (str) を渡してください: {!r}".format(name, reference))
     return reference
 
 
@@ -118,3 +122,12 @@ def set_pose(container, reference, value):
     h = _handle(container)
     ref = _reference(reference)
     return _pose_stamped(_call(h.set_pose, ref, _pose_value(value)))
+
+
+def lookup(container, target, reference):
+    """Container (ContainerProcess の第 1 引数) 以外の Container target の、基準 reference から見た
+    ContainerPose を juiz_std.geometry.PoseStamped で返す (§7.4、#409。tf の lookupTransform に当たる)。
+    target・reference は Container の名前か ID (identifier() を持つものも可) で、名前は container の
+    ネームスペースで解決する。計算規則は pose と同じ。読み出しだけなので readonly の ContainerProcess でも呼べる"""
+    h = _handle(container)
+    return _pose_stamped(_call(h.lookup, _reference(target, "target"), _reference(reference)))

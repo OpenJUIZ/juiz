@@ -13,13 +13,14 @@ const EPS: f64 = 1e-9;
 const H: f64 = std::f64::consts::FRAC_1_SQRT_2;
 const ABIS: [&str; 2] = ["c", "rust"];
 
-const PROCESSES: [&str; 6] = [
+const PROCESSES: [&str; 7] = [
     "rust_part_pose",
     "rust_part_set_pose",
     "rust_part_try",
     "rust_part_peek",
     "rust_part_sleep",
     "rust_part_try_readonly",
+    "rust_part_lookup",
 ];
 
 fn part(name: &str) -> Value {
@@ -114,6 +115,35 @@ fn rust_container_process_reads_and_writes_pose() -> JuizResult<()> {
         assert_pose(&p, "map", &pose(1.0, 0.2, 0.3, z90()));
         let p = call(system, "camera0", "rust_part_pose", jvalue!({"reference": "base0"}))?;
         assert_pose(&p, "base0", &pose(0.2, 0.0, 0.3, Quaternion::identity()));
+        Ok(())
+    })
+}
+
+/// lookup (#409): 自分以外の Container を、自分以外の基準から見て読む。呼び出し元はどの木にも入っていなくてよい
+#[test]
+fn rust_container_process_looks_up_other_containers() -> JuizResult<()> {
+    for_each_abi(|system, abi| {
+        let lookup = |caller: &str, target: &str, reference: &str| {
+            call(system, caller, "rust_part_lookup", jvalue!({"target": target, "reference": reference}))
+        };
+        assert_pose(&lookup("lonely0", "camera0", "base0")?, "base0", &pose(0.1, 0.0, 0.3, Quaternion::identity()));
+        assert_pose(&lookup("lonely0", "camera0", "map")?, "map", &pose(1.0, 0.1, 0.3, z90()));
+        assert_pose(&lookup("camera0", "base0", "map")?, "map", &pose(1.0, 0.0, 0.0, z90()));
+        // ID でも指定できる
+        assert_pose(
+            &lookup("lonely0", "core://core/container/camera0::rust_part", "base0")?,
+            "base0",
+            &pose(0.1, 0.0, 0.3, Quaternion::identity()),
+        );
+        // 木の外れ。Rust ABI ではホストの JuizError をプラグインで downcast できない (rust_pose_errors_have_kinds と同じ) ので、
+        // エラーのまま返ってきたものを文で確かめる
+        match lookup("camera0", "lonely0", "map") {
+            Ok(v) => assert_eq!(v, jvalue!("NoCommonAnchorError"), "abi: {abi}"),
+            Err(e) => {
+                assert_eq!(abi, "rust", "{e:#}");
+                assert!(format!("{e:#}").contains("No anchor contains"), "{e:#}");
+            }
+        }
         Ok(())
     })
 }

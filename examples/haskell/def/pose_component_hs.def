@@ -17,3 +17,5 @@ EXPORTS
     partSleep_factory_entry_point
     partTryReadonly_manifest_entry_point
     partTryReadonly_factory_entry_point
+    partLookup_manifest_entry_point
+    partLookup_factory_entry_point

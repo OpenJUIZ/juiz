@@ -64,6 +64,30 @@ impl TransformationsRegistry for FakeRegistry {
         *self.written.lock().unwrap() = Some((reference.to_owned(), *pose));
         Ok(PoseStamped::new(reference, Time { sec: 1, nanosec: 2 }, *pose))
     }
+
+    /// 呼び出し元のネームスペースと target を frame_id に入れて返す。基準 "nowhere" は NoCommonAnchorError
+    fn lookup(
+        &self,
+        caller: &ContainerIdentifier,
+        target: &str,
+        reference: &str,
+    ) -> JuizResult<PoseStamped> {
+        if reference == "nowhere" {
+            return Err(anyhow!(JuizError::NoCommonAnchorError {
+                container: target.to_owned(),
+                reference: reference.to_owned(),
+            }));
+        }
+        Ok(PoseStamped::new(
+            &format!("{reference}<-{target}@{}", caller.name),
+            Time { sec: 5, nanosec: 6 },
+            lidar_on_robot(),
+        ))
+    }
+}
+
+fn lidar_on_robot() -> Pose {
+    Pose::new(Vector3::new(0.2, 0.0, 0.4), Quaternion::new(0.0, 0.0, 0.0, 1.0))
 }
 
 fn camera_id() -> ContainerIdentifier {
@@ -236,7 +260,95 @@ fn unknown_port_version_is_not_used() {
         ctx: std::ptr::null(),
         get: None,
         set: None,
+        lookup: None,
     };
     assert!(unsafe { port_from_addr(&mut port as *mut JuizPosePort as usize) }.is_none());
     assert!(unsafe { port_from_addr(owner.addr()) }.is_some());
+}
+
+#[test]
+fn c_lookup_reads_another_container() {
+    let registry = FakeRegistry::new();
+    let owner = PosePortOwner::new(attached_handle(&registry));
+    let mut cm = CapsuleMap::new();
+    let lidar = CString::new("lidar0").unwrap();
+    let robot = CString::new("robot0").unwrap();
+    let mut out = JuizPoseStamped::default();
+
+    // 口が無い
+    let code = unsafe { juiz_container_pose_lookup(&mut cm, lidar.as_ptr(), robot.as_ptr(), &mut out) };
+    assert_eq!(code, JUIZ_TRANSFORMATIONS_NOT_ATTACHED_ERROR);
+
+    cm.set_pose_port(owner.addr());
+    let code = unsafe { juiz_container_pose_lookup(&mut cm, lidar.as_ptr(), robot.as_ptr(), &mut out) };
+    assert_eq!(code, JUIZ_OK);
+    assert_eq!(out.pose, JuizPose::from(&lidar_on_robot()));
+    assert_eq!((out.stamp.sec, out.stamp.nanosec), (5, 6));
+
+    let nowhere = CString::new("nowhere").unwrap();
+    let code = unsafe { juiz_container_pose_lookup(&mut cm, lidar.as_ptr(), nowhere.as_ptr(), &mut out) };
+    assert_eq!(code, JUIZ_NO_COMMON_ANCHOR_ERROR);
+    let code = unsafe { juiz_container_pose_lookup(&mut cm, std::ptr::null(), robot.as_ptr(), &mut out) };
+    assert_eq!(code, JUIZ_TRANSFORMATIONS_ERROR);
+    let msg = unsafe { CStr::from_ptr(juiz_container_pose_last_error()) }
+        .to_string_lossy()
+        .into_owned();
+    assert!(msg.contains("target"), "{msg}");
+}
+
+#[test]
+fn readonly_port_allows_lookup() {
+    let registry = FakeRegistry::new();
+    let owner = PosePortOwner::new_readonly(attached_handle(&registry));
+    let mut cm = CapsuleMap::new();
+    cm.set_pose_port(owner.addr());
+    let lidar = CString::new("lidar0").unwrap();
+    let robot = CString::new("robot0").unwrap();
+    let mut out = JuizPoseStamped::default();
+    let code = unsafe { juiz_container_pose_lookup(&mut cm, lidar.as_ptr(), robot.as_ptr(), &mut out) };
+    assert_eq!(code, JUIZ_OK);
+}
+
+#[test]
+fn port_registry_lookup_goes_through_host_handle() {
+    let registry = FakeRegistry::new();
+    let owner = PosePortOwner::new(attached_handle(&registry));
+    let plugin_side = ContainerPoseHandle::new(camera_id());
+    let _a = PortAttachment::attach(plugin_side.clone(), owner.addr()).unwrap();
+    // 呼び出し元はホストの Container (camera0) になる
+    let p = plugin_side.lookup("lidar0", "robot0").unwrap();
+    assert_eq!(p.reference(), "robot0<-lidar0@camera0");
+    assert!(p.pose.approx_eq(&lidar_on_robot(), 1e-12));
+    let e = plugin_side.reader().lookup("lidar0", "nowhere").unwrap_err();
+    assert!(matches!(
+        e.downcast_ref::<JuizError>(),
+        Some(JuizError::NoCommonAnchorError { container, .. }) if container == "lidar0"
+    ));
+}
+
+#[test]
+fn old_host_port_without_lookup_is_still_used() {
+    // lookup を足す前のホストの表 (struct_size が小さい)。読み書きは使え、lookup だけエラー
+    let registry = FakeRegistry::new();
+    let owner = PosePortOwner::new(attached_handle(&registry));
+    let host = unsafe { port_from_addr(owner.addr()) }.unwrap();
+    let mut old = JuizPosePort {
+        abi_version: POSE_PORT_ABI_VERSION,
+        struct_size: POSE_PORT_MIN_STRUCT_SIZE as u32,
+        ctx: host.ctx,
+        get: host.get,
+        set: host.set,
+        lookup: host.lookup,
+    };
+    let addr = &mut old as *mut JuizPosePort as usize;
+    let port = unsafe { port_from_addr(addr) };
+    assert!(port.is_some());
+    assert!(port_get(port, "map").is_ok());
+    let f = port_lookup(port, "lidar0", "robot0").unwrap_err();
+    assert_eq!(f.code, JUIZ_TRANSFORMATIONS_ERROR);
+    assert!(f.message.contains("too old"), "{}", f.message);
+
+    // さらに小さい表は受け付けない
+    old.struct_size = (POSE_PORT_MIN_STRUCT_SIZE - 8) as u32;
+    assert!(unsafe { port_from_addr(addr) }.is_none());
 }

@@ -101,6 +101,21 @@ impl<S: 'static> ContainerImpl<S> {
         self.pose.pose(reference)
     }
 
+    /// 自分以外の Container `target` (ID か名前) の、基準 Container `reference` から見た ContainerPose を読む
+    /// (docs/spec/transformations.md §7.4、#409)。tf の lookupTransform に当たり、計算規則は [`Self::pose`] と同じ。
+    /// 名前はこの Container のネームスペースで解決する。読み出しなので `&self` で、readonly ContainerProcess でも呼べる。
+    ///
+    /// ```ignore
+    /// #[juiz_component_container_process(container_type = "slam")]
+    /// fn slam_update(c: &ContainerImpl<Slam>) -> JuizResult<Capsule> {
+    ///     let lidar_on_robot = c.lookup("lidar0", "robot0")?;
+    ///     Ok(lidar_on_robot.into())
+    /// }
+    /// ```
+    pub fn lookup(&self, target: &str, reference: &str) -> JuizResult<PoseStamped> {
+        self.pose.lookup(target, reference)
+    }
+
     /// この Container を、基準 Container `reference` から見て `pose` の位置姿勢にする
     /// (docs/spec/transformations.md §7.2)。書き込みなので `&mut self` (§14)。
     ///

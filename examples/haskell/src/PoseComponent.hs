@@ -102,6 +102,23 @@ partTryReadonly _ reference = do
       | code == juizPoseNotWritableError -> "PoseNotWritableError"
       | otherwise -> "TransformationsError"
 
+-- | 自分以外の Container target を基準 reference から見た ContainerPose (#409、tf の lookupTransform)。
+-- 読み出しだけなので readonly の ContainerProcess で呼べる。木の外れは "NoCommonAnchorError" を返す
+partLookupManifest :: ProcessManifest
+partLookupManifest = containerProcessManifest "hs_part_lookup" "hs_part"
+  & readonly True
+  & addStringArg "target" "container to look up" "base0"
+  & addStringArg "reference" "reference container" "map"
+
+partLookup :: IORef Int64 -> Text -> Text -> IO Value
+partLookup _ target reference = do
+  r <- try (lookupContainerPose target reference)
+  pure $ case r of
+    Right p -> poseStampedToValue reference p
+    Left (JuizError code _)
+      | code == juizNoCommonAnchorError -> JString "NoCommonAnchorError"
+      | otherwise -> JString "TransformationsError"
+
 juizComponent 'component
   [ componentContainer 'createPart 'partManifest
   , componentContainerProcess 'partPose 'partPoseManifest
@@ -110,4 +127,5 @@ juizComponent 'component
   , componentContainerProcess 'partPeek 'partPeekManifest
   , componentContainerProcess 'partSleep 'partSleepManifest
   , componentContainerProcess 'partTryReadonly 'partTryReadonlyManifest
+  , componentContainerProcess 'partLookup 'partLookupManifest
   ]

@@ -13,9 +13,10 @@ use juiz_sdk::process_identifier::ProcessIdentifier;
 const EPS: f64 = 1e-9;
 const H: f64 = std::f64::consts::FRAC_1_SQRT_2;
 
-const PROCESSES: [&str; 6] = [
+const PROCESSES: [&str; 7] = [
     "hs_part_pose", "hs_part_set_pose", "hs_part_try",
     "hs_part_peek", "hs_part_sleep", "hs_part_try_readonly",
+    "hs_part_lookup",
 ];
 
 fn part(name: &str) -> Value {
@@ -137,6 +138,25 @@ fn haskell_container_process_reads_and_writes_pose() -> JuizResult<()> {
             .transformations
             .pose_by_name("camera0", "base0", "")?;
         assert!(t.pose.approx_eq(&pose(0.2, 0.0, 0.3, Quaternion::identity()), EPS));
+        Ok(())
+    })
+}
+
+/// lookupContainerPose (#409): 自分以外の Container を、自分以外の基準から見て読む。呼び出し元はどの木にも入っていなくてよい
+#[test]
+fn haskell_container_process_looks_up_other_containers() -> JuizResult<()> {
+    if skip_without_haskell_example() {
+        return Ok(());
+    }
+    crate::common::logger::init();
+    System::new(conf())?.setup()?.run_and_do_once(|system| {
+        let lookup = |caller: &str, target: &str, reference: &str| {
+            call(system, caller, "hs_part_lookup", jvalue!({"target": target, "reference": reference}))
+        };
+        assert_pose(&lookup("lonely0", "camera0", "base0")?, "base0", &pose(0.1, 0.0, 0.3, Quaternion::identity()));
+        assert_pose(&lookup("lonely0", "camera0", "map")?, "map", &pose(1.0, 0.1, 0.3, z90()));
+        assert_pose(&lookup("camera0", "base0", "map")?, "map", &pose(1.0, 0.0, 0.0, z90()));
+        assert_eq!(lookup("camera0", "lonely0", "map")?, jvalue!("NoCommonAnchorError"));
         Ok(())
     })
 }

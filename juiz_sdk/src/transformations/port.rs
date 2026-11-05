@@ -179,6 +179,17 @@ pub type JuizPosePortSetFn = extern "C" fn(
     error: *const JuizBytesSink,
 ) -> i64;
 
+/// 別の Container を読む関数 (§7.4、#409)。`target` は読みたい Container の名前か ID (UTF-8)。
+/// 名前は呼び出し元 Container のネームスペースで解決する。ほかは [`JuizPosePortGetFn`] と同じ
+pub type JuizPosePortLookupFn = extern "C" fn(
+    ctx: *const c_void,
+    target: JuizBytes,
+    reference: JuizBytes,
+    out: *mut JuizPoseStamped,
+    frame_id: *const JuizBytesSink,
+    error: *const JuizBytesSink,
+) -> i64;
+
 /// 呼び出し元 Container の ContainerPose の口 (§12.3)。ホストが作り、呼び出しの間だけ有効
 #[repr(C)]
 pub struct JuizPosePort {
@@ -189,6 +200,21 @@ pub struct JuizPosePort {
     pub ctx: *const c_void,
     pub get: Option<JuizPosePortGetFn>,
     pub set: Option<JuizPosePortSetFn>,
+    /// #409 で足した。`struct_size` がこの項目を含まない古いホストの口では使わない
+    pub lookup: Option<JuizPosePortLookupFn>,
+}
+
+/// 版 1 の最初の表の大きさ (`lookup` を足す前)。これより小さい表は受け付けない
+pub const POSE_PORT_MIN_STRUCT_SIZE: usize = std::mem::offset_of!(JuizPosePort, lookup);
+
+impl JuizPosePort {
+    /// `lookup` を持つ口なら、その関数 (古いホストの口では None)
+    pub fn lookup_fn(&self) -> Option<JuizPosePortLookupFn> {
+        if (self.struct_size as usize) < std::mem::offset_of!(JuizPosePort, lookup) + std::mem::size_of::<Option<JuizPosePortLookupFn>>() {
+            return None;
+        }
+        self.lookup
+    }
 }
 
 // ---- ホストの側 ----
@@ -218,6 +244,7 @@ impl PosePortOwner {
             ctx: &*handle as *const ContainerPoseHandle as *const c_void,
             get: Some(host_port_get),
             set: Some(set),
+            lookup: Some(host_port_lookup),
         });
         PosePortOwner {
             port,
@@ -294,16 +321,35 @@ fn host_guarded(
 }
 
 fn reference_str<'a>(reference: &JuizBytes) -> JuizResult<&'a str> {
-    // SAFETY: 呼び手は reference を呼び出しの間有効に保つ
-    let bytes = unsafe { reference.as_slice() }.ok_or_else(|| {
+    bytes_str(reference, "reference")
+}
+
+fn bytes_str<'a>(bytes: &JuizBytes, name: &str) -> JuizResult<&'a str> {
+    // SAFETY: 呼び手は bytes を呼び出しの間有効に保つ
+    let slice = unsafe { bytes.as_slice() }.ok_or_else(|| {
         anyhow!(JuizError::ArgumentError {
-            message: "reference is null".to_owned()
+            message: format!("{name} is null")
         })
     })?;
-    std::str::from_utf8(bytes).map_err(|e| {
+    std::str::from_utf8(slice).map_err(|e| {
         anyhow!(JuizError::ArgumentError {
-            message: format!("reference is not UTF-8 ({e})")
+            message: format!("{name} is not UTF-8 ({e})")
         })
+    })
+}
+
+extern "C" fn host_port_lookup(
+    ctx: *const c_void,
+    target: JuizBytes,
+    reference: JuizBytes,
+    out: *mut JuizPoseStamped,
+    frame_id: *const JuizBytesSink,
+    error: *const JuizBytesSink,
+) -> i64 {
+    host_guarded(error, out, frame_id, || {
+        // SAFETY: ctx は PosePortOwner が持つ ContainerPoseHandle
+        let handle = unsafe { &*(ctx as *const ContainerPoseHandle) };
+        handle.lookup(bytes_str(&target, "target")?, reference_str(&reference)?)
     })
 }
 
@@ -373,8 +419,9 @@ pub unsafe fn port_from_addr<'a>(addr: usize) -> Option<&'a JuizPosePort> {
         return None;
     }
     let port = &*(addr as *const JuizPosePort);
+    // 後ろに項目を足した表 (lookup、#409) を知らない古いホストの口も受け付ける
     if port.abi_version != POSE_PORT_ABI_VERSION
-        || (port.struct_size as usize) < std::mem::size_of::<JuizPosePort>()
+        || (port.struct_size as usize) < POSE_PORT_MIN_STRUCT_SIZE
     {
         return None;
     }
@@ -455,6 +502,42 @@ pub fn port_get(port: Option<&JuizPosePort>, reference: &str) -> Result<(JuizPos
     };
     let code = get(
         port.ctx,
+        JuizBytes::from_slice(reference.as_bytes()),
+        &mut out,
+        &frame_sink,
+        &error_sink,
+    );
+    finish(code, out, frame_id, error, reference)
+}
+
+/// 口で別の Container `target` を読む (§7.4)。値と基準の名前を返す。
+/// `lookup` を持たない古いホストの口では `JUIZ_TRANSFORMATIONS_ERROR`
+pub fn port_lookup(
+    port: Option<&JuizPosePort>,
+    target: &str,
+    reference: &str,
+) -> Result<(JuizPoseStamped, String), PortFailure> {
+    let port = port.ok_or_else(PortFailure::not_attached)?;
+    let lookup = port.lookup_fn().ok_or_else(|| PortFailure {
+        code: JUIZ_TRANSFORMATIONS_ERROR,
+        message: "the host of this container process is too old to support lookup \
+                  (update juiz)"
+            .to_owned(),
+    })?;
+    let mut out = JuizPoseStamped::default();
+    let mut frame_id: Vec<u8> = Vec::new();
+    let mut error: Vec<u8> = Vec::new();
+    let frame_sink = JuizBytesSink {
+        ctx: &mut frame_id as *mut Vec<u8> as *mut c_void,
+        write: Some(collect_into_vec),
+    };
+    let error_sink = JuizBytesSink {
+        ctx: &mut error as *mut Vec<u8> as *mut c_void,
+        write: Some(collect_into_vec),
+    };
+    let code = lookup(
+        port.ctx,
+        JuizBytes::from_slice(target.as_bytes()),
         JuizBytes::from_slice(reference.as_bytes()),
         &mut out,
         &frame_sink,
@@ -550,6 +633,17 @@ impl TransformationsRegistry for PortRegistry {
             .map_err(|f| f.into_error(&container.to_string(), reference))?;
         Ok(p.to_pose_stamped(&frame_id))
     }
+
+    fn lookup(
+        &self,
+        _caller: &ContainerIdentifier,
+        target: &str,
+        reference: &str,
+    ) -> JuizResult<PoseStamped> {
+        let (p, frame_id) =
+            port_lookup(self.port(), target, reference).map_err(|f| f.into_error(target, reference))?;
+        Ok(p.to_pose_stamped(&frame_id))
+    }
 }
 
 /// プラグインの中の Container に、呼び出しの間だけ口をつなぐ。落とすと外す
@@ -634,6 +728,17 @@ impl TransformationsRegistry for ThreadPortRegistry {
     ) -> JuizResult<PoseStamped> {
         let (p, frame_id) = port_set(self.port(), reference, &pose.into())
             .map_err(|f| f.into_error(&container.to_string(), reference))?;
+        Ok(p.to_pose_stamped(&frame_id))
+    }
+
+    fn lookup(
+        &self,
+        _caller: &ContainerIdentifier,
+        target: &str,
+        reference: &str,
+    ) -> JuizResult<PoseStamped> {
+        let (p, frame_id) =
+            port_lookup(self.port(), target, reference).map_err(|f| f.into_error(target, reference))?;
         Ok(p.to_pose_stamped(&frame_id))
     }
 }
@@ -731,12 +836,16 @@ fn null_argument(name: &str) -> PortFailure {
 }
 
 unsafe fn c_reference<'a>(reference: *const c_char) -> Result<&'a str, PortFailure> {
-    if reference.is_null() {
-        return Err(null_argument("reference"));
+    c_string(reference, "reference")
+}
+
+unsafe fn c_string<'a>(s: *const c_char, name: &str) -> Result<&'a str, PortFailure> {
+    if s.is_null() {
+        return Err(null_argument(name));
     }
-    CStr::from_ptr(reference).to_str().map_err(|e| PortFailure {
+    CStr::from_ptr(s).to_str().map_err(|e| PortFailure {
         code: JUIZ_TRANSFORMATIONS_ERROR,
-        message: format!("reference is not UTF-8 ({e})"),
+        message: format!("{name} is not UTF-8 ({e})"),
     })
 }
 
@@ -781,7 +890,29 @@ pub unsafe extern "C" fn juiz_container_pose_set(
     })
 }
 
-/// このスレッドで最後に呼んだ `juiz_container_pose_get` / `_set` のエラー文 (成功なら空)。
+/// 呼び出し元 Container 以外の Container `target` (名前か ID) の、基準 `reference` から見た ContainerPose を読む
+/// (§7.4、#409)。名前は呼び出し元 Container のネームスペースで解決する。読み出しだけなので
+/// readonly ContainerProcess からも呼べる
+#[no_mangle]
+pub unsafe extern "C" fn juiz_container_pose_lookup(
+    cm: *mut CapsuleMap,
+    target: *const c_char,
+    reference: *const c_char,
+    out: *mut JuizPoseStamped,
+) -> i64 {
+    c_guarded(|| {
+        let cm = cm.as_ref().ok_or_else(|| null_argument("capsule_map"))?;
+        let target = c_string(target, "target")?;
+        let reference = c_reference(reference)?;
+        let (p, _) = port_lookup(port_from_addr(cm.pose_port()), target, reference)?;
+        if !out.is_null() {
+            *out = p;
+        }
+        Ok(())
+    })
+}
+
+/// このスレッドで最後に呼んだ `juiz_container_pose_get` / `_set` / `_lookup` のエラー文 (成功なら空)。
 /// 文字列は次にこのスレッドでそれらを呼ぶまで有効で、解放しない
 #[no_mangle]
 pub extern "C" fn juiz_container_pose_last_error() -> *const c_char {

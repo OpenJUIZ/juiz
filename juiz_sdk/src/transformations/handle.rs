@@ -26,6 +26,16 @@ pub trait TransformationsRegistry: Send + Sync {
         reference: &str,
         pose: &Pose,
     ) -> JuizResult<PoseStamped>;
+
+    /// Container `target` (ID か名前) の、基準 `reference` (ID か名前) から見た ContainerPose (§7.4、#409)。
+    /// 計算規則は [`TransformationsRegistry::pose`] と同じ。名前は呼び出し元 Container `caller` の
+    /// ネームスペースで解決する。読み出しだけなので readonly ContainerProcess の中からも呼べる
+    fn lookup(
+        &self,
+        caller: &ContainerIdentifier,
+        target: &str,
+        reference: &str,
+    ) -> JuizResult<PoseStamped>;
 }
 
 type RegistrySlot = Arc<RwLock<Option<Weak<dyn TransformationsRegistry>>>>;
@@ -136,6 +146,13 @@ impl ContainerPoseHandle {
         registry.pose(&self.identifier, reference)
     }
 
+    /// 別の Container `target` (ID か名前) の、基準 `reference` から見た ContainerPose (§7.4、#409)。
+    /// tf の lookupTransform に当たる。名前はこの Container のネームスペースで解決する。読み出しだけ (§14)
+    pub fn lookup(&self, target: &str, reference: &str) -> JuizResult<PoseStamped> {
+        let registry = self.registry()?;
+        registry.lookup(&self.identifier, target, reference)
+    }
+
     /// この Container を、基準 `reference` から見て `pose` の位置姿勢にする (§7.2)。
     /// 値は検査・正規化してから登録所に渡す (`InvalidPoseValueError`)
     ///
@@ -176,6 +193,11 @@ impl ContainerPoseReader {
     /// 基準 `reference` から見たこの Container の ContainerPose (§7.1)
     pub fn pose(&self, reference: &str) -> JuizResult<PoseStamped> {
         self.inner.pose(reference)
+    }
+
+    /// 別の Container `target` の、基準 `reference` から見た ContainerPose (§7.4)
+    pub fn lookup(&self, target: &str, reference: &str) -> JuizResult<PoseStamped> {
+        self.inner.lookup(target, reference)
     }
 
     /// PoseState の、Anchor `anchor_id` の項目の写し

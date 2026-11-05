@@ -2,7 +2,7 @@
 //! (docs/spec/transformations.md §12.2、issue #371)
 //!
 //! Python の Container を作ったとき、ホストは利用者のオブジェクトに属性 `__juiz_pose__` として
-//! [`PyContainerPoseHandle`] を付ける。pyjuiz の `juiz.pose(self, ref)` / `juiz.set_pose(self, ref, p)` は
+//! [`PyContainerPoseHandle`] を付ける。pyjuiz の `juiz.pose(self, ref)` / `juiz.set_pose(self, ref, p)` / `juiz.lookup(self, target, ref)` は
 //! この属性を通してホストの ContainerPoseHandle を呼ぶ。値は辞書 (`juiz_std.geometry` の表し方) で行き来し、
 //! 型の値への変換は pyjuiz がする。
 
@@ -43,6 +43,14 @@ impl PyContainerPoseHandle {
     fn pose(&self, py: Python<'_>, reference: &str) -> PyResult<Py<PyAny>> {
         // 登録所のロックを待つ間は GIL を手放す (ほかのスレッドの Python を止めない)
         let r = py.detach(|| self.handle.pose(reference));
+        let v: Value = r.map_err(to_py_error)?.into();
+        Ok(value_to_pyany(py, &v))
+    }
+
+    /// 別の Container `target` の、基準 `reference` から見た ContainerPose (PoseStamped の辞書、§7.4、#409)。
+    /// 名前はこの Container のネームスペースで解決する
+    fn lookup(&self, py: Python<'_>, target: &str, reference: &str) -> PyResult<Py<PyAny>> {
+        let r = py.detach(|| self.handle.lookup(target, reference));
         let v: Value = r.map_err(to_py_error)?.into();
         Ok(value_to_pyany(py, &v))
     }

@@ -65,6 +65,11 @@ impl ContainerPtr {
         self.pose.pose(reference)
     }
 
+    /// 別の Container `target` の、基準 `reference` から見た ContainerPose (§7.4)。Container のロックは取らない
+    pub fn lookup(&self, target: &str, reference: &str) -> JuizResult<PoseStamped> {
+        self.pose.lookup(target, reference)
+    }
+
     /// この Container を基準 `reference` から見て `pose` にする (§7.2)。Container のロックは取らない
     pub fn set_pose(&self, reference: &str, pose: &Pose) -> JuizResult<PoseStamped> {
         self.pose.set_pose(reference, pose)
