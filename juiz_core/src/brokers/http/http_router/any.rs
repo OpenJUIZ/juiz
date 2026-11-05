@@ -14,7 +14,7 @@ use std::{
 use crate::brokers::crud_broker::CRUDBroker;
 use crate::brokers::localize_identifier;
 use crate::{
-    brokers::http::http_router::{multipart_to_capsule_map, system, FullQuery},
+    brokers::http::http_router::{multipart_parts_to_capsule_map, read_multipart, system, FullQuery},
     prelude::*,
 };
 
@@ -46,24 +46,26 @@ pub async fn object_post_handler(
     let v = tokio::task::spawn_blocking(move || {
         // ロックは dispatcher を取り出す間だけ握り、Process の実行中は外しておく (issue #356)
         let dispatcher = juiz_lock(&crud_broker).unwrap().dispatcher();
-        dispatcher.create_class(
-            class_name.as_str(),
-            function_name.as_str(),
-            construct_capsule_map(
-                // リクエストのボディ (マニフェストなど) を引数として渡す (issue #19)
-                body_to_capsule_map(body, &headers)?,
-                "CREATE",
+        // 応答 (画像の PNG 化など) もワーカーの外で作る (issue #363)
+        json_output_wrap((|| {
+            dispatcher.create_class(
                 class_name.as_str(),
                 function_name.as_str(),
-                query,
-                headers,
-                remote_addr,
-            ),
-        )
+                construct_capsule_map(
+                    // リクエストのボディ (マニフェストなど) を引数として渡す (issue #19)
+                    body_to_capsule_map(body, &headers)?,
+                    "CREATE",
+                    class_name.as_str(),
+                    function_name.as_str(),
+                    query,
+                    headers,
+                    remote_addr,
+                ),
+            )
+        })())
     })
     .await;
-    let r = json_output_wrap(v.unwrap());
-    r
+    v.unwrap()
 }
 
 fn body_to_capsule_map(body: Value, _headers: &HeaderMap) -> Result<CapsuleMap, anyhow::Error> {
@@ -208,24 +210,26 @@ pub async fn object_patch_handler(
     let v = tokio::task::spawn_blocking(move || {
         // ロックは dispatcher を取り出す間だけ握り、Process の実行中は外しておく (issue #356)
         let dispatcher = juiz_lock(&crud_broker).unwrap().dispatcher();
-        dispatcher.update_class(
-            class_name.as_str(),
-            function_name.as_str(),
-            construct_capsule_map(
-                body_to_capsule_map(body, &headers)?,
-                "UPDATE",
+        // 応答 (画像の PNG 化など) もワーカーの外で作る (issue #363)
+        json_output_wrap((|| {
+            dispatcher.update_class(
                 class_name.as_str(),
                 function_name.as_str(),
-                query,
-                headers,
-                remote_addr,
-            ),
-        )
+                construct_capsule_map(
+                    body_to_capsule_map(body, &headers)?,
+                    "UPDATE",
+                    class_name.as_str(),
+                    function_name.as_str(),
+                    query,
+                    headers,
+                    remote_addr,
+                ),
+            )
+        })())
     })
     .await;
     log::debug!("【patch】 Resultは{v:?}");
-    let r = json_output_wrap(v.unwrap());
-    r
+    v.unwrap()
 }
 
 #[utoipa::path(
@@ -251,28 +255,35 @@ pub async fn object_put_handler(
 ) -> impl IntoResponse {
     let map = full_query_to_map(&query);
     log::trace!("[PUT] ({class_name}, {function_name}, {map:?}, {multipart:?}) called");
-    match multipart_to_capsule_map(multipart).await {
-        Ok(capsule_map) => {
+    // 本文は読むだけにして、PNG の展開はワーカーの外で行う (issue #363)
+    match read_multipart(multipart).await {
+        Ok(parts) => {
             let v = tokio::task::spawn_blocking(move || {
+                let capsule_map = match multipart_parts_to_capsule_map(parts) {
+                    Ok(cm) => cm,
+                    Err(e) => return e.into_response(),
+                };
                 // ロックは dispatcher を取り出す間だけ握り、Process の実行中は外しておく (issue #356)
                 let dispatcher = juiz_lock(&crud_broker).unwrap().dispatcher();
-                dispatcher.update_class(
-                    class_name.as_str(),
-                    function_name.as_str(),
-                    construct_capsule_map(
-                        capsule_map,
-                        "UPDATE",
+                // 応答 (画像の PNG 化など) もワーカーの外で作る (issue #363)
+                json_output_wrap(
+                    dispatcher.update_class(
                         class_name.as_str(),
                         function_name.as_str(),
-                        query,
-                        headers,
-                        remote_addr,
+                        construct_capsule_map(
+                            capsule_map,
+                            "UPDATE",
+                            class_name.as_str(),
+                            function_name.as_str(),
+                            query,
+                            headers,
+                            remote_addr,
+                        ),
                     ),
                 )
             })
             .await;
-            let r = json_output_wrap(v.unwrap());
-            r.into_response()
+            v.unwrap()
         }
         Err(e) => e.into_response(),
     }
@@ -311,6 +322,8 @@ pub async fn object_get_handler(
         let v = tokio::task::spawn_blocking(move || {
             // ロックは dispatcher を取り出す間だけ握り、Process の実行中は外しておく (issue #356)
             let dispatcher = juiz_lock(&crud_broker).unwrap().dispatcher();
+            // 応答 (画像の PNG 化など) もワーカーの外で作る (issue #363)
+            json_output_wrap(
             dispatcher.read_class(
                 class_name.as_str(),
                 function_name.as_str(),
@@ -324,9 +337,10 @@ pub async fn object_get_handler(
                     remote_addr,
                 ),
             )
+            )
         })
         .await;
-        return json_output_wrap(v.unwrap()).into_response();
+        return v.unwrap();
     }
 }
 
@@ -353,6 +367,8 @@ pub async fn object_delete_handler(
     let v = tokio::task::spawn_blocking(move || {
         // ロックは dispatcher を取り出す間だけ握り、Process の実行中は外しておく (issue #356)
         let dispatcher = juiz_lock(&crud_broker).unwrap().dispatcher();
+        // 応答 (画像の PNG 化など) もワーカーの外で作る (issue #363)
+        json_output_wrap(
         dispatcher.delete_class(
             class_name.as_str(),
             function_name.as_str(),
@@ -366,10 +382,10 @@ pub async fn object_delete_handler(
                 remote_addr,
             ),
         )
+        )
     })
     .await;
-    let r = json_output_wrap(v.unwrap());
-    r
+    v.unwrap()
 }
 
 pub fn object_router(crud_broker: Arc<Mutex<CRUDBroker>>) -> Router {
