@@ -15,13 +15,17 @@
 
     lookup(slam, "lidar0", "robot0")           # robot0 から見た lidar0 の位置姿勢 (PoseStamped)
 
+Transform の値は set_transform で書く (§7.5、#410。自分が端点か、conf の writers に入っている Transform だけ)::
+
+    set_transform(slam, "map", "odom", Transform(translation=Vector3(x=0.1)))
+
 第 1 引数 (利用者のオブジェクト) には、juiz が Container を作ったときに属性 ``__juiz_pose__``
 (ホストの口) を付けている。``__slots__`` を持つクラスや組み込みの型 (dict など) には付けられないので、
 Container の constructor は普通のクラスのオブジェクトを返すこと。
 
-読み出し (pose・lookup) と書き込み (set_pose) は別の関数にしてある (§14)。
+読み出し (pose・lookup) と書き込み (set_pose・set_transform) は別の関数にしてある (§14)。
 ``@juiz_container_process(..., readonly=True)`` の ContainerProcess の中で set_pose を呼ぶと
-PoseNotWritableError になる (#377)。
+PoseNotWritableError、set_transform を呼ぶと TransformNotWritableError になる (#377)。
 """
 
 POSE_HANDLE_ATTRIBUTE = "__juiz_pose__"
@@ -48,6 +52,15 @@ class InvalidPoseValueError(TransformationsError):
     """長さ 0 の四元数、NaN・無限大"""
 
 
+class TransformNotWritableError(TransformationsError):
+    """set_transform で、呼び出し元 Container が端点でも writers でもない Transform への書き込み、
+    readonly の ContainerProcess からの書き込み (§7.5、#410)"""
+
+
+class TransformNotFoundError(TransformationsError):
+    """set_transform の Transform が無い (§7.5、#410)"""
+
+
 class TransformationsNotAttachedError(TransformationsError):
     """System に登録されていない (Transformations につながっていない) Container の読み書き、
     または juiz が作った Container のオブジェクトでないものを渡したとき"""
@@ -55,7 +68,8 @@ class TransformationsNotAttachedError(TransformationsError):
 
 _ERRORS = {
     c.__name__: c
-    for c in (NoCommonAnchorError, PoseNotWritableError, InvalidPoseValueError, TransformationsNotAttachedError)
+    for c in (NoCommonAnchorError, PoseNotWritableError, InvalidPoseValueError, TransformationsNotAttachedError,
+              TransformNotWritableError, TransformNotFoundError)
 }
 
 
@@ -131,3 +145,30 @@ def lookup(container, target, reference):
     ネームスペースで解決する。計算規則は pose と同じ。読み出しだけなので readonly の ContainerProcess でも呼べる"""
     h = _handle(container)
     return _pose_stamped(_call(h.lookup, _reference(target, "target"), _reference(reference)))
+
+
+def _transform_value(value) -> dict:
+    """set_transform に渡せる値 (Transform、TransformStamped、それぞれの dict) を Transform の dict にする"""
+    if hasattr(value, "to_value") and callable(value.to_value):
+        value = value.to_value()
+    if not isinstance(value, dict):
+        raise TypeError(
+            "value には juiz_std.geometry.Transform / TransformStamped か dict を渡してください: {!r}".format(
+                type(value).__name__))
+    if "transform" in value and "translation" not in value and "rotation" not in value:
+        # TransformStamped は transform だけを使う (端点は引数 source / destination。header は見ない)
+        value = value["transform"]
+    return value
+
+
+def set_transform(container, source, destination, value):
+    """Container (ContainerProcess の第 1 引数) から、Transform (source → destination) の値を value
+    (juiz_std.geometry.Transform / TransformStamped / dict) にする (§7.5、#410)。結果は API の transform/update と同じ。
+    source・destination は Container の名前か ID で、名前は container のネームスペースで解決する。
+    書けるのは container が端点か、conf の transforms: の writers に入っている Transform だけ
+    (TransformNotWritableError)。書いた後の値を juiz_std.geometry.TransformStamped で返す"""
+    from juiz_std.geometry import TransformStamped
+    h = _handle(container)
+    v = _call(h.set_transform, _reference(source, "source"), _reference(destination, "destination"),
+              _transform_value(value))
+    return TransformStamped.from_value(v)

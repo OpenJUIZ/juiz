@@ -11,6 +11,8 @@
 //   }
 //
 // 自分以外の Container の位置は juiz::lookup(base, "lidar0", "robot0") で読む (robot0 から見た lidar0、§7.4、#409)。
+// Transform の値は juiz::set_transform(slam, "map", "odom", juiz::make_transform(0.1, 0, 0)) で書く (§7.5、#410。
+// 自分が端点か、conf の transforms: の writers に入っている Transform だけ)。
 // 値は C の構造体 juiz_pose / juiz_pose_stamped (juiz_sdk.h)。四元数の並びは (x, y, z, w)。
 // 平面の移動ロボットは juiz::make_pose_2d(x, y, yaw) / juiz::yaw(pose)、3 次元の向きは
 // juiz::from_rpy / juiz::to_rpy で四元数と roll・pitch・yaw を変換できる (#412)。
@@ -31,7 +33,7 @@
 
 namespace juiz {
 
-    // ContainerPose の読み書きの失敗。code() は juiz_sdk.h の JUIZ_*_ERROR (-901〜-905)
+    // ContainerPose の読み書きの失敗。code() は juiz_sdk.h の JUIZ_*_ERROR (-901〜-907)
     class TransformationsError : public std::runtime_error {
     private:
         int64_t code_;
@@ -58,6 +60,18 @@ namespace juiz {
     class InvalidPoseValueError : public TransformationsError {
     public:
         explicit InvalidPoseValueError(const std::string& m) : TransformationsError(JUIZ_INVALID_POSE_VALUE_ERROR, m) {}
+    };
+
+    // set_transform で、書いてはいけない Transform への書き込み (§7.5、#410)
+    class TransformNotWritableError : public TransformationsError {
+    public:
+        explicit TransformNotWritableError(const std::string& m) : TransformationsError(JUIZ_TRANSFORM_NOT_WRITABLE_ERROR, m) {}
+    };
+
+    // set_transform の Transform が無い (§7.5、#410)
+    class TransformNotFoundError : public TransformationsError {
+    public:
+        explicit TransformNotFoundError(const std::string& m) : TransformationsError(JUIZ_TRANSFORM_NOT_FOUND_ERROR, m) {}
     };
 
     namespace detail {
@@ -100,6 +114,8 @@ namespace juiz {
             case JUIZ_NO_COMMON_ANCHOR_ERROR: throw NoCommonAnchorError(message);
             case JUIZ_POSE_NOT_WRITABLE_ERROR: throw PoseNotWritableError(message);
             case JUIZ_INVALID_POSE_VALUE_ERROR: throw InvalidPoseValueError(message);
+            case JUIZ_TRANSFORM_NOT_WRITABLE_ERROR: throw TransformNotWritableError(message);
+            case JUIZ_TRANSFORM_NOT_FOUND_ERROR: throw TransformNotFoundError(message);
             default: throw TransformationsError(code, message);
             }
         }
@@ -108,7 +124,7 @@ namespace juiz {
             capsule_map* cm = pose_call_of(container);
             if (!cm) {
                 throw TransformationsNotAttachedError(
-                    "juiz::pose / juiz::set_pose / juiz::lookup can be used only while a container process of the container is running "
+                    "juiz::pose / juiz::set_pose / juiz::lookup / juiz::set_transform can be used only while a container process of the container is running "
                     "(on the thread that juiz called it)");
             }
             return cm;
@@ -226,6 +242,57 @@ namespace juiz {
             detail::throw_transformations_error(r);
         }
         return out;
+    }
+
+    // 平行移動 (x, y, z) と四元数 (qx, qy, qz, qw) から juiz_transform を作る (§7.5)
+    inline juiz_transform make_transform(double x, double y, double z, double qx = 0, double qy = 0, double qz = 0, double qw = 1) {
+        juiz_transform t;
+        t.translation.x = x; t.translation.y = y; t.translation.z = z;
+        t.rotation.x = qx; t.rotation.y = qy; t.rotation.z = qz; t.rotation.w = qw;
+        return t;
+    }
+
+    // 平面 (z = 0) の平行移動 (x, y) と z 軸まわりの回転 yaw [rad] から juiz_transform を作る
+    inline juiz_transform make_transform_2d(double x, double y, double yaw) {
+        const juiz_quaternion q = from_rpy(0.0, 0.0, yaw);
+        return make_transform(x, y, 0.0, q.x, q.y, q.z, q.w);
+    }
+
+    // container から、Transform (source → destination、名前か ID) の値を t にする (§7.5、#410)。書いた後の値を返す。
+    // 結果は API の transform/update と同じ。名前は container のネームスペースで解決する。
+    // 書けるのは container が端点か、conf の transforms: の writers に入っている Transform だけ (TransformNotWritableError)。
+    // readonly の ContainerProcess (Container を const T* で受け取る) からは呼べない (§14)
+    template<typename U>
+    juiz_transform_stamped set_transform(U* container, const std::string& source, const std::string& destination, const juiz_transform& t) {
+        static_assert(!std::is_const_v<U>,
+            "juiz::set_transform can not be called from a readonly container process (the container is const)");
+        capsule_map* cm = detail::require_pose_call(static_cast<const void*>(container));
+        juiz_transform_stamped out{};
+        int64_t r = juiz_container_transform_set(cm, source.c_str(), destination.c_str(), &t, &out);
+        if (r != JUIZ_OK) {
+            detail::throw_transformations_error(r);
+        }
+        return out;
+    }
+
+    // juiz_std.geometry.Transform の辞書にする
+    inline juiz::Value transform_to_value(const juiz_transform& t) {
+        return juiz::Value{
+            {"translation", juiz::Value{{"x", t.translation.x}, {"y", t.translation.y}, {"z", t.translation.z}}},
+            {"rotation", juiz::Value{{"x", t.rotation.x}, {"y", t.rotation.y}, {"z", t.rotation.z}, {"w", t.rotation.w}}},
+        };
+    }
+
+    // juiz_std.geometry.TransformStamped の辞書にする (header.frame_id は source、child_frame_id は destination)
+    inline juiz::Value transform_to_value(const juiz_transform_stamped& t, const std::string& source, const std::string& destination) {
+        return juiz::Value{
+            {"header", juiz::Value{
+                {"stamp", juiz::Value{{"sec", t.stamp.sec}, {"nanosec", (int64_t)t.stamp.nanosec}}},
+                {"frame_id", source},
+            }},
+            {"child_frame_id", destination},
+            {"transform", transform_to_value(t.transform)},
+        };
     }
 
     // juiz_std.geometry.Pose の辞書にする

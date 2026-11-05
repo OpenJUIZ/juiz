@@ -10,6 +10,9 @@ def py_part_try_readonly(part, op: str = "pose", reference: str = "map") -> str:
             juiz.pose(part, reference)
         elif op == "set_pose":
             juiz.set_pose(part, reference, {"position": {"x": 1.0}})
+        elif op == "set_transform":
+            # #410: Transform の書き込みも止まる (TransformNotWritableError)
+            juiz.set_transform(part, reference, "base0", {"translation": {"x": 1.0}})
         return "ok"
     except juiz.TransformationsError as e:
         return type(e).__name__

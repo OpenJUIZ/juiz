@@ -5,7 +5,7 @@
 //! グルーがプラグインの中の ContainerImpl につなぐ (docs/spec/rust-plugin-abi.md §8.4)。
 //! Rust ABI (conf の `abi: rust`) ではホストの ContainerImpl がそのまま渡る。どちらでも書き方は同じ。
 
-use juiz_sdk::geometry::{Pose, Quaternion, Vector3};
+use juiz_sdk::geometry::{Pose, Quaternion, Transform, Vector3};
 use juiz_sdk::prelude::*;
 
 pub struct RustPart {
@@ -101,12 +101,18 @@ fn rust_part_try_readonly(c: &ContainerImpl<RustPart>, op: String, reference: St
             .pose_handle()
             .set_pose(&reference, &Pose::new(Vector3::new(1.0, 0.0, 0.0), Quaternion::identity()))
             .map(|_| ()),
+        // #410: Transform の書き込みも止まる (TransformNotWritableError)
+        "set_transform" => c
+            .pose_handle()
+            .set_transform(&reference, "base0", &Transform::identity())
+            .map(|_| ()),
         _ => Ok(()),
     };
     let name = match r {
         Ok(()) => "ok".to_owned(),
         Err(e) => match e.chain().find_map(|c| c.downcast_ref::<JuizError>()) {
             Some(JuizError::PoseNotWritableError { .. }) => "PoseNotWritableError".to_owned(),
+            Some(JuizError::TransformNotWritableError { .. }) => "TransformNotWritableError".to_owned(),
             _ => format!("other: {e:#}"),
         },
     };
@@ -126,6 +132,34 @@ fn rust_part_lookup(c: &ContainerImpl<RustPart>, target: String, reference: Stri
     }
 }
 
+/// Transform (source → destination) の値を (x, y, z)・(qx, qy, qz, qw) にする (#410)。書いた後の
+/// TransformStamped の辞書を返す。書けない・無いときは "TransformNotWritableError" / "TransformNotFoundError" を返す
+#[juiz_component_container_process(container_type = "rust_part" arguments = {
+    default = { source = "map" destination = "base0" x = 0.0 y = 0.0 z = 0.0 qx = 0.0 qy = 0.0 qz = 0.0 qw = 1.0 }
+})]
+fn rust_part_set_transform(
+    c: &mut ContainerImpl<RustPart>,
+    source: String,
+    destination: String,
+    x: f64,
+    y: f64,
+    z: f64,
+    qx: f64,
+    qy: f64,
+    qz: f64,
+    qw: f64,
+) -> JuizResult<Capsule> {
+    let value = Transform::new(Vector3::new(x, y, z), Quaternion::new(qx, qy, qz, qw));
+    match c.set_transform(&source, &destination, value) {
+        Ok(t) => Ok(t.into()),
+        Err(e) => match e.chain().find_map(|c| c.downcast_ref::<JuizError>()) {
+            Some(JuizError::TransformNotWritableError { .. }) => Ok(jvalue!("TransformNotWritableError").into()),
+            Some(JuizError::TransformNotFoundError { .. }) => Ok(jvalue!("TransformNotFoundError").into()),
+            _ => Err(e),
+        },
+    }
+}
+
 juiz_component_manifest!(
     component_name = "pose_part_component"
     containers = {
@@ -136,7 +170,8 @@ juiz_component_manifest!(
             rust_part_peek,
             rust_part_sleep,
             rust_part_try_readonly,
-            rust_part_lookup
+            rust_part_lookup,
+            rust_part_set_transform
         ]
     }
 );

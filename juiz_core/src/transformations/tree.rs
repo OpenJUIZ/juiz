@@ -23,6 +23,8 @@ pub(super) struct TransformEntry {
     pub imported: bool,
     /// System をまたぐ Transform (始点が写しの始点 P') の取り込みの設定 (§19.4)
     pub remote: Option<RemoteParams>,
+    /// 端点のほかに `set_transform` で値を書いてよい Container の ID (§7.5、#410)
+    pub writers: Vec<String>,
 }
 
 /// System をまたぐ Transform の取り込みの設定 (§19.4)

@@ -134,6 +134,42 @@ std::optional<juiz::Value> cpp_part_lookup(const CppPart* part, const std::strin
 }
 COMPONENT_CONTAINER_PROCESS_FACTORY(CppPart, cpp_part_lookup_manif, cpp_part_lookup);
 
+// Transform (source → destination) の値を平面の (x, y, yaw) にする (#410)。書いた後の TransformStamped の辞書を返す。
+// 端点でも writers でもない・Transform が無いときはエラーの種類 (例外のクラス名) を返す
+static auto cpp_part_set_transform_manif = ProcessManifest("cpp_part_set_transform")
+    .add_string_arg("source", "始点", "map")
+    .add_string_arg("destination", "終点", "base0")
+    .add_float_arg("x", "", 0.0).add_float_arg("y", "", 0.0).add_float_arg("yaw", "", 0.0);
+std::optional<juiz::Value> cpp_part_set_transform(CppPart* part, const std::string& source, const std::string& destination,
+                                                  const double x, const double y, const double yaw) {
+    try {
+        auto t = juiz::set_transform(part, source, destination, juiz::make_transform_2d(x, y, yaw));
+        return juiz::transform_to_value(t, source, destination);
+    } catch (juiz::TransformNotWritableError&) {
+        return juiz::Value("TransformNotWritableError");
+    } catch (juiz::TransformNotFoundError&) {
+        return juiz::Value("TransformNotFoundError");
+    }
+}
+COMPONENT_CONTAINER_PROCESS_FACTORY(CppPart, cpp_part_set_transform_manif, cpp_part_set_transform);
+
+// readonly の中から Transform を書こうとする (#410)。juiz::set_transform は const の Container では static_assert で
+// 止まるので、libjuiz_sdk の C の関数を直接呼ぶ。juiz が渡す口が JUIZ_TRANSFORM_NOT_WRITABLE_ERROR を返す
+static auto cpp_part_try_readonly_transform_manif = ProcessManifest("cpp_part_try_readonly_transform")
+    .readonly()
+    .add_string_arg("source", "始点", "map");
+std::optional<std::string> cpp_part_try_readonly_transform(const CppPart* part, const std::string& source) {
+    capsule_map* cm = juiz::detail::require_pose_call(part);
+    juiz_transform t = juiz::make_transform(1.0, 0.0, 0.0);
+    juiz_transform_stamped out{};
+    int64_t r = juiz_container_transform_set(cm, source.c_str(), "base0", &t, &out);
+    if (r == JUIZ_TRANSFORM_NOT_WRITABLE_ERROR) {
+        return std::string("TransformNotWritableError");
+    }
+    return std::string("returned ") + std::to_string(r);
+}
+COMPONENT_CONTAINER_PROCESS_FACTORY(CppPart, cpp_part_try_readonly_transform_manif, cpp_part_try_readonly_transform);
+
 // 四元数と角度の変換 (#412)。roll・pitch・yaw から作った四元数、それを戻した roll・pitch・yaw、
 // make_pose_2d(x, y, yaw) とその yaw を返す (Container は要らない)
 static auto cpp_pose_angles_manif = ProcessManifest("cpp_pose_angles")
@@ -166,6 +202,8 @@ auto component_manifest() {
         .add_process(cpp_part_sleep_manifest())
         .add_process(cpp_part_try_readonly_manifest())
         .add_process(cpp_part_lookup_manifest())
+        .add_process(cpp_part_set_transform_manifest())
+        .add_process(cpp_part_try_readonly_transform_manifest())
       );
 }
 DEFINE_COMPONENT_MANIFEST_ENTRY_POINT(component_manifest)

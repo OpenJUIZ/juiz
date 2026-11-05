@@ -12,7 +12,7 @@ use juiz_sdk::process_identifier::ProcessIdentifier;
 const EPS: f64 = 1e-9;
 const H: f64 = std::f64::consts::FRAC_1_SQRT_2;
 
-const PROCESSES: [&str; 8] = [
+const PROCESSES: [&str; 10] = [
     "cpp_part_pose",
     "cpp_part_set_pose",
     "cpp_part_try",
@@ -21,6 +21,8 @@ const PROCESSES: [&str; 8] = [
     "cpp_part_sleep",
     "cpp_part_try_readonly",
     "cpp_part_lookup",
+    "cpp_part_set_transform",
+    "cpp_part_try_readonly_transform",
 ];
 
 fn part(name: &str) -> Value {
@@ -50,9 +52,11 @@ fn conf() -> Value {
             part("lonely0"),
         ],
         "transforms": [
+            // lonely0 は端点ではないが set_transform で書いてよい (#410)
             { "source": "map", "destination": "base0",
               "translation": {"x": 1.0, "y": 0.0, "z": 0.0},
-              "rotation": {"x": 0.0, "y": 0.0, "z": H, "w": H} },
+              "rotation": {"x": 0.0, "y": 0.0, "z": H, "w": H},
+              "writers": ["lonely0"] },
             { "source": "base0", "destination": "camera0",
               "translation": {"x": 0.1, "y": 0.0, "z": 0.3} },
         ],
@@ -290,6 +294,44 @@ fn cpp_pose_angle_helpers_match_rust() -> JuizResult<()> {
             }
             assert!((f(&r, &["yaw_2d"]) - yaw).abs() < EPS, "{r}");
         }
+        Ok(())
+    })
+}
+
+/// set_transform (#410): 端点か writers の Container だけが Transform の値を書ける (平面の x, y, yaw で書く)
+#[test]
+fn cpp_container_process_sets_transforms() -> JuizResult<()> {
+    crate::common::logger::init();
+    System::new(conf())?.setup()?.run_and_do_once(|system| {
+        let set = |caller: &str, source: &str, destination: &str, x: f64, y: f64, yaw: f64| {
+            call(
+                system,
+                caller,
+                "cpp_part_set_transform",
+                jvalue!({"source": source, "destination": destination, "x": x, "y": y, "yaw": yaw}),
+            )
+        };
+        // writers の lonely0 が map → base0 を書く。camera0 は base0 の子なので一緒に動く
+        let t = set("lonely0", "map", "base0", 2.0, 0.0, std::f64::consts::FRAC_PI_2)?;
+        let t: juiz_sdk::geometry::TransformStamped = (&t).try_into()?;
+        assert_eq!((t.source(), t.destination()), ("map", "base0"));
+        assert!((t.transform.rotation.z - H).abs() < EPS, "{t:?}");
+        let p = call(system, "camera0", "cpp_part_pose", jvalue!({"reference": "map"}))?;
+        assert_pose(&p, "map", &pose(2.0, 0.1, 0.3, z90()));
+        // 端点の camera0 は base0 → camera0 を書ける
+        set("camera0", "base0", "camera0", 0.2, 0.0, 0.0)?;
+        let p = call(system, "camera0", "cpp_part_pose", jvalue!({"reference": "base0"}))?;
+        assert_pose(&p, "base0", &pose(0.2, 0.0, 0.0, Quaternion::identity()));
+        // 端点でも writers でもない / 無い Transform
+        assert_eq!(set("camera0", "map", "base0", 0.0, 0.0, 0.0)?, jvalue!("TransformNotWritableError"));
+        assert_eq!(set("lonely0", "base0", "lonely0", 0.0, 0.0, 0.0)?, jvalue!("TransformNotFoundError"));
+        // readonly の中からは書けない (§14)
+        assert_eq!(
+            call(system, "base0", "cpp_part_try_readonly_transform", jvalue!({"source": "map"}))?,
+            jvalue!("TransformNotWritableError")
+        );
+        let p = call(system, "camera0", "cpp_part_pose", jvalue!({"reference": "map"}))?;
+        assert_pose(&p, "map", &pose(2.0, 0.2, 0.0, z90()));
         Ok(())
     })
 }

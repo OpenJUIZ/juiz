@@ -391,6 +391,14 @@ pub enum JuizError {
     /// 指定の Transform がない
     #[error("Transform({identifier}) is not found.")]
     TransformNotFoundError { identifier: String },
+    /// ContainerProcess から書けない Transform への `set_transform` (§7.5、#410)。呼び出し元 Container が
+    /// 端点でも `writers` でもない、readonly ContainerProcess からの書き込み、取り込みの辺への書き込み
+    #[error("Transform({identifier}) can not be written by Container({container}): {message}")]
+    TransformNotWritableError {
+        identifier: String,
+        container: String,
+        message: String,
+    },
     /// Pose 通知の登録の不備 (引数・型・二重登録)
     #[error("Pose listener error: {message}")]
     PoseListenerError { message: String },

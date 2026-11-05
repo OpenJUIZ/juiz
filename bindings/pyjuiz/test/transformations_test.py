@@ -1,4 +1,4 @@
-"""juiz.pose / juiz.set_pose / juiz.lookup (issue #371、#409) の Python 側のテスト
+"""juiz.pose / juiz.set_pose / juiz.lookup / juiz.set_transform (issue #371、#409、#410) の Python 側のテスト
 
 ホストの口 (属性 __juiz_pose__) の代わりに偽物を付け、値の変換とエラーの振り分けを確かめる。
 ホストとつないだ確認は juiz_core の tests/integration/python_transformations_test.rs。
@@ -11,7 +11,7 @@ import sys
 sys.path.append('.')
 
 import juiz
-from juiz_std.geometry import Point3D, Pose, PoseStamped, Quaternion
+from juiz_std.geometry import Point3D, Pose, PoseStamped, Quaternion, Transform, TransformStamped, Vector3
 
 STAMPED = {
     'header': {'stamp': {'sec': 1, 'nanosec': 2}, 'frame_id': 'map'},
@@ -45,6 +45,14 @@ class FakeHandle:
         assert isinstance(value, dict)
         self.written = (reference, value)
         return {'header': {'frame_id': reference}, 'pose': value}
+
+    def set_transform(self, source, destination, value):
+        if self.error:
+            raise RuntimeError(self.error, 'message')
+        assert isinstance(source, str) and isinstance(destination, str) and isinstance(value, dict)
+        self.transform_written = (source, destination, value)
+        return {'header': {'stamp': {'sec': 5, 'nanosec': 6}, 'frame_id': source},
+                'child_frame_id': destination, 'transform': value}
 
 
 class Part:
@@ -102,6 +110,27 @@ for value in [pose, pose.to_value(), PoseStamped(pose=pose), PoseStamped(pose=po
     assert Pose.from_value(written) == pose, written
     assert r.pose == pose
 
+# Transform を書く: Transform・TransformStamped・それぞれの dict を受け付け、ホストには Transform の dict が渡る
+t = Transform(translation=Vector3(x=0.1, y=-0.2), rotation=Quaternion(z=1.0, w=0.0))
+for value in [t, t.to_value(), TransformStamped(transform=t), TransformStamped(transform=t).to_value()]:
+    c = part()
+    r = juiz.set_transform(c, 'map', 'odom', value)
+    assert isinstance(r, TransformStamped)
+    source, destination, written = c.__juiz_pose__.transform_written
+    assert (source, destination) == ('map', 'odom')
+    assert Transform.from_value(written) == t, written
+    assert r.header.frame_id == 'map' and r.child_frame_id == 'odom'
+    assert r.transform == t
+c = part()
+juiz.set_transform(c, Ref(), 'odom', t)
+assert c.__juiz_pose__.transform_written[0] == 'core://core/container/map::static_anchor'
+for bad in [(1, 'odom', t), ('map', None, t), ('map', 'odom', 1.0), ('map', 'odom', [0, 0, 0])]:
+    try:
+        juiz.set_transform(part(), *bad)
+        raise AssertionError('should fail')
+    except TypeError:
+        pass
+
 # 型の違う値
 for bad in [1.0, [1, 2, 3], 'pose']:
     try:
@@ -120,9 +149,11 @@ for kind, cls in [('NoCommonAnchorError', juiz.NoCommonAnchorError),
                   ('PoseNotWritableError', juiz.PoseNotWritableError),
                   ('InvalidPoseValueError', juiz.InvalidPoseValueError),
                   ('TransformationsNotAttachedError', juiz.TransformationsNotAttachedError),
+                  ('TransformNotWritableError', juiz.TransformNotWritableError),
+                  ('TransformNotFoundError', juiz.TransformNotFoundError),
                   ('ObjectLockError', juiz.TransformationsError)]:
     for f in [lambda c: juiz.pose(c, 'map'), lambda c: juiz.set_pose(c, 'map', pose),
-              lambda c: juiz.lookup(c, 'lidar0', 'map')]:
+              lambda c: juiz.lookup(c, 'lidar0', 'map'), lambda c: juiz.set_transform(c, 'map', 'odom', t)]:
         try:
             f(part(kind))
             raise AssertionError('should fail')

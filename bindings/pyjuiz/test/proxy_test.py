@@ -130,10 +130,13 @@ def check_transformations(port):
     pymap = system.create_anchor("pymap")
     assert pymap.type_name() == "static_anchor", pymap
     assert pymap.identifier() in system.anchors()
-    t1 = system.create_transform("pymap", "c0", translation=(1, 0, 0), rotation=(0, 0, h, h))
+    t1 = system.create_transform("pymap", "c0", translation=(1, 0, 0), rotation=(0, 0, h, h), writers=["robot1/c0"])
+    # writers (#410) は ID に直って profile に出る
     # ネームスペース robot1 の c0 は 'robot1/c0' で指す
     t2 = system.create_transform("c0", "robot1/c0", translation={"x": 0.1, "y": 0.0, "z": 0.3})
     assert t2["identifier"] in system.transforms()
+    assert t1["writers"] == ["core://core/container/robot1/c0::example_container"], t1
+    assert "writers" not in t2, t2
     assert system.transform(t2["identifier"])["destination"] == "core://core/container/robot1/c0::example_container"
 
     p = system.pose("robot1/c0", "pymap")

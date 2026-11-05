@@ -21,6 +21,8 @@ module Juiz.Error
   , juizPoseNotWritableError
   , juizInvalidPoseValueError
   , juizTransformationsError
+  , juizTransformNotWritableError
+  , juizTransformNotFoundError
   ) where
 
 import Control.Exception (Exception, throwIO)
@@ -94,3 +96,12 @@ juizInvalidPoseValueError = -904
 -- | そのほかの ContainerPose の失敗
 juizTransformationsError :: Int64
 juizTransformationsError = -905
+
+-- | 'Juiz.Pose.setTransform' で、呼び出し元 Container が端点でも writers でもない Transform への書き込み、
+-- readonly の ContainerProcess からの書き込み (§7.5、#410)
+juizTransformNotWritableError :: Int64
+juizTransformNotWritableError = -906
+
+-- | 'Juiz.Pose.setTransform' の Transform が無い (§7.5、#410)
+juizTransformNotFoundError :: Int64
+juizTransformNotFoundError = -907

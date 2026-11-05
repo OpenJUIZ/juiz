@@ -19,3 +19,7 @@ EXPORTS
     partTryReadonly_factory_entry_point
     partLookup_manifest_entry_point
     partLookup_factory_entry_point
+    partSetTransform_manifest_entry_point
+    partSetTransform_factory_entry_point
+    partTryReadonlyTransform_manifest_entry_point
+    partTryReadonlyTransform_factory_entry_point
