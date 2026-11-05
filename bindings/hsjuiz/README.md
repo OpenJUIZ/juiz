@@ -344,7 +344,7 @@ libjuiz_sdk は、v0.0.26 から [GitHub Releases](https://github.com/OpenJUIZ/j
 `scripts/install-juiz-sdk.sh` で取得して `~/.juiz/sdk/<版>` に展開できます。
 
 ```terminal
-curl -fsSL https://raw.githubusercontent.com/OpenJUIZ/juiz/main/scripts/install-juiz-sdk.sh | sh -s -- 0.2.3
+curl -fsSL https://raw.githubusercontent.com/OpenJUIZ/juiz/main/scripts/install-juiz-sdk.sh | sh -s -- 0.2.4
 ```
 
 それより前の版では、juiz のソースを同じ版のタグで取得し、`cargo build --release -p juiz_sdk` でできる `target/release` の libjuiz_sdk を使います。
@@ -355,15 +355,15 @@ Template Haskell(`juizProcess` など)を実行するときに GHC が hsjuiz �
 できたライブラリにも libjuiz_sdk の場所が rpath として入ります。
 
 ```cabal
-packages: . /home/me/juiz-0.2.3/bindings/hsjuiz
+packages: . /home/me/juiz-0.2.4/bindings/hsjuiz
 
 package hsjuiz
-  extra-lib-dirs: /home/me/.juiz/sdk/0.2.3/lib
-  ghc-options: -optl-Wl,-rpath,/home/me/.juiz/sdk/0.2.3/lib
+  extra-lib-dirs: /home/me/.juiz/sdk/0.2.4/lib
+  ghc-options: -optl-Wl,-rpath,/home/me/.juiz/sdk/0.2.4/lib
 ```
 
 ```terminal
-git clone --depth 1 --branch v0.2.3 https://github.com/OpenJUIZ/juiz.git /home/me/juiz-0.2.3
+git clone --depth 1 --branch v0.2.4 https://github.com/OpenJUIZ/juiz.git /home/me/juiz-0.2.4
 cabal build all
 ```
 
