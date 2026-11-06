@@ -1,5 +1,5 @@
 [package]
-rust-version = "1.81"
+rust-version = "1.89"
 name = "juiz_meta"
 license.workspace = true
 version = "0.4.0"

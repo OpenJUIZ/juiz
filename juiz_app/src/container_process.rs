@@ -13,7 +13,7 @@ use crate::Args;
 
 #[derive(Debug, Subcommand, Clone)]
 pub(crate) enum ContProcSubCommands {
-    /// get logs
+    /// List container processes
     #[clap(arg_required_else_help = false)]
     List {
         #[arg(
@@ -33,14 +33,14 @@ pub(crate) enum ContProcSubCommands {
         long: bool,
     },
 
-    /// get logs
+    /// Show the profile of a container process
     #[clap(arg_required_else_help = false)]
     Info {
         #[arg(help = "ID of process")]
         identifier: String,
     },
 
-    /// get logs
+    /// Call a container process with arguments
     #[clap(arg_required_else_help = false)]
     Call {
         #[arg(help = "ID of process")]

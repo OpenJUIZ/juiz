@@ -1,6 +1,6 @@
 [package]
 name = "juiz_types"
-rust-version = "1.81"
+rust-version = "1.89"
 version = "0.2.4"
 edition = "2021"
 description = "Data type model (Avro schemas, fingerprints, compatibility) for juiz."
