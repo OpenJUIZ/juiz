@@ -54,7 +54,7 @@ struct Args {
     /// Name of the person to greet
     #[arg(
         short = 'd',
-        help = "Daemonize JUIZ server. This option automatically enables http server (-b option). If you want to supress, use -q option."
+        help = "Daemonize JUIZ server. The HTTP broker starts by default; use --no-http to suppress it."
     )]
     daemonize: bool,
 
@@ -137,7 +137,7 @@ struct Args {
     #[arg(
         short = '1',
         long = "c1",
-        help = "Create one instance for evely manually loaded module",
+        help = "Create one instance for every manually loaded module",
         default_value = "false"
     )]
     module_create: bool,
@@ -146,7 +146,7 @@ struct Args {
         short = 'c',
         long = "create",
         value_delimiter = ',',
-        help = "Pass typeName to create one instance for evely manually loaded module"
+        help = "Pass typeName to create one instance for every manually loaded module"
     )]
     create_instance: Vec<String>,
 

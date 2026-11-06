@@ -74,7 +74,7 @@ While it is waiting, juiz also serves a management UI for the browser. Open the 
 
 ### Writing in Rust or C++
 
-To write in Rust or C++, install the `juiz` command with `cargo install juiz_app` (Rust 1.88 or later is required).
+To write in Rust or C++, install the `juiz` command with `cargo install juiz_app` (Rust 1.89 or later is required).
 The `juiz-cli` package on pip is built on CI, and it cannot load Rust plugins you build locally because the compiler versions do not match.
 
 If you also use Python Processes with this `juiz`, add **only** `pip install pyjuiz`. If you install `juiz-cli` as well, you end up with two `juiz` commands, and which one runs depends on the order of your PATH.

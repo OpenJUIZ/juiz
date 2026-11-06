@@ -1,6 +1,6 @@
 [package]
 name = "juiz_sdk"
-rust-version = "1.81"
+rust-version = "1.89"
 version = "0.2.4"
 edition = "2021"
 description = "SDK definitions for juiz functional elements crate."

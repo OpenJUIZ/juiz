@@ -12,7 +12,7 @@ use crate::Args;
 
 #[derive(Debug, Subcommand, Clone)]
 pub(crate) enum ContSubCommands {
-    /// get logs
+    /// List containers
     #[clap(arg_required_else_help = false)]
     List {
         #[arg(
@@ -32,14 +32,14 @@ pub(crate) enum ContSubCommands {
         long: bool,
     },
 
-    /// get logs
+    /// Show the profile of a container
     #[clap(arg_required_else_help = false)]
     Info {
         #[arg(help = "ID of container")]
         identifier: String,
     },
 
-    /// Read the ContainerPose seen from a reference Container, or write it with --set (issue #370)
+    /// Read the ContainerPose seen from a reference Container, or write it with --set
     #[clap(arg_required_else_help = true)]
     Pose {
         #[arg(help = "Container: ID or name (ex., base0, robot1/base0)")]
@@ -55,14 +55,14 @@ pub(crate) enum ContSubCommands {
         set: Option<String>,
     },
 
-    /// Show the PoseState of a Container (the poses from each Anchor) with its version (container/pose_state, issue #415)
+    /// Show the PoseState of a Container (the poses from each Anchor) with its version
     #[clap(arg_required_else_help = true, name = "pose-state")]
     PoseState {
         #[arg(help = "Container: ID or name (ex., base0, robot1/base0)")]
         identifier: String,
     },
 
-    /// Destroy a container (CompositeContainer included, issue #171)
+    /// Destroy a container (CompositeContainer included)
     #[clap(arg_required_else_help = true)]
     Destroy {
         #[arg(help = "ID of container")]

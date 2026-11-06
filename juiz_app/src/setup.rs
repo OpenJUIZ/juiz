@@ -11,10 +11,11 @@ use crate::{default_juiz_conf::default_conf, Args};
 
 #[derive(Debug, Subcommand, Clone)]
 pub(crate) enum SetupSubCommands {
-    /// get logs
+    /// Create the JUIZ home directory (~/.juiz) and its default files
     #[clap(arg_required_else_help = false)]
     Home {},
 
+    /// Rename ${JUIZHOME}/conf/default.conf so it is not loaded (remove everything with -f)
     #[clap(arg_required_else_help = false)]
     Cleanhome {
         #[arg(

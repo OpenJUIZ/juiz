@@ -15,7 +15,7 @@ use juiz_sdk::process_identifier::ProcessIdentifier;
 
 #[derive(Debug, Subcommand, Clone)]
 pub(crate) enum ProcSubCommands {
-    /// get logs
+    /// List processes
     #[clap(arg_required_else_help = false)]
     List {
         #[arg(short = 'a', help = "Any process includes")]
@@ -38,14 +38,14 @@ pub(crate) enum ProcSubCommands {
         filepath: String,
     },
 
-    /// get logs
+    /// Show the profile of a process
     #[clap(arg_required_else_help = false)]
     Info {
         #[arg(help = "ID of process")]
         identifier: String,
     },
 
-    /// get logs
+    /// Call a process with arguments
     #[clap(arg_required_else_help = false)]
     Call {
         #[arg(help = "ID of process")]

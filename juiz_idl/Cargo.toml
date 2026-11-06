@@ -1,6 +1,6 @@
 [package]
 name = "juiz_idl"
-rust-version = "1.81"
+rust-version = "1.89"
 version = "0.2.4"
 edition = "2021"
 description = "IDL (JIDL) compiler for juiz: generates Avro schemas, JSON Schema and Rust code."

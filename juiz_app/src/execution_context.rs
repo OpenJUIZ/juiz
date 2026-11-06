@@ -12,7 +12,7 @@ use crate::Args;
 
 #[derive(Debug, Subcommand, Clone)]
 pub(crate) enum EcSubCommands {
-    /// get logs
+    /// List execution contexts
     #[clap(arg_required_else_help = false)]
     List {
         #[arg(
@@ -32,6 +32,7 @@ pub(crate) enum EcSubCommands {
         long: bool,
     },
 
+    /// Start an execution context
     #[clap(arg_required_else_help = false)]
     Start {
         #[arg(help = "ID of Execution context")]
@@ -45,6 +46,7 @@ pub(crate) enum EcSubCommands {
         filepath: String,
     },
 
+    /// Stop an execution context
     #[clap(arg_required_else_help = false)]
     Stop {
         #[arg(help = "ID of Execution context")]
