@@ -219,6 +219,7 @@ Hackage への公開には、Hackage のアカウント(アップロード権限
 - [遅延評価(Capsule::Native)](docs/spec/lazy-evaluation.md)(issue #3)
 - [アプリ配布形式(.juizapp)](docs/spec/app-package.md)(issue #282)
 - [Rust プラグインの C ABI](docs/spec/rust-plugin-abi.md)(issue #291)
+- [雛形生成コマンド(juiz pkg)](docs/spec/pkg.md)(issue #455)
 
 ## ライセンス
 
