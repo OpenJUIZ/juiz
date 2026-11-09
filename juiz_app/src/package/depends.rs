@@ -50,15 +50,74 @@ fn conf_url(conf: &Value) -> String {
     format!("{t}://{n}")
 }
 
+/// `--depend <名前>=none` の `none`。その依存につながない(§10.2、#452)
+pub(crate) const DEPEND_NONE: &str = "none";
+
 /// `--depend <名前>=<URL>` を分ける
 pub(crate) fn parse_depend_arg(s: &str) -> Result<(String, String)> {
     let (name, url) = s.split_once('=').ok_or_else(|| {
-        anyhow!("--depend must be <name>=<URL> (ex., robot_base=ipc://robot_base2), but '{s}'")
+        anyhow!("--depend must be <name>=<URL> or <name>=none (ex., robot_base=ipc://robot_base2), but '{s}'")
     })?;
     if name.is_empty() || url.is_empty() {
-        bail!("--depend must be <name>=<URL> (ex., robot_base=ipc://robot_base2), but '{s}'");
+        bail!("--depend must be <name>=<URL> or <name>=none (ex., robot_base=ipc://robot_base2), but '{s}'");
     }
     Ok((name.to_owned(), url.to_owned()))
+}
+
+/// `--remap <旧>=<新>` を分ける(§7.3、#452)
+pub(crate) fn parse_remap_arg(s: &str) -> Result<(String, String)> {
+    match s.split_once('=') {
+        Some((from, to)) if !from.is_empty() && !to.is_empty() => {
+            Ok((from.to_owned(), to.to_owned()))
+        }
+        _ => bail!("--remap must be <old topic>=<new topic> (ex., cmd_vel=cmd_vel_dwa), but '{s}'"),
+    }
+}
+
+/// conf の Process の `subscribes` の値と `publishes` の要素のトピック名を付け替える(§7.3、#452)
+///
+/// 対象はトップレベルの `processes`、`containers` と `composite_containers` の `processes`。
+/// 名前は conf に書いたとおりの文字列で比べる(ネームスペースで解決する前)。1 つの名前は 1 回だけ付け替える
+/// (`a=b` と `b=c` を両方渡しても `a` は `b` になる)。同じ旧い名前が複数あれば後のものを使う。
+pub(crate) fn remap_topics(conf: &mut Value, remaps: &[(String, String)]) -> Result<()> {
+    if remaps.is_empty() {
+        return Ok(());
+    }
+    let map_name = |v: &mut Value| {
+        let target = match v {
+            Value::String(_) => Some(v),
+            Value::Object(o) => o.get_mut("name").filter(|n| n.is_string()),
+            _ => None,
+        };
+        if let Some(t) = target {
+            let name = t.as_str().unwrap();
+            if let Some((_, to)) = remaps.iter().rev().find(|(from, _)| from == name) {
+                *t = Value::String(to.clone());
+            }
+        }
+    };
+    let fix_process = |p: &mut Value| {
+        if let Some(Value::Object(subs)) = p.get_mut("subscribes") {
+            subs.values_mut().for_each(map_name);
+        }
+        if let Some(Value::Array(pubs)) = p.get_mut("publishes") {
+            pubs.iter_mut().for_each(map_name);
+        }
+    };
+    let obj = conf_object(conf)?;
+    if let Some(Value::Array(ps)) = obj.get_mut("processes") {
+        ps.iter_mut().for_each(fix_process);
+    }
+    for key in ["containers", "composite_containers"] {
+        if let Some(Value::Array(cs)) = obj.get_mut(key) {
+            for c in cs.iter_mut() {
+                if let Some(Value::Array(ps)) = c.get_mut("processes") {
+                    ps.iter_mut().for_each(fix_process);
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// `ipc://robot_base`、`http://192.168.0.10:8100` を subsystem の conf にする
@@ -135,7 +194,7 @@ fn is_broker(b: &Value, type_name: &str, name: Option<&str>) -> bool {
 /// depends の各つなぎ先を決め、conf の `subsystems` を置き換える(§10.2)
 ///
 /// `cli` は `--depend` の (名前, URL)。conf の `subsystems` のうち `package` を持つものは depends のつなぎ先として扱い、
-/// `--depend` で上書きされたものは取り除く。
+/// `--depend` で上書きされたものは取り除く。URL が `none` の依存にはつながず、返す一覧にも入れない(#452)。
 pub(crate) fn resolve(
     m: &Manifest,
     conf: &mut Value,
@@ -176,7 +235,11 @@ pub(crate) fn resolve(
     let mut out = Vec::new();
     for (name, range) in &m.depends {
         let req = parse_req(&format!("the range of depends.{name}"), range)?;
-        let mut sub = if let Some((_, url)) = cli.iter().rev().find(|(n, _)| n == name) {
+        let cli_url = cli.iter().rev().find(|(n, _)| n == name).map(|(_, u)| u);
+        if cli_url.is_some_and(|u| u == DEPEND_NONE) {
+            continue;
+        }
+        let mut sub = if let Some(url) = cli_url {
             url_to_conf(url)?
         } else if let Some((_, s)) = from_conf.iter().find(|(n, _)| n == name) {
             s.clone()
@@ -222,6 +285,7 @@ pub(crate) fn resolve(
 ///
 /// - `package://<名前>/<残り>` → `<つなぎ先の URL>/<残り>`
 /// - `ipc://<名前>/<残り>`(既定のつなぎ先のまま書いたもの)→ `<つなぎ先の URL>/<残り>`(移行のため)
+/// - `--depend <名前>=none` の依存の `package://<名前>/…` はエラー。`ipc://<名前>/…` は変えない
 ///
 /// 対象は `transforms` の `source`・`destination`、`connections` の `source`・`destination`、
 /// `ecs` の `bind`(どれも文字列か `identifier` / `id` を持つ辞書)。
@@ -230,6 +294,10 @@ fn rewrite_ids(m: &Manifest, obj: &mut Map<String, Value>, deps: &[Depend]) -> R
         if let Some(rest) = s.strip_prefix("package://") {
             let (name, path) = rest.split_once('/').unwrap_or((rest, ""));
             let Some(d) = deps.iter().find(|d| d.name == name) else {
+                if m.depends.contains_key(name) {
+                    // --depend <名前>=none でつながない依存(#452)
+                    bail!("'{s}' in the conf refers to package {name}, but --depend {name}=none was given");
+                }
                 bail!(
                     "'{s}' in the conf refers to package {name}, but {} does not depend on {name}. Add it to 'depends' in juizapp.yaml.",
                     m.name
@@ -526,6 +594,101 @@ mod tests {
         let mut conf = json!({ "transforms": [ { "source": "package://robot_base", "destination": "x" } ] });
         let e = resolve(&m, &mut conf, &[], &[]).unwrap_err().to_string();
         assert_eq!(e, "'package://robot_base' in the conf must be package://robot_base/<ID> (ex., package://robot_base/container/odom0::static_anchor)");
+    }
+
+    #[test]
+    fn depend_none_drops_subsystem() {
+        let m = manifest(
+            "format: 1\nname: my_patrol\nversion: 0.1.0\ndepends:\n  robot_base: \">=1.2, <2\"\n  arm: \"1\"\n",
+        );
+        let none = vec![("robot_base".to_owned(), "none".to_owned())];
+        // 既定のつなぎ先も、conf の package 付きの subsystem も足さない。package の無いものは残す
+        let mut conf = json!({
+            "subsystems": [
+                { "package": "robot_base", "type_name": "ipc", "name": "robot_base" },
+                { "type_name": "http", "name": "localhost:9000" },
+            ],
+            "transforms": [ { "source": "ipc://robot_base/container/a::b", "destination": "x" } ],
+        });
+        let d = resolve(&m, &mut conf, &none, &[]).unwrap();
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].name, "arm");
+        assert_eq!(
+            conf["subsystems"],
+            json!([
+                { "type_name": "ipc", "name": "arm", "package": "arm" },
+                { "type_name": "http", "name": "localhost:9000" },
+            ])
+        );
+        // ipc://<名前>/ はそのまま
+        assert_eq!(conf["transforms"][0]["source"], "ipc://robot_base/container/a::b");
+        // 全部 none なら subsystems を書かない(package の無いものも無ければ)
+        let all = vec![
+            ("robot_base".to_owned(), "none".to_owned()),
+            ("arm".to_owned(), "none".to_owned()),
+        ];
+        let mut conf = json!({ "subsystems": [ { "package": "arm", "type_name": "ipc", "name": "arm" } ] });
+        assert!(resolve(&m, &mut conf, &all, &[]).unwrap().is_empty());
+        assert!(conf.get("subsystems").is_none());
+        let (ipc, http) = ensure_brokers(&m, &mut conf, &[], None).unwrap();
+        assert_eq!((ipc, http), (None, false));
+        // 後に書いた --depend が勝つ
+        let back = vec![
+            ("robot_base".to_owned(), "none".to_owned()),
+            ("robot_base".to_owned(), "ipc://robot_base2".to_owned()),
+        ];
+        let d = resolve(&m, &mut json!({}), &back, &[]).unwrap();
+        let urls: Vec<String> = d.iter().map(Depend::url).collect();
+        assert_eq!(urls, ["ipc://arm", "ipc://robot_base2"]);
+        // package://<名前>/ を使っているのに none ならエラー
+        let mut conf = json!({ "transforms": [ { "source": "package://robot_base/container/a::b", "destination": "x" } ] });
+        let e = resolve(&m, &mut conf, &none, &[]).unwrap_err().to_string();
+        assert_eq!(e, "'package://robot_base/container/a::b' in the conf refers to package robot_base, but --depend robot_base=none was given");
+        // 依存に無い名前の none はエラー
+        let e = resolve(&m, &mut json!({}), &[("other".to_owned(), "none".to_owned())], &[])
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("my_patrol does not depend on other"), "{e}");
+    }
+
+    #[test]
+    fn remaps_topics() {
+        let mut conf = json!({
+            "processes": [
+                { "name": "p0", "subscribes": { "a": "amcl_pose", "b": "scan" }, "publishes": [ "cmd_vel", "status" ] },
+                { "name": "p1" },
+            ],
+            "containers": [ {
+                "name": "dwa0",
+                "processes": [
+                    { "name": "c0", "subscribes": { "pose": "amcl_pose", "odom": { "name": "odom" } } },
+                    { "name": "c1", "publishes": [ "cmd_vel", { "name": "cmd_vel" } ] },
+                ],
+            } ],
+            "composite_containers": [ { "name": "cc0", "processes": [ { "name": "k0", "subscribes": { "x": "odom" } } ] } ],
+            "transforms": [ { "source": "amcl_pose", "destination": "cmd_vel" } ],
+        });
+        let remaps = vec![
+            parse_remap_arg("amcl_pose=nav/amcl_pose").unwrap(),
+            parse_remap_arg("odom=nav/odom").unwrap(),
+            parse_remap_arg("cmd_vel=cmd_vel_x").unwrap(),
+            // 後のものが勝つ。付け替えた名前をもう 1 度付け替えない
+            parse_remap_arg("cmd_vel=cmd_vel_dwa").unwrap(),
+            parse_remap_arg("cmd_vel_dwa=other").unwrap(),
+        ];
+        remap_topics(&mut conf, &remaps).unwrap();
+        assert_eq!(conf["processes"][0]["subscribes"], json!({ "a": "nav/amcl_pose", "b": "scan" }));
+        assert_eq!(conf["processes"][0]["publishes"], json!([ "cmd_vel_dwa", "status" ]));
+        assert_eq!(conf["processes"][1], json!({ "name": "p1" }));
+        let c = &conf["containers"][0]["processes"];
+        assert_eq!(c[0]["subscribes"], json!({ "pose": "nav/amcl_pose", "odom": { "name": "nav/odom" } }));
+        assert_eq!(c[1]["publishes"], json!([ "cmd_vel_dwa", { "name": "cmd_vel_dwa" } ]));
+        assert_eq!(conf["composite_containers"][0]["processes"][0]["subscribes"]["x"], "nav/odom");
+        // トピック以外は変えない
+        assert_eq!(conf["transforms"][0], json!({ "source": "amcl_pose", "destination": "cmd_vel" }));
+        assert!(parse_remap_arg("cmd_vel").is_err());
+        assert!(parse_remap_arg("=x").is_err());
+        assert!(parse_remap_arg("x=").is_err());
     }
 
     #[test]

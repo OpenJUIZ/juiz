@@ -35,8 +35,10 @@ pub(crate) struct RunOptions {
     pub stop_http_broker: bool,
     pub ipc: Option<String>,
     pub namespace: Option<String>,
-    /// `--depend <名前>=<URL>`(§10.2)
+    /// `--depend <名前>=<URL>` と `--depend <名前>=none`(§10.2)
     pub depends: Vec<String>,
+    /// `--remap <旧>=<新>`(§7.3、#452)
+    pub remaps: Vec<String>,
 }
 
 /// パッケージを動かそうとしている juiz(§1.1 のホスト)
@@ -162,6 +164,12 @@ fn start(prepared: &Prepared, conf: &Path, opts: &RunOptions, data: &Path) -> Re
         .collect::<Result<Vec<_>>>()?;
     let installed = install::list(data)?;
     let deps = depends::resolve(m, &mut manifest, &cli, &installed)?;
+    let remaps = opts
+        .remaps
+        .iter()
+        .map(|s| depends::parse_remap_arg(s))
+        .collect::<Result<Vec<_>>>()?;
+    depends::remap_topics(&mut manifest, &remaps)?;
     let (ipc, needs_http) = depends::ensure_brokers(m, &mut manifest, &deps, ipc.as_deref())?;
     let manifest = crate::add_ipc_broker(manifest, ipc.as_deref())?;
     let working_dir = conf.parent().unwrap_or(app_dir);

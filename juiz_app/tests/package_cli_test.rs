@@ -529,6 +529,60 @@ fn install_base_and_connect_app() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// --depend <名前>=none なら、その依存の基礎が無くても起動し、subsystem に足さない。--remap の書式の誤りはエラー (issue #452、§7.3・§10.2)
+#[test]
+fn run_without_depend_and_remap_errors() {
+    let dir = temp_dir("package_depend_none");
+    let data = dir.join("data");
+    let cache = dir.join("cache");
+    let name = format!("leaf_{}", std::process::id() % 100000);
+    let app_pkg = pack_conf_only(
+        &dir,
+        "leaf_app",
+        "version: 0.1.0\ndepends:\n  no_such_base: \">=1\"\n",
+        "name: leaf_system\noption:\n  http_broker:\n    start: false\nsubsystems:\n  - package: no_such_base\n    type_name: ipc\n    name: no_such_base\n",
+    );
+    let juiz_env = || {
+        let mut c = juiz();
+        c.current_dir(&dir)
+            .env("JUIZ_DATA_DIR", &data)
+            .env("JUIZ_CACHE_DIR", &cache);
+        c
+    };
+    // 書式の誤り
+    let o = juiz_env()
+        .args(["run", path_str(&app_pkg), "--depend", "no_such_base=none", "--remap", "cmd_vel"])
+        .output()
+        .unwrap();
+    assert!(!o.status.success(), "{o:?}");
+    assert!(
+        String::from_utf8_lossy(&o.stderr).contains("--remap must be <old topic>=<new topic>"),
+        "{o:?}"
+    );
+    // none なら基礎が無くても起動し、subsystems は空
+    let mut cmd = juiz_env();
+    cmd.args([
+        "run",
+        path_str(&app_pkg),
+        "--ipc",
+        &name,
+        "--depend",
+        "no_such_base=none",
+        "--remap",
+        "cmd_vel=cmd_vel_dwa",
+    ]);
+    let mut d = Daemon::spawn_command(cmd, dir.join("leaf.log"));
+    let p = wait_profile(&name, |p| p.get("package").is_some());
+    assert_eq!(p["package"]["name"], "leaf_app", "{p}");
+    let subs = p.get("subsystems").cloned().unwrap_or_default();
+    assert!(
+        subs.as_array().is_none_or(|a| a.is_empty()),
+        "{p}"
+    );
+    d.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// juiz run の HTTP ブローカー: 既定は立てる、--no-http で立てない、conf の start: false は --http で上書き (issue #306、§7.1)
 #[test]
 fn run_http_broker_flags() {
