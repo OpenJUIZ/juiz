@@ -265,7 +265,7 @@ C++ / Haskell のプラグインの隣に libjuiz_sdk が無いときは警告�
 ## 7. `juiz run`(#285)
 
 ```
-juiz run <パッケージ> [--entry <conf>] [--depend <名前>=<URL>]... [その他の juiz のオプション]
+juiz run <パッケージ> [--entry <conf>] [--depend <名前>=<URL>|none]... [--remap <旧>=<新>]... [その他の juiz のオプション]
 ```
 
 `<パッケージ>` は次のどちらか。
@@ -278,7 +278,7 @@ juiz run <パッケージ> [--entry <conf>] [--depend <名前>=<URL>]... [その
 1. §9 の順に検証する。
 2. ファイルなら §7.2 のキャッシュに展開する。インストール済みならその置き場所をそのまま使う。
 3. 展開先の `entry`(`--entry` があればそれ)の conf を読み、普通の `juiz -f` と同じく conf の親ディレクトリを基準にパスを解決する。
-4. `kind: base` なら §10.1、`depends` があれば §10.2 の設定を conf に足す。
+4. `kind: base` なら §10.1、`depends` があれば §10.2 の設定を conf に足す。`--remap` があれば §7.3 のとおりトピック名を付け替える。
 5. 常駐して動かす(`-d` と同じく、止めるまで動き続ける)。ただし HTTP ブローカーは `-d` のように強制で立てず、conf の `option.http_broker` と `--http`・`--no-http` に従う(下の表、#306。0.0.29 までの `-b` は `--http` に変わった)。
 
 | conf の `option.http_broker` | 指定なし | `--no-http` | `--http` |
@@ -293,7 +293,7 @@ juiz run <パッケージ> [--entry <conf>] [--depend <名前>=<URL>]... [その
 - HTTP を外に出したくない配布アプリは、conf に `start: false` を書いておく。書かないと 8000 番(`port` の既定)が開く。
 
 - `--namespace`・`--ipc`・`--http`・`--no-http` など、juiz の他のオプションは普通の起動と同じ意味で効く(`kind: base` の `--ipc` は §10.1)。
-  `juiz run` 自身が受け付けるのは `--entry`・`--http`・`--no-http`・`--ipc`・`--namespace`・`--depend`(`--http`・`--no-http`・`--ipc`・`--namespace` は `juiz --http run …` のように run の前に書いてもよい)。
+  `juiz run` 自身が受け付けるのは `--entry`・`--http`・`--no-http`・`--ipc`・`--namespace`・`--depend`・`--remap`(`--http`・`--no-http`・`--ipc`・`--namespace` は `juiz --http run …` のように run の前に書いてもよい)。
 - `--depend`、インストール済みの名前での起動(§8)、`kind: base` と `depends` の扱い(§10)は #286 で入れた。
 - カレントディレクトリは変えない。環境変数 `JUIZ_APP_DIR` に展開先の絶対パスを入れて起動する(Python のプラグインが `assets/` などを開くとき用)。
 - 展開先は読み取り専用として扱う。プラグインはそこに書き込まないこと(キャッシュは消されうる、同じ展開先を複数の起動が共有する)。
@@ -311,6 +311,23 @@ juiz run <パッケージ> [--entry <conf>] [--depend <名前>=<URL>]... [その
 - 展開は同じ親の一時ディレクトリ(`.tmp-<乱数>`)に行い、全部書いて `files` と照合してから `.juizapp-complete` を作り、展開先の名前に rename する。rename が「すでにある」で失敗したら(別の起動が先に終えた)、一時ディレクトリを消して既存のものを使う。
 - 展開は juiz 自身が行うので、macOS の quarantine 属性は展開したファイルに付かない。
 - キャッシュの掃除は format 1 では行わない(消してよい。次の `juiz run` が展開し直す)。
+
+### 7.3 トピックの付け替え `--remap`(#452)
+
+```
+juiz run planner_dwa --depend mobile_sim=none --remap odom=nav/odom --remap cmd_vel=cmd_vel_dwa
+```
+
+配布されたアプリを、conf を展開して書き換えずに、別のトピック名で動かすためのもの(ほかのアプリの下に葉としてつなぐときなど)。
+
+- `--remap <旧>=<新>` は繰り返せる。conf を読んだ後、起動する前に、conf の Process の次の項目でトピック名が `<旧>` のものを `<新>` にする。
+  - トップレベルの `processes`、`containers` と `composite_containers` の `processes` の各要素の、`subscribes` の値と `publishes` の要素(文字列か、`name` を持つ辞書)。
+  - それ以外(`transforms`、`connections`、プラグインのコードが自分で作る Topic など)は変えない。
+- 名前は conf に書いたとおりの文字列で比べる(ネームスペースで解決する前)。`<新>` も conf に書いたのと同じく解決される(相対名ならその Process のネームスペースの下、先頭 `/` なら絶対)。
+- 1 つの名前は 1 回だけ付け替える(`a=b` と `b=c` を渡しても `a` は `b` になる)。同じ `<旧>` を 2 度渡したら後のものを使う。
+- 書式が違えば(`=` が無い、どちらかが空)起動前にエラー(`--remap must be <old topic>=<new topic> (ex., cmd_vel=cmd_vel_dwa), but '…'`)。
+- conf に無い名前を渡してもエラーにしない。
+- `juiz -f` には無い(conf を直接書き換えられるため)。
 
 ## 8. `juiz install`(#286)
 
@@ -398,7 +415,7 @@ juiz packages
 
 `depends` の各 `<名前>: <範囲>` について、つなぎ先を次の順で決め、subsystem として conf に足す。
 
-1. コマンドラインの `--depend <名前>=<URL>`(`ipc://robot_base2`、`http://192.168.0.10:8100`、`http://192.168.0.10`)
+1. コマンドラインの `--depend <名前>=<URL>`(`ipc://robot_base2`、`http://192.168.0.10:8100`、`http://192.168.0.10`)。`--depend <名前>=none` なら、その依存にはつながない(下、#452)
 2. アプリの conf の `subsystems` のうち、`package: <名前>` を持つもの
 3. 既定: `{type_name: ipc, name: <名前>}`(`ipc://<名前>`)
 
@@ -412,6 +429,9 @@ subsystems:
 
 - `type_name: http` でポートを省いたときは、インストール済みの基礎(範囲に合う一番新しい版)の `base.http_port` を使う。基礎が入っていないか `base.http_port` が無ければエラー(`cannot decide the port for robot_base. Write the port in the conf or --depend.`)。
 - `package` を持たない `subsystems` は今までどおり扱い、依存の確認はしない。
+- `--depend <名前>=none`(#452): その依存を subsystem に足さず、conf の `package: <名前>` の subsystem も取り除き、確認(§10.3)もしない。基礎が入っていなくても、動いていなくても起動する。別のアプリの下に葉としてつなぐときなど、依存先へ自分からつながない起動のため(§7.3 の `--remap` と合わせて使う)。
+  - conf に `package://<名前>/…` の ID があればエラー(`'package://robot_base/…' in the conf refers to package robot_base, but --depend robot_base=none was given`)。`ipc://<名前>/…` は書き換えない(§10.4)。
+  - 同じ名前の `--depend` を複数渡したら後のものを使う(`none` の後に URL を渡せばつなぐ)。
 - conf に書いた依存先の ID(`transforms` のつなぎ先など)も同じ規則で決まったつなぎ先にする(§10.4)。
 - つないだ後、相手の profile の `package` を見て、`name` が一致し、`version` が範囲に入ることを確かめる(§10.3)。
 - subsystem としてつなぐと、相手は同じ種類のブローカーでこちらへつなぎ返す(mastersystem)。そのため `juiz run` は、アプリ側にもブローカーを用意する。
@@ -534,5 +554,6 @@ format 1 では行わない。足すときは format を上げるか、format 1 
 | 5 C++ / Haskell の同梱 | #287 | §12.2 |
 | 6 サンプルとサイト | #288 | — |
 | conf の ID のつなぎ先 | #425 | §10.4 |
+| `--remap` と `--depend <名前>=none` | #452 | §7、§7.3、§10.2 |
 | Rust プラグインの C ABI(#291 の Step 4) | #332 | §4.1 の `rust.abi`・`rust.rustc`、§4.3、§6.3 の 6、§9 の段 6・10、§12.1(#328 で直し、#332 で実装) |
 | 段 6〜8 を展開の前に行う | #325 | §9 |

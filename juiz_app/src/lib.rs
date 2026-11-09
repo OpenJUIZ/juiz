@@ -291,9 +291,13 @@ enum SubCommands {
         #[arg(long = "namespace", help = "Default namespace of the system (same as juiz --namespace).")]
         namespace: Option<String>,
 
-        /// Where to connect a dependency: <name>=<URL> (ex., robot_base=ipc://robot_base2). Can be repeated.
+        /// Where to connect a dependency: <name>=<URL> (ex., robot_base=ipc://robot_base2), or <name>=none not to connect it. Can be repeated.
         #[arg(long = "depend")]
         depend: Vec<String>,
+
+        /// Rename a topic that processes in the conf subscribe or publish: <old>=<new> (ex., cmd_vel=cmd_vel_dwa). Can be repeated.
+        #[arg(long = "remap")]
+        remap: Vec<String>,
     },
 
     /// Install a .juizapp package (docs/spec/app-package.md §8)
@@ -744,6 +748,7 @@ fn package_command(args: &Args) -> Option<JuizResult<()>> {
             ipc,
             namespace,
             depend,
+            remap,
         } => Some(package::run::run_package(&package::run::RunOptions {
             package: package.clone(),
             entry: entry.clone(),
@@ -752,6 +757,7 @@ fn package_command(args: &Args) -> Option<JuizResult<()>> {
             ipc: ipc.clone().or_else(|| args.ipc.clone()),
             namespace: namespace.clone().or_else(|| args.namespace.clone()),
             depends: depend.clone(),
+            remaps: remap.clone(),
         })),
         SubCommands::Install { package } => Some((|| {
             use package::install::{install, InstallOutcome};
