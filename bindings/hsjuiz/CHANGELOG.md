@@ -3,6 +3,10 @@
 hsjuiz の版は juiz(crates.io の juiz_app、PyPI の pyjuiz / juiz-cli)と同じ番号にそろえています。
 使う libjuiz_sdk も同じ版にしてください。
 
+## 0.2.5
+
+- hsjuiz の API は 0.2.4 から変えていない(juiz 本体の juiz run --remap・--depend 名前=none #452、CLI のヘルプ文言 #447 に版をそろえた)。
+
 ## 0.2.4
 
 - ContainerProcess の中から自分以外の Container の位置姿勢を読む `lookupContainerPose` を足した(issue #409)。
