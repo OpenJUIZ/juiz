@@ -1,0 +1,24 @@
+class {{Name}}:
+    """State of the container {{name}}."""
+
+    def __init__(self, value: int):
+        self.value = value
+
+
+@juiz_container
+def {{name}}(initial_value: int = 0) -> {{Name}}:
+    """Holds an integer value."""
+    return {{Name}}(initial_value)
+
+
+@juiz_container_process(container_type="{{name}}")
+def {{name}}_increment(container: {{Name}}, step: int = 1) -> int:
+    """Adds step to the value and returns it."""
+    container.value += step
+    return container.value
+
+
+@juiz_container_process(container_type="{{name}}", readonly=True)
+def {{name}}_get(container: {{Name}}) -> int:
+    """Returns the value."""
+    return container.value

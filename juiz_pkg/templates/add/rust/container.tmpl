@@ -1,0 +1,34 @@
+/// State of the container `{{name}}`.
+#[repr(Rust)]
+pub struct {{Name}} {
+    pub value: i64,
+}
+
+#[juiz_component_container(
+    description = "Holds an integer value."
+    arguments = { default = { initial_value = 0 } }
+)]
+fn {{name}}(initial_value: i64) -> JuizResult<Box<{{Name}}>> {
+    Ok(Box::new({{Name}} {
+        value: initial_value,
+    }))
+}
+
+#[juiz_component_container_process(
+    container_type = "{{name}}"
+    description = "Adds step to the value and returns it."
+    arguments = { default = { step = 1 } }
+)]
+fn {{name}}_increment(container: &mut ContainerImpl<{{Name}}>, step: i64) -> JuizResult<i64> {
+    container.value += step;
+    Ok(container.value)
+}
+
+/// Receiving the container as `&ContainerImpl` (not `&mut`) makes this ContainerProcess readonly.
+#[juiz_component_container_process(
+    container_type = "{{name}}"
+    description = "Returns the value."
+)]
+fn {{name}}_get(container: &ContainerImpl<{{Name}}>) -> JuizResult<i64> {
+    Ok(container.value)
+}

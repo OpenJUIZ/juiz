@@ -1,0 +1,9 @@
+// Process {{name}}. The arguments are passed in the order they are added to the manifest
+static auto {{name}}_manif = ProcessManifest("{{name}}")
+    .description("Returns a + b.")
+    .add_int_arg("a", "the first value", 0)
+    .add_int_arg("b", "the second value", 0);
+std::optional<int64_t> {{name}}(int64_t a, int64_t b) {
+    return a + b;
+}
+COMPONENT_PROCESS_FACTORY({{name}}_manif, {{name}});

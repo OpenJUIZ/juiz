@@ -8,6 +8,10 @@ juiz pkg create my_robot -b python -t process
 juiz pkg create my_robot -b cpp            # C++ (CMake、libjuiz_sdk を ~/.juiz/sdk/<版> に用意しておく)
 juiz pkg create my_robot -b haskell        # Haskell (cabal、libjuiz_sdk と juiz のソースの hsjuiz を使う。Linux・macOS)
 juiz pkg target                           # app/plugins/<target>/ の <target> (ホストの target triple)
+
+cd my_robot
+juiz pkg add process my_mul               # 作った雛形に Process my_mul を足す (ソースと app/app.conf を直す)
+juiz pkg add container arm                # Container arm と arm_increment・arm_get を足す
 ```
 
 - 言語 `-b`/`--lang`: `rust`、`python`、`cpp`、`haskell`

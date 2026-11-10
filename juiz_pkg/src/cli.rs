@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Subcommand, ValueEnum};
 
+use crate::add::AddKind;
 use crate::{Lang, PkgError, Template};
 
 /// 雛形を作る (juiz pkg / juiz-pkg)
@@ -17,6 +18,8 @@ pub struct PkgArgs {
 pub enum PkgCommand {
     /// Create a new package skeleton (a Component that can be packed into a .juizapp as is)
     Create(CreateArgs),
+    /// Add a Process or a Container to a skeleton made by `juiz pkg create` (edits the Component source and app/app.conf)
+    Add(AddArgs),
     /// Print the host target triple (the <target> of app/plugins/<target>/)
     Target,
 }
@@ -72,6 +75,20 @@ pub struct CreateArgs {
     pub juiz_source: Option<PathBuf>,
 }
 
+#[derive(Args, Clone, Debug)]
+pub struct AddArgs {
+    /// What to add: process (<name>) or container (<name> with <name>_increment and <name>_get)
+    #[arg(ignore_case = true)]
+    pub kind: AddKind,
+
+    /// Type name ([a-z][a-z0-9_]*)
+    pub name: String,
+
+    /// Skeleton directory (the one with app/app.conf)
+    #[arg(short = 'C', long = "dir", default_value = ".")]
+    pub dir: PathBuf,
+}
+
 /// サブコマンドを実行する
 pub fn run(args: &PkgArgs) -> Result<(), PkgError> {
     match &args.command {
@@ -81,6 +98,11 @@ pub fn run(args: &PkgArgs) -> Result<(), PkgError> {
                 eprintln!("warning: {w}");
             }
             print!("{}", created.summary);
+            Ok(())
+        }
+        PkgCommand::Add(a) => {
+            let added = crate::add::add(a)?;
+            print!("{}", added.summary);
             Ok(())
         }
         PkgCommand::Target => {
