@@ -5,6 +5,7 @@
 
 pub mod cli;
 pub mod create;
+pub mod idl;
 pub mod names;
 pub mod render;
 

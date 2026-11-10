@@ -68,7 +68,7 @@ pub use model::{
 pub use parser::{parse_idl, IdlFile};
 pub use python::generate_python;
 pub use rust::{generate_rust, MODULE_TREE_FILE};
-pub use rust_skeleton::generate_rust_skeleton;
+pub use rust_skeleton::{generate_rust_skeleton, rust_skeleton_items};
 pub use typescript::{generate_typescript, TYPESCRIPT_COMMON_FILE};
 
 /// juiz-idl のエラー。位置は 1 から数える

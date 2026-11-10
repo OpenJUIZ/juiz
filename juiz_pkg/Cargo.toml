@@ -20,3 +20,6 @@ path = "src/bin/juiz-pkg.rs"
 [dependencies]
 clap = {workspace = true}
 juiz_sdk = {workspace = true}
+juiz_idl = {workspace = true}
+juiz_types = {workspace = true}
+serde_json = {workspace = true}

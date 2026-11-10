@@ -1,6 +1,6 @@
 # 雛形生成コマンド(juiz pkg)仕様
 
-- 状態: 確定(juiz pkg Step 0、issue #456、2026-11-09)。Step 1(#457、2026-11-10)で Rust・Python を実装し、実装に合わせて §2.2・§5・§6.1・§6.2・§10.2・§11 を書き足した。Step 2(#458、2026-11-10)で C++ を実装し、§2.2・§3・§5.2・§6.3・§7.1・§9・§10.2・§11 を書き足した
+- 状態: 確定(juiz pkg Step 0、issue #456、2026-11-09)。Step 1(#457、2026-11-10)で Rust・Python を実装し、実装に合わせて §2.2・§5・§6.1・§6.2・§10.2・§11 を書き足した。Step 2(#458、2026-11-10)で C++ を実装し、§2.2・§3・§5.2・§6.3・§7.1・§9・§10.2・§11 を書き足した。Step 4(#460、2026-11-10)で `--idl` を Rust だけ実装し、§2.2・§6.5・§7・§9・§10・§11・§12 を書き足した
 - 親 issue: #455。検討の経緯と比較はプロジェクトの計画書 juiz-pkg-plan.md(2026-11-09 確定)にある
 - 関連: アプリ配布形式 [app-package.md](app-package.md)(雛形はそのまま `juiz pack` できる形にする)、Rust プラグインの C ABI [rust-plugin-abi.md](rust-plugin-abi.md)(雛形の Rust プラグインは C ABI)、データ型 [datatype.md](datatype.md) §18(`rust-skeleton`、Step 4 の `--idl`)
 - この文書は Step 1〜6(#457〜#462)の実装の基準になる。実装で仕様を変えるときは、同じ PR でこの文書を直す
@@ -44,7 +44,7 @@ juiz pkg create my_robot -b rust
 ### 2.2 `juiz pkg create`
 
 ```
-juiz pkg create <name> -b <lang> [-t <template>] [-o <dir>]
+juiz pkg create <name> -b <lang> [-t <template> | --idl <file.jidl>] [-o <dir>]
                 [--license <mit-apache|none>] [--author <name>]
                 [--hsjuiz-dir <dir>] [--juiz-sdk-dir <dir>] [--juiz-source <dir>]
 ```
@@ -54,6 +54,7 @@ juiz pkg create <name> -b <lang> [-t <template>] [-o <dir>]
 | `<name>` | (必須) | 名前。§3 の規則に合わなければエラー |
 | `-b`, `--lang <lang>` | (必須) | `rust` / `python` / `cpp` / `haskell`。`c++` も `cpp` として受ける。大文字小文字は区別しない |
 | `-t`, `--template <template>` | `component` | `component` / `process` / `container`(§4) |
+| `--idl <file.jidl>` | なし | §4 の例の型の代わりに、.jidl の `process` / `container` 宣言から型付きの関数を作る(§6.5)。`-b rust` だけ(Step 4)。`-t` とは一緒に使えない |
 | `-o`, `--output <dir>` | `./<name>` | 雛形を作るディレクトリそのもの(親ではない)。§8 の規則で既にあれば止める |
 | `--license <kind>` | `none` | `mit-apache` で LICENSE-MIT・LICENSE-APACHE を置き、各ファイルの license の欄を `MIT OR Apache-2.0` にする(§5.5)。`none` では置かない |
 | `--author <name>` | `git config user.name` | `--license mit-apache` のときの著作権者。省いて git からも取れなければエラー |
@@ -392,6 +393,36 @@ Step 3 で決めたこと:
 - hsjuiz(`<hsjuiz の場所>/hsjuiz.cabal`)・libjuiz_sdk(§9 の C++ と同じ判定)が無ければ、警告と次の手順に用意するコマンドを出す。hsjuiz は既定の場所なら `git clone --depth 1 --branch v<版> … ~/juiz-<版>`、`--hsjuiz-dir` が `…/bindings/hsjuiz` ならその 2 つ上に clone する形にする。README には在るかどうかによらず書く。
 - Windows で動かしたときも、表示する手順は `.sh` の形にする(`.ps1` が無いため)。
 
+### 6.5 `--idl`(型付きの雛形、Step 4)
+
+`juiz pkg create <name> -b rust --idl <file.jidl>` は、§4 の例の型の代わりに、.jidl の `process` / `container` 宣言の型を入れた Component を作る。関数は `juiz idl -g rust-skeleton`(datatype.md §18)と同じもの(引数・戻り値が .jidl の型、本体は `todo!()`)で、juiz_idl の `rust_skeleton_items` で作る。
+
+- 対象は Rust だけ。ほかの言語で `--idl` を付けるとエラーにする(skeleton の生成器が無いため。#468)。
+- `-t` とは一緒に使えない(clap の `conflicts_with`)。§4 の例の型は入れない。
+- 宣言のある名前空間は 1 つでなければならない(1 雛形 = 1 Component、§4)。宣言が無い・2 つ以上の名前空間にある(import した .jidl にも宣言がある)ときはエラー。juiz_std の名前空間は数えない。Component の名前は `<name>`(rust-skeleton の名前空間から作る名前ではない)。
+- .jidl は `idl/` に写す。import している .jidl(と .avsc)も、渡した .jidl のディレクトリからの相対パスのまま `idl/` に写す。そのディレクトリの外のファイルを import していればエラー(写すと相対パスが壊れるため)。組み込みの `juiz_std/…` は写さない。
+- 宣言の名前が Rust のキーワードなど、rust-skeleton が作れないものは、ファイルを書く前にエラーにする(§8)。
+
+生成物(`-b rust -t component` との違い):
+
+```
+my_robot/
+├─ Cargo.toml          [build-dependencies] juiz_idl を足す。juiz_std の型を使うときは juiz_std_types も
+├─ build.rs            juiz_idl::build で .jidl の型を OUT_DIR/juiz_idl.rs に作る
+├─ idl/<file>.jidl     渡した .jidl(と import している .jidl)の写し
+├─ src/lib.rs          juiz_idl.rs を include! し、宣言ごとの関数(本体は todo!())と juiz_component_manifest!
+├─ app/app.conf        宣言の型ごとにインスタンス(型名 + 0)を書く。ecs は書かない
+└─ …                   app/juizapp.yaml・scripts/・README.md・.gitignore は §5 と同じ(README は --idl 用)
+```
+
+- juiz_std の型(名前空間が `juiz_std` か `juiz_std.` で始まる型)が読んだ型にあれば、Cargo.toml に `juiz_std_types = "=<版>"` を足し、build.rs に `.extern_path("juiz_std", "::juiz_std_types::juiz_std")` を書く(datatype.md §24.2。同じ型が 2 つの Rust の型にならないように)。無ければどちらも書かない。
+- `juiz_idl` と `juiz_std_types` の版は juiz_sdk と同じ(§7.1)。`--juiz-source` ではソースの `juiz_idl`・`juiz_std_types` を指す。
+- app.conf のキーの順番は §5.1 と同じ。Container の引数は書かない(rust-skeleton の Container は引数を持たない)。
+- Container の状態は空の struct(JIDL では状態を型付けしない、datatype.md §18)。ContainerProcess は `&mut ContainerImpl<…>` で受ける(JIDL には readonly の書き方が無い)。
+- src/lib.rs は juiz_idl の出力をそのまま入れるので、テンプレートの置換(§10.2)は通さない。先頭の説明は英語(§4)。rust-skeleton の Container の状態のコメントも、これに合わせて英語にした。
+- `cargo test` 用のテストは置かない(本体が `todo!()` なので)。
+- 生成後の表示(§9)は 1 行目の種類が `from idl/<file>.jidl` になり、`scripts/dev.sh` の前に「src/lib.rs の todo!() を書く」行が入る。呼び出しの例は宣言の型ごとに出し、引数は既定値、無ければ型から作った値(数は 0、文字列は ""、配列は []、record はフィールドごとに同じ規則か既定値、enum は既定の記号か最初の記号、`T?` は null)にする。本体を書くまでは呼び出すと失敗する、と README に書く。
+
 ## 7. 版の埋め方
 
 ### 7.1 版
@@ -467,7 +498,7 @@ juiz_pkg/templates/
 └─ <lang>/<template>/       言語と種類ごとのもの(Component のソース)
 ```
 
-- `<lang>` は `rust` / `python` / `cpp` / `haskell`、`<template>` は `component` / `process` / `container`。
+- `<lang>` は `rust` / `python` / `cpp` / `haskell`、`<template>` は `component` / `process` / `container`。`--idl` のときは `<template>` の代わりに `idl` の層(`common/idl/`・`rust/idl/`)を重ね、その後に .jidl の写しと src/lib.rs をコードで足す(§6.5)。
 - 雛形は `common/_base` → `common/<template>` → `<lang>/_base` → `<lang>/<template>` の順に重ね、同じ出力パスは後のものが勝つ。
 - テンプレートのファイル名は必ず `.tmpl` で終え、出力では `.tmpl` を外す(`Cargo.toml.tmpl` → `Cargo.toml`)。テンプレートの中に `Cargo.toml` という名前があると、`cargo package` が juiz_pkg のディレクトリの中の別のパッケージとみなして外してしまうため。
 - パスの中にも変数を書いてよい(`src/{{name}}.cpp.tmpl`、`src/{{Name}}.hs.tmpl`)。
@@ -498,6 +529,11 @@ juiz_pkg/templates/
 | `year` | 生成した年(UTC) |
 | `types_table` | 入っている型の表(§4 の表の、その種類の行だけ。Markdown)。README に使う |
 | `next_steps` | §9 の「次に打つコマンド」(`cd` を除き、Unix の形)。README に使う |
+| `juiz_idl_dep` | Rust の build-dependencies の juiz_idl の右辺(`juiz_sdk_dep` と同じ形、§6.5) |
+| `juiz_std_types_dep` | juiz_std_types の右辺。`--idl` で juiz_std の型を使うときだけ、ほかは無し(§6.5) |
+| `idl_main` | `--idl` の .jidl の写し(`idl/<file>.jidl`)。`--idl` でなければ無し |
+| `idl_conf` | `--idl` の app.conf の `processes` と `containers`(複数行)。`--idl` でなければ無し |
+| `idl_extern` | build.rs の `.extern_path(…)` の行。juiz_std の型を使うときだけ、ほかは無し |
 
 `types_table` と `next_steps` は、種類・言語で変わる README の部分を、条件分岐の書式を設けずに 1 つのテンプレートで書くために足した(Step 1)。
 
@@ -513,6 +549,7 @@ conf の `{target}` は juiz の置換(app-package.md §5.2)で、この書式�
 - 生成から配布まで(言語の Step ごと): 一時ディレクトリに `--juiz-source` で生成 → `scripts/dev.sh` → `juiz -f app/app.conf` で起動 → 入っている型を全部 call して §4 の値が返る → `scripts/pack.sh` → `juiz run` で起動できる。Rust・Python は Step 1、C++ は Step 2、Haskell は Step 3。CI では、その言語の道具が入っている OS で回す(Haskell は Linux・macOS)。
   - Step 2 の C++: ワークスペースの `cargo build` でできた libjuiz_sdk を `scripts/package-juiz-sdk.sh` で配布と同じアーカイブにして一時ディレクトリに展開し、`--juiz-sdk-dir` で指す(`find_package(… EXACT)` と `juiz_sdk_bundle` を配布物と同じ形で通すため)。ポートは 8077。.juizapp に libjuiz_sdk が入っていることと、`juiz: "=<版>"` になっていることも確かめる。cmake と C++ コンパイラが要る(scripts/test.sh と同じ)。
   - Step 1 の形(juiz_app/tests/pkg_cli_test.rs): Unix で回す(`.sh` を使うため。`.ps1` は自動のテストが無い)。ほかのテストとポートが重ならないよう、生成した conf のポートを 8078(Rust)・8079(Python)に書き換えてから起動する。`scripts/dev.sh` でビルドした後なので、pack は `scripts/pack.sh --no-build` で release ビルドを省く。Python は `PYTHONPATH` の bindings/pyjuiz を使う(scripts/test.sh が設定する)。
+- `--idl`(Step 4): juiz_pkg の単体テストで、生成するファイルの一覧・置換が残らないこと・juiz_std を使う/使わないときの Cargo.toml と build.rs・import した .jidl の写し・エラー(Rust のほかの言語、`-t` と一緒、宣言なし、2 つの名前空間、ディレクトリの外の import、Rust のキーワード)。pkg_cli_test では、juiz_std の型と別ファイルの record を使う .jidl から作り、`todo!()` の本体を書き換えてから dev.sh → 起動 → call → `juiz type list --long` に .jidl の型が出る → pack.sh → `juiz run` を通す(Unix、ポート 8082)。
 - Haskell: テンプレートの `bundle-plugin-deps.sh` が juiz の `scripts/bundle-plugin-deps.sh` と一致すること。
   - Step 3 の Haskell(pkg_cli_test): C++ と同じく配布と同じ形の libjuiz_sdk を `--juiz-sdk-dir` で指し、hsjuiz は `--juiz-source` の `bindings/hsjuiz`。ポートは 8076。.juizapp に libjuiz_sdk・hsjuiz・GHC の RTS が入っていることと `juiz: "=<版>"` を確かめる。ghc・cabal(Linux では patchelf も)が無ければ飛ばし、`JUIZ_REQUIRE_HASKELL=1` なら落とす。cargo test が LD_LIBRARY_PATH に足す `target/` の下は、scripts を呼ぶときに外す(残すと bundle-plugin-deps.sh の確かめで、隣に写した libjuiz_sdk より先に target/debug のものが見つかって失敗する)。
 
@@ -520,7 +557,7 @@ conf の `{target}` は juiz の置換(app-package.md §5.2)で、この書式�
 
 | もの | 今の扱い | 後で足すなら |
 | --- | --- | --- |
-| 型付きの雛形 `--idl <file.jidl>` | しない | Step 4(#460)。Rust は既存の `rust-skeleton`(datatype.md §18)を使う。他言語は Step 4 で決める |
+| `--idl` の Python・C++・Haskell | エラー(Step 4 は Rust だけ、§6.5) | #468。juiz_idl に各言語の skeleton の生成器を足してから |
 | 既存の雛形に型を足す `juiz pkg add process\|container <name>` | しない | Step 5(#461、任意)。§5.1 の conf のキーの順番はそのため |
 | 外部のテンプレート(git・cargo-generate 互換) | しない | テンプレートの置き場所を指定するオプション |
 | 基礎パッケージ(`kind: base`)・`depends` の雛形 | しない(`kind: app` だけ) | `--kind base` など |
@@ -536,6 +573,6 @@ conf の `{target}` は juiz の置換(app-package.md §5.2)で、この書式�
 | 1 juiz_pkg クレート、`juiz pkg create`・`juiz pkg target`・`juiz-pkg`、Rust と Python | #457 | §2、§3、§4、§5、§6.1、§6.2、§7、§8、§9、§10、§11 |
 | 2 C++ | #458 | §6.3 |
 | 3 Haskell | #459 | §6.4 |
-| 4 `--idl` | #460 | §12 |
+| 4 `--idl` | #460 | §6.5 |
 | 5 `juiz pkg add`(任意) | #461 | §5.1、§12 |
 | 6 サイトとリリース | #462、OpenJUIZ.github.io#87 | — |

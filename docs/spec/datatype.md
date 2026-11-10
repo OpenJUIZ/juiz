@@ -534,6 +534,7 @@ fn move_to(target: Pose2D, speed: f64) -> JuizResult<Pose2D> { … }
 - マクロには `typed = "all"`(§17)を付け、説明は `description`、既定値は JSON の文字列で書く。したがってマクロが作る manifest の引数・戻り値の `type_name`・`schema`・`default` は、`<namespace>.processes.json` のシグネチャと一致する(`juiz_idl/test_package` で確かめている)。
 - 型は `crate::a::b::T` の絶対パスで参照する。`juiz_idl.rs` をクレートの一番上で読み込む前提。型の対応は §11。
 - 関数名・引数名はマクロがそのまま `type_name` と引数名にするので、Rust のキーワードの名前(`r#…` にしないと書けないもの)はエラーにする。
+- ファイルの先頭の説明を除いた中身(`use`・関数・`juiz_component_manifest!`)は `juiz_idl::rust_skeleton_items` で、コンポーネントの名前を指定して作れる。`juiz pkg create --idl`(pkg.md §6.5)が使う。
 
 ## 19. core の型検査と型の登録所(Step 4 #193 で決めたこと)
 

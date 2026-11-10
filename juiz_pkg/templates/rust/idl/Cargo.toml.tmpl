@@ -1,0 +1,20 @@
+[package]
+name = "{{name}}"
+version = "0.1.0"
+edition = "2021"
+description = "{{name}}: a juiz component"
+license = "{{license}}"
+publish = false
+
+[lib]
+# cdylib: the plugin juiz loads (C ABI). rlib: for cargo test
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Same version as the juiz that made this skeleton (juiz --version)
+juiz_sdk = {{juiz_sdk_dep}}
+juiz_std_types = {{juiz_std_types_dep}}  # the juiz_std types (import idl "juiz_std/...")
+
+[build-dependencies]
+# build.rs generates the Rust types of the .jidl. Same version as juiz_sdk
+juiz_idl = {{juiz_idl_dep}}
