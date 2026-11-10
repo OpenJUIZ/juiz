@@ -170,7 +170,7 @@ fn container_code(c: &ContainerSignature, options: &GenerateOptions) -> Result<S
     let state = ident(&camel_case(&c.type_name));
     let mut out = doc_lines(&c.description, "");
     out.push_str(&format!(
-        "/// Container `{name}` の状態 (JIDL では型付けしない。自由に書く)\n\
+        "/// State of the container `{name}` (the JIDL does not type it: add the fields you need)\n\
          pub struct {state} {{}}\n\n\
          #[juiz_component_container]\n\
          pub fn {name}() -> JuizResult<Box<{state}>> {{\n    Ok(Box::new({state} {{}}))\n}}\n"
@@ -205,11 +205,26 @@ fn skeleton(s: &Signatures, options: &GenerateOptions) -> Result<String, IdlErro
          // 名前空間 {ns} の process / container 宣言から作った Rust の雛形。コピーして todo!() の本体を書く。\n\
          // 型は crate::… で参照するので、クレートの一番上で juiz_idl.rs を読み込んでおく:\n\
          //     include!(concat!(env!(\"OUT_DIR\"), \"/juiz_idl.rs\"));\n\
-         // 1 つの名前空間が 1 つのコンポーネント (cdylib) になる。\n\n\
-         #[allow(unused_imports)]\n\
-         use juiz_sdk::prelude::*;\n",
+         // 1 つの名前空間が 1 つのコンポーネント (cdylib) になる。\n\n",
         ns = s.namespace
     ));
+    out.push_str(&rust_skeleton_items(
+        s,
+        &s.namespace.replace('.', "_"),
+        options,
+    )?);
+    Ok(out)
+}
+
+/// 雛形の中身 (`use juiz_sdk::prelude::*;`、宣言ごとの関数、`juiz_component_manifest!`)。
+/// ファイルの先頭の説明は付けない。`juiz pkg create --idl` (docs/spec/pkg.md §6.5) が
+/// コンポーネントの名前を `component_name` にして src/lib.rs に埋め込むのに使う
+pub fn rust_skeleton_items(
+    s: &Signatures,
+    component_name: &str,
+    options: &GenerateOptions,
+) -> Result<String, IdlError> {
+    let mut out = String::from("#[allow(unused_imports)]\nuse juiz_sdk::prelude::*;\n");
     for p in s.processes.iter() {
         out.push('\n');
         out.push_str(&process_fn(p, options)?);
@@ -221,7 +236,7 @@ fn skeleton(s: &Signatures, options: &GenerateOptions) -> Result<String, IdlErro
     // コンポーネントのマニフェスト
     out.push_str(&format!(
         "\njuiz_component_manifest!(\n    component_name = {}\n",
-        str_lit(&s.namespace.replace('.', "_"))
+        str_lit(component_name)
     ));
     if !s.containers.is_empty() {
         out.push_str("    containers = {\n");

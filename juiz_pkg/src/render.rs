@@ -23,6 +23,11 @@ pub const VARIABLES: &[&str] = &[
     "year",
     "types_table",
     "next_steps",
+    "idl_main",
+    "idl_conf",
+    "idl_extern",
+    "juiz_idl_dep",
+    "juiz_std_types_dep",
 ];
 
 /// 変数の値。None は「無し」(その変数を含む行を消す)

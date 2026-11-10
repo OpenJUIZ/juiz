@@ -128,15 +128,20 @@ fn script(app: &Path, name: &str, args: &[&str]) {
     assert!(out.status.success(), "{name}: {out:?}");
 }
 
-/// juiz を起動し、id が呼べるようになるまで待つ
+/// juiz を起動し、id (Process か ContainerProcess) が引数なしで呼べるようになるまで待つ
 fn start(cmd_args: &[&str], app: &Path, log: PathBuf, first_id: &str) -> Daemon {
     let mut cmd = juiz();
     cmd.args(cmd_args).current_dir(app);
     let d = Daemon::spawn_command(cmd, log);
     let deadline = Instant::now() + Duration::from_secs(60);
+    let kind = if first_id.contains("/container_process/") {
+        "container-process"
+    } else {
+        "process"
+    };
     loop {
         let out = juiz()
-            .args(["process", "call", first_id, "{}", "-p"])
+            .args([kind, "call", first_id, "{}", "-p"])
             .current_dir(app)
             .output()
             .unwrap();
@@ -259,6 +264,95 @@ fn check_package(pkg: &Path, lang: &str) {
 #[test]
 fn pkg_create_rust_component_builds_runs_and_packs() {
     create_build_run_pack("rust", "pkg_rust_robot", 8078, true, &[]);
+}
+
+/// --idl の雛形 (§6.5): juiz_std と別ファイルの record を使う宣言から型付きの関数を作り、
+/// todo!() の本体を書き換えてから、ビルド→起動→call→型の確認→pack→juiz run を通す
+#[cfg(unix)]
+#[test]
+fn pkg_create_rust_idl_builds_runs_and_packs() {
+    let dir = temp_dir("pkg_cli_rust_idl");
+    let idl = dir.join("idl_src");
+    std::fs::create_dir_all(idl.join("common")).unwrap();
+    std::fs::write(
+        idl.join("robot.jidl"),
+        r#"namespace pkg_idl;
+import idl "juiz_std/geometry.jidl";
+import idl "common/goal.jidl";
+/** Remaining angle to the goal */
+process double pkg_idl_remaining(pkg_idl.common.Goal goal, juiz_std.geometry.Pose2D from_pose);
+container pkg_idl_arm { container_process long pkg_idl_double(long step = 1); }
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        idl.join("common").join("goal.jidl"),
+        r#"namespace pkg_idl.common;
+import idl "juiz_std/geometry.jidl";
+record Goal { juiz_std.geometry.Pose2D pose; double tolerance = 0.5; }
+"#,
+    )
+    .unwrap();
+    let name = "pkg_rust_idl";
+    let port = 8082;
+    let app = create(&dir, name, "rust", &["--idl", path_str(&idl.join("robot.jidl"))]);
+    set_port(&app, port);
+    assert!(app.join("idl").join("common").join("goal.jidl").is_file());
+
+    // 本体を書く (利用者がすること)
+    let lib = app.join("src").join("lib.rs");
+    let code = std::fs::read_to_string(&lib).unwrap();
+    let code = code
+        .replace(
+            "    let _ = (goal, from_pose);\n    todo!(\"write the body of pkg_idl_remaining\")",
+            "    Ok(goal.pose.theta - from_pose.theta + goal.tolerance)",
+        )
+        .replace(
+            "    let _ = (container, step);\n    todo!(\"write the body of pkg_idl_double\")",
+            "    let _ = container;\n    Ok(step * 2)",
+        );
+    assert!(!code.contains("todo!(\"write"), "{code}");
+    std::fs::write(&lib, code).unwrap();
+
+    script(&app, "dev.sh", &[]);
+    let h = format!("http://127.0.0.1:{port}");
+    let remaining = format!("{h}/process/pkg_idl_remaining0::pkg_idl_remaining");
+    let double = format!("{h}/container_process/pkg_idl_double0::pkg_idl_double:pkg_idl_arm0");
+    let check = |app: &Path| {
+        let r = call(
+            app,
+            "process",
+            &remaining,
+            r#"{"goal": {"pose": {"theta": 2.0}}, "from_pose": {"theta": 0.5}}"#,
+        );
+        assert!(r.contains("Value(2.0)"), "{r}");
+        assert!(call(app, "container-process", &double, r#"{"step": 3}"#).contains("Value(6)"));
+        assert!(call(app, "container-process", &double, "{}").contains("Value(2)"));
+        // 引数の型が .jidl の型になっている (型の一覧に、使っている Process と一緒に出る)
+        let out = juiz()
+            .args(["-s", &h, "type", "list", "--long"])
+            .current_dir(app)
+            .output()
+            .unwrap();
+        let list = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            list.contains("pkg_idl.common.Goal")
+                && list.contains("juiz_std.geometry.Pose2D")
+                && list.contains("pkg_idl_remaining"),
+            "{list}"
+        );
+    };
+    let mut d = start(&["-f", "app/app.conf", "-d"], &app, dir.join("dev.log"), &double);
+    check(&app);
+    assert!(d.stop(), "{}", d.log_text());
+
+    script(&app, "pack.sh", &["--no-build"]);
+    let pkg = app.join("dist").join(format!("{name}-0.1.0.juizapp"));
+    check_package(&pkg, "rust");
+    let mut d = start(&["run", path_str(&pkg)], &app, dir.join("run.log"), &double);
+    check(&app);
+    assert!(d.stop(), "{}", d.log_text());
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[cfg(all(unix, feature = "embed-python"))]

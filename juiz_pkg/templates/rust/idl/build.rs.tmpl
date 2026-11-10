@@ -1,0 +1,8 @@
+// Generates the Rust types (record, enum) of the .jidl in OUT_DIR/juiz_idl.rs.
+// src/lib.rs includes it. Types of the files imported from {{idl_main}} are generated too.
+fn main() {
+    juiz_idl::build::configure()
+{{idl_extern}}
+        .compile(&["{{idl_main}}"])
+        .unwrap();
+}

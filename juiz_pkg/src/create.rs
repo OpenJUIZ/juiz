@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use crate::cli::{CreateArgs, LicenseKind};
 use crate::render::{render, render_path, Vars};
+use crate::idl::IdlPlan;
 use crate::{names, templates, Lang, PkgError, Template, JUIZ_VERSION};
 
 /// 生成するファイル 1 つ
@@ -58,6 +59,8 @@ pub struct Plan {
     pub year: i64,
     /// Windows 向けの表示にするか (§9)
     pub windows: bool,
+    /// `--idl` で読んだ .jidl (§6.5)。あれば -t の型の代わりに .jidl の宣言を入れる
+    pub idl: Option<IdlPlan>,
 }
 
 /// 1970-01-01 からの日数を西暦の年にする (UTC)
@@ -213,6 +216,12 @@ impl Plan {
             warnings.push("--author is only used with --license mit-apache; ignored".to_owned());
         }
 
+        // --idl は先に読む (Rust のほかの言語はここでエラー)
+        let idl = match &args.idl {
+            Some(p) => Some(IdlPlan::load(&expand_tilde(p), lang)?),
+            None => None,
+        };
+
         let license = args.license == LicenseKind::MitApache;
         let author = if license {
             match args.author.clone().filter(|a| !a.trim().is_empty()).or_else(git_user) {
@@ -309,6 +318,7 @@ impl Plan {
                 hsjuiz_given,
                 year: current_year(),
                 windows,
+                idl,
             },
             warnings,
         ))
@@ -336,15 +346,31 @@ impl Plan {
         }
     }
 
-    fn juiz_sdk_dep(&self) -> String {
+    /// Rust の依存の右辺 (`"=<版>"`、--juiz-source ならソースの `<crate>`、§7)
+    fn rust_dep(&self, krate: &str) -> String {
         match &self.juiz_source {
-            Some(src) => format!("{{ path = '{}' }}", slash(&src.join("juiz_sdk"))),
+            Some(src) => format!("{{ path = '{}' }}", slash(&src.join(krate))),
             None => format!("\"={JUIZ_VERSION}\""),
+        }
+    }
+
+    fn juiz_sdk_dep(&self) -> String {
+        self.rust_dep("juiz_sdk")
+    }
+
+    /// テンプレートの種類の表示 (§9 の 1 行目)
+    fn kind_label(&self) -> String {
+        match &self.idl {
+            Some(i) => format!("from {}", i.main),
+            None => self.template.dir().to_owned(),
         }
     }
 
     /// 入っている型の表 (README、§4)
     fn types_table(&self) -> String {
+        if let Some(i) = &self.idl {
+            return i.types_table();
+        }
         let n = &self.name;
         let mut s = String::from(
             "| Type | Kind | Arguments (default) | Returns | What it does |\n| --- | --- | --- | --- | --- |\n",
@@ -370,6 +396,9 @@ impl Plan {
 
     /// 呼び出しの例 (§9)
     fn call_examples(&self) -> Vec<String> {
+        if let Some(i) = &self.idl {
+            return i.call_examples();
+        }
         let n = &self.name;
         let mut v = Vec::new();
         if self.template.has_process() {
@@ -455,6 +484,12 @@ impl Plan {
                 lines.push((script("dev"), "# build and put the plugin in app/plugins/<target>/"));
             }
             _ => {
+                if self.idl.is_some() {
+                    lines.push((
+                        "# write the bodies of the functions (todo!()) in src/lib.rs, then".into(),
+                        "",
+                    ));
+                }
                 lines.push((
                     script("dev"),
                     "# build and put the plugin in app/plugins/<target>/",
@@ -519,17 +554,37 @@ impl Plan {
             .set_opt("author", self.author.clone())
             .set("year", self.year.to_string())
             .set("types_table", self.types_table())
-            .set("next_steps", steps.trim_end().to_owned());
+            .set("next_steps", steps.trim_end().to_owned())
+            .set("juiz_idl_dep", self.rust_dep("juiz_idl"));
+        match &self.idl {
+            Some(i) => {
+                v.set("idl_main", &i.main)
+                    .set("idl_conf", i.conf_types())
+                    .set_opt("idl_extern", i.extern_line())
+                    .set_opt(
+                        "juiz_std_types_dep",
+                        i.uses_juiz_std.then(|| self.rust_dep("juiz_std_types")),
+                    );
+            }
+            None => {
+                v.set_opt("idl_main", None)
+                    .set_opt("idl_conf", None)
+                    .set_opt("idl_extern", None)
+                    .set_opt("juiz_std_types_dep", None);
+            }
+        }
         v
     }
 
     /// 生成するファイルの一覧を作る (§10.1 の重ね方)
     pub fn files(&self) -> Result<Vec<GeneratedFile>, PkgError> {
+        // --idl では <template> の代わりに idl の層を重ねる (§6.5)
+        let kind = if self.idl.is_some() { "idl" } else { self.template.dir() };
         let layers = [
             "common/_base/".to_owned(),
-            format!("common/{}/", self.template.dir()),
+            format!("common/{kind}/"),
             format!("{}/_base/", self.lang.dir()),
-            format!("{}/{}/", self.lang.dir(), self.template.dir()),
+            format!("{}/{kind}/", self.lang.dir()),
         ];
         let vars = self.vars();
         let mut out: BTreeMap<String, String> = BTreeMap::new();
@@ -550,6 +605,13 @@ impl Plan {
                 out.insert(rel, content);
             }
         }
+        // --idl: .jidl の写しと、juiz_idl の雛形から作る src/lib.rs (テンプレートの置換は通さない)
+        if let Some(i) = &self.idl {
+            for (path, text) in &i.files {
+                out.insert(path.clone(), text.clone());
+            }
+            out.insert("src/lib.rs".to_owned(), i.lib_rs(&self.name)?);
+        }
         Ok(out
             .into_iter()
             .map(|(path, content)| GeneratedFile { path, content })
@@ -562,7 +624,7 @@ impl Plan {
             "Created {} ({}, {}) in {}  [{}]\n\nNext steps:\n{}",
             self.name,
             self.lang.dir(),
-            self.template.dir(),
+            self.kind_label(),
             self.display_dir,
             self.sdk_label(),
             self.next_steps(true, self.windows)
@@ -1045,6 +1107,84 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// --idl (§6.5): .jidl の写し・build.rs・型付きの src/lib.rs を作り、-t の型は入れない
+    #[test]
+    fn rust_idl_files() {
+        let d = temp("idl_files");
+        let idl = crate::idl::write_jidl(
+            &d,
+            "robot.jidl",
+            "namespace robot; import idl \"juiz_std/geometry.jidl\";\n\
+             process double turn(juiz_std.geometry.Pose2D pose, double speed = 1.0);\n\
+             container wheel { container_process long spin(long n = 1); }\n",
+        );
+        for lic in ["none", "mit-apache"] {
+            let p = plan(&["create", "my_robot", "-b", "rust", "--idl", idl.to_str().unwrap(), "--license", lic]);
+            let files = p.files().unwrap();
+            let mut expected = vec![
+                ".gitignore",
+                "Cargo.toml",
+                "README.md",
+                "app/app.conf",
+                "app/juizapp.yaml",
+                "build.rs",
+                "idl/robot.jidl",
+                "scripts/dev.ps1",
+                "scripts/dev.sh",
+                "scripts/pack.ps1",
+                "scripts/pack.sh",
+                "src/lib.rs",
+            ];
+            if lic == "mit-apache" {
+                expected.extend(["LICENSE-APACHE", "LICENSE-MIT"]);
+                expected.sort();
+            }
+            assert_eq!(paths(&p), expected);
+            let get = |path: &str| files.iter().find(|f| f.path == path).unwrap().content.clone();
+            for f in &files {
+                if !f.path.starts_with("idl/") && f.path != "src/lib.rs" {
+                    assert!(!f.content.contains("{{"), "{}", f.path);
+                }
+            }
+            let conf = get("app/app.conf");
+            assert!(conf.contains("\"name\": \"turn0\"") && conf.contains("\"name\": \"wheel0\"") && conf.contains("\"name\": \"spin0\""), "{conf}");
+            assert!(!conf.contains("my_robot_add") && !conf.contains("main_loop_ec"), "{conf}");
+            let cargo = get("Cargo.toml");
+            assert!(cargo.contains(&format!("juiz_std_types = \"={JUIZ_VERSION}\"")), "{cargo}");
+            assert!(cargo.contains(&format!("[build-dependencies]\n# build.rs generates the Rust types of the .jidl. Same version as juiz_sdk\njuiz_idl = \"={JUIZ_VERSION}\"")), "{cargo}");
+            assert_eq!(cargo.contains("license = "), lic == "mit-apache", "{cargo}");
+            let build = get("build.rs");
+            assert!(build.contains(".extern_path(\"juiz_std\", \"::juiz_std_types::juiz_std\")\n        .compile(&[\"idl/robot.jidl\"])"), "{build}");
+            assert!(get("src/lib.rs").contains("component_name = \"my_robot\""));
+            assert!(get("README.md").contains("| `turn` | Process | `pose: juiz_std.geometry.Pose2D`, `speed: double` (1.0) | `double` | - |"));
+            let s = p.summary();
+            assert!(s.starts_with("Created my_robot (rust, from idl/robot.jidl) in ./my_robot"), "{s}");
+            assert!(s.contains("todo!()") && s.contains("/process/turn0::turn") && s.contains("/container_process/spin0::spin:wheel0"), "{s}");
+        }
+        // juiz_std を使わなければ juiz_std_types も extern も無い
+        let idl2 = crate::idl::write_jidl(&d, "plain.jidl", "namespace plain; process long f(long x = 0);");
+        let p = plan(&["create", "my_robot", "-b", "rust", "--idl", idl2.to_str().unwrap()]);
+        let files = p.files().unwrap();
+        let get = |path: &str| files.iter().find(|f| f.path == path).unwrap().content.clone();
+        assert!(!get("Cargo.toml").contains("juiz_std_types"));
+        assert_eq!(
+            get("build.rs").lines().filter(|l| l.contains("extern_path")).count(),
+            0
+        );
+        // --juiz-source なら juiz_idl・juiz_std_types もソースを使う
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let p = plan(&["create", "my_robot", "-b", "rust", "--idl", idl.to_str().unwrap(), "--juiz-source", repo.to_str().unwrap()]);
+        let cargo = p.files().unwrap().into_iter().find(|f| f.path == "Cargo.toml").unwrap().content;
+        assert!(cargo.contains("/juiz_idl' }") && cargo.contains("/juiz_std_types' }"), "{cargo}");
+        // -t とは一緒に使えない。Rust のほかの言語はまだ
+        let e = Cli::try_parse_from(["juiz-pkg", "create", "x", "-b", "rust", "-t", "process", "--idl", "a.jidl"]);
+        assert!(e.is_err());
+        let args = parse(&["create", "my_robot", "-b", "python", "--idl", idl.to_str().unwrap()]);
+        let e = Plan::from_args_with(&args, || None, false).unwrap_err().to_string();
+        assert!(e.contains("only for -b rust"), "{e}");
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     /// テンプレートに使っている変数がすべて表にある (§10.2)

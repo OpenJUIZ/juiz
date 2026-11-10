@@ -1,0 +1,53 @@
+# {{name}}
+
+A juiz component written in Rust. It was made with `juiz pkg create --idl` of juiz {{juiz_version}},
+from the process / container declarations of `{{idl_main}}`.
+
+License: {{license}}
+
+## What is inside
+
+{{types_table}}
+
+| Path | What it is |
+| --- | --- |
+| `{{idl_main}}` | The types and the declarations (JIDL). `build.rs` generates the Rust types of it |
+| `src/lib.rs` | The Component. Each `#[juiz_component_*]` function is a type, listed in `juiz_component_manifest!`. Write the bodies (`todo!()`) |
+| `build.rs` | Generates the Rust types of the `.jidl` (`juiz_idl`) |
+| `app/app.conf` | The configuration to start juiz with. It is also the entry of the `.juizapp` package |
+| `app/juizapp.yaml` | The `.juizapp` manifest (name, version, required juiz version) |
+| `scripts/dev.sh`, `scripts/dev.ps1` | Build the plugin and put it in `app/plugins/<target>/` |
+| `scripts/pack.sh`, `scripts/pack.ps1` | Build in release mode and make `dist/{{name}}-<version>.juizapp` |
+
+## Requirements
+
+- juiz {{juiz_version}} (`juiz --version`). Install it with `cargo install juiz_app --version {{juiz_version}}` or `pip install juiz-cli=={{juiz_version}}`
+- Rust (cargo)
+
+`juiz_sdk` and `juiz_idl` in `Cargo.toml` are pinned to the same version as juiz (`={{juiz_version}}`).
+When you update juiz, update them to the same version.
+
+## Write, build, run and call
+
+The functions in `src/lib.rs` have the arguments and the return values of the `.jidl`, and their bodies are `todo!()`:
+calling one before you write it fails. The example calls below use the default values, or a value of the type.
+
+```sh
+{{next_steps}}
+```
+
+On Windows, use `scripts\dev.ps1` and `scripts\pack.ps1` instead of the `.sh` scripts.
+
+## Changing the .jidl
+
+`cargo build` regenerates the types of `{{idl_main}}`. When you change the declarations, change the functions in
+`src/lib.rs` and `app/app.conf` to match (`juiz idl -g rust-skeleton -o <dir> {{idl_main}}` writes the functions of
+all the declarations again, to copy from).
+
+## Versions
+
+The package version is `0.1.0` in both `Cargo.toml` and `app/juizapp.yaml`. When you release a new version, change both.
+
+## Plugins for several OSes in one package
+
+Run `scripts/dev.sh --release` on each OS, collect the `app/plugins/<target>/` directories in one `app/plugins/`, and run `scripts/pack.sh --no-build`.
