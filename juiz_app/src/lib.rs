@@ -253,6 +253,12 @@ enum SubCommands {
         args: juiz_idl::cli::IdlArgs,
     },
 
+    /// Create a new package skeleton, and more (same as juiz-pkg, docs/spec/pkg.md)
+    Pkg {
+        #[command(flatten)]
+        args: juiz_pkg::cli::PkgArgs,
+    },
+
     /// Pack a directory with juizapp.yaml into a .juizapp package (docs/spec/app-package.md §6)
     Pack {
         /// Directory that has juizapp.yaml
@@ -701,6 +707,16 @@ where
             }
         };
     }
+    // juiz pkg も系を作らない (docs/spec/pkg.md §2.1)
+    if let Some(SubCommands::Pkg { args }) = &args.subcommand {
+        return match juiz_pkg::cli::run(args) {
+            Ok(_) => 0,
+            Err(e) => {
+                eprintln!("error: {e}");
+                1
+            }
+        };
+    }
     // juiz pack / juiz run も系の conf (-f) を読まない
     match package_command(&args) {
         Some(Ok(_)) => return 0,
@@ -882,6 +898,7 @@ fn run(args: Args) -> JuizResult<()> {
         }
         SubCommands::Anchor { subcommand } => on_anchor(manifest, working_dir, subcommand, args),
         SubCommands::Idl { .. }
+        | SubCommands::Pkg { .. }
         | SubCommands::Pack { .. }
         | SubCommands::Run { .. }
         | SubCommands::Install { .. }
@@ -898,6 +915,13 @@ fn run(args: Args) -> JuizResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// juiz pkg target が conf の {target} の置き換え先と同じ名前を出す (docs/spec/pkg.md §2.3)
+    #[test]
+    fn pkg_target_is_host_target() {
+        assert_eq!(juiz_pkg::HOST_TARGET, juiz_core::HOST_TARGET);
+        assert_eq!(juiz_pkg::JUIZ_VERSION, env!("CARGO_PKG_VERSION"));
+    }
 
     #[test]
     fn add_ipc_broker_appends_to_brokers() {

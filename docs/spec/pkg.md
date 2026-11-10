@@ -1,6 +1,6 @@
 # 雛形生成コマンド(juiz pkg)仕様
 
-- 状態: 確定(juiz pkg Step 0、issue #456、2026-11-09)
+- 状態: 確定(juiz pkg Step 0、issue #456、2026-11-09)。Step 1(#457、2026-11-10)で Rust・Python を実装し、実装に合わせて §2.2・§5・§6.1・§6.2・§10.2・§11 を書き足した
 - 親 issue: #455。検討の経緯と比較はプロジェクトの計画書 juiz-pkg-plan.md(2026-11-09 確定)にある
 - 関連: アプリ配布形式 [app-package.md](app-package.md)(雛形はそのまま `juiz pack` できる形にする)、Rust プラグインの C ABI [rust-plugin-abi.md](rust-plugin-abi.md)(雛形の Rust プラグインは C ABI)、データ型 [datatype.md](datatype.md) §18(`rust-skeleton`、Step 4 の `--idl`)
 - この文書は Step 1〜6(#457〜#462)の実装の基準になる。実装で仕様を変えるときは、同じ PR でこの文書を直す
@@ -62,6 +62,7 @@ juiz pkg create <name> -b <lang> [-t <template>] [-o <dir>]
 | `--juiz-source <dir>` | なし | 開発者向け。juiz のリポジトリのソースを使う(§7.2)。juiz 自身のテストと CI で使う |
 
 - 言語・テンプレートの値が違えば、受け付ける値を並べてエラーにする。
+- テンプレートをまだ持たない言語(Step 1 の時点では `cpp` と `haskell`。Step 2・3 で足す)は、使える言語を並べてエラーにする。
 - 言語に関係しないオプション(`-b rust` に `--hsjuiz-dir` など)は、警告を出して無視する。
 - 成功したら終了コード 0、失敗したら 0 以外。失敗したときは何も残さない(§8)。
 - 表示は英語(juiz の CLI のほかの表示に合わせる)。
@@ -149,10 +150,10 @@ my_robot/
 `-t component` の例。`process` では `processes` だけ、`container` では `containers` だけを書く。
 
 ```yaml
-# my_robot の起動設定
-#   開発中: scripts/dev.sh でプラグインを app/plugins/<target>/ に置いてから
-#           juiz -f app/app.conf -d
-#   パッケージ: scripts/pack.sh → juiz run dist/my_robot-0.1.0.juizapp
+# my_robot: start-up configuration of the juiz component my_robot
+#   development: juiz -f app/app.conf -d
+#                (Rust, C++ and Haskell: run scripts/dev.sh first to put the plugin in app/plugins/<target>/)
+#   package:     scripts/pack.sh, then juiz run dist/my_robot-0.1.0.juizapp
 "name": "my_robot"
 "option":
   "http_broker":
@@ -187,6 +188,7 @@ my_robot/
     "auto_start": false
 ```
 
+- 先頭のコメントは言語によらず同じ文にする(§4 のとおり英語。言語ごとに conf のテンプレートを分けないため)。
 - キーは teleop_twist と同じく `"` で囲み、順番もこの順にする(Step 5 の `juiz pkg add` が書き足す場所を決めやすくするため)。
 - `language` と `path` は言語ごと: Rust `rust` / `plugins/{target}`、C++ `c++` / `plugins/{target}`、Haskell `haskell` / `plugins/{target}`、Python `python` / `python`。
 - `ecs` は `container` と `component` だけに書き、`auto_start: false` にする(起動しただけで値が変わり続けないように。使い方の見本として置く)。
@@ -222,6 +224,7 @@ python:
 - `<ターゲット>` は `juiz pkg target` で得る(§2.3)。juiz が PATH に無ければ、入れ方を示して止める。
 - 引数 `--release`(ps1 は `-Release`)で release ビルド。既定は debug。
 - 最後に置いたファイルのパスを表示する。
+- Rust では、環境変数 `CARGO_TARGET_DIR` があればそこからビルドの成果物を取る(無ければ `target/`)。juiz_pkg のテストは、これで雛形のビルドを `target/pkg-test` にまとめる。
 
 ### 5.4 scripts/pack.sh・pack.ps1
 
@@ -231,6 +234,8 @@ python:
 2. 一時ディレクトリに `app/` を写し、LICENSE-MIT・LICENSE-APACHE があれば一緒に写す(.juizapp にライセンスを入れるため。teleop_twist の pack.sh と同じ)。
 3. Haskell では、一時ディレクトリの `plugins/<ターゲット>/` を `scripts/bundle-plugin-deps.sh` で依存ライブラリごと集め直す(§6.4)。
 4. `juiz pack <一時ディレクトリ> -o dist` を呼ぶ。
+
+Python の pack.sh にはビルドが無いので、`--no-build` は受け付けて無視する。
 
 複数の OS のプラグインを 1 つの .juizapp に入れたいときは、それぞれの OS で `scripts/dev.sh --release` した `app/plugins/<ターゲット>/` を 1 か所に集め、`scripts/pack.sh --no-build` する(README に書く)。
 
@@ -305,8 +310,8 @@ juiz_component_manifest!(
 );
 ```
 
-  - マクロの細かい書き方(戻り値に `i64` を直接書けるか、`&ContainerImpl` で readonly になるか)は Step 1 で実際にビルドして確かめ、合わなければこの例を直す。
-  - `#[cfg(test)]` のテストを 1 つ置く(`my_robot_add` の結果を確かめる程度)。
+  - Step 1 でビルドして確かめた: 戻り値に `i64` をそのまま書ける(マクロが `JuizResult<Capsule>` に直す、datatype.md)。Container を `&ContainerImpl<T>`(`mut` なし)で受けると readonly になる(`juiz container-process list --long` に `readonly` が出る)。上の例はそのまま使える。
+  - `#[cfg(test)]` のテストを 1 つ置く(`my_robot_add` の結果を確かめる程度)。マクロが関数を `CapsuleMap` を受けるものに書き換えるので、テストは `CapsuleMap` に引数を入れて呼ぶ。`-t container` には Process が無いので置かない。
 - dev.sh: `cargo build [--release]` → `target/<profile>/` の `lib<name>.so` / `lib<name>.dylib` / `<name>.dll` を `app/plugins/<ターゲット>/` に写す(teleop_twist の dev_plugin.sh と同じ)。
 - 雛形の Rust プラグインは C ABI(rust-plugin-abi.md)なので、.juizapp の `juiz` は `>=<版>` でよい(app-package.md §4.3)。
 
@@ -319,7 +324,8 @@ app/python/<name>.py
 
 - Component のファイルは `app/python/<name>.py`。conf の `path` は `python`(app-package.md §4 の例と同じ置き方)。ビルドが無いので `scripts/dev.*` は置かない。
 - pyproject.toml: project.name `<name-kebab>`、version `0.1.0`、`requires-python = ">=3.10"`、`dependencies = ["pyjuiz==<版>"]`、`[tool.setuptools] py-modules = []`(チュートリアル第 1 章と同じ形)。pip の juiz-cli は pyjuiz を同じ版で依存に持つので、juiz を cargo で入れた人にも pip で入れた人にも、この 1 行で足りる。
-- `<name>.py`: `@juiz_process`・`@juiz_container`・`@juiz_container_process(container_type="<name>")` で書く(チュートリアル第 5 章 Python と同じ)。引数と戻り値に型注釈を付ける(型注釈は必須、PR #54)。Container の状態はクラス `<Name>` に持つ。
+- `<name>.py`: `@juiz_process`・`@juiz_container`・`@juiz_container_process(container_type="<name>")` で書く(チュートリアル第 5 章 Python と同じ)。引数と戻り値に型注釈を付ける(型注釈は必須、PR #54)。Container の状態はクラス `<Name>` に持つ。`<name>_get` は `readonly=True` にする。description は docstring に書く(pyjuiz はデコレータの引数ではなく docstring を使う)。
+- pyproject.toml の `[build-system]` は `setuptools>=77` にする(`--license mit-apache` の `license = "MIT OR Apache-2.0"`(PEP 639 の SPDX の書き方)を読めるのは 77 から。チュートリアルの `>=61` だと `pip install -e .` が失敗する)。
 - README には venv を作って `pip install -e .` する手順を書く。
 
 ### 6.3 C++
@@ -467,6 +473,10 @@ juiz_pkg/templates/
 | `license` | `MIT OR Apache-2.0`、`--license none` なら無し |
 | `author` | `--author`、`--license none` なら無し |
 | `year` | 生成した年(UTC) |
+| `types_table` | 入っている型の表(§4 の表の、その種類の行だけ。Markdown)。README に使う |
+| `next_steps` | §9 の「次に打つコマンド」(`cd` を除き、Unix の形)。README に使う |
+
+`types_table` と `next_steps` は、種類・言語で変わる README の部分を、条件分岐の書式を設けずに 1 つのテンプレートで書くために足した(Step 1)。
 
 conf の `{target}` は juiz の置換(app-package.md §5.2)で、この書式とは別。`{{` と `{` は重ならない。
 
@@ -478,6 +488,7 @@ conf の `{target}` は juiz の置換(app-package.md §5.2)で、この書式�
 - 置換(§10.2)の、知らない変数・残った `{{`・行ごと消す規則。全言語・全種類の組み合わせ(4 × 3)を生成して、`{{` が残らないこと。
 - 作り先の規則(§8): ファイルが在る・空でないディレクトリ・空のディレクトリ・途中で失敗したときに何も残らないこと。
 - 生成から配布まで(言語の Step ごと): 一時ディレクトリに `--juiz-source` で生成 → `scripts/dev.sh` → `juiz -f app/app.conf` で起動 → 入っている型を全部 call して §4 の値が返る → `scripts/pack.sh` → `juiz run` で起動できる。Rust・Python は Step 1、C++ は Step 2、Haskell は Step 3。CI では、その言語の道具が入っている OS で回す(Haskell は Linux・macOS)。
+  - Step 1 の形(juiz_app/tests/pkg_cli_test.rs): Unix で回す(`.sh` を使うため。`.ps1` は自動のテストが無い)。ほかのテストとポートが重ならないよう、生成した conf のポートを 8078(Rust)・8079(Python)に書き換えてから起動する。`scripts/dev.sh` でビルドした後なので、pack は `scripts/pack.sh --no-build` で release ビルドを省く。Python は `PYTHONPATH` の bindings/pyjuiz を使う(scripts/test.sh が設定する)。
 - Haskell: テンプレートの `bundle-plugin-deps.sh` が juiz の `scripts/bundle-plugin-deps.sh` と一致すること。
 
 ## 12. 後回しにするもの

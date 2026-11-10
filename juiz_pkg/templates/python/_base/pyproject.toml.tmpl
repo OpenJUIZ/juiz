@@ -1,0 +1,18 @@
+[project]
+name = "{{name_kebab}}"
+version = "0.1.0"
+description = "{{name}}: a juiz component"
+license = "{{license}}"
+requires-python = ">=3.10"
+dependencies = [
+    # Same version as the juiz that made this skeleton (juiz --version)
+    "pyjuiz=={{juiz_version}}",
+]
+
+[build-system]
+requires = ["setuptools>=77"]  # 77 or later reads license = "<SPDX expression>"
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# juiz loads app/python/{{name}}.py directly, so nothing is installed as a Python package
+py-modules = []

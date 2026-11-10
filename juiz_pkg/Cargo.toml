@@ -1,0 +1,22 @@
+[package]
+name = "juiz_pkg"
+rust-version = "1.89"
+version = "0.2.5"
+edition = "2021"
+description = "Skeleton generator for juiz packages: juiz pkg create / juiz-pkg."
+license.workspace = true
+repository = "https://github.com/OpenJUIZ/juiz"
+readme = "README.md"
+keywords = ["juiz", "scaffold", "template", "robotics"]
+categories = ["development-tools", "command-line-utilities"]
+build = "build.rs"
+# templates/ の下の .gitignore.tmpl のような隠しファイルも入れる (cargo は既定で外す)
+include = ["build.rs", "src/**/*.rs", "templates/**/*", "templates/**/.*", "README.md"]
+
+[[bin]]
+name = "juiz-pkg"
+path = "src/bin/juiz-pkg.rs"
+
+[dependencies]
+clap = {workspace = true}
+juiz_sdk = {workspace = true}

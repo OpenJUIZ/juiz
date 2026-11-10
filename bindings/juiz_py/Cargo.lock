@@ -1287,6 +1287,7 @@ dependencies = [
  "home",
  "juiz_core",
  "juiz_idl",
+ "juiz_pkg",
  "juiz_qmp_broker",
  "juiz_sdk",
  "pyo3",
@@ -1345,6 +1346,14 @@ dependencies = [
  "quote",
  "serde_json",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "juiz_pkg"
+version = "0.2.5"
+dependencies = [
+ "clap",
+ "juiz_sdk",
 ]
 
 [[package]]

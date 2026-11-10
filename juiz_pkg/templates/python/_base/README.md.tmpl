@@ -1,0 +1,38 @@
+# {{name}}
+
+A juiz component written in Python. It was made with `juiz pkg create` of juiz {{juiz_version}}.
+
+License: {{license}}
+
+## What is inside
+
+{{types_table}}
+
+| Path | What it is |
+| --- | --- |
+| `app/python/{{name}}.py` | The Component. Each decorated function is a type |
+| `app/app.conf` | The configuration to start juiz with. It is also the entry of the `.juizapp` package |
+| `app/juizapp.yaml` | The `.juizapp` manifest (name, version, required juiz and Python versions) |
+| `pyproject.toml` | The Python packages this project uses (pyjuiz) |
+| `scripts/pack.sh`, `scripts/pack.ps1` | Make `dist/{{name}}-<version>.juizapp` |
+
+## Requirements
+
+- juiz {{juiz_version}} with Python support (`juiz --version`). `pip install juiz-cli=={{juiz_version}}` in the venv below is the easiest
+- Python 3.10 or later
+
+`pyjuiz` in `pyproject.toml` is pinned to the same version as juiz (`=={{juiz_version}}`).
+When you update juiz, update `pyjuiz` to the same version.
+
+## Set up, run and call
+
+```sh
+{{next_steps}}
+```
+
+On Windows, create the venv with `python -m venv .venv`, activate it with `.venv\Scripts\activate`, and use `scripts\pack.ps1`.
+Run `juiz` in a terminal where the venv is activated.
+
+## Versions
+
+The package version is `0.1.0` in both `pyproject.toml` and `app/juizapp.yaml`. When you release a new version, change both.

@@ -1,0 +1,2 @@
+# juiz pkg の雛形のテンプレートは LF のまま取り出す (docs/spec/pkg.md §5)
+juiz_pkg/templates/** text eol=lf
