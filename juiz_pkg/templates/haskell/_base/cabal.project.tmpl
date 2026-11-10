@@ -1,0 +1,13 @@
+-- Build this package together with hsjuiz {{juiz_version}} from the juiz source.
+-- The paths were written by juiz pkg create. When you update juiz, change them to the new version
+-- (hsjuiz and libjuiz_sdk must be the same version as juiz).
+packages: . {{hsjuiz_dir}}
+
+-- hsjuiz uses only packages that come with GHC, so the Hackage index is not used (no cabal update needed)
+active-repositories: :none
+
+-- hsjuiz links to libjuiz_sdk. GHC loads libjuiz_sdk with hsjuiz when it runs Template Haskell,
+-- and the plugin built by scripts/dev.sh finds it with this rpath during development
+package hsjuiz
+  extra-lib-dirs: {{juiz_sdk_dir}}/lib
+  ghc-options: -optl-Wl,-rpath,{{juiz_sdk_dir}}/lib

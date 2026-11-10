@@ -1,0 +1,31 @@
+#!/bin/sh
+# Make dist/{{name}}-<version>.juizapp with juiz pack (juiz docs/spec/app-package.md)
+# usage: scripts/pack.sh [--no-build]
+#   --no-build: do not build; pack the plugin already in app/plugins/<target>/
+# The plugin uses libjuiz_sdk, hsjuiz and the shared libraries of GHC (and libffi, libgmp).
+# scripts/bundle-plugin-deps.sh puts them next to the plugin in the package, so that juiz loads it
+# on machines without GHC. It needs patchelf on Linux (apt install patchelf, or pip install patchelf).
+set -eu
+cd "$(dirname "$0")/.."
+if [ "${1:-}" != "--no-build" ]; then
+  scripts/dev.sh --release
+fi
+target=$(juiz pkg target)
+case "$target" in
+  *apple-darwin) lib="lib{{name}}.dylib" ;;
+  *) lib="lib{{name}}.so" ;;
+esac
+if [ ! -f "app/plugins/$target/$lib" ]; then
+  echo "error: app/plugins/$target/$lib is not there. Run scripts/dev.sh first." >&2
+  exit 1
+fi
+stage=$(mktemp -d)
+trap 'rm -rf "$stage"' EXIT
+(cd app && tar cf - --exclude=__pycache__ --exclude="plugins/$target" .) | (cd "$stage" && tar xf -)
+# The plugins of this OS: the plugin and the libraries it uses, with the rpath rewritten
+scripts/bundle-plugin-deps.sh "app/plugins/$target/$lib" "$stage/plugins/$target"
+for f in LICENSE-MIT LICENSE-APACHE; do
+  if [ -f "$f" ]; then cp "$f" "$stage/"; fi
+done
+mkdir -p dist
+juiz pack "$stage" -o dist

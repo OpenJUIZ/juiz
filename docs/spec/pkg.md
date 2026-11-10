@@ -62,7 +62,7 @@ juiz pkg create <name> -b <lang> [-t <template>] [-o <dir>]
 | `--juiz-source <dir>` | なし | 開発者向け。juiz のリポジトリのソースを使う(§7.2)。juiz 自身のテストと CI で使う |
 
 - 言語・テンプレートの値が違えば、受け付ける値を並べてエラーにする。
-- テンプレートをまだ持たない言語(Step 2 の時点では `haskell`。Step 3 で足す)は、使える言語を並べてエラーにする。
+- 4 つの言語すべてにテンプレートがある(Step 3 で Haskell を足して、テンプレートの無い言語のエラーは無くした)。
 - 言語に関係しないオプション(`-b rust` に `--hsjuiz-dir` など)は、警告を出して無視する。
 - 成功したら終了コード 0、失敗したら 0 以外。失敗したときは何も残さない(§8)。
 - 表示は英語(juiz の CLI のほかの表示に合わせる)。
@@ -85,6 +85,8 @@ juiz pkg target
 4. 予約語でない。予約語は、Rust・Python・C++ のキーワード(`type`、`class`、`import`、`fn`、`int` など。名前はそのまま関数名・モジュール名になる)と、`juiz`・`juiz_sdk`・`pyjuiz`・`hsjuiz`・`cppjuiz`・`std`・`core`・`alloc`・`test`・`main`(依存先や標準のものと衝突する)。一覧は juiz_pkg の中に 1 つ持つ。
 5. `-b haskell` のときだけ、`_` で区切った各要素が英字を 1 つ以上含む(cabal のパッケージ名の各要素は数字だけにできない。`arm_2` は不可)。
 6. `-b cpp` のときだけ、`component`・`component_manifest`・`process_manifest`・`container_manifest`・`argument_manifest`・`topic_manifest` でない(Step 2)。cppjuiz は `ProcessManifest` などのクラスを名前空間の外に置いているので `<Name>` が衝突し、`DEFINE_COMPONENT_MANIFEST_ENTRY_POINT` が作る関数 `component_manifest_entry_point` は、Container `<name>` から `COMPONENT_CONTAINER_FACTORY` が作る `<name>_manifest_entry_point`・`<name>_entry_point` と衝突するため。
+
+7. `-b haskell` のときだけ、GHC に付いてくるパッケージの名前(`base`・`text`・`containers`・`process`・`template_haskell` など)と base の最上位のモジュール(`prelude`・`numeric`・`foreign`)でない(Step 3)。`<name-kebab>` が cabal のパッケージ名として GHC のパッケージと衝突すると hsjuiz の依存が雛形そのものに解決されてしまい、`<Name>` のモジュール名が base のモジュールと衝突するため。一覧は juiz_pkg の `names::HASKELL_RESERVED`。
 
 規則に合わないときは、どの規則に合わないかと、直した名前の例(大文字を小文字に、`-` を `_` に直したもの)をエラーに出す。
 
@@ -209,7 +211,7 @@ juiz: ">=0.2.5"                   # §7
 entry: app.conf
 ```
 
-- C++ では `juiz: "=<版>"` にする(Step 2)。C++ の .juizapp は libjuiz_sdk を同梱し(§6.3)、libjuiz_sdk はホストの juiz と版が一致しないと読み込めない(`juiz_sdk_build_info`)。`>=` のままだと、違う版の juiz で `juiz run` したときに読み込みの段で分かりにくく失敗するので、run の段 3(app-package.md §9)で版の違いと入れ方を示して止まるようにする。Haskell も同じ理由で Step 3 で `=` にする。
+- C++ では `juiz: "=<版>"` にする(Step 2)。C++ の .juizapp は libjuiz_sdk を同梱し(§6.3)、libjuiz_sdk はホストの juiz と版が一致しないと読み込めない(`juiz_sdk_build_info`)。`>=` のままだと、違う版の juiz で `juiz run` したときに読み込みの段で分かりにくく失敗するので、run の段 3(app-package.md §9)で版の違いと入れ方を示して止まるようにする。Haskell も同じ理由で `=` にする(Step 3。Haskell の .juizapp も libjuiz_sdk を同梱する、§6.4)。
 - Python では次を足す。
 
 ```yaml
@@ -380,6 +382,16 @@ package hsjuiz
 - pack.sh: §5.4 の 3 で `scripts/bundle-plugin-deps.sh` を使い、libjuiz_sdk・GHC の共有ライブラリ・libffi・libgmp を集めて rpath を書き換える(app-package.md §12.2)。このスクリプトは juiz の `scripts/bundle-plugin-deps.sh` の写しをテンプレートに持ち、雛形に置く(同じ版のものになる)。写しが元と一致することを juiz_pkg のテストで確かめる。
 - Windows では生成はするが、Windows の Haskell は対応していない(#137)と警告を出す。`.ps1` は置かない。
 
+Step 3 で決めたこと:
+
+- `src/<Name>.hs` の名前: 関数とマニフェストは `<name>_add`・`<name>_add_manifest`・`<name>_create`・`<name>_manifest`・`<name>_increment`・`<name>_get`・`<name>_component` のように `<name>_` で始める(Haskell のキーワード・Prelude・hsjuiz の名前と衝突しないように。C++ と同じ形)。Container の状態の型は `<Name>State`(`newtype <Name>State = <Name>State (IORef Int64)`)。`<Name>` のままだと `value` → `Value`、`maybe` → `Maybe` のように hsjuiz・Prelude の型と衝突するため。
+- どの `-t` も `juizComponent` でまとめる(§4 の 1 つの Component)。引数は `addIntArg` で書き、Container の `initial_value` もマニフェストの引数として受け取る(conf の Container の項目から渡る)。`<name>_get` は `& readonly True`。
+- `.cabal` は `foreign-library <name>` 1 つで、`common` は使わない。rpath は `$ORIGIN`(macOS は `@loader_path`)。`license-files` は書かない(`--license none` で行ごと消せないため。LICENSE は pack.sh が .juizapp に入れる)。
+- dev.sh の `--release` は受け付けるだけ(cabal は既定で -O1。最適化を変えると hsjuiz まで作り直すので、変えたい人は cabal.project.local に書く)。開発中のプラグインは dist-newstyle の hsjuiz と cabal.project の rpath の libjuiz_sdk を使う。
+- pack.sh はホストのターゲットの `app/plugins/<ターゲット>/` だけを `bundle-plugin-deps.sh` で集め直す。ほかのターゲットのディレクトリは、その OS で集めたものをそのまま入れる(README に手順)。Linux では patchelf が要る。
+- hsjuiz(`<hsjuiz の場所>/hsjuiz.cabal`)・libjuiz_sdk(§9 の C++ と同じ判定)が無ければ、警告と次の手順に用意するコマンドを出す。hsjuiz は既定の場所なら `git clone --depth 1 --branch v<版> … ~/juiz-<版>`、`--hsjuiz-dir` が `…/bindings/hsjuiz` ならその 2 つ上に clone する形にする。README には在るかどうかによらず書く。
+- Windows で動かしたときも、表示する手順は `.sh` の形にする(`.ps1` が無いため)。
+
 ## 7. 版の埋め方
 
 ### 7.1 版
@@ -392,7 +404,7 @@ package hsjuiz
 | pyproject.toml | `pyjuiz==<版>` | pyjuiz は juiz と同じ版で出している |
 | CMakeLists.txt | `JUIZ_VERSION "<版>"` と `find_package(... EXACT)` | libjuiz_sdk はホストと版が一致しないと読み込めない |
 | cabal.project | hsjuiz・libjuiz_sdk のパスに `<版>` が入る | 同上 |
-| app/juizapp.yaml | `juiz: ">=<版>"`(C++ は `"=<版>"`、§5.2) | app-package.md §4.3 の pack の既定と同じ。C++ は同梱する libjuiz_sdk の版がホストと一致しないと読めないため |
+| app/juizapp.yaml | `juiz: ">=<版>"`(C++・Haskell は `"=<版>"`、§5.2) | app-package.md §4.3 の pack の既定と同じ。C++・Haskell は同梱する libjuiz_sdk の版がホストと一致しないと読めないため |
 | README.md | 要る juiz の版 | |
 
 ### 7.2 `--juiz-source`(開発者向け)
@@ -502,6 +514,7 @@ conf の `{target}` は juiz の置換(app-package.md §5.2)で、この書式�
   - Step 2 の C++: ワークスペースの `cargo build` でできた libjuiz_sdk を `scripts/package-juiz-sdk.sh` で配布と同じアーカイブにして一時ディレクトリに展開し、`--juiz-sdk-dir` で指す(`find_package(… EXACT)` と `juiz_sdk_bundle` を配布物と同じ形で通すため)。ポートは 8077。.juizapp に libjuiz_sdk が入っていることと、`juiz: "=<版>"` になっていることも確かめる。cmake と C++ コンパイラが要る(scripts/test.sh と同じ)。
   - Step 1 の形(juiz_app/tests/pkg_cli_test.rs): Unix で回す(`.sh` を使うため。`.ps1` は自動のテストが無い)。ほかのテストとポートが重ならないよう、生成した conf のポートを 8078(Rust)・8079(Python)に書き換えてから起動する。`scripts/dev.sh` でビルドした後なので、pack は `scripts/pack.sh --no-build` で release ビルドを省く。Python は `PYTHONPATH` の bindings/pyjuiz を使う(scripts/test.sh が設定する)。
 - Haskell: テンプレートの `bundle-plugin-deps.sh` が juiz の `scripts/bundle-plugin-deps.sh` と一致すること。
+  - Step 3 の Haskell(pkg_cli_test): C++ と同じく配布と同じ形の libjuiz_sdk を `--juiz-sdk-dir` で指し、hsjuiz は `--juiz-source` の `bindings/hsjuiz`。ポートは 8076。.juizapp に libjuiz_sdk・hsjuiz・GHC の RTS が入っていることと `juiz: "=<版>"` を確かめる。ghc・cabal(Linux では patchelf も)が無ければ飛ばし、`JUIZ_REQUIRE_HASKELL=1` なら落とす。cargo test が LD_LIBRARY_PATH に足す `target/` の下は、scripts を呼ぶときに外す(残すと bundle-plugin-deps.sh の確かめで、隣に写した libjuiz_sdk より先に target/debug のものが見つかって失敗する)。
 
 ## 12. 後回しにするもの
 

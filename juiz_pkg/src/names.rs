@@ -42,6 +42,20 @@ pub const CPP_RESERVED: &[&str] = &[
     "topic_manifest",
 ];
 
+/// Haskell だけで使えない名前 (Step 3)。GHC に付いてくるパッケージの名前 (`<name-kebab>` が cabal のパッケージ名として
+/// 衝突し、hsjuiz の依存が雛形そのものに解決されてしまう) と、base の最上位のモジュール (`<Name>` のモジュール名と衝突する)
+pub const HASKELL_RESERVED: &[&str] = &[
+    // GHC に付いてくるパッケージ
+    "base", "ghc", "ghc_prim", "ghc_bignum", "ghc_boot", "ghc_boot_th", "ghc_heap", "ghc_internal",
+    "ghc_platform", "ghc_toolchain", "ghc_compact", "ghc_experimental", "ghci", "integer_gmp", "rts",
+    "array", "binary", "bytestring", "containers", "deepseq", "directory", "exceptions", "file_io",
+    "filepath", "haskeline", "hpc", "libiserv", "mtl", "os_string", "parsec", "pretty", "process",
+    "semaphore_compat", "stm", "template_haskell", "terminfo", "text", "time", "transformers", "unix",
+    "xhtml",
+    // base の最上位のモジュール
+    "prelude", "numeric", "foreign",
+];
+
 /// 規則に合わない理由を返す (合えば None)
 fn violation(name: &str, lang: Lang) -> Option<String> {
     let mut chars = name.chars();
@@ -66,6 +80,13 @@ fn violation(name: &str, lang: Lang) -> Option<String> {
             "for Haskell, each part separated by '_' must contain a letter (cabal package names cannot have a part with only digits)"
                 .to_owned(),
         );
+    }
+    if lang == Lang::Haskell && HASKELL_RESERVED.contains(&name) {
+        return Some(format!(
+            "for Haskell, '{name}' clashes with a package that comes with GHC or a module of base ({} / {})",
+            kebab(name),
+            camel(name)
+        ));
     }
     if lang == Lang::Cpp && CPP_RESERVED.contains(&name) {
         return Some(format!(
@@ -164,6 +185,15 @@ mod tests {
         assert!(validate("arm_2", Lang::Rust).is_ok());
         assert!(validate("arm_2", Lang::Haskell).is_err());
         assert!(validate("arm_v2", Lang::Haskell).is_ok());
+    }
+
+    #[test]
+    fn haskell_reserved_names() {
+        for n in HASKELL_RESERVED {
+            assert!(validate(n, Lang::Haskell).is_err(), "{n}");
+        }
+        assert!(validate("process", Lang::Rust).is_ok());
+        assert!(validate("my_process", Lang::Haskell).is_ok());
     }
 
     #[test]

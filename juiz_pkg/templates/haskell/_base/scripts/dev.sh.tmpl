@@ -1,0 +1,36 @@
+#!/bin/sh
+# Build the plugin and put it in app/plugins/<target>/ (to run app/app.conf during development)
+# usage: scripts/dev.sh [--release]
+#   --release is accepted for the same usage as the other languages. cabal builds with -O1 either way
+#   (to change it, write "optimization: 2" in cabal.project.local)
+# During development the plugin finds libjuiz_sdk with the rpath in cabal.project,
+# and the hsjuiz library in dist-newstyle. scripts/pack.sh puts them all next to the plugin.
+set -eu
+cd "$(dirname "$0")/.."
+if ! command -v juiz >/dev/null 2>&1; then
+  echo "error: juiz is not in PATH. Install juiz {{juiz_version}}:" >&2
+  echo "  cargo install juiz_app --version {{juiz_version}}   (or: pip install juiz-cli=={{juiz_version}})" >&2
+  exit 1
+fi
+if ! command -v cabal >/dev/null 2>&1 || ! command -v ghc >/dev/null 2>&1; then
+  echo "error: ghc and cabal are not in PATH. Install GHC 9.6 or later and cabal (https://www.haskell.org/ghcup/)." >&2
+  exit 1
+fi
+target=$(juiz pkg target)
+case "$target" in
+  *apple-darwin) lib="lib{{name}}.dylib" ;;
+  *windows*)
+    echo "error: Haskell plugins on Windows are not supported by this skeleton yet (juiz issue #137)." >&2
+    exit 1
+    ;;
+  *) lib="lib{{name}}.so" ;;
+esac
+cabal build all
+found=$(find dist-newstyle -name "$lib" -type f | head -n 1)
+if [ -z "$found" ]; then
+  echo "error: $lib is not in dist-newstyle" >&2
+  exit 1
+fi
+mkdir -p "app/plugins/$target"
+cp "$found" "app/plugins/$target/"
+echo "app/plugins/$target/$lib"

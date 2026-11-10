@@ -101,9 +101,25 @@ fn create(dir: &Path, name: &str, lang: &str, extra: &[&str]) -> PathBuf {
     app
 }
 
+/// cargo test が LD_LIBRARY_PATH (macOS は DYLD_LIBRARY_PATH) に足す target/ の下を外したもの。
+/// 外さないと bundle-plugin-deps.sh の確かめで、隣に写した libjuiz_sdk より先に target/debug のものが見つかる (Haskell)
+fn library_path_without_target(var: &str) -> String {
+    let target = repo_root().join("target");
+    std::env::var_os(var)
+        .map(|v| {
+            let kept: Vec<PathBuf> = std::env::split_paths(&v)
+                .filter(|p| !p.starts_with(&target))
+                .collect();
+            std::env::join_paths(kept).unwrap().into_string().unwrap()
+        })
+        .unwrap_or_default()
+}
+
 fn script(app: &Path, name: &str, args: &[&str]) {
     let out = Command::new(app.join("scripts").join(name))
         .args(args)
+        .env("LD_LIBRARY_PATH", library_path_without_target("LD_LIBRARY_PATH"))
+        .env("DYLD_LIBRARY_PATH", library_path_without_target("DYLD_LIBRARY_PATH"))
         .current_dir(app)
         .env("PATH", path_with_juiz())
         .env("CARGO_TARGET_DIR", repo_root().join("target").join("pkg-test"))
@@ -214,7 +230,7 @@ fn check_package(pkg: &Path, lang: &str) {
         s
     };
     assert!(names.iter().any(|n| n == "LICENSE-MIT"), "{names:?}");
-    if lang == "cpp" {
+    if lang == "cpp" || lang == "haskell" {
         let sdk = format!(
             "plugins/{}/{}juiz_sdk.{}",
             juiz_core::HOST_TARGET,
@@ -226,6 +242,16 @@ fn check_package(pkg: &Path, lang: &str) {
             manifest.contains(&format!("juiz: \"={}\"", env!("CARGO_PKG_VERSION"))),
             "{manifest}"
         );
+    }
+    if lang == "haskell" {
+        // hsjuiz と GHC の RTS も scripts/bundle-plugin-deps.sh で同梱する
+        let dir = format!("plugins/{}/", juiz_core::HOST_TARGET);
+        for lib in ["libHShsjuiz-", "libHSrts-", "libHSbase-"] {
+            assert!(
+                names.iter().any(|n| n.starts_with(&format!("{dir}{lib}"))),
+                "{lib}* is not in {names:?}"
+            );
+        }
     }
 }
 
@@ -284,5 +310,43 @@ fn pkg_create_cpp_component_builds_runs_and_packs() {
     let dir = temp_dir("pkg_cli_cpp_sdk");
     let sdk = sdk_from_workspace(&dir);
     create_build_run_pack("cpp", "pkg_cpp_robot", 8077, true, &["--juiz-sdk-dir", path_str(&sdk)]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// GHC・cabal (Linux では patchelf も) が無ければ飛ばす。JUIZ_REQUIRE_HASKELL=1 なら飛ばさずに落とす (scripts/test.sh と同じ)
+fn haskell_tools_missing() -> Option<String> {
+    let has = |cmd: &str| {
+        Command::new(cmd)
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    };
+    let mut missing: Vec<&str> = ["ghc", "cabal"].into_iter().filter(|c| !has(c)).collect();
+    if cfg!(target_os = "linux") && !has("patchelf") {
+        missing.push("patchelf");
+    }
+    if missing.is_empty() {
+        return None;
+    }
+    let msg = format!("{missing:?} not found (needed for the Haskell skeleton test)");
+    if std::env::var("JUIZ_REQUIRE_HASKELL").as_deref() == Ok("1") {
+        panic!("{msg}");
+    }
+    Some(msg)
+}
+
+/// Haskell (§6.4、issue #459): C++ と同じく配布と同じ形の libjuiz_sdk を --juiz-sdk-dir で指し、
+/// hsjuiz は --juiz-source の bindings/hsjuiz を使う。pack は bundle-plugin-deps.sh で GHC のライブラリごと集める
+#[cfg(unix)]
+#[test]
+fn pkg_create_haskell_component_builds_runs_and_packs() {
+    if let Some(reason) = haskell_tools_missing() {
+        eprintln!("skip: {reason}");
+        return;
+    }
+    let dir = temp_dir("pkg_cli_haskell_sdk");
+    let sdk = sdk_from_workspace(&dir);
+    create_build_run_pack("haskell", "pkg_hs_robot", 8076, true, &["--juiz-sdk-dir", path_str(&sdk)]);
     let _ = std::fs::remove_dir_all(&dir);
 }

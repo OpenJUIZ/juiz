@@ -82,9 +82,9 @@ impl Lang {
         }
     }
 
-    /// この版の juiz_pkg にテンプレートがあるか (Haskell は Step 3 #459)
-    pub fn available(self) -> bool {
-        matches!(self, Lang::Rust | Lang::Python | Lang::Cpp)
+    /// Windows 向けの scripts/*.ps1 があるか (Haskell の Windows は #137 まで無い、§5.3)
+    pub fn has_ps1(self) -> bool {
+        self != Lang::Haskell
     }
 
     /// ビルドして app/plugins/<target>/ に置く scripts/dev.* があるか

@@ -51,6 +51,10 @@ pub struct Plan {
     /// juiz_sdk_dir に libjuiz_sdk の CMake のパッケージが無い (C++ の次の手順に SDK の用意を出す、§9)
     pub sdk_missing: bool,
     pub hsjuiz_dir: PathBuf,
+    /// hsjuiz_dir に hsjuiz.cabal が無い (Haskell の次の手順に juiz のソースの用意を出す、§6.4)
+    pub hsjuiz_missing: bool,
+    /// `--hsjuiz-dir` を指定したか
+    pub hsjuiz_given: bool,
     pub year: i64,
     /// Windows 向けの表示にするか (§9)
     pub windows: bool,
@@ -124,6 +128,54 @@ fn slash(p: &Path) -> String {
     p.to_string_lossy().replace('\\', "/")
 }
 
+/// 場所を引数に付けるとき (空白があれば "" で囲む)
+fn shell_arg(p: &Path) -> String {
+    let d = slash(p);
+    if d.contains(' ') {
+        format!("\"{d}\"")
+    } else {
+        d
+    }
+}
+
+/// libjuiz_sdk を用意するコマンド。`given` (--juiz-sdk-dir を指定した) ときはその場所を 2 つめの引数に付ける
+fn sdk_install_command(dir: &Path, given: bool, windows: bool) -> String {
+    let dest = if given {
+        format!(" {}", shell_arg(dir))
+    } else {
+        String::new()
+    };
+    if windows {
+        format!(
+            "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/OpenJUIZ/juiz/main/scripts/install-juiz-sdk.ps1))) {JUIZ_VERSION}{dest}"
+        )
+    } else {
+        format!(
+            "curl -fsSL https://raw.githubusercontent.com/OpenJUIZ/juiz/main/scripts/install-juiz-sdk.sh | sh -s -- {JUIZ_VERSION}{dest}"
+        )
+    }
+}
+
+/// hsjuiz を含む juiz のソースを取るコマンド (Haskell、§6.4)。
+/// 既定の場所 (`~/juiz-<版>/bindings/hsjuiz`) なら `~/juiz-<版>` に clone する
+fn hsjuiz_clone_command(hsjuiz_dir: &Path, given: bool) -> String {
+    let clone = |dest: &str| {
+        format!("git clone --depth 1 --branch v{JUIZ_VERSION} https://github.com/OpenJUIZ/juiz.git {dest}")
+    };
+    let source = hsjuiz_dir.parent().and_then(|p| p.parent());
+    let ends_with_bindings = hsjuiz_dir.file_name().is_some_and(|n| n == "hsjuiz")
+        && hsjuiz_dir.parent().and_then(|p| p.file_name()).is_some_and(|n| n == "bindings");
+    match source {
+        Some(src) if !given => clone(&format!("~/{}", src.file_name().unwrap_or_default().to_string_lossy())),
+        Some(src) if ends_with_bindings => clone(&shell_arg(src)),
+        _ => format!(
+            "{} <dir>   # then use <dir>/bindings/hsjuiz",
+            clone("")
+                .trim_end()
+        ),
+    }
+}
+
 fn git_user_name() -> Option<String> {
     let out = std::process::Command::new("git")
         .args(["config", "user.name"])
@@ -149,11 +201,6 @@ impl Plan {
     ) -> Result<(Plan, Vec<String>), PkgError> {
         let mut warnings = Vec::new();
         let lang = args.lang;
-        if !lang.available() {
-            return Err(PkgError::new(format!(
-                "templates for Haskell (issue #459) are not available in juiz {JUIZ_VERSION} yet. Available languages: rust, python, cpp"
-            )));
-        }
         names::validate(&args.name, lang)?;
 
         if args.hsjuiz_dir.is_some() && lang != Lang::Haskell {
@@ -214,6 +261,31 @@ impl Plan {
                 .join("hsjuiz"),
         };
 
+        let hsjuiz_missing = !hsjuiz_dir.join("hsjuiz.cabal").is_file();
+        let hsjuiz_given = args.hsjuiz_dir.is_some() || juiz_source.is_some();
+        if lang == Lang::Haskell {
+            if windows {
+                warnings.push(
+                    "Haskell plugins on Windows are not supported yet (juiz issue #137): the skeleton is made for Linux and macOS, without .ps1 scripts"
+                        .to_owned(),
+                );
+            }
+            if hsjuiz_missing {
+                warnings.push(format!(
+                    "hsjuiz is not in {} (cabal.project points there). Get the juiz source of {JUIZ_VERSION}:\n    {}",
+                    slash(&hsjuiz_dir),
+                    hsjuiz_clone_command(&hsjuiz_dir, hsjuiz_given)
+                ));
+            }
+            if sdk_missing {
+                warnings.push(format!(
+                    "libjuiz_sdk {JUIZ_VERSION} is not in {} (cabal.project points to its lib). Install it:\n    {}",
+                    slash(&juiz_sdk_dir),
+                    sdk_install_command(&juiz_sdk_dir, args.juiz_sdk_dir.is_some(), false)
+                ));
+            }
+        }
+
         let (display_dir, cd_dir) = match &args.output {
             Some(o) => (o.display().to_string(), o.display().to_string()),
             None => (format!("./{}", args.name), args.name.clone()),
@@ -233,6 +305,8 @@ impl Plan {
                 juiz_sdk_dir_given: args.juiz_sdk_dir.is_some(),
                 sdk_missing,
                 hsjuiz_dir,
+                hsjuiz_missing,
+                hsjuiz_given,
                 year: current_year(),
                 windows,
             },
@@ -314,32 +388,16 @@ impl Plan {
         v
     }
 
-    /// libjuiz_sdk を用意するコマンド (C++、§6.3・§9)
+    /// libjuiz_sdk を用意するコマンド (C++・Haskell、§6.3・§6.4・§9)
     fn sdk_install_command(&self, windows: bool) -> String {
-        let dest = if self.juiz_sdk_dir_given {
-            let d = slash(&self.juiz_sdk_dir);
-            if d.contains(' ') {
-                format!(" \"{d}\"")
-            } else {
-                format!(" {d}")
-            }
-        } else {
-            String::new()
-        };
-        if windows {
-            format!(
-                "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/OpenJUIZ/juiz/main/scripts/install-juiz-sdk.ps1))) {JUIZ_VERSION}{dest}"
-            )
-        } else {
-            format!(
-                "curl -fsSL https://raw.githubusercontent.com/OpenJUIZ/juiz/main/scripts/install-juiz-sdk.sh | sh -s -- {JUIZ_VERSION}{dest}"
-            )
-        }
+        sdk_install_command(&self.juiz_sdk_dir, self.juiz_sdk_dir_given, windows)
     }
 
     /// 次に打つコマンド (§9)。`cd` は表示のときだけ付ける。
     /// README 用 (`with_cd` が false) では、C++ の SDK の用意を在るかどうかによらず書く
     pub fn next_steps(&self, with_cd: bool, windows: bool) -> String {
+        // Haskell には .ps1 が無い (§6.4)
+        let windows = windows && self.lang.has_ps1();
         let script = |s: &str| {
             if windows {
                 format!("scripts\\{s}.ps1")
@@ -378,6 +436,23 @@ impl Plan {
                     script("dev"),
                     "# build and put the plugin and libjuiz_sdk in app/plugins/<target>/",
                 ));
+            }
+            Lang::Haskell => {
+                if self.hsjuiz_missing || !with_cd {
+                    lines.push((
+                        format!("# once: get hsjuiz {JUIZ_VERSION} (the juiz source) in {}", slash(&self.hsjuiz_dir)),
+                        "",
+                    ));
+                    lines.push((hsjuiz_clone_command(&self.hsjuiz_dir, self.hsjuiz_given), ""));
+                }
+                if self.sdk_missing || !with_cd {
+                    lines.push((
+                        format!("# once: put libjuiz_sdk {JUIZ_VERSION} in {}", slash(&self.juiz_sdk_dir)),
+                        "",
+                    ));
+                    lines.push((self.sdk_install_command(false), ""));
+                }
+                lines.push((script("dev"), "# build and put the plugin in app/plugins/<target>/"));
             }
             _ => {
                 lines.push((
@@ -658,11 +733,126 @@ mod tests {
     }
 
     #[test]
-    fn haskell_is_not_available_yet() {
-        let e = Plan::from_args_with(&parse(&["create", "x", "-b", "haskell"]), || None, false)
-            .unwrap_err()
-            .to_string();
-        assert!(e.contains("not available") && e.contains("cpp"), "{e}");
+    fn haskell_component_files() {
+        let sdk = temp("hs_sdk_missing");
+        let hs = temp("hs_hsjuiz_missing").join("juiz-x").join("bindings").join("hsjuiz");
+        let args = parse(&[
+            "create", "my_robot", "-b", "haskell",
+            "--juiz-sdk-dir", sdk.to_str().unwrap(),
+            "--hsjuiz-dir", hs.to_str().unwrap(),
+        ]);
+        let (p, w) = Plan::from_args_with(&args, || None, false).unwrap();
+        assert_eq!(
+            paths(&p),
+            [
+                ".gitignore",
+                "README.md",
+                "app/app.conf",
+                "app/juizapp.yaml",
+                "cabal.project",
+                "my-robot.cabal",
+                "scripts/bundle-plugin-deps.sh",
+                "scripts/dev.sh",
+                "scripts/pack.sh",
+                "src/MyRobot.hs",
+            ]
+        );
+        // hsjuiz も libjuiz_sdk も無いので、用意するコマンドを警告に出す
+        assert_eq!(w.len(), 2, "{w:?}");
+        assert!(w[0].contains("git clone --depth 1 --branch v") && w[0].contains("/juiz-x"), "{w:?}");
+        assert!(w[1].contains("install-juiz-sdk.sh | sh -s -- "), "{w:?}");
+        let files = p.files().unwrap();
+        let get = |n: &str| files.iter().find(|f| f.path == n).unwrap().content.clone();
+        // cabal.project には絶対パスを埋める (§6.4)
+        let project = get("cabal.project");
+        assert!(project.contains(&format!("packages: . {}\n", slash(&hs))), "{project}");
+        assert!(project.contains(&format!("  extra-lib-dirs: {}/lib\n", slash(&sdk))), "{project}");
+        assert!(project.contains(&format!("  ghc-options: -optl-Wl,-rpath,{}/lib\n", slash(&sdk))), "{project}");
+        let cabal = get("my-robot.cabal");
+        assert!(cabal.contains("name:               my-robot\n"), "{cabal}");
+        assert!(cabal.contains("foreign-library my_robot\n"), "{cabal}");
+        assert!(cabal.contains("other-modules:    MyRobot\n"), "{cabal}");
+        let conf = get("app/app.conf");
+        assert!(conf.contains("\"language\": \"haskell\""), "{conf}");
+        assert!(conf.contains("\"path\": \"plugins/{target}\""), "{conf}");
+        assert!(get("app/juizapp.yaml").contains(&format!("juiz: \"={JUIZ_VERSION}\"\n")));
+        let hs_src = get("src/MyRobot.hs");
+        assert!(hs_src.contains("module MyRobot () where"), "{hs_src}");
+        assert!(hs_src.contains("newtype MyRobotState = MyRobotState (IORef Int64)"), "{hs_src}");
+        assert!(hs_src.contains("& readonly True"), "{hs_src}");
+        // 次の手順に用意するコマンドを出す
+        let s = p.summary();
+        assert!(s.contains("git clone --depth 1"), "{s}");
+        assert!(s.contains("install-juiz-sdk.sh"), "{s}");
+        assert!(s.contains("scripts/dev.sh"), "{s}");
+    }
+
+    #[test]
+    fn haskell_found_and_windows() {
+        let root = temp("hs_found");
+        let sdk = root.join("sdk");
+        let cfg = sdk.join("lib").join("cmake").join("juiz_sdk");
+        std::fs::create_dir_all(&cfg).unwrap();
+        std::fs::write(cfg.join("juiz_sdkConfig.cmake"), "").unwrap();
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let args = parse(&[
+            "create", "my_robot", "-b", "haskell",
+            "--juiz-sdk-dir", sdk.to_str().unwrap(),
+            "--juiz-source", repo.to_str().unwrap(),
+        ]);
+        // --juiz-source の bindings/hsjuiz を使い、両方あれば警告も用意の手順も出さない
+        let (p, w) = Plan::from_args_with(&args, || None, false).unwrap();
+        assert!(w.is_empty(), "{w:?}");
+        assert!(p.hsjuiz_dir.ends_with("bindings/hsjuiz"), "{}", p.hsjuiz_dir.display());
+        let s = p.summary();
+        assert!(!s.contains("git clone") && !s.contains("install-juiz-sdk"), "{s}");
+        // README には在っても書く
+        let files = p.files().unwrap();
+        let readme = &files.iter().find(|f| f.path == "README.md").unwrap().content;
+        assert!(readme.contains("git clone --depth 1") && readme.contains("install-juiz-sdk.sh"), "{readme}");
+        // Windows では警告を出し、.ps1 は置かず .sh の形で表示する
+        let (p, w) = Plan::from_args_with(&args, || None, true).unwrap();
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert!(w[0].contains("#137"), "{w:?}");
+        assert!(!paths(&p).iter().any(|f| f.ends_with(".ps1")));
+        let s = p.summary();
+        assert!(s.contains("scripts/dev.sh") && !s.contains(".ps1"), "{s}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn default_hsjuiz_clone_command() {
+        let home = home_dir().unwrap();
+        let d = home.join(format!("juiz-{JUIZ_VERSION}")).join("bindings").join("hsjuiz");
+        assert_eq!(
+            hsjuiz_clone_command(&d, false),
+            format!("git clone --depth 1 --branch v{JUIZ_VERSION} https://github.com/OpenJUIZ/juiz.git ~/juiz-{JUIZ_VERSION}")
+        );
+        let c = hsjuiz_clone_command(Path::new("/opt/hs"), true);
+        assert!(c.ends_with("juiz.git <dir>   # then use <dir>/bindings/hsjuiz"), "{c}");
+    }
+
+    /// 雛形の scripts/bundle-plugin-deps.sh は juiz の scripts/bundle-plugin-deps.sh の写し (§6.4、§11)。
+    /// crates.io のパッケージには juiz の scripts/ が無いので、在るときだけ比べる
+    #[test]
+    fn bundle_script_is_a_copy() {
+        let orig = Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/bundle-plugin-deps.sh");
+        let Ok(orig) = std::fs::read_to_string(&orig) else {
+            return;
+        };
+        let (_, copy) = templates()
+            .iter()
+            .find(|(p, _)| *p == "haskell/_base/scripts/bundle-plugin-deps.sh.tmpl")
+            .unwrap();
+        assert_eq!(
+            copy.replace("\r\n", "\n"),
+            orig.replace("\r\n", "\n"),
+            "copy scripts/bundle-plugin-deps.sh to juiz_pkg/templates/haskell/_base/scripts/bundle-plugin-deps.sh.tmpl"
+        );
+        let p = plan(&["create", "my_robot", "-b", "haskell"]);
+        let files = p.files().unwrap();
+        let out = &files.iter().find(|f| f.path == "scripts/bundle-plugin-deps.sh").unwrap().content;
+        assert_eq!(out, &orig.replace("\r\n", "\n"));
     }
 
     #[test]
@@ -820,7 +1010,7 @@ mod tests {
 
     #[test]
     fn no_license_lines_without_license() {
-        for lang in ["rust", "python", "cpp"] {
+        for lang in ["rust", "python", "cpp", "haskell"] {
             let p = plan(&["create", "my_robot", "-b", lang]);
             for f in p.files().unwrap() {
                 assert!(!f.path.starts_with("LICENSE"), "{}", f.path);
@@ -832,10 +1022,10 @@ mod tests {
         }
     }
 
-    /// 全言語 (この版で使えるもの)・全種類で、置換が残らない・conf の型と表示が合う (§11)
+    /// 全言語・全種類で、置換が残らない・conf の型と表示が合う (§11)
     #[test]
     fn all_combinations_render() {
-        for lang in ["rust", "python", "cpp"] {
+        for lang in ["rust", "python", "cpp", "haskell"] {
             for t in ["component", "process", "container"] {
                 for lic in ["none", "mit-apache"] {
                     let p = plan(&["create", "my_robot", "-b", lang, "-t", t, "--license", lic]);
