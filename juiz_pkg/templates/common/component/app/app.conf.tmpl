@@ -1,0 +1,36 @@
+# {{name}}: start-up configuration of the juiz component {{name}}
+#   development: juiz -f app/app.conf -d
+#                (Rust, C++ and Haskell: run scripts/dev.sh first to put the plugin in app/plugins/<target>/)
+#   package:     scripts/pack.sh, then juiz run dist/{{name}}-0.1.0.juizapp
+"name": "{{name}}"
+"option":
+  "http_broker":
+    "start": true
+    "port": 8000
+"plugins":
+  "components":
+    "{{name}}":
+      "language": "{{plugin_language}}"
+      "path": "{{plugin_path}}"
+"processes":
+  - "type_name": "{{name}}_add"
+    "name": "{{name}}_add0"
+"containers":
+  - "type_name": "{{name}}"
+    "name": "{{name}}0"
+    "initial_value": 0
+    "processes":
+      - "type_name": "{{name}}_increment"
+        "name": "{{name}}_increment0"
+      - "type_name": "{{name}}_get"
+        "name": "{{name}}_get0"
+"ecs":
+  # Calls {{name}}_increment0 periodically once started (set auto_start: true to start it with juiz)
+  - "type_name": "main_loop_ec"
+    "name": "main_ec"
+    "rate": 1
+    "bind":
+      - "type_name": "{{name}}_increment"
+        "name": "{{name}}_increment0"
+        "container_name": "{{name}}0"
+    "auto_start": false

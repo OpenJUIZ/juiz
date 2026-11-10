@@ -1,0 +1,34 @@
+//! {{name}}: a juiz component (juiz docs/spec/pkg.md).
+//!
+//! Each function with a #[juiz_component_*] attribute becomes a type of this Component.
+//! juiz_component_manifest! at the end lists them. Build with scripts/dev.sh.
+use juiz_sdk::prelude::*;
+
+#[juiz_component_process(
+    description = "Returns a + b."
+    arguments = { default = { a = 0 b = 0 } }
+)]
+fn {{name}}_add(a: i64, b: i64) -> JuizResult<i64> {
+    Ok(a + b)
+}
+
+juiz_component_manifest!(
+    component_name = "{{name}}"
+    processes = [ {{name}}_add ]
+);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn add_returns_the_sum() -> JuizResult<()> {
+        // The attribute turns the function into one that takes its arguments as a CapsuleMap
+        let mut args = CapsuleMap::new();
+        args.insert("a".to_owned(), jvalue!(1).into());
+        args.insert("b".to_owned(), jvalue!(2).into());
+        let result = {{name}}_add(args)?;
+        assert_eq!(result.as_value().unwrap(), &jvalue!(3));
+        Ok(())
+    }
+}

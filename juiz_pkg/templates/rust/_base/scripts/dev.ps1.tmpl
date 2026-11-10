@@ -1,0 +1,25 @@
+# Build the plugin and put it in app\plugins\<target>\ (to run app\app.conf during development)
+# usage: scripts\dev.ps1 [-Release]
+param([switch]$Release)
+$ErrorActionPreference = "Stop"
+Set-Location (Join-Path $PSScriptRoot "..")
+if (-not (Get-Command juiz -ErrorAction SilentlyContinue)) {
+    Write-Host "error: juiz is not in PATH. Install juiz {{juiz_version}}:"
+    Write-Host "  cargo install juiz_app --version {{juiz_version}}   (or: pip install juiz-cli=={{juiz_version}})"
+    exit 1
+}
+$target = (juiz pkg target | Out-String).Trim()
+if ($Release) {
+    $buildProfile = "release"
+    cargo build --release
+} else {
+    $buildProfile = "debug"
+    cargo build
+}
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$targetDir = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { "target" }
+$lib = "{{name}}.dll"
+$dest = Join-Path "app\plugins" $target
+New-Item -ItemType Directory -Force -Path $dest | Out-Null
+Copy-Item (Join-Path (Join-Path $targetDir $buildProfile) $lib) $dest
+Write-Output (Join-Path $dest $lib)

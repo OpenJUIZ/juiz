@@ -22,6 +22,7 @@ juiz_macro = {version="0.2.5", path="juiz_macro"}
 juiz_sdk = {version="0.2.5", path="juiz_sdk"}
 juiz_types = {version="0.2.5", path="juiz_types"}
 juiz_idl = {version="0.2.5", path="juiz_idl"}
+juiz_pkg = {version="0.2.5", path="juiz_pkg"}
 juiz_std_types = {version="0.2.5", path="juiz_std_types"}
 # 既定の feature(embed-python)は使う側で選ぶ(juiz_app/Cargo.toml を参照)
 juiz_core = {version="0.2.5", path="juiz_core", default-features = false}
@@ -83,6 +84,7 @@ members = [
     "juiz_types",
     "juiz_idl",
     "juiz_idl/test_package",
+    "juiz_pkg",
     "juiz_std_types",
     "juiz_std_types/test_package",
     "juiz_core",
@@ -138,6 +140,7 @@ default-members = [
     "juiz_types",
     "juiz_idl",
     "juiz_idl/test_package",
+    "juiz_pkg",
     "juiz_std_types",
     "juiz_std_types/test_package",
     "juiz_core",

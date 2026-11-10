@@ -1,0 +1,12 @@
+"""{{name}}: a juiz component (juiz docs/spec/pkg.md).
+
+Each decorated function in this file becomes a type of the Component {{name}}.
+The docstring is the description of the type. Type annotations are required.
+"""
+from juiz import juiz_process
+
+
+@juiz_process
+def {{name}}_add(a: int = 0, b: int = 0) -> int:
+    """Returns a + b."""
+    return a + b

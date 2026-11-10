@@ -2,6 +2,8 @@
 *~
 .*
 !.gitignore
+# juiz pkg の雛形のテンプレート (juiz_pkg/templates/**/.gitignore.tmpl)
+!/juiz_pkg/templates/**/.gitignore.tmpl
 !.github/
 !/.cargo/
 *.pyc

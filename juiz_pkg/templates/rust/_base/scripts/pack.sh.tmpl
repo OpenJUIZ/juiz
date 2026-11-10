@@ -1,0 +1,18 @@
+#!/bin/sh
+# Make dist/{{name}}-<version>.juizapp with juiz pack (juiz docs/spec/app-package.md)
+# usage: scripts/pack.sh [--no-build]
+#   --no-build: do not build; pack the plugins already in app/plugins/<target>/
+#               (to put plugins built on several OSes into one .juizapp, collect them there first)
+set -eu
+cd "$(dirname "$0")/.."
+if [ "${1:-}" != "--no-build" ]; then
+  scripts/dev.sh --release
+fi
+stage=$(mktemp -d)
+trap 'rm -rf "$stage"' EXIT
+(cd app && tar cf - --exclude=__pycache__ .) | (cd "$stage" && tar xf -)
+for f in LICENSE-MIT LICENSE-APACHE; do
+  if [ -f "$f" ]; then cp "$f" "$stage/"; fi
+done
+mkdir -p dist
+juiz pack "$stage" -o dist

@@ -1,0 +1,26 @@
+#!/bin/sh
+# Build the plugin and put it in app/plugins/<target>/ (to run app/app.conf during development)
+# usage: scripts/dev.sh [--release]
+set -eu
+cd "$(dirname "$0")/.."
+if ! command -v juiz >/dev/null 2>&1; then
+  echo "error: juiz is not in PATH. Install juiz {{juiz_version}}:" >&2
+  echo "  cargo install juiz_app --version {{juiz_version}}   (or: pip install juiz-cli=={{juiz_version}})" >&2
+  exit 1
+fi
+target=$(juiz pkg target)
+if [ "${1:-}" = "--release" ]; then
+  profile=release
+  cargo build --release
+else
+  profile=debug
+  cargo build
+fi
+case "$target" in
+  *apple-darwin) lib=lib{{name}}.dylib ;;
+  *windows*) lib={{name}}.dll ;;
+  *) lib=lib{{name}}.so ;;
+esac
+mkdir -p "app/plugins/$target"
+cp "${CARGO_TARGET_DIR:-target}/$profile/$lib" "app/plugins/$target/"
+echo "app/plugins/$target/$lib"

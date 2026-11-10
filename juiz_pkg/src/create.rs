@@ -1,0 +1,808 @@
+//! `juiz pkg create` (docs/spec/pkg.md §2.2、§5〜§9)
+
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+
+use crate::cli::{CreateArgs, LicenseKind};
+use crate::render::{render, render_path, Vars};
+use crate::{names, templates, Lang, PkgError, Template, JUIZ_VERSION};
+
+/// 生成するファイル 1 つ
+#[derive(Debug, Clone)]
+pub struct GeneratedFile {
+    /// 雛形のディレクトリからの相対パス (/ 区切り)
+    pub path: String,
+    pub content: String,
+}
+
+impl GeneratedFile {
+    /// 実行権限を付けるか (§5)
+    pub fn executable(&self) -> bool {
+        self.path.ends_with(".sh")
+    }
+}
+
+/// 生成の結果
+#[derive(Debug, Clone)]
+pub struct Created {
+    pub dir: PathBuf,
+    pub files: Vec<GeneratedFile>,
+    pub warnings: Vec<String>,
+    /// 成功したときに表示する文 (§9)
+    pub summary: String,
+}
+
+/// 生成に使う値をまとめたもの (オプションの解釈と検査が済んだもの)
+#[derive(Debug, Clone)]
+pub struct Plan {
+    pub name: String,
+    pub lang: Lang,
+    pub template: Template,
+    /// 表示用の作り先 (`-o` に書いたもの、省けば ./<name>)
+    pub display_dir: String,
+    /// 次に打つコマンドの cd の先 (`-o` に書いたもの、省けば <name>)
+    pub cd_dir: String,
+    pub license: bool,
+    pub author: Option<String>,
+    pub juiz_source: Option<PathBuf>,
+    pub juiz_sdk_dir: PathBuf,
+    pub hsjuiz_dir: PathBuf,
+    pub year: i64,
+    /// Windows 向けの表示にするか (§9)
+    pub windows: bool,
+}
+
+/// 1970-01-01 からの日数を西暦の年にする (UTC)
+fn year_from_days(days: i64) -> i64 {
+    // Howard Hinnant の civil_from_days
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    yoe + era * 400 + if m <= 2 { 1 } else { 0 }
+}
+
+fn current_year() -> i64 {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    year_from_days(secs.div_euclid(86_400))
+}
+
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+}
+
+/// `~` で始まるパスを展開する
+fn expand_tilde(p: &Path) -> PathBuf {
+    let s = p.to_string_lossy();
+    if s == "~" {
+        return home_dir().unwrap_or_else(|| p.to_path_buf());
+    }
+    if let Some(rest) = s.strip_prefix("~/").or_else(|| s.strip_prefix("~\\")) {
+        if let Some(h) = home_dir() {
+            return h.join(rest);
+        }
+    }
+    p.to_path_buf()
+}
+
+/// 絶対パスにする (在るものは正規化する)
+fn absolute(p: &Path) -> PathBuf {
+    let p = expand_tilde(p);
+    if let Ok(c) = std::fs::canonicalize(&p) {
+        return strip_verbatim(c);
+    }
+    if p.is_absolute() {
+        p
+    } else {
+        std::env::current_dir().map(|d| d.join(&p)).unwrap_or(p)
+    }
+}
+
+/// Windows の canonicalize が付ける \\?\ を外す (ビルドの道具が読めないことがあるため)
+fn strip_verbatim(p: PathBuf) -> PathBuf {
+    let s = p.to_string_lossy();
+    match s.strip_prefix(r"\\?\") {
+        Some(rest) if !rest.starts_with("UNC\\") => PathBuf::from(rest),
+        _ => p,
+    }
+}
+
+/// ファイルに書くパス (Windows でも / 区切り)
+fn slash(p: &Path) -> String {
+    p.to_string_lossy().replace('\\', "/")
+}
+
+fn git_user_name() -> Option<String> {
+    let out = std::process::Command::new("git")
+        .args(["config", "user.name"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let s = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    (!s.is_empty()).then_some(s)
+}
+
+impl Plan {
+    /// オプションを解釈して検査する。ファイルはまだ何も書かない (§8 の最後)
+    pub fn from_args(args: &CreateArgs) -> Result<(Plan, Vec<String>), PkgError> {
+        Self::from_args_with(args, git_user_name, cfg!(windows))
+    }
+
+    pub fn from_args_with(
+        args: &CreateArgs,
+        git_user: impl Fn() -> Option<String>,
+        windows: bool,
+    ) -> Result<(Plan, Vec<String>), PkgError> {
+        let mut warnings = Vec::new();
+        let lang = args.lang;
+        if !lang.available() {
+            let step = match lang {
+                Lang::Cpp => "C++ (issue #458)",
+                _ => "Haskell (issue #459)",
+            };
+            return Err(PkgError::new(format!(
+                "templates for {step} are not available in juiz {JUIZ_VERSION} yet. Available languages: rust, python"
+            )));
+        }
+        names::validate(&args.name, lang)?;
+
+        if args.hsjuiz_dir.is_some() && lang != Lang::Haskell {
+            warnings.push("--hsjuiz-dir is only for -b haskell; ignored".to_owned());
+        }
+        if args.juiz_sdk_dir.is_some() && !matches!(lang, Lang::Cpp | Lang::Haskell) {
+            warnings.push("--juiz-sdk-dir is only for -b cpp and -b haskell; ignored".to_owned());
+        }
+        if args.author.is_some() && args.license == LicenseKind::None {
+            warnings.push("--author is only used with --license mit-apache; ignored".to_owned());
+        }
+
+        let license = args.license == LicenseKind::MitApache;
+        let author = if license {
+            match args.author.clone().filter(|a| !a.trim().is_empty()).or_else(git_user) {
+                Some(a) => Some(a),
+                None => {
+                    return Err(PkgError::new(
+                        "--license mit-apache needs the copyright holder: give --author <name> (git config user.name is not set)",
+                    ))
+                }
+            }
+        } else {
+            None
+        };
+
+        let juiz_source = match &args.juiz_source {
+            Some(dir) => {
+                let dir = absolute(dir);
+                if !dir.join("juiz_sdk").join("Cargo.toml").is_file() {
+                    return Err(PkgError::new(format!(
+                        "--juiz-source {}: not a juiz repository (juiz_sdk/Cargo.toml is not there)",
+                        dir.display()
+                    )));
+                }
+                Some(dir)
+            }
+            None => None,
+        };
+
+        let home = home_dir().unwrap_or_else(|| PathBuf::from("~"));
+        let juiz_sdk_dir = match &args.juiz_sdk_dir {
+            Some(d) => absolute(d),
+            None => home.join(".juiz").join("sdk").join(JUIZ_VERSION),
+        };
+        let hsjuiz_dir = match (&args.hsjuiz_dir, &juiz_source) {
+            (Some(d), _) => absolute(d),
+            (None, Some(src)) => src.join("bindings").join("hsjuiz"),
+            (None, None) => home
+                .join(format!("juiz-{JUIZ_VERSION}"))
+                .join("bindings")
+                .join("hsjuiz"),
+        };
+
+        let (display_dir, cd_dir) = match &args.output {
+            Some(o) => (o.display().to_string(), o.display().to_string()),
+            None => (format!("./{}", args.name), args.name.clone()),
+        };
+
+        Ok((
+            Plan {
+                name: args.name.clone(),
+                lang,
+                template: args.template,
+                display_dir,
+                cd_dir,
+                license,
+                author,
+                juiz_source,
+                juiz_sdk_dir,
+                hsjuiz_dir,
+                year: current_year(),
+                windows,
+            },
+            warnings,
+        ))
+    }
+
+    /// juiz_sdk / pyjuiz の版の表示 (§9 の 1 行目)
+    fn sdk_label(&self) -> String {
+        match (&self.juiz_source, self.lang) {
+            (Some(src), _) => format!("juiz sources at {}", src.display()),
+            (None, Lang::Rust) => format!("juiz_sdk ={JUIZ_VERSION}"),
+            (None, Lang::Python) => format!("pyjuiz =={JUIZ_VERSION}"),
+            (None, Lang::Cpp) => format!("juiz_sdk {JUIZ_VERSION}"),
+            (None, Lang::Haskell) => format!("hsjuiz {JUIZ_VERSION}"),
+        }
+    }
+
+    fn juiz_sdk_dep(&self) -> String {
+        match &self.juiz_source {
+            Some(src) => format!("{{ path = '{}' }}", slash(&src.join("juiz_sdk"))),
+            None => format!("\"={JUIZ_VERSION}\""),
+        }
+    }
+
+    /// 入っている型の表 (README、§4)
+    fn types_table(&self) -> String {
+        let n = &self.name;
+        let mut s = String::from(
+            "| Type | Kind | Arguments (default) | Returns | What it does |\n| --- | --- | --- | --- | --- |\n",
+        );
+        if self.template.has_process() {
+            s.push_str(&format!(
+                "| `{n}_add` | Process | `a: int` (0), `b: int` (0) | int | Returns `a + b` |\n"
+            ));
+        }
+        if self.template.has_container() {
+            s.push_str(&format!(
+                "| `{n}` | Container | `initial_value: int` (0) | - | Holds one integer `value` |\n"
+            ));
+            s.push_str(&format!(
+                "| `{n}_increment` | ContainerProcess | `step: int` (1) | int | `value += step`, returns `value` |\n"
+            ));
+            s.push_str(&format!(
+                "| `{n}_get` | ContainerProcess (readonly) | - | int | Returns `value` |\n"
+            ));
+        }
+        s.trim_end().to_owned()
+    }
+
+    /// 呼び出しの例 (§9)
+    fn call_examples(&self) -> Vec<String> {
+        let n = &self.name;
+        let mut v = Vec::new();
+        if self.template.has_process() {
+            v.push(format!(
+                "juiz process call \"http://127.0.0.1:8000/process/{n}_add0::{n}_add\" '{{\"a\": 1, \"b\": 2}}' -p"
+            ));
+        }
+        if self.template.has_container() {
+            v.push(format!(
+                "juiz container-process call \"http://127.0.0.1:8000/container_process/{n}_increment0::{n}_increment:{n}0\" '{{\"step\": 1}}' -p"
+            ));
+            v.push(format!(
+                "juiz container-process call \"http://127.0.0.1:8000/container_process/{n}_get0::{n}_get:{n}0\" '{{}}' -p"
+            ));
+        }
+        v
+    }
+
+    /// 次に打つコマンド (§9)。`cd` は表示のときだけ付ける
+    pub fn next_steps(&self, with_cd: bool, windows: bool) -> String {
+        let script = |s: &str| {
+            if windows {
+                format!("scripts\\{s}.ps1")
+            } else {
+                format!("scripts/{s}.sh")
+            }
+        };
+        let mut lines: Vec<(String, &str)> = Vec::new();
+        if with_cd {
+            lines.push((format!("cd {}", self.cd_dir), ""));
+        }
+        match self.lang {
+            Lang::Python => {
+                if windows {
+                    lines.push(("python -m venv .venv".into(), ""));
+                    lines.push((".venv\\Scripts\\activate".into(), ""));
+                } else {
+                    lines.push(("python3 -m venv .venv".into(), ""));
+                    lines.push((". .venv/bin/activate".into(), ""));
+                }
+                lines.push(("pip install -e .".into(), "# installs pyjuiz"));
+            }
+            _ => {
+                lines.push((
+                    script("dev"),
+                    "# build and put the plugin in app/plugins/<target>/",
+                ));
+            }
+        }
+        lines.push(("juiz -f app/app.conf -d".into(), "# start (keep it running)"));
+        let width = lines.iter().map(|(c, _)| c.len()).max().unwrap_or(0).max(30);
+        let mut out = String::new();
+        for (c, comment) in &lines {
+            if comment.is_empty() {
+                out.push_str(&format!("  {c}\n"));
+            } else {
+                out.push_str(&format!("  {c:<width$}  {comment}\n"));
+            }
+        }
+        out.push_str("\n  # in another terminal\n");
+        for c in self.call_examples() {
+            out.push_str(&format!("  {c}\n"));
+        }
+        let pkg = format!("dist/{}-0.1.0.juizapp", self.name);
+        out.push('\n');
+        out.push_str(&format!(
+            "  {:<width$}  # make {pkg}\n",
+            script("pack")
+        ));
+        out.push_str(&format!("  juiz run {pkg}\n"));
+        out
+    }
+
+    /// 置換に使う変数 (§10.2)
+    pub fn vars(&self) -> Vars {
+        let mut v = Vars::new();
+        let steps = self.next_steps(false, false);
+        // README のコードブロックに入れるので、先頭の 2 文字の字下げを外す
+        let steps: String = steps
+            .lines()
+            .map(|l| l.strip_prefix("  ").unwrap_or(l))
+            .collect::<Vec<_>>()
+            .join("\n");
+        v.set("name", &self.name)
+            .set("Name", names::camel(&self.name))
+            .set("name_kebab", names::kebab(&self.name))
+            .set("juiz_version", JUIZ_VERSION)
+            .set("plugin_language", self.lang.plugin_language())
+            .set("plugin_path", self.lang.plugin_path())
+            .set("juiz_sdk_dep", self.juiz_sdk_dep())
+            .set("juiz_sdk_dir", slash(&self.juiz_sdk_dir))
+            .set("hsjuiz_dir", slash(&self.hsjuiz_dir))
+            .set_opt("license", self.license.then(|| "MIT OR Apache-2.0".to_owned()))
+            .set_opt("author", self.author.clone())
+            .set("year", self.year.to_string())
+            .set("types_table", self.types_table())
+            .set("next_steps", steps.trim_end().to_owned());
+        v
+    }
+
+    /// 生成するファイルの一覧を作る (§10.1 の重ね方)
+    pub fn files(&self) -> Result<Vec<GeneratedFile>, PkgError> {
+        let layers = [
+            "common/_base/".to_owned(),
+            format!("common/{}/", self.template.dir()),
+            format!("{}/_base/", self.lang.dir()),
+            format!("{}/{}/", self.lang.dir(), self.template.dir()),
+        ];
+        let vars = self.vars();
+        let mut out: BTreeMap<String, String> = BTreeMap::new();
+        for layer in &layers {
+            for (path, text) in templates() {
+                let Some(rel) = path.strip_prefix(layer.as_str()) else {
+                    continue;
+                };
+                let rel = rel.strip_suffix(".tmpl").ok_or_else(|| {
+                    PkgError::new(format!("template file {path} must end with .tmpl"))
+                })?;
+                if !self.license && (rel == "LICENSE-MIT" || rel == "LICENSE-APACHE") {
+                    continue;
+                }
+                let rel = render_path(rel, &vars)?;
+                // 改行は LF にする (Windows の git が CRLF にして取り出したテンプレートでも、§5)
+                let content = render(&text.replace("\r\n", "\n"), &vars)?;
+                out.insert(rel, content);
+            }
+        }
+        Ok(out
+            .into_iter()
+            .map(|(path, content)| GeneratedFile { path, content })
+            .collect())
+    }
+
+    /// 成功したときの表示 (§9)
+    pub fn summary(&self) -> String {
+        format!(
+            "Created {} ({}, {}) in {}  [{}]\n\nNext steps:\n{}",
+            self.name,
+            self.lang.dir(),
+            self.template.dir(),
+            self.display_dir,
+            self.sdk_label(),
+            self.next_steps(true, self.windows)
+        )
+    }
+}
+
+/// 作り先の状態 (§8)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Dest {
+    Missing,
+    Empty,
+}
+
+fn check_dest(dir: &Path) -> Result<Dest, PkgError> {
+    match std::fs::metadata(dir) {
+        Err(_) => Ok(Dest::Missing),
+        Ok(m) if !m.is_dir() => Err(PkgError::new(format!(
+            "{} already exists and is not a directory",
+            dir.display()
+        ))),
+        Ok(_) => {
+            let mut entries = std::fs::read_dir(dir)
+                .map_err(|e| PkgError::new(format!("cannot read {}: {e}", dir.display())))?;
+            if entries.next().is_some() {
+                Err(PkgError::new(format!(
+                    "{} already exists and is not empty (juiz pkg create does not overwrite files)",
+                    dir.display()
+                )))
+            } else {
+                Ok(Dest::Empty)
+            }
+        }
+    }
+}
+
+fn write_one(dir: &Path, f: &GeneratedFile) -> std::io::Result<()> {
+    let path = dir.join(&f.path);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&path, f.content.as_bytes())?;
+    #[cfg(unix)]
+    if f.executable() {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))?;
+    }
+    Ok(())
+}
+
+/// 作ったものを消して、作る前の状態に戻す (§8)
+fn rollback(dir: &Path, dest: Dest) {
+    match dest {
+        Dest::Missing => {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+        Dest::Empty => {
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for e in entries.flatten() {
+                    let p = e.path();
+                    if p.is_dir() {
+                        let _ = std::fs::remove_dir_all(&p);
+                    } else {
+                        let _ = std::fs::remove_file(&p);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// ファイルを書く。`fail_at` 番目で失敗したことにする (テスト用)
+pub(crate) fn write_files(
+    dir: &Path,
+    files: &[GeneratedFile],
+    fail_at: Option<usize>,
+) -> Result<(), PkgError> {
+    let dest = check_dest(dir)?;
+    let result = (|| -> std::io::Result<()> {
+        std::fs::create_dir_all(dir)?;
+        for (i, f) in files.iter().enumerate() {
+            if fail_at == Some(i) {
+                return Err(std::io::Error::other("injected failure"));
+            }
+            write_one(dir, f)?;
+        }
+        Ok(())
+    })();
+    result.map_err(|e| {
+        rollback(dir, dest);
+        PkgError::new(format!("failed to write the skeleton in {}: {e}", dir.display()))
+    })
+}
+
+/// 雛形を作る
+pub fn create(args: &CreateArgs) -> Result<Created, PkgError> {
+    let (plan, warnings) = Plan::from_args(args)?;
+    let dir = match &args.output {
+        Some(o) => expand_tilde(o),
+        None => PathBuf::from(&plan.name),
+    };
+    // ファイルを書く前に、一覧と作り先の検査を済ませる
+    let files = plan.files()?;
+    check_dest(&dir)?;
+    write_files(&dir, &files, None)?;
+    Ok(Created {
+        dir,
+        files,
+        warnings,
+        summary: plan.summary(),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct Cli {
+        #[command(flatten)]
+        args: crate::cli::PkgArgs,
+    }
+
+    fn parse(args: &[&str]) -> CreateArgs {
+        let mut v = vec!["juiz-pkg"];
+        v.extend_from_slice(args);
+        match Cli::try_parse_from(v).unwrap().args.command {
+            crate::cli::PkgCommand::Create(c) => c,
+            _ => panic!(),
+        }
+    }
+
+    fn plan(args: &[&str]) -> Plan {
+        Plan::from_args_with(&parse(args), || Some("Tester".to_owned()), false)
+            .unwrap()
+            .0
+    }
+
+    fn temp(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("juiz_pkg_{name}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        d
+    }
+
+    #[test]
+    fn year() {
+        assert_eq!(year_from_days(0), 1970);
+        assert_eq!(year_from_days(20_401), 2025); // 2025-11-09
+        assert_eq!(year_from_days(20_454), 2026); // 2026-01-01
+        assert_eq!(year_from_days(20_453), 2025); // 2025-12-31
+    }
+
+    #[test]
+    fn options() {
+        let c = parse(&["create", "my_robot", "-b", "RUST"]);
+        assert_eq!(c.lang, Lang::Rust);
+        assert_eq!(c.template, Template::Component);
+        let c = parse(&["create", "my_robot", "--lang", "c++", "-t", "process"]);
+        assert_eq!(c.lang, Lang::Cpp);
+        assert_eq!(c.template, Template::Process);
+        let c = parse(&["create", "my_robot", "-b", "Python", "--template", "Container"]);
+        assert_eq!(c.lang, Lang::Python);
+        assert_eq!(c.template, Template::Container);
+        let e = Cli::try_parse_from(["juiz-pkg", "create", "x", "-b", "go"]).err().unwrap();
+        let e = e.to_string();
+        assert!(e.contains("rust") && e.contains("python") && e.contains("haskell"), "{e}");
+    }
+
+    #[test]
+    fn cpp_and_haskell_are_not_available_yet() {
+        for lang in ["cpp", "haskell"] {
+            let e = Plan::from_args_with(&parse(&["create", "x", "-b", lang]), || None, false)
+                .unwrap_err()
+                .to_string();
+            assert!(e.contains("not available"), "{e}");
+        }
+    }
+
+    #[test]
+    fn warns_on_options_for_other_languages() {
+        let (_, w) = Plan::from_args_with(
+            &parse(&["create", "x", "-b", "rust", "--hsjuiz-dir", "/a", "--juiz-sdk-dir", "/b", "--author", "c"]),
+            || None,
+            false,
+        )
+        .unwrap();
+        assert_eq!(w.len(), 3, "{w:?}");
+    }
+
+    #[test]
+    fn license_needs_author() {
+        let args = parse(&["create", "x", "-b", "rust", "--license", "mit-apache"]);
+        assert!(Plan::from_args_with(&args, || None, false).is_err());
+        let (p, _) = Plan::from_args_with(&args, || Some("Git User".into()), false).unwrap();
+        assert_eq!(p.author.as_deref(), Some("Git User"));
+        let args = parse(&["create", "x", "-b", "rust", "--license", "mit-apache", "--author", "Me"]);
+        let (p, _) = Plan::from_args_with(&args, || Some("Git User".into()), false).unwrap();
+        assert_eq!(p.author.as_deref(), Some("Me"));
+    }
+
+    fn paths(p: &Plan) -> Vec<String> {
+        p.files().unwrap().into_iter().map(|f| f.path).collect()
+    }
+
+    #[test]
+    fn rust_component_files() {
+        let p = plan(&["create", "my_robot", "-b", "rust"]);
+        assert_eq!(
+            paths(&p),
+            [
+                ".gitignore",
+                "Cargo.toml",
+                "README.md",
+                "app/app.conf",
+                "app/juizapp.yaml",
+                "scripts/dev.ps1",
+                "scripts/dev.sh",
+                "scripts/pack.ps1",
+                "scripts/pack.sh",
+                "src/lib.rs",
+            ]
+        );
+    }
+
+    #[test]
+    fn python_files_with_license() {
+        let p = plan(&["create", "my_robot", "-b", "python", "--license", "mit-apache"]);
+        assert_eq!(
+            paths(&p),
+            [
+                ".gitignore",
+                "LICENSE-APACHE",
+                "LICENSE-MIT",
+                "README.md",
+                "app/app.conf",
+                "app/juizapp.yaml",
+                "app/python/my_robot.py",
+                "pyproject.toml",
+                "scripts/pack.ps1",
+                "scripts/pack.sh",
+            ]
+        );
+        let files = p.files().unwrap();
+        let get = |n: &str| files.iter().find(|f| f.path == n).unwrap().content.clone();
+        assert!(get("LICENSE-MIT").contains(&format!("Copyright (c) {} Tester", p.year)));
+        assert!(get("app/juizapp.yaml").contains("license: MIT OR Apache-2.0\n"));
+        assert!(get("app/juizapp.yaml").contains("python:\n  version: \">=3.10\"\n"));
+        assert!(get("pyproject.toml").contains("license = \"MIT OR Apache-2.0\""));
+        assert!(get("pyproject.toml").contains(&format!("\"pyjuiz=={JUIZ_VERSION}\"")));
+    }
+
+    #[test]
+    fn no_license_lines_without_license() {
+        for lang in ["rust", "python"] {
+            let p = plan(&["create", "my_robot", "-b", lang]);
+            for f in p.files().unwrap() {
+                assert!(!f.path.starts_with("LICENSE"), "{}", f.path);
+                for l in f.content.lines() {
+                    let l = l.trim_start().to_ascii_lowercase();
+                    assert!(!l.starts_with("license"), "{}:\n{}", f.path, f.content);
+                }
+            }
+        }
+    }
+
+    /// 全言語 (この版で使えるもの)・全種類で、置換が残らない・conf の型と表示が合う (§11)
+    #[test]
+    fn all_combinations_render() {
+        for lang in ["rust", "python"] {
+            for t in ["component", "process", "container"] {
+                for lic in ["none", "mit-apache"] {
+                    let p = plan(&["create", "my_robot", "-b", lang, "-t", t, "--license", lic]);
+                    let files = p.files().unwrap();
+                    for f in &files {
+                        assert!(!f.content.contains("{{"), "{lang} {t} {}", f.path);
+                        assert!(!f.path.contains("{{"), "{lang} {t} {}", f.path);
+                        assert!(!f.content.contains('\r'), "{lang} {t} {}", f.path);
+                    }
+                    let conf = &files.iter().find(|f| f.path == "app/app.conf").unwrap().content;
+                    assert_eq!(conf.contains("my_robot_add0"), p.template.has_process(), "{conf}");
+                    assert_eq!(conf.contains("my_robot_get0"), p.template.has_container(), "{conf}");
+                    assert_eq!(conf.contains("main_loop_ec"), p.template.has_container(), "{conf}");
+                    let s = p.summary();
+                    assert_eq!(s.contains("my_robot_add0"), p.template.has_process(), "{s}");
+                    assert_eq!(s.contains("my_robot_increment0"), p.template.has_container(), "{s}");
+                }
+            }
+        }
+    }
+
+    /// テンプレートに使っている変数がすべて表にある (§10.2)
+    #[test]
+    fn templates_use_known_variables() {
+        for (path, text) in templates() {
+            assert!(path.ends_with(".tmpl"), "{path}");
+            for line in text.lines().chain(std::iter::once(*path)) {
+                for v in crate::render::variables_in(line).unwrap() {
+                    assert!(crate::render::VARIABLES.contains(&v), "{path}: {v}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn summary_for_windows() {
+        let args = parse(&["create", "my_robot", "-b", "rust"]);
+        let (p, _) = Plan::from_args_with(&args, || None, true).unwrap();
+        let s = p.summary();
+        assert!(s.contains("scripts\\dev.ps1"), "{s}");
+        assert!(s.contains("scripts\\pack.ps1"), "{s}");
+        let (p, _) = Plan::from_args_with(&args, || None, false).unwrap();
+        let s = p.summary();
+        assert!(s.starts_with(&format!("Created my_robot (rust, component) in ./my_robot  [juiz_sdk ={JUIZ_VERSION}]")), "{s}");
+        assert!(s.contains("\n  cd my_robot\n"), "{s}");
+        assert!(s.contains("scripts/dev.sh"), "{s}");
+    }
+
+    #[test]
+    fn juiz_source_uses_path_dependency() {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let args = parse(&["create", "my_robot", "-b", "rust", "--juiz-source", repo.to_str().unwrap()]);
+        let (p, _) = Plan::from_args_with(&args, || None, false).unwrap();
+        let files = p.files().unwrap();
+        let cargo = &files.iter().find(|f| f.path == "Cargo.toml").unwrap().content;
+        assert!(cargo.contains("juiz_sdk = { path = '"), "{cargo}");
+        assert!(!cargo.contains('\\'), "{cargo}");
+        assert!(cargo.contains("/juiz_sdk' }"), "{cargo}");
+        assert!(p.summary().contains("juiz sources at"));
+        let bad = parse(&["create", "my_robot", "-b", "rust", "--juiz-source", "/nonexistent"]);
+        assert!(Plan::from_args_with(&bad, || None, false).is_err());
+    }
+
+    fn sample_files() -> Vec<GeneratedFile> {
+        plan(&["create", "my_robot", "-b", "rust"]).files().unwrap()
+    }
+
+    #[test]
+    fn dest_rules() {
+        let files = sample_files();
+        // 無ければ親ごと作る
+        let d = temp("dest_missing").join("a").join("b");
+        write_files(&d, &files, None).unwrap();
+        assert!(d.join("src/lib.rs").is_file());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let m = std::fs::metadata(d.join("scripts/dev.sh")).unwrap().permissions().mode();
+            assert_eq!(m & 0o777, 0o755);
+        }
+        // 空でないディレクトリはエラー (書き換えない)
+        let before = std::fs::read_to_string(d.join("Cargo.toml")).unwrap();
+        assert!(write_files(&d, &files, None).is_err());
+        assert_eq!(std::fs::read_to_string(d.join("Cargo.toml")).unwrap(), before);
+        // 隠しファイルだけでも空でない
+        let h = temp("dest_hidden");
+        std::fs::create_dir_all(h.join(".git")).unwrap();
+        assert!(write_files(&h, &files, None).is_err());
+        // ファイルはエラー
+        let f = temp("dest_file");
+        std::fs::write(&f, "x").unwrap();
+        assert!(write_files(&f, &files, None).is_err());
+        // 空のディレクトリには作る
+        let e = temp("dest_empty");
+        std::fs::create_dir_all(&e).unwrap();
+        write_files(&e, &files, None).unwrap();
+        assert!(e.join("app/app.conf").is_file());
+        for p in [temp("dest_missing"), h, f, e] {
+            let _ = std::fs::remove_dir_all(&p);
+            let _ = std::fs::remove_file(&p);
+        }
+    }
+
+    #[test]
+    fn rollback_on_failure() {
+        let files = sample_files();
+        // 自分で作ったディレクトリは作り先ごと消す
+        let d = temp("rollback_missing");
+        assert!(write_files(&d, &files, Some(3)).is_err());
+        assert!(!d.exists());
+        // 空のディレクトリだったなら中身だけ消す
+        let e = temp("rollback_empty");
+        std::fs::create_dir_all(&e).unwrap();
+        assert!(write_files(&e, &files, Some(5)).is_err());
+        assert!(e.is_dir());
+        assert_eq!(std::fs::read_dir(&e).unwrap().count(), 0);
+        let _ = std::fs::remove_dir_all(&e);
+    }
+}

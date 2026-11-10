@@ -1,0 +1,17 @@
+# {{name}}: start-up configuration of the juiz component {{name}}
+#   development: juiz -f app/app.conf -d
+#                (Rust, C++ and Haskell: run scripts/dev.sh first to put the plugin in app/plugins/<target>/)
+#   package:     scripts/pack.sh, then juiz run dist/{{name}}-0.1.0.juizapp
+"name": "{{name}}"
+"option":
+  "http_broker":
+    "start": true
+    "port": 8000
+"plugins":
+  "components":
+    "{{name}}":
+      "language": "{{plugin_language}}"
+      "path": "{{plugin_path}}"
+"processes":
+  - "type_name": "{{name}}_add"
+    "name": "{{name}}_add0"

@@ -1,0 +1,72 @@
+//! {{name}}: a juiz component (juiz docs/spec/pkg.md).
+//!
+//! Each function with a #[juiz_component_*] attribute becomes a type of this Component.
+//! juiz_component_manifest! at the end lists them. Build with scripts/dev.sh.
+use juiz_sdk::prelude::*;
+
+#[juiz_component_process(
+    description = "Returns a + b."
+    arguments = { default = { a = 0 b = 0 } }
+)]
+fn {{name}}_add(a: i64, b: i64) -> JuizResult<i64> {
+    Ok(a + b)
+}
+
+/// State of the container `{{name}}`.
+#[repr(Rust)]
+pub struct {{Name}} {
+    pub value: i64,
+}
+
+#[juiz_component_container(
+    description = "Holds an integer value."
+    arguments = { default = { initial_value = 0 } }
+)]
+fn {{name}}(initial_value: i64) -> JuizResult<Box<{{Name}}>> {
+    Ok(Box::new({{Name}} {
+        value: initial_value,
+    }))
+}
+
+#[juiz_component_container_process(
+    container_type = "{{name}}"
+    description = "Adds step to the value and returns it."
+    arguments = { default = { step = 1 } }
+)]
+fn {{name}}_increment(container: &mut ContainerImpl<{{Name}}>, step: i64) -> JuizResult<i64> {
+    container.value += step;
+    Ok(container.value)
+}
+
+/// Receiving the container as `&ContainerImpl` (not `&mut`) makes this ContainerProcess readonly.
+#[juiz_component_container_process(
+    container_type = "{{name}}"
+    description = "Returns the value."
+)]
+fn {{name}}_get(container: &ContainerImpl<{{Name}}>) -> JuizResult<i64> {
+    Ok(container.value)
+}
+
+juiz_component_manifest!(
+    component_name = "{{name}}"
+    containers = {
+        {{name}} = [ {{name}}_increment, {{name}}_get ]
+    }
+    processes = [ {{name}}_add ]
+);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn add_returns_the_sum() -> JuizResult<()> {
+        // The attribute turns the function into one that takes its arguments as a CapsuleMap
+        let mut args = CapsuleMap::new();
+        args.insert("a".to_owned(), jvalue!(1).into());
+        args.insert("b".to_owned(), jvalue!(2).into());
+        let result = {{name}}_add(args)?;
+        assert_eq!(result.as_value().unwrap(), &jvalue!(3));
+        Ok(())
+    }
+}

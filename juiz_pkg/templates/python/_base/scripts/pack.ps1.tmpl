@@ -1,0 +1,19 @@
+# Make dist\{{name}}-<version>.juizapp with juiz pack (juiz docs/spec/app-package.md)
+# usage: scripts\pack.ps1 [-NoBuild]   (Python has nothing to build; -NoBuild is accepted and ignored)
+param([switch]$NoBuild)
+$ErrorActionPreference = "Stop"
+Set-Location (Join-Path $PSScriptRoot "..")
+$stage = Join-Path ([System.IO.Path]::GetTempPath()) ("juiz-pack-" + [System.Guid]::NewGuid())
+New-Item -ItemType Directory -Path $stage | Out-Null
+try {
+    Copy-Item -Recurse -Path "app\*" -Destination $stage
+    Get-ChildItem -Path $stage -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force
+    foreach ($f in @("LICENSE-MIT", "LICENSE-APACHE")) {
+        if (Test-Path $f) { Copy-Item $f $stage }
+    }
+    New-Item -ItemType Directory -Force -Path dist | Out-Null
+    juiz pack $stage -o dist
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+} finally {
+    Remove-Item -Recurse -Force $stage
+}
