@@ -75,10 +75,10 @@ fn set_port(app: &Path, port: u16) {
     std::fs::write(&conf, text.replace("\"port\": 8000\n", &format!("\"port\": {port}\n"))).unwrap();
 }
 
-fn create(dir: &Path, name: &str, lang: &str) -> PathBuf {
+fn create(dir: &Path, name: &str, lang: &str, extra: &[&str]) -> PathBuf {
     let app = dir.join(name);
     let repo = repo_root();
-    let out = run(&[
+    let mut args = vec![
         "pkg",
         "create",
         name,
@@ -92,7 +92,9 @@ fn create(dir: &Path, name: &str, lang: &str) -> PathBuf {
         "mit-apache",
         "--author",
         "juiz test",
-    ]);
+    ];
+    args.extend_from_slice(extra);
+    let out = run(&args);
     assert!(out.status.success(), "{out:?}");
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("Next steps:"), "{stdout}");
@@ -164,9 +166,9 @@ fn call_all(app: &Path, name: &str, port: u16) {
     assert!(list.contains("readonly"), "{list}");
 }
 
-fn create_build_run_pack(lang: &str, name: &str, port: u16, build: bool) {
+fn create_build_run_pack(lang: &str, name: &str, port: u16, build: bool, extra: &[&str]) {
     let dir = temp_dir(&format!("pkg_cli_{lang}"));
-    let app = create(&dir, name, lang);
+    let app = create(&dir, name, lang, extra);
     set_port(&app, port);
     if build {
         script(&app, "dev.sh", &[]);
@@ -186,6 +188,7 @@ fn create_build_run_pack(lang: &str, name: &str, port: u16, build: bool) {
     script(&app, "pack.sh", &["--no-build"]);
     let pkg = app.join("dist").join(format!("{name}-0.1.0.juizapp"));
     assert!(pkg.is_file());
+    check_package(&pkg, lang);
     let mut d = start(
         &["run", path_str(&pkg)],
         &app,
@@ -197,14 +200,89 @@ fn create_build_run_pack(lang: &str, name: &str, port: u16, build: bool) {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// できた .juizapp の中身を確かめる (C++ は libjuiz_sdk を同梱し、同じ版の juiz を求める)
+fn check_package(pkg: &Path, lang: &str) {
+    let file = std::fs::File::open(pkg).unwrap();
+    let mut zip = zip::ZipArchive::new(file).unwrap();
+    let names: Vec<String> = (0..zip.len())
+        .map(|i| zip.by_index(i).unwrap().name().unwrap().into_owned())
+        .collect();
+    let manifest = {
+        let mut f = zip.by_name("juizapp.yaml").unwrap();
+        let mut s = String::new();
+        std::io::Read::read_to_string(&mut f, &mut s).unwrap();
+        s
+    };
+    assert!(names.iter().any(|n| n == "LICENSE-MIT"), "{names:?}");
+    if lang == "cpp" {
+        let sdk = format!(
+            "plugins/{}/{}juiz_sdk.{}",
+            juiz_core::HOST_TARGET,
+            if cfg!(windows) { "" } else { "lib" },
+            if cfg!(target_os = "macos") { "dylib" } else if cfg!(windows) { "dll" } else { "so" }
+        );
+        assert!(names.contains(&sdk), "{sdk} is not in {names:?}");
+        assert!(
+            manifest.contains(&format!("juiz: \"={}\"", env!("CARGO_PKG_VERSION"))),
+            "{manifest}"
+        );
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn pkg_create_rust_component_builds_runs_and_packs() {
-    create_build_run_pack("rust", "pkg_rust_robot", 8078, true);
+    create_build_run_pack("rust", "pkg_rust_robot", 8078, true, &[]);
 }
 
 #[cfg(all(unix, feature = "embed-python"))]
 #[test]
 fn pkg_create_python_component_runs_and_packs() {
-    create_build_run_pack("python", "pkg_py_robot", 8079, false);
+    create_build_run_pack("python", "pkg_py_robot", 8079, false, &[]);
+}
+
+/// ワークスペースでビルドした libjuiz_sdk を、配布と同じ形 (scripts/package-juiz-sdk.sh のアーカイブ) にして展開する。
+/// 雛形の CMakeLists.txt は、これを --juiz-sdk-dir で指して find_package(juiz_sdk <版> EXACT) する
+fn sdk_from_workspace(dir: &Path) -> PathBuf {
+    let lib = if cfg!(target_os = "macos") {
+        "libjuiz_sdk.dylib"
+    } else {
+        "libjuiz_sdk.so"
+    };
+    // juiz と同じ所にあればそれを使う (scripts/test.sh の cargo build で target/debug にできる)
+    let bin_dir = assert_cmd::cargo::cargo_bin("juiz").parent().unwrap().to_path_buf();
+    let lib_dir = [bin_dir, repo_root().join("target").join("debug")]
+        .into_iter()
+        .find(|d| d.join(lib).is_file())
+        .unwrap_or_else(|| panic!("{lib} is not built. Run cargo build (scripts/test.sh does) first"));
+    let out = Command::new(repo_root().join("scripts").join("package-juiz-sdk.sh"))
+        .arg(juiz_core::HOST_TARGET)
+        .arg(dir)
+        .env("JUIZ_SDK_LIB_DIR", &lib_dir)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "package-juiz-sdk.sh: {out:?}");
+    let archive = String::from_utf8(out.stdout).unwrap().trim().to_owned();
+    let out = Command::new("tar")
+        .args(["-xzf", &archive, "-C"])
+        .arg(dir)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "tar: {out:?}");
+    let sdk = dir.join(format!(
+        "juiz_sdk-{}-{}",
+        env!("CARGO_PKG_VERSION"),
+        juiz_core::HOST_TARGET
+    ));
+    assert!(sdk.join("lib").join("cmake").join("juiz_sdk").is_dir(), "{}", sdk.display());
+    sdk
+}
+
+#[cfg(unix)]
+#[test]
+fn pkg_create_cpp_component_builds_runs_and_packs() {
+    let dir = temp_dir("pkg_cli_cpp_sdk");
+    let sdk = sdk_from_workspace(&dir);
+    create_build_run_pack("cpp", "pkg_cpp_robot", 8077, true, &["--juiz-sdk-dir", path_str(&sdk)]);
+    let _ = std::fs::remove_dir_all(&dir);
 }

@@ -1,0 +1,37 @@
+#!/bin/sh
+# Build the plugin and put it with libjuiz_sdk in app/plugins/<target>/ (to run app/app.conf during development)
+# usage: scripts/dev.sh [--release]
+#   JUIZ_SDK_DIR=<dir> scripts/dev.sh   uses libjuiz_sdk in <dir> (default: ~/.juiz/sdk/{{juiz_version}})
+set -eu
+cd "$(dirname "$0")/.."
+if ! command -v juiz >/dev/null 2>&1; then
+  echo "error: juiz is not in PATH. Install juiz {{juiz_version}}:" >&2
+  echo "  cargo install juiz_app --version {{juiz_version}}   (or: pip install juiz-cli=={{juiz_version}})" >&2
+  exit 1
+fi
+if ! command -v cmake >/dev/null 2>&1; then
+  echo "error: cmake is not in PATH. Install CMake 3.16 or later and a C++17 compiler." >&2
+  exit 1
+fi
+target=$(juiz pkg target)
+if [ "${1:-}" = "--release" ]; then
+  config=Release
+else
+  config=Debug
+fi
+if [ -n "${JUIZ_SDK_DIR:-}" ]; then
+  cmake -S . -B build -D CMAKE_BUILD_TYPE=$config -D "JUIZ_SDK_DIR=$JUIZ_SDK_DIR"
+else
+  cmake -S . -B build -D CMAKE_BUILD_TYPE=$config
+fi
+cmake --build build --config $config
+case "$target" in
+  *apple-darwin) libs="lib{{name}}.dylib libjuiz_sdk.dylib" ;;
+  *windows*) libs="{{name}}.dll juiz_sdk.dll" ;;
+  *) libs="lib{{name}}.so libjuiz_sdk.so" ;;
+esac
+mkdir -p "app/plugins/$target"
+for lib in $libs; do
+  cp "build/plugins/$lib" "app/plugins/$target/"
+  echo "app/plugins/$target/$lib"
+done

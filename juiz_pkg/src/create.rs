@@ -46,6 +46,10 @@ pub struct Plan {
     pub author: Option<String>,
     pub juiz_source: Option<PathBuf>,
     pub juiz_sdk_dir: PathBuf,
+    /// `--juiz-sdk-dir` を指定したか (C++ の CMakeLists.txt に書くのは指定したときだけ、§6.3)
+    pub juiz_sdk_dir_given: bool,
+    /// juiz_sdk_dir に libjuiz_sdk の CMake のパッケージが無い (C++ の次の手順に SDK の用意を出す、§9)
+    pub sdk_missing: bool,
     pub hsjuiz_dir: PathBuf,
     pub year: i64,
     /// Windows 向けの表示にするか (§9)
@@ -146,12 +150,8 @@ impl Plan {
         let mut warnings = Vec::new();
         let lang = args.lang;
         if !lang.available() {
-            let step = match lang {
-                Lang::Cpp => "C++ (issue #458)",
-                _ => "Haskell (issue #459)",
-            };
             return Err(PkgError::new(format!(
-                "templates for {step} are not available in juiz {JUIZ_VERSION} yet. Available languages: rust, python"
+                "templates for Haskell (issue #459) are not available in juiz {JUIZ_VERSION} yet. Available languages: rust, python, cpp"
             )));
         }
         names::validate(&args.name, lang)?;
@@ -199,6 +199,12 @@ impl Plan {
             Some(d) => absolute(d),
             None => home.join(".juiz").join("sdk").join(JUIZ_VERSION),
         };
+        let sdk_missing = !juiz_sdk_dir
+            .join("lib")
+            .join("cmake")
+            .join("juiz_sdk")
+            .join("juiz_sdkConfig.cmake")
+            .is_file();
         let hsjuiz_dir = match (&args.hsjuiz_dir, &juiz_source) {
             (Some(d), _) => absolute(d),
             (None, Some(src)) => src.join("bindings").join("hsjuiz"),
@@ -224,6 +230,8 @@ impl Plan {
                 author,
                 juiz_source,
                 juiz_sdk_dir,
+                juiz_sdk_dir_given: args.juiz_sdk_dir.is_some(),
+                sdk_missing,
                 hsjuiz_dir,
                 year: current_year(),
                 windows,
@@ -238,8 +246,19 @@ impl Plan {
             (Some(src), _) => format!("juiz sources at {}", src.display()),
             (None, Lang::Rust) => format!("juiz_sdk ={JUIZ_VERSION}"),
             (None, Lang::Python) => format!("pyjuiz =={JUIZ_VERSION}"),
-            (None, Lang::Cpp) => format!("juiz_sdk {JUIZ_VERSION}"),
+            (None, Lang::Cpp) => format!("libjuiz_sdk {JUIZ_VERSION}"),
             (None, Lang::Haskell) => format!("hsjuiz {JUIZ_VERSION}"),
+        }
+    }
+
+    /// 表示用の libjuiz_sdk の場所 (既定なら ~ のまま)
+    fn sdk_dir_label(&self) -> PathBuf {
+        if self.juiz_sdk_dir_given {
+            self.juiz_sdk_dir.clone()
+        } else if self.windows {
+            PathBuf::from(format!("%USERPROFILE%/.juiz/sdk/{JUIZ_VERSION}"))
+        } else {
+            PathBuf::from(format!("~/.juiz/sdk/{JUIZ_VERSION}"))
         }
     }
 
@@ -295,7 +314,31 @@ impl Plan {
         v
     }
 
-    /// 次に打つコマンド (§9)。`cd` は表示のときだけ付ける
+    /// libjuiz_sdk を用意するコマンド (C++、§6.3・§9)
+    fn sdk_install_command(&self, windows: bool) -> String {
+        let dest = if self.juiz_sdk_dir_given {
+            let d = slash(&self.juiz_sdk_dir);
+            if d.contains(' ') {
+                format!(" \"{d}\"")
+            } else {
+                format!(" {d}")
+            }
+        } else {
+            String::new()
+        };
+        if windows {
+            format!(
+                "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/OpenJUIZ/juiz/main/scripts/install-juiz-sdk.ps1))) {JUIZ_VERSION}{dest}"
+            )
+        } else {
+            format!(
+                "curl -fsSL https://raw.githubusercontent.com/OpenJUIZ/juiz/main/scripts/install-juiz-sdk.sh | sh -s -- {JUIZ_VERSION}{dest}"
+            )
+        }
+    }
+
+    /// 次に打つコマンド (§9)。`cd` は表示のときだけ付ける。
+    /// README 用 (`with_cd` が false) では、C++ の SDK の用意を在るかどうかによらず書く
     pub fn next_steps(&self, with_cd: bool, windows: bool) -> String {
         let script = |s: &str| {
             if windows {
@@ -319,6 +362,23 @@ impl Plan {
                 }
                 lines.push(("pip install -e .".into(), "# installs pyjuiz"));
             }
+            Lang::Cpp if self.sdk_missing || !with_cd => {
+                lines.push((
+                    format!("# once: put libjuiz_sdk {JUIZ_VERSION} in {}", slash(&self.sdk_dir_label())),
+                    "",
+                ));
+                lines.push((self.sdk_install_command(windows), ""));
+                lines.push((
+                    script("dev"),
+                    "# build and put the plugin and libjuiz_sdk in app/plugins/<target>/",
+                ));
+            }
+            Lang::Cpp => {
+                lines.push((
+                    script("dev"),
+                    "# build and put the plugin and libjuiz_sdk in app/plugins/<target>/",
+                ));
+            }
             _ => {
                 lines.push((
                     script("dev"),
@@ -327,7 +387,14 @@ impl Plan {
             }
         }
         lines.push(("juiz -f app/app.conf -d".into(), "# start (keep it running)"));
-        let width = lines.iter().map(|(c, _)| c.len()).max().unwrap_or(0).max(30);
+        // コメントを並べる幅。コメントの無い長い行 (SDK の用意) は数えない
+        let width = lines
+            .iter()
+            .filter(|(_, comment)| !comment.is_empty())
+            .map(|(c, _)| c.len())
+            .max()
+            .unwrap_or(0)
+            .max(30);
         let mut out = String::new();
         for (c, comment) in &lines {
             if comment.is_empty() {
@@ -368,6 +435,10 @@ impl Plan {
             .set("plugin_path", self.lang.plugin_path())
             .set("juiz_sdk_dep", self.juiz_sdk_dep())
             .set("juiz_sdk_dir", slash(&self.juiz_sdk_dir))
+            .set_opt(
+                "juiz_sdk_dir_arg",
+                self.juiz_sdk_dir_given.then(|| slash(&self.juiz_sdk_dir)),
+            )
             .set("hsjuiz_dir", slash(&self.hsjuiz_dir))
             .set_opt("license", self.license.then(|| "MIT OR Apache-2.0".to_owned()))
             .set_opt("author", self.author.clone())
@@ -587,13 +658,11 @@ mod tests {
     }
 
     #[test]
-    fn cpp_and_haskell_are_not_available_yet() {
-        for lang in ["cpp", "haskell"] {
-            let e = Plan::from_args_with(&parse(&["create", "x", "-b", lang]), || None, false)
-                .unwrap_err()
-                .to_string();
-            assert!(e.contains("not available"), "{e}");
-        }
+    fn haskell_is_not_available_yet() {
+        let e = Plan::from_args_with(&parse(&["create", "x", "-b", "haskell"]), || None, false)
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("not available") && e.contains("cpp"), "{e}");
     }
 
     #[test]
@@ -643,6 +712,78 @@ mod tests {
     }
 
     #[test]
+    fn cpp_component_files() {
+        let p = plan(&["create", "my_robot", "-b", "cpp"]);
+        assert_eq!(
+            paths(&p),
+            [
+                ".gitignore",
+                "CMakeLists.txt",
+                "README.md",
+                "app/app.conf",
+                "app/juizapp.yaml",
+                "scripts/dev.ps1",
+                "scripts/dev.sh",
+                "scripts/pack.ps1",
+                "scripts/pack.sh",
+                "src/my_robot.cpp",
+            ]
+        );
+        let files = p.files().unwrap();
+        let get = |n: &str| files.iter().find(|f| f.path == n).unwrap().content.clone();
+        let cmake = get("CMakeLists.txt");
+        assert!(cmake.contains(&format!("set(JUIZ_VERSION \"{JUIZ_VERSION}\")")), "{cmake}");
+        assert!(cmake.contains("find_package(juiz_sdk ${JUIZ_VERSION} EXACT"), "{cmake}");
+        assert!(cmake.contains("juiz_sdk_bundle(my_robot)"), "{cmake}");
+        // --juiz-sdk-dir を付けなければ、CMakeLists.txt に絶対パスを書かない
+        assert!(!cmake.contains("--juiz-sdk-dir"), "{cmake}");
+        let conf = get("app/app.conf");
+        assert!(conf.contains("\"language\": \"c++\""), "{conf}");
+        assert!(conf.contains("\"path\": \"plugins/{target}\""), "{conf}");
+        // libjuiz_sdk はホストと同じ版でないと読み込めないので、.juizapp も同じ版の juiz を求める
+        assert!(get("app/juizapp.yaml").contains(&format!("juiz: \"={JUIZ_VERSION}\"\n")));
+        let cpp = get("src/my_robot.cpp");
+        assert!(cpp.contains("class MyRobot {"), "{cpp}");
+        assert!(cpp.contains("std::optional<int64_t> my_robot_get(const MyRobot* container)"), "{cpp}");
+        assert!(cpp.contains("DEFINE_COMPONENT_MANIFEST_ENTRY_POINT(my_robot_component_manifest)"), "{cpp}");
+        let readme = get("README.md");
+        assert!(readme.contains("install-juiz-sdk.sh | sh -s -- "), "{readme}");
+    }
+
+    #[test]
+    fn cpp_juiz_sdk_dir() {
+        let args = parse(&["create", "my_robot", "-b", "cpp", "--juiz-sdk-dir", "/opt/juiz sdk"]);
+        let (p, w) = Plan::from_args_with(&args, || None, false).unwrap();
+        assert!(w.is_empty(), "{w:?}");
+        assert!(p.sdk_missing);
+        let files = p.files().unwrap();
+        let cmake = &files.iter().find(|f| f.path == "CMakeLists.txt").unwrap().content;
+        assert!(
+            cmake.contains("set(JUIZ_SDK_DEFAULT_DIR \"/opt/juiz sdk\")  # given with juiz pkg create --juiz-sdk-dir\n"),
+            "{cmake}"
+        );
+        // SDK が無ければ、次の手順に用意するコマンドを出す (指定した場所に)
+        let s = p.summary();
+        assert!(s.contains(&format!("install-juiz-sdk.sh | sh -s -- {JUIZ_VERSION} \"/opt/juiz sdk\"\n")), "{s}");
+        // 在れば出さない
+        let sdk = temp("cpp_sdk");
+        let cfg = sdk.join("lib").join("cmake").join("juiz_sdk");
+        std::fs::create_dir_all(&cfg).unwrap();
+        std::fs::write(cfg.join("juiz_sdkConfig.cmake"), "").unwrap();
+        let args = parse(&["create", "my_robot", "-b", "cpp", "--juiz-sdk-dir", sdk.to_str().unwrap()]);
+        let (p, _) = Plan::from_args_with(&args, || None, true).unwrap();
+        assert!(!p.sdk_missing);
+        let s = p.summary();
+        assert!(!s.contains("install-juiz-sdk"), "{s}");
+        assert!(s.contains("scripts\\dev.ps1"), "{s}");
+        // README には在っても書く
+        let files = p.files().unwrap();
+        let readme = &files.iter().find(|f| f.path == "README.md").unwrap().content;
+        assert!(readme.contains("install-juiz-sdk.sh"), "{readme}");
+        let _ = std::fs::remove_dir_all(&sdk);
+    }
+
+    #[test]
     fn python_files_with_license() {
         let p = plan(&["create", "my_robot", "-b", "python", "--license", "mit-apache"]);
         assert_eq!(
@@ -671,7 +812,7 @@ mod tests {
 
     #[test]
     fn no_license_lines_without_license() {
-        for lang in ["rust", "python"] {
+        for lang in ["rust", "python", "cpp"] {
             let p = plan(&["create", "my_robot", "-b", lang]);
             for f in p.files().unwrap() {
                 assert!(!f.path.starts_with("LICENSE"), "{}", f.path);
@@ -686,7 +827,7 @@ mod tests {
     /// 全言語 (この版で使えるもの)・全種類で、置換が残らない・conf の型と表示が合う (§11)
     #[test]
     fn all_combinations_render() {
-        for lang in ["rust", "python"] {
+        for lang in ["rust", "python", "cpp"] {
             for t in ["component", "process", "container"] {
                 for lic in ["none", "mit-apache"] {
                     let p = plan(&["create", "my_robot", "-b", lang, "-t", t, "--license", lic]);

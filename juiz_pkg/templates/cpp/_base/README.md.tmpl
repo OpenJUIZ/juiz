@@ -1,0 +1,48 @@
+# {{name}}
+
+A juiz component written in C++. It was made with `juiz pkg create` of juiz {{juiz_version}}.
+
+License: {{license}}
+
+## What is inside
+
+{{types_table}}
+
+| Path | What it is |
+| --- | --- |
+| `src/{{name}}.cpp` | The Component. Each `COMPONENT_*_FACTORY` is a type, listed in `{{name}}_component_manifest()` |
+| `CMakeLists.txt` | Builds the plugin with libjuiz_sdk (`find_package(juiz_sdk {{juiz_version}} EXACT)`) |
+| `app/app.conf` | The configuration to start juiz with. It is also the entry of the `.juizapp` package |
+| `app/juizapp.yaml` | The `.juizapp` manifest (name, version, required juiz version) |
+| `scripts/dev.sh`, `scripts/dev.ps1` | Build the plugin and put it with libjuiz_sdk in `app/plugins/<target>/` |
+| `scripts/pack.sh`, `scripts/pack.ps1` | Build in release mode and make `dist/{{name}}-<version>.juizapp` |
+
+## Requirements
+
+- juiz {{juiz_version}} (`juiz --version`). Install it with `cargo install juiz_app --version {{juiz_version}}` or `pip install juiz-cli=={{juiz_version}}`
+- CMake 3.16 or later and a C++17 compiler (on Windows, Visual Studio 2022 with "Desktop development with C++")
+- libjuiz_sdk {{juiz_version}} in `~/.juiz/sdk/{{juiz_version}}` (`%USERPROFILE%\.juiz\sdk\{{juiz_version}}` on Windows).
+  On Windows, install it in PowerShell with
+  `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/OpenJUIZ/juiz/main/scripts/install-juiz-sdk.ps1))) {{juiz_version}}`
+
+libjuiz_sdk must be the same version as juiz: juiz does not load a plugin that carries another version of libjuiz_sdk.
+`CMakeLists.txt` asks for exactly `{{juiz_version}}`, and `app/juizapp.yaml` requires `juiz: "={{juiz_version}}"` for the same reason.
+When you update juiz, install libjuiz_sdk of the new version and change both.
+To use libjuiz_sdk in another directory, run `JUIZ_SDK_DIR=<dir> scripts/dev.sh` (or `cmake -D JUIZ_SDK_DIR=<dir>`).
+
+## Build, run and call
+
+```sh
+{{next_steps}}
+```
+
+On Windows, use `scripts\dev.ps1` and `scripts\pack.ps1` instead of the `.sh` scripts.
+
+## Versions
+
+The package version is `0.1.0` in both `CMakeLists.txt` and `app/juizapp.yaml`. When you release a new version, change both.
+
+## Plugins for several OSes in one package
+
+Run `scripts/dev.sh --release` on each OS, collect the `app/plugins/<target>/` directories in one `app/plugins/`, and run `scripts/pack.sh --no-build`.
+Each `app/plugins/<target>/` holds the plugin and libjuiz_sdk of that OS.

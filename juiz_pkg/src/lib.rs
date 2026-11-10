@@ -82,9 +82,9 @@ impl Lang {
         }
     }
 
-    /// この版の juiz_pkg にテンプレートがあるか (C++ は Step 2 #458、Haskell は Step 3 #459)
+    /// この版の juiz_pkg にテンプレートがあるか (Haskell は Step 3 #459)
     pub fn available(self) -> bool {
-        matches!(self, Lang::Rust | Lang::Python)
+        matches!(self, Lang::Rust | Lang::Python | Lang::Cpp)
     }
 
     /// ビルドして app/plugins/<target>/ に置く scripts/dev.* があるか
