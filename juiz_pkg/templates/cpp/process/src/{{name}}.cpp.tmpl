@@ -1,0 +1,27 @@
+// {{name}}: a juiz component written in C++ (juiz docs/spec/pkg.md).
+//
+// Each COMPONENT_*_FACTORY exposes one type of this Component, and {{name}}_component_manifest()
+// at the end lists them. Unlike Rust and Python, the type name and the arguments
+// (name, description, default) are written in the manifest. Build with scripts/dev.sh.
+#include <cstdint>
+#include <optional>
+
+#include "juiz/juiz.h"
+
+// Process {{name}}_add. The arguments are passed in the order they are added to the manifest
+static auto {{name}}_add_manif = ProcessManifest("{{name}}_add")
+    .description("Returns a + b.")
+    .add_int_arg("a", "the first value", 0)
+    .add_int_arg("b", "the second value", 0);
+std::optional<int64_t> {{name}}_add(int64_t a, int64_t b) {
+    return a + b;
+}
+COMPONENT_PROCESS_FACTORY({{name}}_add_manif, {{name}}_add);
+
+// The manifest of the whole Component (the types in this plugin)
+auto {{name}}_component_manifest() {
+    return ComponentManifest("{{name}}")
+        .description("{{name}}: a juiz component")
+        .add_process({{name}}_add_manifest());
+}
+DEFINE_COMPONENT_MANIFEST_ENTRY_POINT({{name}}_component_manifest)

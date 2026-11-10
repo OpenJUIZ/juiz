@@ -16,6 +16,7 @@ pub const VARIABLES: &[&str] = &[
     "plugin_path",
     "juiz_sdk_dep",
     "juiz_sdk_dir",
+    "juiz_sdk_dir_arg",
     "hsjuiz_dir",
     "license",
     "author",

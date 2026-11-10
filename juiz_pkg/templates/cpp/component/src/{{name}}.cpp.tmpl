@@ -1,0 +1,66 @@
+// {{name}}: a juiz component written in C++ (juiz docs/spec/pkg.md).
+//
+// Each COMPONENT_*_FACTORY exposes one type of this Component, and {{name}}_component_manifest()
+// at the end lists them. Unlike Rust and Python, the type name and the arguments
+// (name, description, default) are written in the manifest. Build with scripts/dev.sh.
+#include <cstdint>
+#include <optional>
+
+#include "juiz/juiz.h"
+
+// Process {{name}}_add. The arguments are passed in the order they are added to the manifest
+static auto {{name}}_add_manif = ProcessManifest("{{name}}_add")
+    .description("Returns a + b.")
+    .add_int_arg("a", "the first value", 0)
+    .add_int_arg("b", "the second value", 0);
+std::optional<int64_t> {{name}}_add(int64_t a, int64_t b) {
+    return a + b;
+}
+COMPONENT_PROCESS_FACTORY({{name}}_add_manif, {{name}}_add);
+
+// State of the container {{name}}
+class {{Name}} {
+public:
+    explicit {{Name}}(int64_t initial_value) : value(initial_value) {}
+    int64_t value;
+};
+
+// Container {{name}}. args holds the container entry of app/app.conf (initial_value)
+static auto {{name}}_manif = ContainerManifest("{{name}}")
+    .description("Holds an integer value.");
+{{Name}}* {{name}}(juiz::CapsuleMap args) {
+    int64_t initial_value = args.has("initial_value") ? args.get_int("initial_value") : 0;
+    return new {{Name}}(initial_value);
+}
+COMPONENT_CONTAINER_FACTORY({{name}}_manif, {{name}});
+
+// ContainerProcess {{name}}_increment
+static auto {{name}}_increment_manif = ProcessManifest("{{name}}_increment")
+    .description("Adds step to the value and returns it.")
+    .add_int_arg("step", "the value to add", 1);
+std::optional<int64_t> {{name}}_increment({{Name}}* container, int64_t step) {
+    container->value += step;
+    return container->value;
+}
+COMPONENT_CONTAINER_PROCESS_FACTORY({{Name}}, {{name}}_increment_manif, {{name}}_increment);
+
+// ContainerProcess {{name}}_get. readonly() in the manifest and the const pointer make it readonly
+// (juiz may run readonly container processes of the same container in parallel)
+static auto {{name}}_get_manif = ProcessManifest("{{name}}_get")
+    .description("Returns the value.")
+    .readonly();
+std::optional<int64_t> {{name}}_get(const {{Name}}* container) {
+    return container->value;
+}
+COMPONENT_CONTAINER_PROCESS_FACTORY({{Name}}, {{name}}_get_manif, {{name}}_get);
+
+// The manifest of the whole Component (the types in this plugin)
+auto {{name}}_component_manifest() {
+    return ComponentManifest("{{name}}")
+        .description("{{name}}: a juiz component")
+        .add_process({{name}}_add_manifest())
+        .add_container({{name}}_manifest()
+            .add_process({{name}}_increment_manifest())
+            .add_process({{name}}_get_manifest()));
+}
+DEFINE_COMPONENT_MANIFEST_ENTRY_POINT({{name}}_component_manifest)

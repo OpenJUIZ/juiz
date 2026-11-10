@@ -30,6 +30,18 @@ pub const RESERVED: &[&str] = &[
     "volatile", "wchar_t", "xor", "xor_eq",
 ];
 
+/// C++ だけで使えない名前。cppjuiz の大域のクラス (`<Name>` と衝突) と、
+/// DEFINE_COMPONENT_MANIFEST_ENTRY_POINT が作る component_manifest_entry_point と衝突するもの
+/// (Container `<name>` から COMPONENT_CONTAINER_FACTORY が `<name>_manifest_entry_point`・`<name>_entry_point` を作る)
+pub const CPP_RESERVED: &[&str] = &[
+    "component",
+    "component_manifest",
+    "process_manifest",
+    "container_manifest",
+    "argument_manifest",
+    "topic_manifest",
+];
+
 /// 規則に合わない理由を返す (合えば None)
 fn violation(name: &str, lang: Lang) -> Option<String> {
     let mut chars = name.chars();
@@ -54,6 +66,12 @@ fn violation(name: &str, lang: Lang) -> Option<String> {
             "for Haskell, each part separated by '_' must contain a letter (cabal package names cannot have a part with only digits)"
                 .to_owned(),
         );
+    }
+    if lang == Lang::Cpp && CPP_RESERVED.contains(&name) {
+        return Some(format!(
+            "for C++, '{name}' clashes with a name in the juiz C++ headers (the class {} or the function component_manifest_entry_point)",
+            camel(name)
+        ));
     }
     if let Err(e) = juiz_sdk::identifier::validate_name(name) {
         return Some(format!("{e}"));
@@ -146,6 +164,15 @@ mod tests {
         assert!(validate("arm_2", Lang::Rust).is_ok());
         assert!(validate("arm_2", Lang::Haskell).is_err());
         assert!(validate("arm_v2", Lang::Haskell).is_ok());
+    }
+
+    #[test]
+    fn cpp_reserved_names() {
+        for n in CPP_RESERVED {
+            assert!(validate(n, Lang::Rust).is_ok(), "{n}");
+            assert!(validate(n, Lang::Cpp).is_err(), "{n}");
+        }
+        assert!(validate("my_component", Lang::Cpp).is_ok());
     }
 
     #[test]

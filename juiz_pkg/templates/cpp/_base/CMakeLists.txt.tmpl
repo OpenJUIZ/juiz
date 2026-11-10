@@ -1,0 +1,35 @@
+# {{name}}: a juiz component written in C++ (juiz docs/spec/pkg.md)
+#   scripts/dev.sh builds it and puts the plugin and libjuiz_sdk in app/plugins/<target>/
+cmake_minimum_required(VERSION 3.16)
+project({{name}} VERSION 0.1.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+
+# libjuiz_sdk must be the same version as juiz (juiz --version): juiz does not load a plugin built with another version.
+# Change the directory with: cmake -D JUIZ_SDK_DIR=<dir> (or the JUIZ_SDK_DIR environment variable of scripts/dev.sh)
+set(JUIZ_VERSION "{{juiz_version}}")
+if(WIN32)
+  file(TO_CMAKE_PATH "$ENV{USERPROFILE}/.juiz/sdk/${JUIZ_VERSION}" JUIZ_SDK_DEFAULT_DIR)
+else()
+  set(JUIZ_SDK_DEFAULT_DIR "$ENV{HOME}/.juiz/sdk/${JUIZ_VERSION}")
+endif()
+set(JUIZ_SDK_DEFAULT_DIR "{{juiz_sdk_dir_arg}}")  # given with juiz pkg create --juiz-sdk-dir
+set(JUIZ_SDK_DIR "${JUIZ_SDK_DEFAULT_DIR}" CACHE PATH "libjuiz_sdk directory")
+find_package(juiz_sdk ${JUIZ_VERSION} EXACT CONFIG REQUIRED PATHS "${JUIZ_SDK_DIR}" NO_DEFAULT_PATH)
+
+# The plugin (lib{{name}}.so, lib{{name}}.dylib or {{name}}.dll) goes to build/plugins.
+# $<1:...> keeps Visual Studio from adding the configuration name (build/plugins/Release)
+add_library({{name}} SHARED src/{{name}}.cpp)
+target_link_libraries({{name}} PRIVATE juiz_sdk::juiz_sdk)
+set_target_properties({{name}} PROPERTIES
+  LIBRARY_OUTPUT_DIRECTORY "$<1:${CMAKE_BINARY_DIR}/plugins>"
+  RUNTIME_OUTPUT_DIRECTORY "$<1:${CMAKE_BINARY_DIR}/plugins>")
+# Make the plugin look for libjuiz_sdk next to itself ($ORIGIN / @loader_path) and copy libjuiz_sdk
+# (juiz_sdk.dll on Windows) to build/plugins, so that the directory works in a .juizapp as is
+juiz_sdk_bundle({{name}})

@@ -1,0 +1,29 @@
+# Build the plugin and put it with juiz_sdk.dll in app\plugins\<target>\ (to run app\app.conf during development)
+# usage: scripts\dev.ps1 [-Release]
+#   $env:JUIZ_SDK_DIR = "<dir>" uses libjuiz_sdk in <dir> (default: %USERPROFILE%\.juiz\sdk\{{juiz_version}})
+param([switch]$Release)
+$ErrorActionPreference = "Stop"
+Set-Location (Join-Path $PSScriptRoot "..")
+if (-not (Get-Command juiz -ErrorAction SilentlyContinue)) {
+    Write-Host "error: juiz is not in PATH. Install juiz {{juiz_version}}:"
+    Write-Host "  cargo install juiz_app --version {{juiz_version}}   (or: pip install juiz-cli=={{juiz_version}})"
+    exit 1
+}
+if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
+    Write-Host "error: cmake is not in PATH. Install CMake 3.16 or later and Visual Studio 2022 (Desktop development with C++)."
+    exit 1
+}
+$target = (juiz pkg target | Out-String).Trim()
+$config = if ($Release) { "Release" } else { "Debug" }
+$cmakeArgs = @("-S", ".", "-B", "build", "-D", "CMAKE_BUILD_TYPE=$config")
+if ($env:JUIZ_SDK_DIR) { $cmakeArgs += @("-D", "JUIZ_SDK_DIR=$env:JUIZ_SDK_DIR") }
+cmake @cmakeArgs
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+cmake --build build --config $config
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$dest = Join-Path "app\plugins" $target
+New-Item -ItemType Directory -Force -Path $dest | Out-Null
+foreach ($lib in @("{{name}}.dll", "juiz_sdk.dll")) {
+    Copy-Item (Join-Path "build\plugins" $lib) $dest
+    Write-Output (Join-Path $dest $lib)
+}
