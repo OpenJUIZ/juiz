@@ -1,0 +1,30 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
+-- | {{name}}: a juiz component written in Haskell (juiz docs/spec/pkg.md).
+--
+-- Each function below is paired with its manifest, and juizComponent at the end exposes them as the
+-- types of this Component. As in C++, the type name and the arguments (name, description, default)
+-- are written in the manifest; the arguments are passed to the function in the order they are added.
+-- Build with scripts/dev.sh.
+module {{Name}} () where
+
+import Juiz
+
+-- | The manifest of the whole Component (the types in this plugin)
+{{name}}_component :: ComponentManifest
+{{name}}_component = componentManifest "{{name}}"
+  & description "{{name}}: a juiz component"
+
+-- | Process {{name}}_add
+{{name}}_add_manifest :: ProcessManifest
+{{name}}_add_manifest = processManifest "{{name}}_add"
+  & description "Returns a + b."
+  & addIntArg "a" "the first value" 0
+  & addIntArg "b" "the second value" 0
+
+{{name}}_add :: Int64 -> Int64 -> Int64
+{{name}}_add a b = a + b
+
+juizComponent '{{name}}_component
+  [ componentProcess '{{name}}_add '{{name}}_add_manifest
+  ]

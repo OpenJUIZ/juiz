@@ -6,12 +6,13 @@
 juiz pkg create my_robot -b rust          # Rust の Component (Container + ContainerProcess + Process)
 juiz pkg create my_robot -b python -t process
 juiz pkg create my_robot -b cpp            # C++ (CMake、libjuiz_sdk を ~/.juiz/sdk/<版> に用意しておく)
+juiz pkg create my_robot -b haskell        # Haskell (cabal、libjuiz_sdk と juiz のソースの hsjuiz を使う。Linux・macOS)
 juiz pkg target                           # app/plugins/<target>/ の <target> (ホストの target triple)
 ```
 
-- 言語 `-b`/`--lang`: `rust`、`python`、`cpp`(Haskell は今後の版で足す)
+- 言語 `-b`/`--lang`: `rust`、`python`、`cpp`、`haskell`
 - 中身 `-t`/`--template`: `component`(既定)、`process`、`container`
-- 雛形に書く juiz_sdk / pyjuiz / libjuiz_sdk の版は、雛形を作った juiz 自身の版になります
+- 雛形に書く juiz_sdk / pyjuiz / libjuiz_sdk / hsjuiz の版は、雛形を作った juiz 自身の版になります
 
 仕様は [docs/spec/pkg.md](https://github.com/OpenJUIZ/juiz/blob/main/docs/spec/pkg.md) にあります。
 
