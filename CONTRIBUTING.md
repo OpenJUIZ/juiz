@@ -200,7 +200,7 @@ Hackage への公開には、Hackage のアカウント(アップロード権限
 | `juiz_macro` | `#[juiz_process]` などのマクロ |
 | `juiz_types` | Process の引数・戻り値のデータ型 (Avro のスキーマ、指紋、互換性。juiz_sdk に依存しない) |
 | `juiz_idl` | IDL (.jidl) の生成器 `juiz-idl` (.avsc・JSON Schema・Rust のコード、build.rs ヘルパ。`juiz idl` からも呼べる)。`juiz_idl/test_package` は生成したコードのテスト。組み込みの標準の型 `juiz_std` の JIDL は `juiz_idl/std` |
-| `juiz_pkg` | 雛形を作る `juiz-pkg`(`juiz pkg create` / `juiz pkg target` からも呼べる、[docs/spec/pkg.md](docs/spec/pkg.md))。テンプレートは `juiz_pkg/templates/`(build.rs でバイナリに埋め込む) |
+| `juiz_pkg` | 雛形を作る `juiz-pkg`(`juiz pkg create` / `juiz pkg add` / `juiz pkg target` からも呼べる、[docs/spec/pkg.md](docs/spec/pkg.md))。テンプレートは `juiz_pkg/templates/`(build.rs でバイナリに埋め込む) |
 | `juiz_std_types` | 標準の型 `juiz_std` の Rust のクレート (組み込みの JIDL から作る)。`juiz_std_types/test_package` は `extern_path` のテスト |
 | `juiz_core` | 機能要素を実体化・管理するコア (CoreBroker, Broker など) |
 | `juiz_app` | `juiz` コマンド |

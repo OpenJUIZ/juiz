@@ -1,6 +1,6 @@
 //! `juiz pkg` のテスト (docs/spec/pkg.md §11、issue #457)
 //!
-//! 雛形を一時ディレクトリに `--juiz-source` で作り、そのまま
+//! 雛形を一時ディレクトリに `--juiz-source` で作り、`juiz pkg add` で型を足してから
 //! scripts/dev.sh → `juiz -f app/app.conf` → 型を全部 call → scripts/pack.sh → `juiz run` が通ることを確かめる。
 //! Rust の雛形のビルドは target/pkg-test に置く (ワークスペースの target と分け、2 回目からは速い)。
 mod common;
@@ -187,10 +187,40 @@ fn call_all(app: &Path, name: &str, port: u16) {
     assert!(list.contains("readonly"), "{list}");
 }
 
+/// `juiz pkg add` (§13、issue #461) で Process <name>_sum と Container <name>_arm を足す
+fn add_types(app: &Path, name: &str) {
+    let sum = format!("{name}_sum");
+    let arm = format!("{name}_arm");
+    for (kind, t) in [("process", sum.as_str()), ("container", arm.as_str())] {
+        let out = run(&["pkg", "add", kind, t, "-C", path_str(app)]);
+        assert!(out.status.success(), "{out:?}");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(stdout.starts_with(&format!("Added {kind} {t} to {name} ")), "{stdout}");
+    }
+    // 同じ名前をもう一度足すとエラーで、何も変えない
+    let conf = std::fs::read_to_string(app.join("app").join("app.conf")).unwrap();
+    let out = run(&["pkg", "add", "process", &sum, "-C", path_str(app)]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("already"), "{out:?}");
+    assert_eq!(conf, std::fs::read_to_string(app.join("app").join("app.conf")).unwrap());
+}
+
+/// add_types で足した型を呼ぶ
+fn call_added(app: &Path, name: &str, port: u16) {
+    let h = format!("http://127.0.0.1:{port}");
+    let sum = format!("{h}/process/{name}_sum0::{name}_sum");
+    assert!(call(app, "process", &sum, r#"{"a": 4, "b": 5}"#).contains("Value(9)"));
+    let inc = format!("{h}/container_process/{name}_arm_increment0::{name}_arm_increment:{name}_arm0");
+    let get = format!("{h}/container_process/{name}_arm_get0::{name}_arm_get:{name}_arm0");
+    assert!(call(app, "container-process", &inc, r#"{"step": 5}"#).contains("Value(5)"));
+    assert!(call(app, "container-process", &get, "{}").contains("Value(5)"));
+}
+
 fn create_build_run_pack(lang: &str, name: &str, port: u16, build: bool, extra: &[&str]) {
     let dir = temp_dir(&format!("pkg_cli_{lang}"));
     let app = create(&dir, name, lang, extra);
     set_port(&app, port);
+    add_types(&app, name);
     if build {
         script(&app, "dev.sh", &[]);
         assert!(app
@@ -203,6 +233,7 @@ fn create_build_run_pack(lang: &str, name: &str, port: u16, build: bool, extra: 
 
     let mut d = start(&["-f", "app/app.conf", "-d"], &app, dir.join("dev.log"), &add);
     call_all(&app, name, port);
+    call_added(&app, name, port);
     assert!(d.stop() || cfg!(not(unix)), "{}", d.log_text());
 
     // dev.sh でビルド済みなので、pack はビルドを飛ばす (release ビルドの時間を省く)
@@ -217,6 +248,7 @@ fn create_build_run_pack(lang: &str, name: &str, port: u16, build: bool, extra: 
         &add,
     );
     call_all(&app, name, port);
+    call_added(&app, name, port);
     assert!(d.stop() || cfg!(not(unix)), "{}", d.log_text());
     let _ = std::fs::remove_dir_all(&dir);
 }

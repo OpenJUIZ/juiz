@@ -1633,6 +1633,7 @@ dependencies = [
  "juiz_sdk",
  "juiz_types",
  "serde_json",
+ "yaml-rust2",
 ]
 
 [[package]]

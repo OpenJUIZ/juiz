@@ -1,0 +1,7 @@
+#[juiz_component_process(
+    description = "Returns a + b."
+    arguments = { default = { a = 0 b = 0 } }
+)]
+fn {{name}}(a: i64, b: i64) -> JuizResult<i64> {
+    Ok(a + b)
+}

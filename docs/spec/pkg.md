@@ -1,6 +1,6 @@
 # 雛形生成コマンド(juiz pkg)仕様
 
-- 状態: 確定(juiz pkg Step 0、issue #456、2026-11-09)。Step 1(#457、2026-11-10)で Rust・Python を実装し、実装に合わせて §2.2・§5・§6.1・§6.2・§10.2・§11 を書き足した。Step 2(#458、2026-11-10)で C++ を実装し、§2.2・§3・§5.2・§6.3・§7.1・§9・§10.2・§11 を書き足した。Step 4(#460、2026-11-10)で `--idl` を Rust だけ実装し、§2.2・§6.5・§7・§9・§10・§11・§12 を書き足した
+- 状態: 確定(juiz pkg Step 0、issue #456、2026-11-09)。Step 1(#457、2026-11-10)で Rust・Python を実装し、実装に合わせて §2.2・§5・§6.1・§6.2・§10.2・§11 を書き足した。Step 2(#458、2026-11-10)で C++ を実装し、§2.2・§3・§5.2・§6.3・§7.1・§9・§10.2・§11 を書き足した。Step 4(#460、2026-11-10)で `--idl` を Rust だけ実装し、§2.2・§6.5・§7・§9・§10・§11・§12 を書き足した。Step 5(#461、2026-11-10)で `juiz pkg add` を実装し、§1・§2.4・§10.1・§11・§12 を書き足した
 - 親 issue: #455。検討の経緯と比較はプロジェクトの計画書 juiz-pkg-plan.md(2026-11-09 確定)にある
 - 関連: アプリ配布形式 [app-package.md](app-package.md)(雛形はそのまま `juiz pack` できる形にする)、Rust プラグインの C ABI [rust-plugin-abi.md](rust-plugin-abi.md)(雛形の Rust プラグインは C ABI)、データ型 [datatype.md](datatype.md) §18(`rust-skeleton`、Step 4 の `--idl`)
 - この文書は Step 1〜6(#457〜#462)の実装の基準になる。実装で仕様を変えるときは、同じ PR でこの文書を直す
@@ -19,7 +19,7 @@ juiz pkg create my_robot -b rust
 - 雛形に書く juiz の SDK の版は、雛形を作った juiz 自身の版にする(§7)。チュートリアルで一番つまずく「`juiz --version` と同じ版にそろえる」を機械的に満たすため。
 - 対象の言語は Rust・Python・C++・Haskell。
 
-扱わないもの(§12 で後回しにしたもの)は、外部のテンプレート(git から取るもの、cargo-generate 互換)、既存の雛形への型の追加(`juiz pkg add`、Step 5)以外の書き換え、Haskell の Windows。
+扱わないもの(§12 で後回しにしたもの)は、外部のテンプレート(git から取るもの、cargo-generate 互換)、既存の雛形への型の追加(`juiz pkg add`、§2.4)以外の書き換え、Haskell の Windows。
 
 ### 1.1 用語
 
@@ -75,6 +75,45 @@ juiz pkg target
 ```
 
 ホストのターゲット(`juiz_core::HOST_TARGET`、例 `x86_64-unknown-linux-gnu`)を 1 行で表示する。雛形の `scripts/dev.sh` などが、ビルドしたプラグインを `app/plugins/<ターゲット>/` に置くときに使う(rustc の無い C++・Haskell の環境でも、conf の `{target}` が置き換わる名前と必ず一致させるため)。
+
+### 2.4 `juiz pkg add`(Step 5)
+
+```
+juiz pkg add process <name> [-C <dir>]
+juiz pkg add container <name> [-C <dir>]
+```
+
+`juiz pkg create` で作った雛形の Component に、型を足す。
+
+| 引数 | 足す型 | 中身 |
+| --- | --- | --- |
+| `process <name>` | Process `<name>` | §4 の `<name>_add` と同じ(`a: int`(0)、`b: int`(0) → `a + b`)。型名は `<name>` そのもの |
+| `container <name>` | Container `<name>`、ContainerProcess `<name>_increment`・`<name>_get` | §4 の `<name>`・`<name>_increment`・`<name>_get` と同じ(`_get` は readonly) |
+
+| オプション | 既定 | 意味 |
+| --- | --- | --- |
+| `-C`, `--dir <dir>` | `.` | 雛形のディレクトリ(`app/app.conf` があるところ) |
+
+- 言語と Component の名前は `app/app.conf` の `plugins.components` から読む。Component が 1 つでない、`language` が 4 つの言語のどれでもない、conf が無いときはエラー(雛形でない)。
+- `<name>` は §3 の規則(その言語の分も)を満たさなければならない。足す型名(Container では `_increment`・`_get` を付けたものも)とインスタンス名(型名 + `0`)が conf に既にあればエラー。足す識別子(型名と、それに `_manifest`・`_manif`・`_create`・`_entry_point`・`_manifest_entry_point` を付けたもの、Container の状態の型 `<Name>`、Haskell は `<Name>State`)がソースに識別子として既にあってもエラー。Component の名前と同じ Container は足してよい(`-t process` の雛形に Container `<name>` を足すとき)。
+- 書き換えるのは **Component のソース 1 つと `app/app.conf` だけ**。新しいファイルは作らない(1 雛形 = 1 Component、§4)。issue #461 には「Rust はワークスペース、C++ は CMakeLists.txt、Haskell は .cabal」とあったが、同じ Component に足せばビルドのファイルを直す必要が無いので、この形にした(複数のクレートは §12 のとおり扱わない)。
+- 足すコードは `templates/add/<lang>/<process|container>.tmpl`(§10.1)。変数は `name`(足す型名)と `Name`(その §3.1 の形)だけ。
+
+言語ごとの足し方:
+
+| 言語 | ソース | コードを入れる所 | 一覧に足す所 |
+| --- | --- | --- | --- |
+| Rust | `src/lib.rs` | `juiz_component_manifest!(` の行の前 | マクロの `processes = [ … ]`(1 行)の末尾、`containers = {` の閉じ `}` の前。無ければ `processes` は `);` の前、`containers` は `component_name` の次に作る |
+| Python | `app/python/<component>.py` | ファイルの末尾(2 行空ける) | 一覧は無い。`from juiz import …`(1 行)に要るデコレータを足して並べ直す。その行が無ければ足すコードの頭に置く |
+| C++ | `src/<component>.cpp` | Component のマニフェストの関数(`auto …() {` とその前のコメント)の前 | `return ComponentManifest(…)` の式の最後の `;` の前に `.add_process(<name>_manifest())`・`.add_container(…)` |
+| Haskell | `src/<Component>.hs` | `juizComponent` の行の前 | `juizComponent` のリストの閉じ `]` の行の前に `, componentProcess …` など |
+
+- app/app.conf: 最上位の `"processes":`・`"containers":` のブロックの末尾に、§5.1 と同じ形の項目(型名・インスタンス名、Container は `initial_value: 0` と ContainerProcess 2 つ)を足す。ブロックが無ければ §5.1 の順(processes → containers → ecs)の位置に作る。`"processes": []` は中身を足した形に直す。ほかの流れの形(`[ {…} ]`)はエラー。`ecs` には足さない。
+- 書き換えた conf を読み直して、足した型が入っていることを確かめる。
+- 入れる所が見つからない(利用者が形を変えた)ときは、何を探したかを示してエラーにし、手で足すよう案内する。
+- 書き換えは、2 つのファイルの中身を全部作ってから書く。2 つめで失敗したら 1 つめを元に戻す(§8 と同じく、失敗したら何も変えない)。
+- README.md の型の表(`types_table`)は直さない(表示で案内する)。
+- 成功したら、足した型・書き換えたファイル・次に打つコマンド(ビルドのある言語は `scripts/dev.sh`、juiz の再起動、足した型の呼び出しの例)を表示する。Windows では `scripts\dev.ps1`(Haskell は `.sh`)。
 
 ## 3. 名前の規則
 
@@ -496,6 +535,8 @@ juiz_pkg/templates/
 ├─ common/<template>/       種類ごと・言語によらないもの(app/app.conf)
 ├─ <lang>/_base/            言語ごと・種類によらないもの(ビルドのファイル、scripts/、README)
 └─ <lang>/<template>/       言語と種類ごとのもの(Component のソース)
+
+juiz_pkg/templates/add/<lang>/<process|container>.tmpl   juiz pkg add で足すコード(§2.4。create の層には入らない)
 ```
 
 - `<lang>` は `rust` / `python` / `cpp` / `haskell`、`<template>` は `component` / `process` / `container`。`--idl` のときは `<template>` の代わりに `idl` の層(`common/idl/`・`rust/idl/`)を重ね、その後に .jidl の写しと src/lib.rs をコードで足す(§6.5)。
@@ -550,6 +591,7 @@ conf の `{target}` は juiz の置換(app-package.md §5.2)で、この書式�
   - Step 2 の C++: ワークスペースの `cargo build` でできた libjuiz_sdk を `scripts/package-juiz-sdk.sh` で配布と同じアーカイブにして一時ディレクトリに展開し、`--juiz-sdk-dir` で指す(`find_package(… EXACT)` と `juiz_sdk_bundle` を配布物と同じ形で通すため)。ポートは 8077。.juizapp に libjuiz_sdk が入っていることと、`juiz: "=<版>"` になっていることも確かめる。cmake と C++ コンパイラが要る(scripts/test.sh と同じ)。
   - Step 1 の形(juiz_app/tests/pkg_cli_test.rs): Unix で回す(`.sh` を使うため。`.ps1` は自動のテストが無い)。ほかのテストとポートが重ならないよう、生成した conf のポートを 8078(Rust)・8079(Python)に書き換えてから起動する。`scripts/dev.sh` でビルドした後なので、pack は `scripts/pack.sh --no-build` で release ビルドを省く。Python は `PYTHONPATH` の bindings/pyjuiz を使う(scripts/test.sh が設定する)。
 - `--idl`(Step 4): juiz_pkg の単体テストで、生成するファイルの一覧・置換が残らないこと・juiz_std を使う/使わないときの Cargo.toml と build.rs・import した .jidl の写し・エラー(Rust のほかの言語、`-t` と一緒、宣言なし、2 つの名前空間、ディレクトリの外の import、Rust のキーワード)。pkg_cli_test では、juiz_std の型と別ファイルの record を使う .jidl から作り、`todo!()` の本体を書き換えてから dev.sh → 起動 → call → `juiz type list --long` に .jidl の型が出る → pack.sh → `juiz run` を通す(Unix、ポート 8082)。
+- `juiz pkg add`(Step 5): juiz_pkg の単体テストで、4 言語 × 3 種類の雛形すべてに Process と Container を足せて(`{{` が残らず、元の型も残る)、各言語の一覧の書き換え・conf のブロックの位置(無いときに作る位置を含む)・エラー(conf に既にある、ソースの識別子と衝突、雛形でない、入れる所が無い)・2 つめの書き込みで失敗したときに元に戻ること。pkg_cli_test の Rust・Python・C++・Haskell の生成から配布までのテストでは、生成の直後に `juiz pkg add process <name>_sum` と `juiz pkg add container <name>_arm` を打ち(同じ名前をもう一度足すとエラーで conf が変わらないことも確かめる)、起動と `juiz run` の後に足した型も呼ぶ。
 - Haskell: テンプレートの `bundle-plugin-deps.sh` が juiz の `scripts/bundle-plugin-deps.sh` と一致すること。
   - Step 3 の Haskell(pkg_cli_test): C++ と同じく配布と同じ形の libjuiz_sdk を `--juiz-sdk-dir` で指し、hsjuiz は `--juiz-source` の `bindings/hsjuiz`。ポートは 8076。.juizapp に libjuiz_sdk・hsjuiz・GHC の RTS が入っていることと `juiz: "=<版>"` を確かめる。ghc・cabal(Linux では patchelf も)が無ければ飛ばし、`JUIZ_REQUIRE_HASKELL=1` なら落とす。cargo test が LD_LIBRARY_PATH に足す `target/` の下は、scripts を呼ぶときに外す(残すと bundle-plugin-deps.sh の確かめで、隣に写した libjuiz_sdk より先に target/debug のものが見つかって失敗する)。
 
@@ -558,7 +600,6 @@ conf の `{target}` は juiz の置換(app-package.md §5.2)で、この書式�
 | もの | 今の扱い | 後で足すなら |
 | --- | --- | --- |
 | `--idl` の Python・C++・Haskell | エラー(Step 4 は Rust だけ、§6.5) | #468。juiz_idl に各言語の skeleton の生成器を足してから |
-| 既存の雛形に型を足す `juiz pkg add process\|container <name>` | しない | Step 5(#461、任意)。§5.1 の conf のキーの順番はそのため |
 | 外部のテンプレート(git・cargo-generate 互換) | しない | テンプレートの置き場所を指定するオプション |
 | 基礎パッケージ(`kind: base`)・`depends` の雛形 | しない(`kind: app` だけ) | `--kind base` など |
 | 複数クレート・複数 Component のワークスペース | しない(1 雛形 = 1 Component) | |
@@ -574,5 +615,5 @@ conf の `{target}` は juiz の置換(app-package.md §5.2)で、この書式�
 | 2 C++ | #458 | §6.3 |
 | 3 Haskell | #459 | §6.4 |
 | 4 `--idl` | #460 | §6.5 |
-| 5 `juiz pkg add`(任意) | #461 | §5.1、§12 |
+| 5 `juiz pkg add`(任意) | #461 | §2.4、§5.1 |
 | 6 サイトとリリース | #462、OpenJUIZ.github.io#87 | — |

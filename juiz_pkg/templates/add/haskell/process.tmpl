@@ -1,0 +1,9 @@
+-- | Process {{name}}
+{{name}}_manifest :: ProcessManifest
+{{name}}_manifest = processManifest "{{name}}"
+  & description "Returns a + b."
+  & addIntArg "a" "the first value" 0
+  & addIntArg "b" "the second value" 0
+
+{{name}} :: Int64 -> Int64 -> Int64
+{{name}} a b = a + b

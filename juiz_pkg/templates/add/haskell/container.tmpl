@@ -1,0 +1,30 @@
+-- | State of the container {{name}}: one integer value
+newtype {{Name}}State = {{Name}}State (IORef Int64)
+
+-- | Container {{name}}. initial_value is taken from the container entry of app/app.conf
+{{name}}_manifest :: ContainerManifest
+{{name}}_manifest = containerManifest "{{name}}"
+  & description "Holds an integer value."
+  & addIntArg "initial_value" "the initial value" 0
+
+{{name}}_create :: Int64 -> IO {{Name}}State
+{{name}}_create initialValue = {{Name}}State <$> newIORef initialValue
+
+-- | ContainerProcess {{name}}_increment
+{{name}}_increment_manifest :: ProcessManifest
+{{name}}_increment_manifest = containerProcessManifest "{{name}}_increment" "{{name}}"
+  & description "Adds step to the value and returns it."
+  & addIntArg "step" "the value to add" 1
+
+{{name}}_increment :: {{Name}}State -> Int64 -> IO Int64
+{{name}}_increment ({{Name}}State ref) step = atomicModifyIORef' ref (\v -> (v + step, v + step))
+
+-- | ContainerProcess {{name}}_get. readonly: it only reads the state
+-- (juiz may run readonly container processes of the same container in parallel)
+{{name}}_get_manifest :: ProcessManifest
+{{name}}_get_manifest = containerProcessManifest "{{name}}_get" "{{name}}"
+  & description "Returns the value."
+  & readonly True
+
+{{name}}_get :: {{Name}}State -> IO Int64
+{{name}}_get ({{Name}}State ref) = readIORef ref

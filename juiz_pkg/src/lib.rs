@@ -1,8 +1,9 @@
-//! juiz の雛形生成 (`juiz pkg create` / `juiz-pkg create`、docs/spec/pkg.md)
+//! juiz の雛形生成 (`juiz pkg create` / `juiz-pkg create`、`juiz pkg add`、docs/spec/pkg.md)
 //!
 //! Process・Container・Component を作り始めるときの「最初のプロジェクト」(1 つの .juizapp になるもの) を作る。
 //! テンプレートは templates/ の下にあり、build.rs でバイナリに埋め込む。
 
+pub mod add;
 pub mod cli;
 pub mod create;
 pub mod idl;
