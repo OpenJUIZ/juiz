@@ -752,19 +752,27 @@ mod tests {
 
     #[test]
     fn cpp_juiz_sdk_dir() {
-        let args = parse(&["create", "my_robot", "-b", "cpp", "--juiz-sdk-dir", "/opt/juiz sdk"]);
+        // 無い場所 (空白を含む)。絶対パスは OS で形が違うので一時ディレクトリの下に作る
+        let missing = temp("cpp_sdk_missing").join("juiz sdk");
+        let missing_s = slash(&missing);
+        let args = parse(&["create", "my_robot", "-b", "cpp", "--juiz-sdk-dir", missing.to_str().unwrap()]);
         let (p, w) = Plan::from_args_with(&args, || None, false).unwrap();
         assert!(w.is_empty(), "{w:?}");
         assert!(p.sdk_missing);
         let files = p.files().unwrap();
         let cmake = &files.iter().find(|f| f.path == "CMakeLists.txt").unwrap().content;
         assert!(
-            cmake.contains("set(JUIZ_SDK_DEFAULT_DIR \"/opt/juiz sdk\")  # given with juiz pkg create --juiz-sdk-dir\n"),
+            cmake.contains(&format!(
+                "set(JUIZ_SDK_DEFAULT_DIR \"{missing_s}\")  # given with juiz pkg create --juiz-sdk-dir\n"
+            )),
             "{cmake}"
         );
         // SDK が無ければ、次の手順に用意するコマンドを出す (指定した場所に)
         let s = p.summary();
-        assert!(s.contains(&format!("install-juiz-sdk.sh | sh -s -- {JUIZ_VERSION} \"/opt/juiz sdk\"\n")), "{s}");
+        assert!(
+            s.contains(&format!("install-juiz-sdk.sh | sh -s -- {JUIZ_VERSION} \"{missing_s}\"\n")),
+            "{s}"
+        );
         // 在れば出さない
         let sdk = temp("cpp_sdk");
         let cfg = sdk.join("lib").join("cmake").join("juiz_sdk");
