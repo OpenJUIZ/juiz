@@ -349,13 +349,13 @@ curl -fsSL https://raw.githubusercontent.com/OpenJUIZ/juiz/main/scripts/install-
 
 それより前の版では、juiz のソースを同じ版のタグで取得し、`cargo build --release -p juiz_sdk` でできる `target/release` の libjuiz_sdk を使います。
 
-hsjuiz は Hackage への公開を準備中です。それまでは、juiz のソースを `juiz` と同じ版のタグで取得し、その `bindings/hsjuiz` を
-自分のパッケージの `cabal.project` に書いて使います。あわせて hsjuiz に libjuiz_sdk の場所を渡します。`ghc-options` の rpath は、
-Template Haskell(`juizProcess` など)を実行するときに GHC が hsjuiz を読み込むのに必要です。
+hsjuiz は v0.2.6 から [Hackage](https://hackage.haskell.org/package/hsjuiz) に公開しています。自分のパッケージの `.cabal` の
+`build-depends` に `hsjuiz ==<版>.*` のように `juiz` と同じ版を書き、`cabal.project` で hsjuiz に libjuiz_sdk の場所を渡します。
+`ghc-options` の rpath は、Template Haskell(`juizProcess` など)を実行するときに GHC が hsjuiz を読み込むのに必要です。
 できたライブラリにも libjuiz_sdk の場所が rpath として入ります。
 
 ```cabal
-packages: . /home/me/juiz-0.2.6/bindings/hsjuiz
+packages: .
 
 package hsjuiz
   extra-lib-dirs: /home/me/.juiz/sdk/0.2.6/lib
@@ -363,11 +363,20 @@ package hsjuiz
 ```
 
 ```terminal
-git clone --depth 1 --branch v0.2.6 https://github.com/OpenJUIZ/juiz.git /home/me/juiz-0.2.6
+cabal update
 cabal build all
 ```
 
-Hackage で公開したあとは、`packages:` に hsjuiz のソースを書かずに、`cabal update` で Hackage から入れられるようになります。
+Hackage に無い版(0.2.5 以前)や、未公開の変更を試すときは、juiz のソースを同じ版のタグ(または枝)で取得し、
+その `bindings/hsjuiz` を `cabal.project` の `packages:` に足します。
+
+```cabal
+packages: . /home/me/juiz-0.2.6/bindings/hsjuiz
+```
+
+```terminal
+git clone --depth 1 --branch v0.2.6 https://github.com/OpenJUIZ/juiz.git /home/me/juiz-0.2.6
+```
 
 juiz のリポジトリの中でビルドするときは、`cargo build` でできる `target/debug` の libjuiz_sdk を
 `--extra-lib-dirs` で渡します(`examples/haskell/build.sh` がこの方法です)。
