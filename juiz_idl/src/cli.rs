@@ -24,10 +24,16 @@ pub enum Generator {
     RustSkeleton,
     /// Python の dataclass / enum.Enum と型付き client stub (名前空間ごとのパッケージ <a>/<b>/__init__.py)
     Python,
+    /// process / container 宣言の Python の雛形 (<namespace>.skeleton.py)。コピーして本体を書く
+    PythonSkeleton,
     /// C++ の struct / enum class と cppjuiz の juiz::type_traits の特殊化 (<namespace>.h と juiz_idl.h、ヘッダのみ)
     Cpp,
+    /// process / container 宣言の C++ の雛形 (<namespace>.skeleton.cpp)。コピーして本体を書く
+    CppSkeleton,
     /// Haskell の record・直和型と hsjuiz のインスタンス (名前空間ごとのモジュール <A>/<B>.hs)
     Haskell,
+    /// process / container 宣言の Haskell の雛形 (<CamelCase の名前空間>Component.hs)。コピーして本体を書く
+    HaskellSkeleton,
     /// TypeScript の interface・文字列リテラルの union と型参照 (<namespace>.ts と juiz_idl.ts)
     Typescript,
 }
@@ -41,8 +47,11 @@ impl From<Generator> for OutputKind {
             Generator::Rust => OutputKind::Rust,
             Generator::RustSkeleton => OutputKind::RustSkeleton,
             Generator::Python => OutputKind::Python,
+            Generator::PythonSkeleton => OutputKind::PythonSkeleton,
             Generator::Cpp => OutputKind::Cpp,
+            Generator::CppSkeleton => OutputKind::CppSkeleton,
             Generator::Haskell => OutputKind::Haskell,
+            Generator::HaskellSkeleton => OutputKind::HaskellSkeleton,
             Generator::Typescript => OutputKind::TypeScript,
         }
     }

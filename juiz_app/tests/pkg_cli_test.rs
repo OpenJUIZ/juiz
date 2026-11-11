@@ -299,11 +299,18 @@ fn pkg_create_rust_component_builds_runs_and_packs() {
 }
 
 /// --idl の雛形 (§6.5): juiz_std と別ファイルの record を使う宣言から型付きの関数を作り、
-/// todo!() の本体を書き換えてから、ビルド→起動→call→型の確認→pack→juiz run を通す
-#[cfg(unix)]
-#[test]
-fn pkg_create_rust_idl_builds_runs_and_packs() {
-    let dir = temp_dir("pkg_cli_rust_idl");
+/// 本体を書き換え (`bodies` に (雛形のソース, 元の行, 書き換えた行) を並べる)、`juiz pkg add` で型を足してから、
+/// ビルド→起動→call→型の確認→pack→juiz run を通す
+fn idl_build_run_pack(
+    lang: &str,
+    name: &str,
+    port: u16,
+    build: bool,
+    extra: &[&str],
+    source: &str,
+    bodies: &[(&str, &str)],
+) {
+    let dir = temp_dir(&format!("pkg_cli_{lang}_idl"));
     let idl = dir.join("idl_src");
     std::fs::create_dir_all(idl.join("common")).unwrap();
     std::fs::write(
@@ -325,28 +332,28 @@ record Goal { juiz_std.geometry.Pose2D pose; double tolerance = 0.5; }
 "#,
     )
     .unwrap();
-    let name = "pkg_rust_idl";
-    let port = 8082;
-    let app = create(&dir, name, "rust", &["--idl", path_str(&idl.join("robot.jidl"))]);
+    let jidl = idl.join("robot.jidl");
+    let mut args = vec!["--idl", path_str(&jidl)];
+    args.extend_from_slice(extra);
+    let app = create(&dir, name, lang, &args);
     set_port(&app, port);
     assert!(app.join("idl").join("common").join("goal.jidl").is_file());
 
     // 本体を書く (利用者がすること)
-    let lib = app.join("src").join("lib.rs");
-    let code = std::fs::read_to_string(&lib).unwrap();
-    let code = code
-        .replace(
-            "    let _ = (goal, from_pose);\n    todo!(\"write the body of pkg_idl_remaining\")",
-            "    Ok(goal.pose.theta - from_pose.theta + goal.tolerance)",
-        )
-        .replace(
-            "    let _ = (container, step);\n    todo!(\"write the body of pkg_idl_double\")",
-            "    let _ = container;\n    Ok(step * 2)",
-        );
-    assert!(!code.contains("todo!(\"write"), "{code}");
-    std::fs::write(&lib, code).unwrap();
+    let src = app.join(source);
+    let mut code = std::fs::read_to_string(&src).unwrap();
+    for (from, to) in bodies {
+        assert!(code.contains(from), "{from}\n---\n{code}");
+        code = code.replace(from, to);
+    }
+    assert!(!code.contains("write the body of pkg_idl"), "{code}");
+    std::fs::write(&src, code).unwrap();
+    // juiz pkg add も --idl の雛形に使える
+    add_types(&app, name);
 
-    script(&app, "dev.sh", &[]);
+    if build {
+        script(&app, "dev.sh", &[]);
+    }
     let h = format!("http://127.0.0.1:{port}");
     let remaining = format!("{h}/process/pkg_idl_remaining0::pkg_idl_remaining");
     let double = format!("{h}/container_process/pkg_idl_double0::pkg_idl_double:pkg_idl_arm0");
@@ -373,6 +380,7 @@ record Goal { juiz_std.geometry.Pose2D pose; double tolerance = 0.5; }
                 && list.contains("pkg_idl_remaining"),
             "{list}"
         );
+        call_added(app, name, port);
     };
     let mut d = start(&["-f", "app/app.conf", "-d"], &app, dir.join("dev.log"), &double);
     check(&app);
@@ -380,11 +388,58 @@ record Goal { juiz_std.geometry.Pose2D pose; double tolerance = 0.5; }
 
     script(&app, "pack.sh", &["--no-build"]);
     let pkg = app.join("dist").join(format!("{name}-0.1.0.juizapp"));
-    check_package(&pkg, "rust");
+    check_package(&pkg, lang);
     let mut d = start(&["run", path_str(&pkg)], &app, dir.join("run.log"), &double);
     check(&app);
     assert!(d.stop(), "{}", d.log_text());
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn pkg_create_rust_idl_builds_runs_and_packs() {
+    idl_build_run_pack(
+        "rust",
+        "pkg_rust_idl",
+        8082,
+        true,
+        &[],
+        "src/lib.rs",
+        &[
+            (
+                "    let _ = (goal, from_pose);\n    todo!(\"write the body of pkg_idl_remaining\")",
+                "    Ok(goal.pose.theta - from_pose.theta + goal.tolerance)",
+            ),
+            (
+                "    let _ = (container, step);\n    todo!(\"write the body of pkg_idl_double\")",
+                "    let _ = container;\n    Ok(step * 2)",
+            ),
+        ],
+    );
+}
+
+/// Python の --idl (issue #468): 型のパッケージは app/python/ に作ってあり、juiz_std は pyjuiz のもの
+#[cfg(all(unix, feature = "embed-python"))]
+#[test]
+fn pkg_create_python_idl_runs_and_packs() {
+    idl_build_run_pack(
+        "python",
+        "pkg_py_idl",
+        8083,
+        false,
+        &[],
+        "app/python/pkg_py_idl.py",
+        &[
+            (
+                "    raise NotImplementedError(\"write the body of pkg_idl_remaining\")",
+                "    return goal.pose.theta - from_pose.theta + goal.tolerance",
+            ),
+            (
+                "    raise NotImplementedError(\"write the body of pkg_idl_double\")",
+                "    return step * 2",
+            ),
+        ],
+    );
 }
 
 #[cfg(all(unix, feature = "embed-python"))]
@@ -474,5 +529,63 @@ fn pkg_create_haskell_component_builds_runs_and_packs() {
     let dir = temp_dir("pkg_cli_haskell_sdk");
     let sdk = sdk_from_workspace(&dir);
     create_build_run_pack("haskell", "pkg_hs_robot", 8076, true, &["--juiz-sdk-dir", path_str(&sdk)]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// C++ の --idl (issue #468): CMake の juiz_generate_types が `juiz idl -g cpp` で juiz_idl.h を作る
+#[cfg(unix)]
+#[test]
+fn pkg_create_cpp_idl_builds_runs_and_packs() {
+    let dir = temp_dir("pkg_cli_cpp_idl_sdk");
+    let sdk = sdk_from_workspace(&dir);
+    idl_build_run_pack(
+        "cpp",
+        "pkg_cpp_idl",
+        8084,
+        true,
+        &["--juiz-sdk-dir", path_str(&sdk)],
+        "src/pkg_cpp_idl.cpp",
+        &[
+            (
+                "    (void)goal;\n    (void)from_pose;\n    throw std::runtime_error(\"write the body of pkg_idl_remaining\");",
+                "    return goal.pose.theta - from_pose.theta + goal.tolerance;",
+            ),
+            (
+                "    (void)step;\n    throw std::runtime_error(\"write the body of pkg_idl_double\");",
+                "    return step * 2;",
+            ),
+        ],
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Haskell の --idl (issue #468): scripts/dev.sh が `juiz idl -g haskell` で gen/ に型のモジュールを作る
+#[cfg(unix)]
+#[test]
+fn pkg_create_haskell_idl_builds_runs_and_packs() {
+    if let Some(reason) = haskell_tools_missing() {
+        eprintln!("skip: {reason}");
+        return;
+    }
+    let dir = temp_dir("pkg_cli_haskell_idl_sdk");
+    let sdk = sdk_from_workspace(&dir);
+    idl_build_run_pack(
+        "haskell",
+        "pkg_hs_idl",
+        8085,
+        true,
+        &["--juiz-sdk-dir", path_str(&sdk)],
+        "src/PkgHsIdl.hs",
+        &[
+            (
+                "pkg_idl_remaining_process _goal _from_pose = error \"write the body of pkg_idl_remaining\"",
+                "pkg_idl_remaining_process goal fromPose =\n  Juiz_std.Geometry.pose2DTheta (Pkg_idl.Common.goalPose goal)\n    - Juiz_std.Geometry.pose2DTheta fromPose + Pkg_idl.Common.goalTolerance goal",
+            ),
+            (
+                "pkg_idl_double_process _container _step = error \"write the body of pkg_idl_double\"",
+                "pkg_idl_double_process _container step = pure (step * 2)",
+            ),
+        ],
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

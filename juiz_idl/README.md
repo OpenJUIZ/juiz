@@ -7,6 +7,7 @@
 - `<namespace>.processes.json`: `process` / `container` 宣言のシグネチャ
 - Rust: struct / enum と `juiz_sdk::types::JuizType` の実装
 - Rust の雛形 (`-g rust-skeleton`): `process` / `container` 宣言から、本体が `todo!()` のコンポーネント `<namespace>.skeleton.rs`
+- Python・C++・Haskell の雛形 (`-g python-skeleton`・`cpp-skeleton`・`haskell-skeleton`): 同じく `<namespace>.skeleton.py`・`<namespace>.skeleton.cpp`・`<CamelCase の名前空間>Component.hs` (pyjuiz・cppjuiz・hsjuiz のコンポーネント。型は `-g python`・`cpp`・`haskell` のものを使う)
 - C++ (`-g cpp`): 名前空間ごとのヘッダ (`robot.geometry.h`) と全部を読み込む `juiz_idl.h` に struct / enum class と cppjuiz の `juiz::type_traits` の特殊化 (ヘッダのみ)
 - Haskell (`-g haskell`): 名前空間ごとのモジュール (`Robot/Geometry.hs`) に record・直和型と hsjuiz の `JuizType` / `FromCapsule` / `ToCapsule` のインスタンス (Template Haskell なし)
 - TypeScript (`-g typescript`): 名前空間ごとの `robot.geometry.ts` と `juiz_idl.ts` に interface・文字列リテラルの union と型参照 (管理画面・`bindings/js` 用、実行時の依存なし)
@@ -50,6 +51,8 @@ include!(concat!(env!("OUT_DIR"), "/juiz_idl.rs"));
 ```sh
 juiz-idl -o src -g rust-skeleton idl/geometry.jidl   # src/robot.geometry.skeleton.rs ができる
 ```
+
+ほかの言語は `-g python-skeleton`・`-g cpp-skeleton`・`-g haskell-skeleton` です。雛形から 1 つのパッケージ (ビルドと `.juizapp` の設定まで) を作るなら `juiz pkg create <name> -b <lang> --idl <file.jidl>` を使います。
 
 できたファイルを `src/lib.rs` などにコピーして `todo!()` の本体を書きます。型は `crate::robot::geometry::Pose2D` のように参照するので、クレートの一番上で `juiz_idl.rs` を読み込んでおきます。雛形は一度作って手で直していくものなので、build.rs では作りません。
 

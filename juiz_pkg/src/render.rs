@@ -28,6 +28,9 @@ pub const VARIABLES: &[&str] = &[
     "idl_extern",
     "juiz_idl_dep",
     "juiz_std_types_dep",
+    "idl_depends",
+    "idl_hs_modules",
+    "idl_hs_gen_dir",
 ];
 
 /// 変数の値。None は「無し」(その変数を含む行を消す)

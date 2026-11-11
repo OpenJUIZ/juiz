@@ -14,8 +14,8 @@
 # <dir> を <target> の include ディレクトリに足す。ソースからは #include "juiz_idl.h" で使う。
 #
 # juiz-idl は JUIZ_IDL_EXECUTABLE (キャッシュ変数) か PATH から探す。
-# 入っていなければ `cargo install juiz_idl` で入れるか、juiz のコマンドの `juiz idl` を
-# JUIZ_IDL_EXECUTABLE に指定する (`juiz idl` は juiz-idl と同じ引数を取る)。
+# 無ければ PATH の juiz を探して `juiz idl` を使う (`juiz idl` は juiz-idl と同じ引数を取る、issue #468)。
+# どちらも無ければ `cargo install juiz_idl` で入れるか、juiz を入れる。
 
 function(juiz_generate_types TARGET)
   cmake_parse_arguments(JUIZ_IDL "" "OUTPUT_DIR" "IDL;DEPENDS;IMPORT_DIRS" ${ARGN})
@@ -28,9 +28,18 @@ function(juiz_generate_types TARGET)
   if (NOT JUIZ_IDL_EXECUTABLE)
     find_program(JUIZ_IDL_EXECUTABLE NAMES juiz-idl HINTS ${JUIZ_IDL_HINTS})
   endif()
+  set(idl_command "${JUIZ_IDL_EXECUTABLE}")
+  set(idl_program "${JUIZ_IDL_EXECUTABLE}")
   if (NOT JUIZ_IDL_EXECUTABLE)
-    message(FATAL_ERROR "juiz-idl が見つかりません。`cargo install juiz_idl` で入れるか、"
-      "-DJUIZ_IDL_EXECUTABLE=<juiz-idl のパス> を指定してください")
+    # juiz-idl が無ければ juiz のサブコマンド `juiz idl` を使う
+    find_program(JUIZ_EXECUTABLE NAMES juiz HINTS ${JUIZ_IDL_HINTS})
+    if (JUIZ_EXECUTABLE)
+      set(idl_command "${JUIZ_EXECUTABLE}" idl)
+      set(idl_program "${JUIZ_EXECUTABLE}")
+    else()
+      message(FATAL_ERROR "juiz-idl も juiz も見つかりません (juiz-idl and juiz are not in PATH)。juiz を入れるか、"
+        "`cargo install juiz_idl` で入れるか、-DJUIZ_IDL_EXECUTABLE=<juiz-idl のパス> を指定してください")
+    endif()
   endif()
 
   set(idl_files)
@@ -60,9 +69,9 @@ function(juiz_generate_types TARGET)
   # juiz-idl は中身の変わらないファイルを書き直さないので、最後に juiz_idl.h の時刻を進めて作り直しを終わらせる
   add_custom_command(
     OUTPUT "${header}"
-    COMMAND "${JUIZ_IDL_EXECUTABLE}" -g cpp -o "${JUIZ_IDL_OUTPUT_DIR}" ${import_args} ${idl_files}
+    COMMAND ${idl_command} -g cpp -o "${JUIZ_IDL_OUTPUT_DIR}" ${import_args} ${idl_files}
     COMMAND "${CMAKE_COMMAND}" -E touch "${header}"
-    DEPENDS ${idl_deps} ${dep_files} "${JUIZ_IDL_EXECUTABLE}"
+    DEPENDS ${idl_deps} ${dep_files} "${idl_program}"
     COMMENT "juiz-idl: C++ の型を作る (${JUIZ_IDL_IDL})"
     VERBATIM)
   target_sources(${TARGET} PRIVATE "${header}")

@@ -1,0 +1,31 @@
+cabal-version:      3.0
+name:               {{name_kebab}}
+version:            0.1.0
+synopsis:           {{name}}: a juiz component
+license:            {{license}}
+author:             {{author}}
+maintainer:         {{author}}
+build-type:         Simple
+
+-- The plugin that juiz loads: lib{{name}}.so on Linux, lib{{name}}.dylib on macOS.
+-- Its name is the key of plugins.components in app/app.conf.
+-- juiz calls the functions from worker threads, so the -threaded RTS is required.
+-- The rpath $ORIGIN / @loader_path lets the plugin find the libraries put next to it in the .juizapp
+-- (scripts/pack.sh collects them with scripts/bundle-plugin-deps.sh).
+-- The types of {{idl_main}} are generated in {{idl_hs_gen_dir}}/ by scripts/dev.sh (juiz idl -g haskell) and use
+-- bytestring, containers and text. When the .jidl gets another namespace, add its module to other-modules.
+foreign-library {{name}}
+    type:             native-shared
+    default-language: Haskell2010
+    build-depends:    base >=4.18 && <5
+                    , hsjuiz
+                    , bytestring
+                    , containers
+                    , text
+    ghc-options:      -Wall -threaded
+    if os(darwin)
+        ghc-options:  -optl-Wl,-rpath,@loader_path
+    else
+        ghc-options:  -optl-Wl,-rpath,$ORIGIN
+    hs-source-dirs:   src {{idl_hs_gen_dir}}
+    other-modules:    {{Name}}{{idl_hs_modules}}

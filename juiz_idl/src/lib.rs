@@ -13,6 +13,9 @@
 //! | [`OutputKind::Haskell`] | `<A>/<B>.hs` (名前空間 `a.b`) | record・直和型と hsjuiz の `JuizType` / `FromCapsule` / `ToCapsule` のインスタンス (仕様 §22) |
 //! | [`OutputKind::TypeScript`] | `<namespace>.ts`、`juiz_idl.ts` | interface・文字列リテラルの union と型参照 (管理画面・`bindings/js` 用、仕様 §23) |
 //! | [`OutputKind::Python`] | `<a>/<b>/__init__.py` (名前空間 `a.b`) | dataclass / enum.Enum と、`process` / `container` 宣言の型付き client stub (仕様 §20) |
+//! | [`OutputKind::PythonSkeleton`] | `<namespace>.skeleton.py` | `process` / `container` 宣言の Python の雛形 (pyjuiz のデコレータ、仕様 §20.6) |
+//! | [`OutputKind::CppSkeleton`] | `<namespace>.skeleton.cpp` | `process` / `container` 宣言の C++ の雛形 (cppjuiz のマニフェストと FACTORY、仕様 §21.6) |
+//! | [`OutputKind::HaskellSkeleton`] | `<CamelCase の名前空間>Component.hs` | `process` / `container` 宣言の Haskell の雛形 (hsjuiz の juizComponent、仕様 §22.4) |
 //!
 //! 型のモデル・指紋は `juiz_types` を使う (juiz_sdk には依存しない)。生成した Rust のコードは juiz_sdk を、
 //! Python のコードは pyjuiz (`juiz.datatype`) を使う。
@@ -40,12 +43,15 @@ mod builtin;
 pub mod cli;
 mod constants;
 mod cpp;
+mod cpp_skeleton;
 mod haskell;
+mod haskell_skeleton;
 mod jidl;
 mod json_schema;
 mod model;
 mod parser;
 mod python;
+mod python_skeleton;
 pub mod ros2;
 mod rust;
 mod rust_skeleton;
@@ -58,7 +64,9 @@ use juiz_types::TypeError;
 pub use builtin::{builtin_file, BUILTIN_FILES, BUILTIN_PREFIX};
 pub use constants::ATTR_CONSTANTS;
 pub use cpp::{generate_cpp, CPP_ALL_HEADER};
+pub use cpp_skeleton::{cpp_skeleton_items, generate_cpp_skeleton};
 pub use haskell::generate_haskell;
+pub use haskell_skeleton::{generate_haskell_skeleton, haskell_skeleton_items, haskell_skeleton_module};
 pub use jidl::to_jidl;
 pub use json_schema::{json_schema_of, JSON_SCHEMA_DIALECT};
 pub use model::{
@@ -67,6 +75,7 @@ pub use model::{
 };
 pub use parser::{parse_idl, IdlFile};
 pub use python::generate_python;
+pub use python_skeleton::{generate_python_skeleton, python_skeleton_items};
 pub use rust::{generate_rust, MODULE_TREE_FILE};
 pub use rust_skeleton::{generate_rust_skeleton, rust_skeleton_items};
 pub use typescript::{generate_typescript, TYPESCRIPT_COMMON_FILE};
@@ -114,21 +123,27 @@ pub enum OutputKind {
     Rust,
     RustSkeleton,
     Python,
+    PythonSkeleton,
     Cpp,
+    CppSkeleton,
     Haskell,
+    HaskellSkeleton,
     TypeScript,
 }
 
 impl OutputKind {
-    pub const ALL: [OutputKind; 9] = [
+    pub const ALL: [OutputKind; 12] = [
         OutputKind::Avsc,
         OutputKind::JsonSchema,
         OutputKind::Processes,
         OutputKind::Rust,
         OutputKind::RustSkeleton,
         OutputKind::Python,
+        OutputKind::PythonSkeleton,
         OutputKind::Cpp,
+        OutputKind::CppSkeleton,
         OutputKind::Haskell,
+        OutputKind::HaskellSkeleton,
         OutputKind::TypeScript,
     ];
 }
@@ -365,8 +380,11 @@ pub fn generate_with(
                 options,
             )?),
             OutputKind::Python => files.extend(generate_python(&types, &signatures)?),
+            OutputKind::PythonSkeleton => files.extend(generate_python_skeleton(&signatures)?),
             OutputKind::Cpp => files.extend(generate_cpp(&types)?),
+            OutputKind::CppSkeleton => files.extend(generate_cpp_skeleton(&signatures)?),
             OutputKind::Haskell => files.extend(generate_haskell(&types)?),
+            OutputKind::HaskellSkeleton => files.extend(generate_haskell_skeleton(&signatures)?),
             OutputKind::TypeScript => files.extend(generate_typescript(&types)?),
         }
     }

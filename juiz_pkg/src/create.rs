@@ -218,7 +218,12 @@ impl Plan {
 
         // --idl は先に読む (Rust のほかの言語はここでエラー)
         let idl = match &args.idl {
-            Some(p) => Some(IdlPlan::load(&expand_tilde(p), lang)?),
+            Some(p) => {
+                let plan = IdlPlan::load(&expand_tilde(p), lang)?;
+                // 名前によるもの (Haskell のモジュール名の重なり) もファイルを書く前に確かめる
+                plan.source(&args.name)?;
+                Some(plan)
+            }
             None => None,
         };
 
@@ -484,17 +489,16 @@ impl Plan {
                 lines.push((script("dev"), "# build and put the plugin in app/plugins/<target>/"));
             }
             _ => {
-                if self.idl.is_some() {
-                    lines.push((
-                        "# write the bodies of the functions (todo!()) in src/lib.rs, then".into(),
-                        "",
-                    ));
-                }
                 lines.push((
                     script("dev"),
                     "# build and put the plugin in app/plugins/<target>/",
                 ));
             }
+        }
+        // --idl: 関数の本体を書いてから動かす (§6.5)。ビルドのある言語は scripts/dev.sh の前、Python は pip の後
+        if let Some(i) = &self.idl {
+            let at = if self.lang.has_build() { lines.len() - 1 } else { lines.len() };
+            lines.insert(at, (i.write_bodies_line(&self.name), ""));
         }
         lines.push(("juiz -f app/app.conf -d".into(), "# start (keep it running)"));
         // コメントを並べる幅。コメントの無い長い行 (SDK の用意) は数えない
@@ -561,6 +565,9 @@ impl Plan {
                 v.set("idl_main", &i.main)
                     .set("idl_conf", i.conf_types())
                     .set_opt("idl_extern", i.extern_line())
+                    .set_opt("idl_depends", i.depends())
+                    .set("idl_hs_modules", i.hs_other_modules())
+                    .set_opt("idl_hs_gen_dir", (self.lang == Lang::Haskell).then(|| "gen".to_owned()))
                     .set_opt(
                         "juiz_std_types_dep",
                         i.uses_juiz_std.then(|| self.rust_dep("juiz_std_types")),
@@ -570,6 +577,9 @@ impl Plan {
                 v.set_opt("idl_main", None)
                     .set_opt("idl_conf", None)
                     .set_opt("idl_extern", None)
+                    .set_opt("idl_depends", None)
+                    .set_opt("idl_hs_modules", None)
+                    .set_opt("idl_hs_gen_dir", None)
                     .set_opt("juiz_std_types_dep", None);
             }
         }
@@ -605,12 +615,14 @@ impl Plan {
                 out.insert(rel, content);
             }
         }
-        // --idl: .jidl の写しと、juiz_idl の雛形から作る src/lib.rs (テンプレートの置換は通さない)
+        // --idl: .jidl の写し、Python の型のコード、juiz_idl の雛形から作る Component のソース
+        // (テンプレートの置換は通さない)
         if let Some(i) = &self.idl {
-            for (path, text) in &i.files {
+            for (path, text) in i.files.iter().chain(i.generated.iter()) {
                 out.insert(path.clone(), text.clone());
             }
-            out.insert("src/lib.rs".to_owned(), i.lib_rs(&self.name)?);
+            let (path, text) = i.source(&self.name)?;
+            out.insert(path, text);
         }
         Ok(out
             .into_iter()
@@ -1178,13 +1190,120 @@ mod tests {
         let p = plan(&["create", "my_robot", "-b", "rust", "--idl", idl.to_str().unwrap(), "--juiz-source", repo.to_str().unwrap()]);
         let cargo = p.files().unwrap().into_iter().find(|f| f.path == "Cargo.toml").unwrap().content;
         assert!(cargo.contains("/juiz_idl' }") && cargo.contains("/juiz_std_types' }"), "{cargo}");
-        // -t とは一緒に使えない。Rust のほかの言語はまだ
+        // -t とは一緒に使えない
         let e = Cli::try_parse_from(["juiz-pkg", "create", "x", "-b", "rust", "-t", "process", "--idl", "a.jidl"]);
         assert!(e.is_err());
-        let args = parse(&["create", "my_robot", "-b", "python", "--idl", idl.to_str().unwrap()]);
-        let e = Plan::from_args_with(&args, || None, false).unwrap_err().to_string();
-        assert!(e.contains("only for -b rust"), "{e}");
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// --idl の Python・C++・Haskell (§6.5、issue #468): 言語ごとのファイルと、その言語で書けない宣言のエラー
+    #[test]
+    fn other_language_idl_files() {
+        let d = temp("idl_langs");
+        crate::idl::write_jidl(
+            &d.join("common"),
+            "goal.jidl",
+            "namespace robot.common; import idl \"juiz_std/geometry.jidl\";\n\
+             enum Mode { FAST, SLOW } = SLOW;\n\
+             record Goal { juiz_std.geometry.Pose2D pose; double tolerance = 0.1; Mode mode; }\n",
+        );
+        let idl = crate::idl::write_jidl(
+            &d,
+            "robot.jidl",
+            "namespace robot; import idl \"juiz_std/geometry.jidl\"; import idl \"common/goal.jidl\";\n\
+             /** Turns */\n\
+             process double turn(robot.common.Goal goal, juiz_std.geometry.Pose2D pose, double speed = 1.0);\n\
+             container wheel { container_process long spin(long n = 1, robot.common.Mode mode = \"FAST\"); container_process void stop(); }\n",
+        );
+        let idl = idl.to_str().unwrap();
+        let common = |files: &[GeneratedFile], lang: &str, source: &str| {
+            let get = |path: &str| {
+                files
+                    .iter()
+                    .find(|f| f.path == path)
+                    .unwrap_or_else(|| panic!("{lang}: {path} is not made"))
+                    .content
+                    .clone()
+            };
+            for f in files {
+                if !f.path.starts_with("idl/") && f.path != source && !f.path.starts_with("app/python/robot") {
+                    assert!(!f.content.contains("{{"), "{lang} {}", f.path);
+                }
+            }
+            assert!(get("idl/robot.jidl").contains("process double turn"));
+            assert!(get("idl/common/goal.jidl").contains("record Goal"));
+            let conf = get("app/app.conf");
+            assert!(conf.contains("\"name\": \"turn0\"") && conf.contains("\"name\": \"spin0\"") && conf.contains("\"name\": \"stop0\""), "{lang} {conf}");
+            assert!(!conf.contains("my_robot_add"), "{conf}");
+            let readme = get("README.md");
+            assert!(readme.contains("juiz pkg create --idl") && readme.contains("| `turn` | Process |"), "{lang} {readme}");
+            get(source)
+        };
+
+        // Python: 型のパッケージは app/python/ に作る (juiz_std は pyjuiz のもの)
+        let p = plan(&["create", "my_robot", "-b", "python", "--idl", idl]);
+        let files = p.files().unwrap();
+        let src = common(&files, "python", "app/python/my_robot.py");
+        assert!(src.contains("from juiz import juiz_container, juiz_container_process, juiz_process\n"), "{src}");
+        assert!(src.contains("from juiz_std.geometry import Pose2D\nfrom robot.common import Goal, Mode\n"), "{src}");
+        assert!(src.contains("@juiz_process\ndef turn(goal: Goal, pose: Pose2D, speed: float = 1.0) -> float:\n    \"\"\"Turns\"\"\"\n    raise NotImplementedError(\"write the body of turn\")"), "{src}");
+        assert!(src.contains("def spin(container: WheelState, n: int = 1, mode: Mode = Mode.from_value(\"FAST\")) -> int:"), "{src}");
+        assert!(src.contains("def stop(container: WheelState) -> None:"), "{src}");
+        let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).filter(|p| p.starts_with("app/python/")).collect();
+        assert_eq!(paths, ["app/python/my_robot.py", "app/python/robot/__init__.py", "app/python/robot/common/__init__.py"]);
+        let s = p.summary();
+        assert!(s.contains("pip install -e .                # installs pyjuiz\n  # write the bodies of the functions (raise NotImplementedError) in app/python/my_robot.py, then\n"), "{s}");
+        assert!(get_readme(&files).contains("juiz idl -g python --extern juiz_std -o app/python idl/robot.jidl"));
+
+        // C++: CMake が juiz_idl.h を作る
+        let p = plan(&["create", "my_robot", "-b", "cpp", "--idl", idl]);
+        let files = p.files().unwrap();
+        let src = common(&files, "cpp", "src/my_robot.cpp");
+        assert!(src.contains("#include \"juiz_idl.h\""), "{src}");
+        assert!(src.contains("std::optional<double> turn(const ::robot::common::Goal& goal, const ::juiz_std::geometry::Pose2D& pose, double speed) {"), "{src}");
+        assert!(src.contains("auto my_robot_component_manifest() {\n    return ComponentManifest(\"my_robot\")"), "{src}");
+        let cmake = files.iter().find(|f| f.path == "CMakeLists.txt").unwrap().content.clone();
+        assert!(cmake.contains("juiz_generate_types(my_robot\n  IDL idl/robot.jidl\n  DEPENDS idl/common/goal.jidl\n)"), "{cmake}");
+        let s = p.summary();
+        assert!(s.contains("# write the bodies of the functions (throw std::runtime_error) in src/my_robot.cpp, then\n  scripts/dev.sh"), "{s}");
+
+        // Haskell: scripts/dev.sh が gen/ に型のモジュールを作り、.cabal の other-modules に書く
+        let p = plan(&["create", "my_robot", "-b", "haskell", "--idl", idl]);
+        let files = p.files().unwrap();
+        let src = common(&files, "haskell", "src/MyRobot.hs");
+        assert!(src.contains("module MyRobot () where"), "{src}");
+        assert!(src.contains("turn_process :: Robot.Common.Goal -> Juiz_std.Geometry.Pose2D -> Double -> Double\n"), "{src}");
+        assert!(src.contains("juizComponent 'my_robot_component\n  [ componentProcess 'turn_process 'turn_manifest\n"), "{src}");
+        let cabal = files.iter().find(|f| f.path == "my-robot.cabal").unwrap().content.clone();
+        assert!(cabal.contains("hs-source-dirs:   src gen\n    other-modules:    MyRobot\n                    , Juiz_std.Common\n                    , Juiz_std.Geometry\n                    , Robot.Common\n"), "{cabal}");
+        assert!(cabal.contains(", containers"), "{cabal}");
+        let dev = files.iter().find(|f| f.path == "scripts/dev.sh").unwrap().content.clone();
+        assert!(dev.contains("juiz idl -g haskell -o gen idl/robot.jidl"), "{dev}");
+        assert!(files.iter().find(|f| f.path == ".gitignore").unwrap().content.contains("/gen/\n"));
+        // --idl でない雛形には gen/ の行が無い
+        let files = plan(&["create", "my_robot", "-b", "haskell"]).files().unwrap();
+        assert!(!files.iter().find(|f| f.path == "scripts/dev.sh").unwrap().content.contains("juiz idl"));
+        assert!(!files.iter().find(|f| f.path == ".gitignore").unwrap().content.contains("/gen/"));
+
+        // その言語で書けない宣言 (ファイルを書く前にエラー)
+        let bad = crate::idl::write_jidl(&d, "bytes.jidl", "namespace b; process long f(bytes data);");
+        for lang in ["python", "cpp"] {
+            let args = parse(&["create", "my_robot", "-b", lang, "--idl", bad.to_str().unwrap()]);
+            let e = Plan::from_args_with(&args, || None, false).unwrap_err().to_string();
+            assert!(e.contains("f argument data: bytes is not supported"), "{lang} {e}");
+        }
+        let args = parse(&["create", "my_robot", "-b", "haskell", "--idl", bad.to_str().unwrap()]);
+        assert!(Plan::from_args_with(&args, || None, false).is_ok());
+        // Haskell: 型のモジュールが Component のモジュールと同じ名前
+        let same = crate::idl::write_jidl(&d, "same.jidl", "namespace myrobot; record R { long x; } process R f();");
+        let args = parse(&["create", "myrobot", "-b", "haskell", "--idl", same.to_str().unwrap()]);
+        let e = Plan::from_args_with(&args, || None, false).unwrap_err().to_string();
+        assert!(e.contains("Myrobot"), "{e}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    fn get_readme(files: &[GeneratedFile]) -> String {
+        files.iter().find(|f| f.path == "README.md").unwrap().content.clone()
     }
 
     /// テンプレートに使っている変数がすべて表にある (§10.2)

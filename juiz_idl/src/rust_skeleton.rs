@@ -54,7 +54,7 @@ fn plain_ident(name: &str, what: &str) -> Result<String, IdlError> {
 }
 
 /// `motor_state` → `MotorState`
-fn camel_case(name: &str) -> String {
+pub(crate) fn camel_case(name: &str) -> String {
     name.split('_')
         .filter(|p| !p.is_empty())
         .map(|p| {
