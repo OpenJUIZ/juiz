@@ -25,6 +25,7 @@ case "$target" in
     ;;
   *) lib="lib{{name}}.so" ;;
 esac
+juiz idl -g haskell -o {{idl_hs_gen_dir}} {{idl_main}}  # the Haskell types of the .jidl (juiz pkg create --idl)
 cabal build all
 found=$(find dist-newstyle -name "$lib" -type f | head -n 1)
 if [ -z "$found" ]; then

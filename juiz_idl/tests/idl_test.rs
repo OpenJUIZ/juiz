@@ -361,9 +361,12 @@ fn generated_files() {
             "a.b.skeleton.rs",
             "a/__init__.py",
             "a/b/__init__.py",
+            "a.b.skeleton.py",
             "a.b.h",
             "juiz_idl.h",
+            "a.b.skeleton.cpp",
             "A/B.hs",
+            "ABComponent.hs",
             "juiz_idl.ts",
             "a.b.ts"
         ]
@@ -484,6 +487,77 @@ fn rust_skeleton() {
         .unwrap_err()
         .to_string();
     assert!(e.contains("keyword"), "{e}");
+}
+
+/// Python・C++・Haskell の雛形 (仕様 §20.6・§21.6・§22.4、issue #468)
+#[test]
+fn other_language_skeletons() {
+    let model = load(
+        r#"namespace a.b;
+        record P { long x = -1; }
+        enum E { X, Y } = Y;
+        /** Makes "q" */
+        process P make(P p, long x = -1, string note = "n", E e = "X", array<double> xs = [], map<long> m);
+        container robot_arm { container_process void stop(P p = {"x": 2}); container_process E get(); }"#,
+    );
+    let files = generate(
+        &model,
+        &[OutputKind::PythonSkeleton, OutputKind::CppSkeleton, OutputKind::HaskellSkeleton],
+    )
+    .unwrap();
+    let paths: Vec<String> = files.iter().map(|f| f.path.display().to_string()).collect();
+    assert_eq!(paths, ["a.b.skeleton.py", "a.b.skeleton.cpp", "ABComponent.hs"]);
+
+    // Python: pyjuiz のデコレータと型注釈。既定値のある引数の後ろの型なしの引数は 0 を書く
+    let py = &files[0].contents;
+    assert!(py.contains("from juiz import juiz_container, juiz_container_process, juiz_process\n"), "{py}");
+    assert!(py.contains("from a.b import E, P\n"), "{py}");
+    assert!(
+        py.contains("@juiz_process\ndef make(p: P, x: int = -1, note: str = \"n\", e: E = E.from_value(\"X\"), xs: list = [], m: dict = {}) -> P:\n    \"\"\"Makes \"q\\\"\"\"\"\n    raise NotImplementedError(\"write the body of make\")\n"),
+        "{py}"
+    );
+    assert!(py.contains("class RobotArmState:"), "{py}");
+    assert!(py.contains("@juiz_container\ndef robot_arm() -> RobotArmState:\n    return RobotArmState()\n"), "{py}");
+    assert!(py.contains("@juiz_container_process(container_type=\"robot_arm\")\ndef stop(container: RobotArmState, p: P = P.from_value({\"x\": 2})) -> None:"), "{py}");
+    assert!(py.contains("def get(container: RobotArmState) -> E:"), "{py}");
+
+    // C++: cppjuiz のマニフェスト・関数・FACTORY
+    let cpp = &files[1].contents;
+    assert!(cpp.contains("// Makes \"q\"\nstatic auto make_manif = ProcessManifest(\"make\")\n    .description(\"Makes \\\"q\\\"\")\n    .add_typed_arg<::a::b::P>(\"p\", \"\")\n    .add_int_arg(\"x\", \"\", INT64_C(-1))\n    .add_string_arg(\"note\", \"\", \"n\")\n    .add_typed_arg_value<::a::b::E>(\"e\", \"\", juiz::Value(std::string(\"X\")))\n    .add_array_arg(\"xs\", \"\")\n    .add_object_arg(\"m\", \"\")\n    .returns<::a::b::P>();\n"), "{cpp}");
+    assert!(cpp.contains("std::optional<::a::b::P> make(const ::a::b::P& p, int64_t x, const std::string& note, ::a::b::E e, const std::vector<juiz::Value>& xs, const juiz::Value& m) {\n    (void)p;\n"), "{cpp}");
+    assert!(cpp.contains("    throw std::runtime_error(\"write the body of make\");\n}\nCOMPONENT_PROCESS_FACTORY(make_manif, make);\n"), "{cpp}");
+    assert!(cpp.contains("std::optional<juiz::Value> stop(RobotArmState* container, const ::a::b::P& p) {"), "{cpp}");
+    assert!(cpp.contains("COMPONENT_CONTAINER_PROCESS_FACTORY(RobotArmState, get_manif, get);"), "{cpp}");
+    assert!(cpp.contains("        .add_container(robot_arm_manifest()\n            .add_process(stop_manifest())\n            .add_process(get_manifest()));\n}\nDEFINE_COMPONENT_MANIFEST_ENTRY_POINT(a_b_component_manifest)"), "{cpp}");
+
+    // Haskell: マニフェストと関数の組、juizComponent
+    let hs = &files[2].contents;
+    assert!(hs.contains("module ABComponent () where"), "{hs}");
+    assert!(hs.contains("import qualified A.B\n"), "{hs}");
+    assert!(hs.contains("  & addTypedArgNoDefault (Proxy :: Proxy A.B.P) \"p\" \"\"\n  & addIntArg \"x\" \"\" (-1)\n  & addStringArg \"note\" \"\" \"n\"\n  & addTypedArgValue (Proxy :: Proxy A.B.E) \"e\" \"\" (JV.JString \"X\")\n  & addArg \"Array\" \"xs\" \"\" (JV.JArray [])\n  & addArg \"Object\" \"m\" \"\" (JV.JNull)\n"), "{hs}");
+    assert!(hs.contains("make_process :: A.B.P -> HI.Int64 -> HT.Text -> A.B.E -> [Double] -> HM.Map HT.Text HI.Int64 -> A.B.P\nmake_process _p _x _note _e _xs _m = error \"write the body of make\""), "{hs}");
+    assert!(hs.contains("stop_process :: RobotArmState -> A.B.P -> IO ()"), "{hs}");
+    assert!(hs.contains("juizComponent 'a_b_component\n  [ componentProcess 'make_process 'make_manifest\n  , componentContainer 'robot_arm_create 'robot_arm_manifest\n  , componentContainerProcess 'stop_process 'stop_manifest\n  , componentContainerProcess 'get_process 'get_manifest\n  ]\n"), "{hs}");
+
+    // 書けないもの: Python は既定値のある引数の後ろの既定値の無い record、Python・C++ は bytes と T?
+    let order = load("namespace o; record R { long x; } process long f(long a = 1, o.R r);");
+    let e = generate(&order, &[OutputKind::PythonSkeleton]).unwrap_err().to_string();
+    assert!(e.contains("f: argument r has no default but comes after a"), "{e}");
+    assert!(generate(&order, &[OutputKind::CppSkeleton, OutputKind::HaskellSkeleton]).is_ok());
+    for (decl, what) in [("process long f(bytes b);", "argument b: bytes"), ("process long? f();", "return value: long?")] {
+        let m = load(&format!("namespace o; {decl}"));
+        for kind in [OutputKind::PythonSkeleton, OutputKind::CppSkeleton] {
+            let e = generate(&m, &[kind]).unwrap_err().to_string();
+            assert!(e.contains(&format!("f {what} is not supported")), "{kind:?} {e}");
+        }
+        assert!(generate(&m, &[OutputKind::HaskellSkeleton]).is_ok());
+    }
+    // 同じ名前になるもの (Container と Process が同じ型名)
+    let same = load("namespace o; process long arm(); container arm {}");
+    for kind in [OutputKind::PythonSkeleton, OutputKind::CppSkeleton, OutputKind::HaskellSkeleton] {
+        let e = generate(&same, &[kind]).unwrap_err().to_string();
+        assert!(e.contains("both become"), "{kind:?} {e}");
+    }
 }
 
 /// Python の型と client stub (仕様 §20)

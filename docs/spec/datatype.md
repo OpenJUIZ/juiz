@@ -428,6 +428,7 @@ ROS 2 の `.msg` / `.srv` / `.idl` を JIDL / .avsc に変換する。juiz の�
 - Avro のバイナリ形式での通信(QMP の高速化)。
 - ROS 2 への書き出し(juiz の型 → `.msg` / `.idl`)と ROS 2 の `.action`(§25)。
 - client stub(型付きで呼ぶ側の生成コード)。型と skeleton の後(計画書 §8 の 4)。Python は Step 5 で作った(§20.4)。
+- Python・C++ の skeleton の `T?`・`bytes` の引数(pyjuiz のデコレータと cppjuiz の関数が受け取れないため。§20.6・§21.6)。
 
 ## 15. Rust の SDK(Step 1 #190 で決めたこと)
 
@@ -471,6 +472,9 @@ juiz-idl [-o 出力先] [-g avsc,json-schema,processes,rust] [--check] 入力.ji
 | rust-skeleton | `<namespace>.skeleton.rs` | `process` / `container` 宣言の Rust の雛形(§18) |
 | python | `<a>/<b>/__init__.py` | dataclass / enum.Enum と client stub(§20) |
 | cpp | `<namespace>.h`、`juiz_idl.h` | struct / enum class と cppjuiz の `juiz::type_traits` の特殊化(§21) |
+| python-skeleton | `<namespace>.skeleton.py` | `process` / `container` 宣言の Python の雛形(§20.6、#468) |
+| cpp-skeleton | `<namespace>.skeleton.cpp` | `process` / `container` 宣言の C++ の雛形(§21.6、#468) |
+| haskell-skeleton | `<CamelCase の名前空間>Component.hs` | `process` / `container` 宣言の Haskell の雛形(§22.4、#468) |
 
 - JIDL の細部:
   - `/** … */` は宣言・フィールド・引数・`container_process` の前に書く。注釈との順番は問わない。行頭の `*` は落とす。
@@ -628,6 +632,17 @@ core の実装は `juiz_core::types` にある。
 - `bindings/pyjuiz/test/gen` は `juiz_idl/test_package/idl/geometry.jidl` から作った Python のコードで、リポジトリに入れておく。juiz_idl の `python_gen_is_up_to_date` が生成器の出力と一致するかを確かめる(作り直しは `JUIZ_IDL_UPDATE_PYTHON_GEN=1 cargo test -p juiz_idl --test idl_test python_gen_is_up_to_date`)。
 - `bindings/pyjuiz/test/datatype_test.py`(変換・デコレータ・client stub、juiz を起動しない)、`juiz_core/tests/integration/python_datatype_test.rs`(manifest の型参照と Rust の指紋の一致、Python 同士でネイティブ値のまま渡ること、Python ↔ Rust の辞書の受け渡し、接続時の型検査、`bindings/pyjuiz/test/typed_client_test.py` で HTTP 越しの client stub)。
 
+### 20.6 雛形(python-skeleton、#468 で決めたこと)
+
+`juiz-idl -g python-skeleton` は、`process` / `container` 宣言のある名前空間ごとに `<namespace>.skeleton.py` を書き出す(Rust の §18 と同じく、既定の `-g` には入れない)。`juiz pkg create -b python --idl`(pkg.md §6.5)は、先頭の説明を除いた中身を `juiz_idl::python_skeleton_items` で作る。
+
+- 中身は `from juiz import …`(使うデコレータだけ)、record・enum の型の import、宣言ごとの関数。`process` は `@juiz_process`、`container` は状態のクラス `<CamelCase>State`(空。JIDL では状態を型付けしない)と、それを返す引数のない `@juiz_container`、`container_process` は `@juiz_container_process(container_type=…)` で第 1 引数が `container: <CamelCase>State`(引数に `container` があれば `container_` など)。本体は `raise NotImplementedError("write the body of …")`、説明は docstring。
+- 型注釈は §20.3 のデコレータが受け付けるものだけにする。`boolean` → `bool`、`int`・`long` → `int`、`float`・`double` → `float`、`string` → `str`、`array<T>` → `list`、`map<T>`・`any` → `dict`、record・enum → 生成した型、`image` → `PIL.Image.Image`、戻り値の `void` → `None`。`T?`・`bytes` はエラー。基本型・`list`・`dict` は型なしの引数になる(§20.3。指紋の付いた型は record・enum だけ)。
+- record・enum は `from a.b import T` で読む。型名がほかの名前空間の型・雛形の関数やクラスの名前とぶつかるときだけ `import a.b as _ns_a_b` で修飾する。
+- 既定値: 基本型・`list`・`dict` はリテラル、record・enum は `T.from_value(<辞書の表し方>)`。既定値の無い型なしの引数が既定値のある引数の後ろに来るときは、pyjuiz が既定値の無いときに使う値(`0`・`0.0`・`False`・`""`・`[]`・`{}`・`None`)を書く(manifest は同じ。Python の文法で既定値の無い引数を後ろに書けないため)。既定値の無い record・enum の引数が後ろに来るときはエラー。
+- 関数名・引数名が Python のキーワードならエラー(デコレータが名前をそのまま型名・引数名にするので変えられない)。関数・クラスの名前が重なる(Process と Container が同じ名前など)、デコレータの名前と同じ、もエラー。
+- 合わせて pyjuiz のデコレータが戻り値の型注釈 `None` を受け付けるようにした(出力のプロファイルを載せない)。また、1 行の説明が `"` で終わると docstring が `""""` になる不具合(client stub も同じ)を直した。
+
 ## 21. C++(Step 6 #195 と遅延評価 L3 #177 で決めたこと)
 
 ### 21.1 生成器の C++ 出力
@@ -691,6 +706,17 @@ C++ の ABI タグは `cpp:<コンパイラ>:<標準ライブラリ>:<layout>[:<
 - `juiz_core/tests/integration/cpp_typed_test.rs`: manifest の型参照と Rust の指紋の一致、C++ どうしの Composite・接続で encode も decode も起きないこと、ABI タグの違う C++・C++ → Rust・Rust → C++ が辞書を通ること、辞書の引数が型で読まれること、すべての型のフィールドの往復、ContainerProcess の型付きの引数。
 - `juiz_idl/tests/idl_test.rs` の `cpp_code`(生成したコードの形、名前空間の循環とキーワードのエラー)。
 
+### 21.6 雛形(cpp-skeleton、#468 で決めたこと)
+
+`juiz-idl -g cpp-skeleton` は、宣言のある名前空間ごとに `<namespace>.skeleton.cpp` を書き出す(既定の `-g` には入れない)。`juiz pkg create -b cpp --idl`(pkg.md §6.5)は `juiz_idl::cpp_skeleton_items` でコンポーネントの名前を指定して作る。
+
+- 中身は `#include "juiz/juiz.h"` と `#include "juiz_idl.h"`(§21.1 のヘッダ)、宣言ごとに `static auto <名前>_manif = ProcessManifest(…)`・関数・`COMPONENT_PROCESS_FACTORY`、`container` は状態の空の `struct <CamelCase>State`・`ContainerManifest`・`<名前>(juiz::CapsuleMap)`・`COMPONENT_CONTAINER_FACTORY`、`container_process` は `.container_type(…)` と `COMPONENT_CONTAINER_PROCESS_FACTORY`。最後に Component のマニフェスト `<コンポーネント名>_component_manifest()` と `DEFINE_COMPONENT_MANIFEST_ENTRY_POINT`(pkg の C++ テンプレートと同じ形)。
+- 関数の本体は引数ごとの `(void)…;` と `throw std::runtime_error("write the body of …");`(cppjuiz のマクロが例外をエラーにする)。
+- 引数: `boolean` → `bool`(`add_bool_arg`)、`int`・`long` → `int32_t`・`int64_t`(`add_int_arg`)、`float`・`double` → `float`・`double`(`add_float_arg`)、`string` → `const std::string&`(`add_string_arg`)、`array<T>` → `const std::vector<juiz::Value>&`(`add_array_arg`)、`map<T>`・`any` → `const juiz::Value&`(`add_object_arg`)、`image` → `const juiz::Image&`(`add_image_arg`)、record → `const T&`、enum → `T`(既定値があれば `add_typed_arg_value<T>(…, 辞書のリテラル)`、無ければ `add_typed_arg<T>`)。`T?`・`bytes` はエラー(§21.2 の関数が受け取れない)。
+- 既定値の無い基本型の引数は型の 0 を既定値にする(cppjuiz の `add_*_arg` は既定値を必ず取る)。`array`・`map`・`any` の既定値は書けない(`add_array_arg`・`add_object_arg` は `[]`・`{}` に決まっている)。
+- 戻り値は `std::optional<T>`。基本型はそのまま、`array`・`map`・`any`・`void` は `juiz::Value`、record・enum は `T` と `.returns<T>()`、`image` は `juiz::Image`。
+- 関数名・引数名が C++ のキーワードならエラー。マクロが作る名前(`<名前>_manif` など)が重なる宣言(Process と Container が同じ名前など)もエラー。
+
 ## 22. Haskell(Step 7 #196 で決めたこと)
 
 ### 22.1 生成器の Haskell 出力
@@ -718,6 +744,15 @@ C++ の ABI タグは `cpp:<コンパイラ>:<標準ライブラリ>:<layout>[:<
 - `examples/haskell/src/TypedComponent.hs`(typed_component_hs。`examples/haskell/build.sh` が `juiz-idl -g haskell` で `juiz_idl/test_package/idl/geometry.jidl` から `examples/haskell/gen/` に型を作る。手で書いた型 `handwritten.Odometry` は `TypedOdometry.hs`)と、関数とマニフェストの型が合わない `BrokenTypedProcess.hs`(broken_typed_process_hs)。
 - `juiz_core/tests/integration/haskell_typed_test.rs`: manifest の型参照と Rust の指紋の一致、`returns` を書かないときの `output_schema`、辞書の引数が型で読まれること、すべての型のフィールドの往復(C++ と同じ結果)、Haskell どうし・Haskell ↔ Rust の受け渡し、Container と ContainerProcess の型付きの引数、型の合わない Process を読み込めないこと。
 - `juiz_idl/tests/idl_test.rs` の `haskell_code`(生成したコードの形、名前の変換と重なりのエラー、名前空間の循環のエラー)。
+
+### 22.4 雛形(haskell-skeleton、#468 で決めたこと)
+
+`juiz-idl -g haskell-skeleton` は、宣言のある名前空間ごとに 1 つのモジュール `<CamelCase の名前空間>Component`(ファイル `<…>Component.hs`、`my_robot.arm` → `MyRobotArmComponent`)を書き出す(既定の `-g` には入れない)。`juiz pkg create -b haskell --idl`(pkg.md §6.5)は `juiz_idl::haskell_skeleton_items` でコンポーネントの名前とモジュール名を指定して作る。
+
+- 中身は、宣言ごとのマニフェスト `<名前>_manifest` と関数 `<名前>_process`(Container は `<名前>_manifest`・`<名前>_create`・状態の型 `<CamelCase>State`)、最後に `juizComponent '<コンポーネント名>_component [ … ]`(pkg の Haskell テンプレートと同じ形)。名前の先頭は小文字にする。関数の名前に `_process` などを付けるので、宣言の名前が Haskell のキーワード・Prelude の名前でも書ける。重なる名前(Process と Container が同じ名前など)はエラー。
+- 型は §22.1 の対応のまま(`int` → `HI.Int32`、`string` → `HT.Text`、`T?` → `Maybe T`、`bytes` → `HB.ByteString` など。`image` は `Image`、`void` は `()`)。record・enum は生成したモジュールを `import qualified` して完全な名前で書く。
+- 引数: record・enum は既定値があれば `addTypedArgValue (Proxy :: Proxy T) … (辞書のリテラル)`、無ければ `addTypedArgNoDefault`。基本型の既定値は `addBoolArg`・`addIntArg`・`addFloatArg`・`addStringArg`、`image` は `addImageArg`、そのほか(既定値の無い基本型を含む)は `addArg "<type_name>" … (辞書のリテラル。無ければ JV.JNull = 既定値なし)`。
+- Process の関数は純粋な関数(`hsjuiz` が `pure` で包む)、ContainerProcess は `IO`。本体は `error "write the body of …"`、引数の変数名は `_` を付けて使わない警告を出さない。Container の状態は空の `data`(JIDL では状態を型付けしない。値を変えるなら `IORef` のフィールドを足す)。
 
 ## 23. CLI・管理画面・OpenAPI・TypeScript(Step 8 #197 で決めたこと)
 
@@ -797,7 +832,7 @@ HTTP ブローカーの `/api-docs/openapi.json`(Swagger UI `/docs` が読むも
 |---|---|
 | avsc・json-schema・processes | その名前空間のファイルを書かない |
 | rust・rust-skeleton | `<Rust のパス>::<残りの名前空間>::<型名>` を参照する(`juiz_std=::juiz_std_types::juiz_std` なら `::juiz_std_types::juiz_std::geometry::Pose2D`)。`juiz_idl.rs` にもその名前空間を入れない。Rust のパスがない extern の型を参照するとエラー |
-| python | パッケージを書かない。参照は今まで通り `import juiz_std.geometry as …` なので、そのパッケージが入っていればよい(pyjuiz の `juiz_std`) |
+| python・python-skeleton | パッケージを書かない。参照は今まで通り `import juiz_std.geometry as …` なので、そのパッケージが入っていればよい(pyjuiz の `juiz_std`) |
 | cpp | ヘッダを書かない。参照は今まで通り `#include "juiz_std.geometry.h"` なので、そのヘッダが include の探し先にあればよい |
 | haskell | モジュールを書かない。参照は今まで通り `import qualified …` なので、そのモジュールを公開しているパッケージに依存すればよい |
 | typescript | ファイルを書かない。参照は `./juiz_std.geometry.js` の相対パスのままなので、同じ出力先に置く |

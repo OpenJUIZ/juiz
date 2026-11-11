@@ -187,6 +187,9 @@ def _add_arg_manifest(manifest, function_name, param):
 
 def _returns_profile(returns):
     """ 戻り値の型注釈から (出力のプロファイル、dataclassかどうかのフラグ) を返す。"""
+    if returns is None or returns is type(None):
+        # -> None (JIDL の void、juiz pkg create --idl の雛形、issue #468)。出力のプロファイルは載せない
+        return (None, False)
     if returns == int:
         return (PrimitiveProfile(type_name='Int', default_value=''), False)
     elif returns == float:

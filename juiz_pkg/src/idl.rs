@@ -1,15 +1,18 @@
-//! `juiz pkg create --idl` (docs/spec/pkg.md §6.5、issue #460)
+//! `juiz pkg create --idl` (docs/spec/pkg.md §6.5、issue #460・#468)
 //!
-//! .jidl の `process` / `container` 宣言から、型付きの関数 (本体は `todo!()`) の Component を作る。
-//! 関数は juiz_idl の Rust の雛形 (datatype.md §18) をそのまま使い、コンポーネントの名前だけ `<name>` にする。
+//! .jidl の `process` / `container` 宣言から、型付きの関数 (本体は未実装) の Component を作る。
+//! 関数は juiz_idl の各言語の雛形 (datatype.md §18・§20.6・§21.6・§22.4) をそのまま使い、
+//! コンポーネントの名前だけ `<name>` にする。
 
 use std::path::{Component, Path};
 
-use juiz_idl::{ExternNamespace, GenerateOptions, IdlModel, ProcessSignature, Signatures};
+use juiz_idl::{
+    ExternNamespace, GenerateOptions, IdlModel, OutputKind, ProcessSignature, Signatures,
+};
 use juiz_types::DataType;
 use serde_json::{Map, Value};
 
-use crate::{Lang, PkgError};
+use crate::{names, Lang, PkgError};
 
 /// juiz_std の型の名前空間 (juiz_std_types のものを使う、datatype.md §24.2)
 const JUIZ_STD: &str = "juiz_std";
@@ -18,6 +21,11 @@ const JUIZ_STD_RUST_PATH: &str = "::juiz_std_types::juiz_std";
 /// .jidl を読んで決めたもの
 #[derive(Debug, Clone)]
 pub struct IdlPlan {
+    pub lang: Lang,
+    /// 作るときに書く型のコード (雛形のディレクトリからの相対パス、中身)。Python の app/python/<a>/<b>/__init__.py
+    pub generated: Vec<(String, String)>,
+    /// Haskell の型のモジュール (.cabal の other-modules。scripts/dev.sh が gen/ に作る)
+    pub hs_modules: Vec<String>,
     /// 雛形の idl/ に写すファイル (雛形のディレクトリからの / 区切りの相対パス、中身)
     pub files: Vec<(String, String)>,
     /// build.rs に書く .jidl (`idl/<ファイル名>`)
@@ -54,12 +62,6 @@ fn is_juiz_std(namespace: &str) -> bool {
 impl IdlPlan {
     /// .jidl を読んで検査する (ファイルはまだ書かない)
     pub fn load(path: &Path, lang: Lang) -> Result<IdlPlan, PkgError> {
-        if lang != Lang::Rust {
-            return Err(PkgError::new(format!(
-                "--idl is only for -b rust for now (the {} skeleton from a .jidl is juiz issue #468)",
-                lang.dir()
-            )));
-        }
         if !path.is_file() {
             return Err(err(path, "no such file"));
         }
@@ -96,16 +98,158 @@ impl IdlPlan {
             }
             files.push((rel, text.replace("\r\n", "\n")));
         }
+        // 型のコード: Python は作るときに app/python/ に書き (juiz_std は pyjuiz のもの)、
+        // C++・Haskell はビルドのときに作るので、ここでは作れるか (名前空間の循環など) だけ確かめる
+        let mut generated = Vec::new();
+        let mut hs_modules = Vec::new();
+        match lang {
+            Lang::Rust => {}
+            Lang::Python => {
+                let options = GenerateOptions {
+                    externs: vec![ExternNamespace {
+                        namespace: JUIZ_STD.to_owned(),
+                        rust_path: None,
+                    }],
+                };
+                let files = juiz_idl::generate_with(&model, &[OutputKind::Python], &options)
+                    .map_err(|e| err(path, e))?;
+                for f in files {
+                    generated.push((
+                        format!("app/python/{}", f.path.to_string_lossy().replace('\\', "/")),
+                        f.contents,
+                    ));
+                }
+            }
+            Lang::Cpp => {
+                juiz_idl::generate(&model, &[OutputKind::Cpp]).map_err(|e| err(path, e))?;
+            }
+            Lang::Haskell => {
+                let files = juiz_idl::generate(&model, &[OutputKind::Haskell])
+                    .map_err(|e| err(path, e))?;
+                for f in files {
+                    let p = f.path.to_string_lossy().replace('\\', "/");
+                    if let Some(m) = p.strip_suffix(".hs") {
+                        hs_modules.push(m.replace('/', "."));
+                    }
+                }
+            }
+        }
         let plan = IdlPlan {
+            lang,
+            generated,
+            hs_modules,
             files,
             main,
             signatures,
             uses_juiz_std,
             types: model.types.clone(),
         };
-        // 生成できるかを先に確かめる (Rust のキーワードの名前など)
-        plan.lib_rs("x").map_err(|e| err(path, e))?;
+        // 生成できるかを先に確かめる (その言語のキーワードの名前、使えない型など)
+        plan.source("x").map_err(|e| err(path, e))?;
         Ok(plan)
+    }
+
+    /// 雛形の Component のソース (雛形のディレクトリからの相対パス、中身)。
+    /// juiz_idl の雛形の出力をそのまま入れるので、テンプレートの置換は通さない
+    pub fn source(&self, name: &str) -> Result<(String, String), PkgError> {
+        let e = |e: juiz_idl::IdlError| PkgError::new(e.to_string());
+        Ok(match self.lang {
+            Lang::Rust => ("src/lib.rs".to_owned(), self.lib_rs(name)?),
+            Lang::Python => {
+                let items = juiz_idl::python_skeleton_items(&self.signatures).map_err(e)?;
+                (
+                    format!("app/python/{name}.py"),
+                    format!(
+                        "\"\"\"{name}: a juiz component made from {main} (juiz pkg create --idl).\n\n\
+                         Write the body of each function (replace the `raise NotImplementedError(...)` lines).\n\
+                         The arguments and the return values are typed by the .jidl. The record and enum types\n\
+                         are in the packages next to this file, generated from {main}: when you change {main},\n\
+                         generate them again (see README.md) and change the functions here to match.\n\
+                         \"\"\"\n{items}",
+                        main = self.main
+                    ),
+                )
+            }
+            Lang::Cpp => {
+                let items = juiz_idl::cpp_skeleton_items(&self.signatures, name).map_err(e)?;
+                (
+                    format!("src/{name}.cpp"),
+                    format!(
+                        "// {name}: a juiz component made from {main} (juiz pkg create --idl).\n\
+                         //\n\
+                         // Write the body of each function (replace the `(void)…;` and `throw` lines).\n\
+                         // The arguments and the return values are typed by the .jidl: the record and enum types are\n\
+                         // in juiz_idl.h, which CMake generates from {main} (juiz_generate_types in CMakeLists.txt).\n\
+                         // When you change {main}, change the functions and the manifests here to match.\n\
+                         \n{items}",
+                        main = self.main
+                    ),
+                )
+            }
+            Lang::Haskell => {
+                let module = names::camel(name);
+                if let Some(m) = self.hs_modules.iter().find(|m| **m == module) {
+                    return Err(PkgError::new(format!(
+                        "the Haskell module of a namespace of the .jidl is {m}, the same as the module of the component; use another <name> or namespace"
+                    )));
+                }
+                let doc = format!(
+                    "-- | {name}: a juiz component made from {main} (juiz pkg create --idl).\n\
+                     --\n\
+                     -- Write the body of each function (replace the @error \"write the body of …\"@ lines).\n\
+                     -- The arguments and the return values are typed by the .jidl: the record and enum types are in\n\
+                     -- the modules that scripts/dev.sh generates from {main} in gen/. When you change {main},\n\
+                     -- change the functions and the manifests here (and other-modules in the .cabal) to match.\n",
+                    main = self.main
+                );
+                let text = juiz_idl::haskell_skeleton_items(&self.signatures, name, &module, &doc)
+                    .map_err(e)?;
+                (format!("src/{module}.hs"), text)
+            }
+        })
+    }
+
+    /// C++ の juiz_generate_types の DEPENDS (渡した .jidl のほかの写し、空白区切り)。無ければ None
+    pub fn depends(&self) -> Option<String> {
+        let v: Vec<&str> = self
+            .files
+            .iter()
+            .map(|(p, _)| p.as_str())
+            .filter(|p| *p != self.main)
+            .collect();
+        (!v.is_empty()).then(|| v.join(" "))
+    }
+
+    /// Haskell の .cabal の other-modules に足す型のモジュール (`, A.B` を並べたもの)
+    pub fn hs_other_modules(&self) -> String {
+        self.hs_modules
+            .iter()
+            .map(|m| format!("\n                    , {m}"))
+            .collect()
+    }
+
+    /// 本体を書く関数のあるファイル (生成後の表示の「本体を書く」行)
+    pub fn source_path(&self, name: &str) -> String {
+        match self.lang {
+            Lang::Rust => "src/lib.rs".to_owned(),
+            Lang::Python => format!("app/python/{name}.py"),
+            Lang::Cpp => format!("src/{name}.cpp"),
+            Lang::Haskell => format!("src/{}.hs", names::camel(name)),
+        }
+    }
+
+    /// 生成後の表示の「本体を書く」行
+    pub fn write_bodies_line(&self, name: &str) -> String {
+        let what = match self.lang {
+            Lang::Rust => "todo!()",
+            Lang::Python => "raise NotImplementedError",
+            Lang::Cpp => "throw std::runtime_error",
+            Lang::Haskell => "error \"…\"",
+        };
+        format!(
+            "# write the bodies of the functions ({what}) in {}, then",
+            self.source_path(name)
+        )
     }
 
     /// 宣言のある名前空間は 1 つだけ (1 雛形 = 1 Component、pkg.md §4)
@@ -414,11 +558,11 @@ record Goal { juiz_std.geometry.Pose2D pose; double tolerance = 0.1; Mode mode; 
     #[test]
     fn errors() {
         let d = temp("errors");
-        // Rust のほかはまだ
+        // 4 つの言語で読める
         let p = write_jidl(&d, "a.jidl", "namespace a; process long f(long x);");
-        let e = IdlPlan::load(&p, Lang::Python).unwrap_err().to_string();
-        assert!(e.contains("-b rust"), "{e}");
-        assert!(IdlPlan::load(&p, Lang::Rust).is_ok());
+        for lang in [Lang::Rust, Lang::Python, Lang::Cpp, Lang::Haskell] {
+            assert!(IdlPlan::load(&p, lang).is_ok(), "{lang:?}");
+        }
         // 無いファイル・文法の誤り
         assert!(IdlPlan::load(&d.join("none.jidl"), Lang::Rust).unwrap_err().to_string().contains("no such file"));
         let p = write_jidl(&d, "bad.jidl", "namespace a; process long f(");
@@ -435,9 +579,19 @@ record Goal { juiz_std.geometry.Pose2D pose; double tolerance = 0.1; Mode mode; 
         let p = write_jidl(&d.join("sub"), "in.jidl", "namespace i; import idl \"../outside.jidl\"; process o.O f();");
         let e = IdlPlan::load(&p, Lang::Rust).unwrap_err().to_string();
         assert!(e.contains("not in the directory"), "{e}");
-        // Rust のキーワード
+        // その言語のキーワード (Haskell は関数名に _process などを付けるので書ける)
         let p = write_jidl(&d, "kw.jidl", "namespace a; process long `loop`(long x);");
         assert!(IdlPlan::load(&p, Lang::Rust).unwrap_err().to_string().contains("keyword"));
+        let p = write_jidl(&d, "kwpy.jidl", "namespace a; process long `lambda`(long x);");
+        assert!(IdlPlan::load(&p, Lang::Python).unwrap_err().to_string().contains("Python keyword"));
+        let p = write_jidl(&d, "kwcpp.jidl", "namespace a; process long `delete`(long x);");
+        assert!(IdlPlan::load(&p, Lang::Cpp).unwrap_err().to_string().contains("C++ keyword"));
+        assert!(IdlPlan::load(&p, Lang::Haskell).is_ok());
+        // Python: 既定値のある引数の後ろに、既定値の無い record の引数は書けない
+        let p = write_jidl(&d, "order.jidl", "namespace o; record R { long x; } process long f(long a = 1, o.R r);");
+        let e = IdlPlan::load(&p, Lang::Python).unwrap_err().to_string();
+        assert!(e.contains("argument r has no default but comes after a"), "{e}");
+        assert!(IdlPlan::load(&p, Lang::Cpp).is_ok());
         let _ = std::fs::remove_dir_all(&d);
     }
 
