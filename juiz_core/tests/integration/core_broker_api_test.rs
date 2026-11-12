@@ -41,6 +41,16 @@ fn check_system(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     Ok(())
 }
 
+/// arg1 の拘束値 (profile の value)
+fn bound_arg1(bp: &mut dyn BrokerProxy, id: &ProcessIdentifier) -> JuizResult<Option<Value>> {
+    Ok(bp
+        .any_process_profile_full(id)?
+        .arguments
+        .iter()
+        .find(|a| a.name == "arg1")
+        .and_then(|a| a.value.clone()))
+}
+
 fn check_processes(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     let ids = bp.process_list(false, None)?;
     for (name, type_name) in PROCESSES {
@@ -70,6 +80,18 @@ fn check_processes(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
         // 2回目以降の p_apply も反映される
         bp.process_p_apply(id, "arg1", jvalue!(40).into())?;
         assert_eq!(int_of(bp.process_execute(id)), 41, "{name}");
+        // call_partial は省いた引数を拘束値で補い、渡した値で拘束値を書き換えない (issue #83)
+        assert_eq!(
+            int_of(bp.process_call_partial(id, CapsuleMap::new())),
+            41,
+            "{name}"
+        );
+        assert_eq!(
+            int_of(bp.any_process_call_partial(id, args("arg1", 3))),
+            4,
+            "{name}"
+        );
+        assert_eq!(bound_arg1(bp, id)?, Some(jvalue!(40)), "{name}");
         // 存在しない引数は設定できない
         assert!(bp
             .process_p_apply(id, "no_such_arg", jvalue!(1).into())
@@ -109,6 +131,20 @@ fn check_containers(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
         );
         assert!(
             try_int_of(&bp.container_process_execute(get)?).is_some(),
+            "{container_name}"
+        );
+        // call_partial は省いた引数を拘束値で補う (issue #83)
+        let before2 = int_of(bp.container_process_call(get, CapsuleMap::new()));
+        bp.container_process_call_partial(add, CapsuleMap::new())?;
+        assert_eq!(
+            int_of(bp.container_process_call(get, CapsuleMap::new())),
+            before2 + 2,
+            "{container_name}"
+        );
+        bp.any_process_call_partial(add, args(arg_name, 5))?;
+        assert_eq!(
+            int_of(bp.container_process_call(get, CapsuleMap::new())),
+            before2 + 7,
             "{container_name}"
         );
         // get には引数がない

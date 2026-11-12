@@ -50,6 +50,12 @@ fn check_process_call_execute(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
         assert_eq!(int_of(bp.process_call(id, args("arg1", 10))), 11, "{name}");
         bp.process_p_apply(id, "arg1", jvalue!(2).into())?;
         assert_eq!(int_of(bp.process_execute(id)), 3, "{name}");
+        // call_partial は省いた引数を拘束値で補う (issue #83)
+        assert_eq!(
+            int_of(bp.process_call_partial(id, CapsuleMap::new())),
+            3,
+            "{name}"
+        );
         let spec = bp.process_openapi_spec(id)?;
         assert!(spec.is_object(), "{name}: {spec:?}");
     }

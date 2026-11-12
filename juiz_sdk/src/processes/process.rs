@@ -15,6 +15,18 @@ pub type ProcessBodyFunctionTrait = dyn Fn(CapsuleMap) -> JuizResult<Capsule>;
 pub trait Process: Send + Sync + mopa::Any + std::fmt::Debug + 'static {
     fn call(&self, _args: RequestMap) -> JuizResult<ResponsePtr>;
 
+    /// 一部の引数だけを渡して呼び出す (issue #83)。
+    ///
+    /// 渡さなかった引数は inlet の今の値 (p_apply や push で保存された値) で補い、
+    /// それも無ければ manifest の既定値で補う。call と同じく要求応答で、
+    /// inlet のバッファは書き換えず、結果を下流へ push せず、Pull 型の接続も pull しない。
+    fn call_partial(&self, _args: RequestMap) -> JuizResult<ResponsePtr> {
+        Err(crate::anyhow::anyhow!(
+            "call_partial is not supported by Process({})",
+            self.identifier()
+        ))
+    }
+
     fn is_updated(&self) -> JuizResult<bool>;
 
     //fn is_updated_exclude(& self, inlet_name: &str) -> JuizResult<bool>;

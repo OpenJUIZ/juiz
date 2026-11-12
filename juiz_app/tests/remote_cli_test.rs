@@ -143,6 +143,11 @@ fn process(client: &Client, h: &str, inc0: &str) {
     // -p が無ければ結果は出さない
     let out = client.run(&["process", "call", inc0, r#"{"arg1": 2}"#]);
     assert!(!out.contains("Value("), "{out}");
+    // call-partial は省いた引数を拘束値か既定値で補う (issue #83)
+    let out = client.run(&["process", "call-partial", inc0, r#"{"arg1": 4}"#, "-p"]);
+    assert!(out.contains("Value(5)"), "{out}");
+    let out = client.run(&["process", "call-partial", inc0, "-p"]);
+    assert!(out.contains("Value("), "{out}");
 
     // 無い Process はエラーを表示する
     let missing = format!("{h}/process/zz::increment_process");
@@ -213,6 +218,14 @@ fn container_process(client: &Client, h: &str) {
     assert!(out.contains("Value(5)"), "{out}");
     let out = client.run(&["container-process", "call", &cget, "{}"]);
     assert!(!out.contains("Value("), "{out}");
+    let out = client.run(&[
+        "container-process",
+        "call-partial",
+        &cinc,
+        r#"{"arg1": 1}"#,
+        "-p",
+    ]);
+    assert!(out.contains("Value(6)"), "{out}");
 
     // 無い ContainerProcess はエラー (container-process は process と違い、終了コードも 1 になる)
     let missing = format!("{h}/container_process/zz::example_container_get:c0");

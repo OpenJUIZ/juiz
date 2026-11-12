@@ -50,6 +50,19 @@ fn check_processes(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
         );
         bp.process_p_apply(id, "arg1", jvalue!(1).into())?;
         assert!(try_int_of(&bp.process_execute(id)?).is_some(), "{name}");
+        // call_partial は HTTP でも省いた引数を拘束値で補う (issue #83)
+        bp.process_p_apply(id, "arg1", jvalue!(30).into())?;
+        assert_eq!(
+            int_of(bp.process_call_partial(id, CapsuleMap::new())),
+            31,
+            "{name}"
+        );
+        assert_eq!(
+            int_of(bp.any_process_call_partial(id, args("arg1", 3))),
+            4,
+            "{name}"
+        );
+        assert_eq!(int_of(bp.process_execute(id)), 31, "{name}");
     }
     Ok(())
 }
@@ -71,6 +84,13 @@ fn check_containers(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
             "{container_name}"
         );
         bp.container_process_p_apply(add, arg_name, jvalue!(1).into())?;
+        let before2 = int_of(bp.container_process_call(get, CapsuleMap::new()));
+        bp.container_process_call_partial(add, CapsuleMap::new())?;
+        assert_eq!(
+            int_of(bp.any_process_call(get, CapsuleMap::new())),
+            before2 + 1,
+            "{container_name}"
+        );
         assert!(
             try_int_of(&bp.container_process_execute(add)?).is_some(),
             "{container_name}"

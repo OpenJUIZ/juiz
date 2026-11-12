@@ -60,6 +60,22 @@ pub(crate) enum ProcSubCommands {
         #[arg(short = 'p', long, help = "Print Output")]
         print: bool,
     },
+
+    /// Call a process with some of the arguments. The others are taken from p_apply / push (or the defaults)
+    #[clap(arg_required_else_help = false)]
+    CallPartial {
+        #[arg(help = "ID of process")]
+        identifier: String,
+
+        #[arg(
+            default_value = "{}",
+            help = "Arguments to pass (the others are not changed)"
+        )]
+        argument: String,
+
+        #[arg(short = 'p', long, help = "Print Output")]
+        print: bool,
+    },
 }
 
 pub(crate) fn on_process(
@@ -129,6 +145,18 @@ pub(crate) fn on_process_inner(
             .add_systemproxy_by_id(Some(server.clone()))?
             .run_and_do_once(|system| {
                 on_process_call(system, identifier, argument, fileout, print)
+            }),
+        ProcSubCommands::CallPartial {
+            identifier,
+            argument,
+            print,
+        } => System::new(manifest)?
+            .set_working_dir(working_dir)
+            .start_http_broker(args.start_http_broker)
+            .setup()?
+            .add_systemproxy_by_id(Some(server.clone()))?
+            .run_and_do_once(|system| {
+                crate::process::on_any_process_call_partial(system, identifier, argument, print)
             }),
     }
 }
@@ -267,6 +295,31 @@ fn on_process_call(
             let argv = load_str(arg.as_str())?;
             // println!("Value is {argv:?}");
             let value = ps.lock()?.call(argv.try_into()?)?;
+            if print {
+                println!("{value}");
+            }
+        }
+        Err(e) => println!("Error: {e:?}"),
+    }
+    Ok(())
+}
+
+/// 一部の引数だけで呼び出す (issue #83)。省いた引数は p_apply・push 済みの値か既定値で補われる
+pub(crate) fn on_any_process_call_partial(
+    system: &mut System,
+    id: String,
+    arg: String,
+    print: bool,
+) -> JuizResult<()> {
+    let p = system
+        .core_broker()
+        .lock_mut()?
+        .worker_mut()
+        .any_process_from_identifier(&id.try_into()?, true);
+    match p {
+        Ok(ps) => {
+            let argv = load_str(arg.as_str())?;
+            let value = ps.lock()?.call_partial(argv.try_into()?)?;
             if print {
                 println!("{value}");
             }
