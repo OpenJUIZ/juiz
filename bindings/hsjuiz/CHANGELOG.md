@@ -3,6 +3,10 @@
 hsjuiz の版は juiz(crates.io の juiz_app、PyPI の pyjuiz / juiz-cli)と同じ番号にそろえています。
 使う libjuiz_sdk も同じ版にしてください。
 
+## 0.2.7
+
+- hsjuiz の API は 0.2.6 から変えていない(juiz pkg create --idl の Haskell 対応 #468 と、Hackage 方式の導入手順 #360 に版をそろえた)。
+
 ## 0.2.6
 
 - hsjuiz の API は 0.2.5 から変えていない(juiz 本体の雛形生成コマンド juiz pkg create / add #455 に版をそろえた)。
