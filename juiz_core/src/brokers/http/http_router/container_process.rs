@@ -61,6 +61,22 @@ pub fn list_dummy(_query: Query<ListQuery>) {}
 )]
 pub fn call_dummy(_query: Query<IdentifierQuery>, Json(_body): Json<Value>) {}
 
+/// 一部の引数だけで呼び出す。省いた引数は p_apply・push 済みの値、それも無ければ既定値で補う (issue #83)
+#[allow(unused)]
+#[utoipa::path(
+    patch,
+    path = "/api/container_process/call_partial",
+    params(
+        IdentifierQuery
+    ),
+    request_body = Value,
+    responses(
+        (status = 200, description = "System")
+    ),
+    tag = "universal.container_process",
+)]
+pub fn call_partial_dummy(_query: Query<IdentifierQuery>, Json(_body): Json<Value>) {}
+
 #[allow(unused)]
 #[utoipa::path(
     patch,
@@ -112,6 +128,7 @@ pub fn delete_dummy(_query: Query<IdentifierQuery>) {}
         openapi_spec_handler_dummy,
         list_dummy,
         call_dummy,
+        call_partial_dummy,
         execute_dummy,
         delete_dummy,
         p_apply_dummy,

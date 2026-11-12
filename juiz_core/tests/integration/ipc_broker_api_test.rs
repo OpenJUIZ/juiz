@@ -205,6 +205,9 @@ fn check_processes(bp: &mut dyn BrokerProxy, ipc_name: &str) -> JuizResult<()> {
     assert_eq!(bp.process_profile_full(inc0)?.name, "inc0");
     bp.process_p_apply(inc0, "arg1", jvalue!(1).into())?;
     assert_eq!(int_of(bp.process_execute(inc0)), 2);
+    // call_partial は省いた引数を拘束値で補う (issue #83)
+    assert_eq!(int_of(bp.process_call_partial(inc0, CapsuleMap::new())), 2);
+    assert_eq!(int_of(bp.process_call_partial(inc0, args("arg1", 4))), 5);
     assert_eq!(int_of(bp.process_push_by(inc0, "arg1".to_owned(), jvalue!(7).into())), 8);
     // HTTP と同じく、結果の option は空 (#277)
     assert_no_options(bp.process_call(inc0, args("arg1", 1)));

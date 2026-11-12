@@ -405,6 +405,14 @@ impl ProcessBrokerProxy for MessengerBrokerProxy {
         self.update_by_id("process", "call", args, &id.to_string())
     }
 
+    fn process_call_partial(
+        &self,
+        id: &ProcessIdentifier,
+        args: CapsuleMap,
+    ) -> JuizResult<CapsulePtr> {
+        self.update_by_id("process", "call_partial", args, &id.to_string())
+    }
+
     fn process_execute(&self, id: &ProcessIdentifier) -> JuizResult<CapsulePtr> {
         self.update_by_id("process", "execute", CapsuleMap::new(), &id.to_string())
     }
@@ -624,6 +632,14 @@ impl ContainerProcessBrokerProxy for MessengerBrokerProxy {
         args: CapsuleMap,
     ) -> JuizResult<CapsulePtr> {
         self.update_by_id("container_process", "call", args, &id.to_string())
+    }
+
+    fn container_process_call_partial(
+        &self,
+        id: &ProcessIdentifier,
+        args: CapsuleMap,
+    ) -> JuizResult<CapsulePtr> {
+        self.update_by_id("container_process", "call_partial", args, &id.to_string())
     }
 
     fn container_process_execute(&self, id: &ProcessIdentifier) -> JuizResult<CapsulePtr> {

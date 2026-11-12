@@ -264,6 +264,20 @@ impl ContainerProcessBrokerProxy for CRUDBrokerProxyHolder {
         )
     }
 
+    fn container_process_call_partial(
+        &self,
+        id: &ProcessIdentifier,
+        args: CapsuleMap,
+    ) -> JuizResult<CapsulePtr> {
+        log::trace!("【呼出】container_process_call_partial({id}, {args})");
+        self.broker.update(
+            "container_process",
+            "call_partial",
+            args,
+            param(&[("identifier", id.to_string().as_str())]),
+        )
+    }
+
     fn container_process_execute(&self, id: &ProcessIdentifier) -> JuizResult<CapsulePtr> {
         log::trace!("【呼出】container_process_execute({id})");
         self.broker.update(
@@ -429,6 +443,20 @@ impl ProcessBrokerProxy for CRUDBrokerProxyHolder {
         self.broker.update(
             "process",
             "call",
+            args,
+            param(&[("identifier", id_str.as_str())]),
+        )
+    }
+
+    fn process_call_partial(
+        &self,
+        id: &ProcessIdentifier,
+        args: CapsuleMap,
+    ) -> JuizResult<CapsulePtr> {
+        let id_str: String = id.clone().into();
+        self.broker.update(
+            "process",
+            "call_partial",
             args,
             param(&[("identifier", id_str.as_str())]),
         )

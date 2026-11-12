@@ -77,6 +77,13 @@ impl Inlet {
             .and_then(|c| c.lock_as_value(|v| v.clone()).ok())
     }
 
+    /// 今バッファにある値 (p_apply で拘束した値か、push で届いた値)。
+    ///
+    /// current_value と違い画像なども返す。pull せず、updated フラグにも触らない (issue #83 の call_partial 用)
+    pub fn buffered_value(&self) -> Option<CapsulePtr> {
+        self.buffer.borrow().clone()
+    }
+
     pub fn is_updated(&self) -> JuizResult<bool> {
         if self.updated.get() {
             return Ok(true);

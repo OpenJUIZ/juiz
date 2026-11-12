@@ -114,6 +114,16 @@ pub trait ProcessBrokerProxy {
     /// * args: 引数
     fn process_call(&self, id: &ProcessIdentifier, args: CapsuleMap) -> JuizResult<CapsulePtr>;
 
+    /// 一部の引数だけでプロセスを呼び出す。省いた引数は p_apply・push 済みの値で補う (issue #83)
+    ///
+    /// * id: プロセスのID
+    /// * args: 渡す引数 (一部でよい)
+    fn process_call_partial(
+        &self,
+        id: &ProcessIdentifier,
+        args: CapsuleMap,
+    ) -> JuizResult<CapsulePtr>;
+
     /// プロセスをExecuteする
     ///
     /// * id: プロセスのID
@@ -201,6 +211,13 @@ pub trait ContainerProcessBrokerProxy {
         &self,
         id: &ProcessIdentifier,
         _args: CapsuleMap,
+    ) -> JuizResult<CapsulePtr>;
+
+    /// 一部の引数だけで呼び出す。省いた引数は p_apply・push 済みの値で補う (issue #83)
+    fn container_process_call_partial(
+        &self,
+        id: &ProcessIdentifier,
+        args: CapsuleMap,
     ) -> JuizResult<CapsulePtr>;
 
     fn container_process_execute(&self, id: &ProcessIdentifier) -> JuizResult<CapsulePtr>;
@@ -507,5 +524,16 @@ pub trait BrokerProxy:
             return self.process_call(id, args);
         }
         self.container_process_call(id, args)
+    }
+
+    fn any_process_call_partial(
+        &self,
+        id: &ProcessIdentifier,
+        args: CapsuleMap,
+    ) -> JuizResult<CapsulePtr> {
+        if id.class_name == "process" {
+            return self.process_call_partial(id, args);
+        }
+        self.container_process_call_partial(id, args)
     }
 }

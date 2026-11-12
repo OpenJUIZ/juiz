@@ -117,6 +117,19 @@ pub(crate) fn create_update_callbacks() -> CallbackContainerType {
             .try_into()?;
         cb.lock()?.process_call(&id, args)
     });
+    proc_cbs.insert("call_partial", |cb, args| {
+        log::debug!("[UPDATE] process/call_partial called");
+        let id: ProcessIdentifier = args
+            .get_param("identifier")
+            .ok_or_else(|| {
+                anyhow!(JuizError::CRUDBrokerCanNotParameterFunctionError {
+                    key_name: "identifier".to_owned()
+                })
+            })?
+            .as_str()
+            .try_into()?;
+        cb.lock()?.process_call_partial(&id, args)
+    });
     proc_cbs.insert("execute", |cb, args| {
         log::debug!("[UPDATE] process/execute called");
         let id: ProcessIdentifier = args

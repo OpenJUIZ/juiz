@@ -82,6 +82,11 @@ impl Process for ProcessProxy {
             })
     }
 
+    fn call_partial(&self, args: RequestMap) -> JuizResult<ResponsePtr> {
+        log::trace!("ProcessProxy({})::call_partial() called", self.identifier());
+        juiz_borrow(&self.broker_proxy)?.any_process_call_partial(&self.identifier(), args)
+    }
+
     fn is_updated(&self) -> JuizResult<bool> {
         todo!()
     }

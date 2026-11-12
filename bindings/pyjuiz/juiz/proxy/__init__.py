@@ -641,11 +641,27 @@ class ProcessProxy(ObjectProxy):
     def __call__(self, *args, **kwargs):
         return self.call(*args, **kwargs)
 
+    def call_partial(self, body=None, **kwargs):
+        """一部の引数だけを名前で渡して呼び出す。渡さなかった引数は p_apply・push 済みの値
+        (無ければ既定値) を使う。p_apply 済みの値は書き換えず、結果は下流へ流れない (issue #83)"""
+        return _call_partial(self, body, kwargs, self.profile_full())
+
     def execute(self):
         return self.system.crud.update(self._cn, 'execute', {}, {'identifier': self._id})
     
     def p_apply(self, arg_name: str, value: dict): 
         return self.system.crud.update(self._cn, 'p_apply', {'arg_name': arg_name, 'value': _to_value(value)}, {'identifier': self._id})
+
+
+def _call_partial(proxy, body, kwargs, profile):
+    """一部の引数だけで呼び出す (issue #83)。省いた引数は p_apply・push 済みの値か既定値で補われる"""
+    if body is None:
+        body = {}
+    else:
+        body = {k: _to_value(v) for k, v in body.items()}
+    for k, v in kwargs.items():
+        body[k] = _to_value(v)
+    return proxy.system.crud.update(proxy._cn, 'call_partial', body, {'identifier': proxy._id}, profile=profile)
 
 class ContainerProxy(ObjectProxy):
         
@@ -753,6 +769,11 @@ class ContainerProcessProxy(ObjectProxy):
 
     def __call__(self, *args, **kwargs):
         return self.call(*args, **kwargs)
+
+    def call_partial(self, body=None, **kwargs):
+        """一部の引数だけを名前で渡して呼び出す。渡さなかった引数は p_apply・push 済みの値
+        (無ければ既定値) を使う。p_apply 済みの値は書き換えず、結果は下流へ流れない (issue #83)"""
+        return _call_partial(self, body, kwargs, self.profile_full())
     
     def execute(self):
         return self.system.crud.update(self._cn, 'execute', {}, {'identifier': self._id}, profile=self._profile)

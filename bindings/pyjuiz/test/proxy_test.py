@@ -22,6 +22,11 @@ def check_process(port):
     assert inc(20) == 21
     inc.p_apply("arg1", 1)
     assert inc.execute() == 2
+    # call_partial は省いた引数を p_apply 済みの値で補い、拘束値は書き換えない (issue #83)
+    assert inc.call_partial() == 2
+    assert inc.call_partial(arg1=5) == 6
+    assert inc.call_partial({"arg1": 7}) == 8
+    assert inc.execute() == 2
 
     try:
         ProcessProxy("nothing0", "localhost", port)
@@ -73,6 +78,8 @@ def check_container(port):
     assert c0.c0get() == before + 4
     c0.c0inc.p_apply("arg1", 1)
     assert c0.c0inc.execute() == before + 5
+    assert c0.c0inc.call_partial() == before + 6
+    assert c0.c0get() == before + 6
 
 
 def check_composite(port):

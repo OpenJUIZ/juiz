@@ -278,6 +278,27 @@ impl Process for ProcessImpl {
             })
     }
 
+    /// 渡されなかった引数を inlet のバッファの値で補って call する (issue #83)。
+    ///
+    /// バッファにも無い引数は call の中で manifest の既定値で補われる (issue #265)。
+    /// バッファは書き換えず、Pull 型の接続も pull せず、結果は outlet に書かず下流へも push しない。
+    fn call_partial(&self, args: RequestMap) -> JuizResult<ResponsePtr> {
+        log::trace!(
+            "【呼出】ProcessImpl({:})::call_partial({args})",
+            self.identifier()
+        );
+        let mut args = args;
+        for inlet in self.inlets.iter() {
+            if args.get(inlet.name()).is_ok() {
+                continue;
+            }
+            if let Some(v) = inlet.buffered_value() {
+                args.insert(inlet.name().clone(), v);
+            }
+        }
+        self.call(args)
+    }
+
     fn is_updated(&self) -> JuizResult<bool> {
         log::trace!("【呼出】ProcessImpl({})::is_updated()", self.identifier());
         if self.outlet.memo().is_empty()? {

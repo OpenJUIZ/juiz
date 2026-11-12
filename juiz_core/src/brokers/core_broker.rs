@@ -858,6 +858,31 @@ impl CoreBroker {
 }
 
 impl ProcessBrokerProxy for CoreBroker {
+    fn process_call_partial(
+        &self,
+        id: &ProcessIdentifier,
+        args: CapsuleMap,
+    ) -> JuizResult<CapsulePtr> {
+        log::trace!("【呼出】process_call_partial({id:}, {args})");
+        if id.broker_type_name == "core" {
+            let p = self
+                .worker()
+                .store()
+                .processes
+                .get(&id.to_string())?
+                .clone();
+            // 型検査は渡された引数だけ。補う値は p_apply・push のときに検査済み
+            self.check_call_types(&p, &args)?;
+            let result = p.lock()?.call_partial(args);
+            result
+        } else {
+            self.worker()
+                .process_proxy_from_identifier(id, true)?
+                .lock()?
+                .call_partial(args)
+        }
+    }
+
     fn process_call(&self, id: &ProcessIdentifier, args: CapsuleMap) -> JuizResult<CapsulePtr> {
         log::trace!("【呼出】process_call({id:}, {args})");
         if id.broker_type_name == "core" {
@@ -1259,6 +1284,30 @@ impl ContainerProcessBrokerProxy for CoreBroker {
                     log::error!("【エラー】container_process_call(id={id:})。エラーは ({e})");
                     Err(e)
                 })
+        }
+    }
+
+    fn container_process_call_partial(
+        &self,
+        id: &ProcessIdentifier,
+        args: CapsuleMap,
+    ) -> JuizResult<CapsulePtr> {
+        log::trace!("【呼出】container_process_call_partial(id={id:}, {args})");
+        if id.broker_type_name == "core" {
+            let p = self
+                .worker()
+                .store()
+                .container_processes
+                .get(&id.to_string())?
+                .clone();
+            self.check_call_types(&p, &args)?;
+            let result = p.lock()?.call_partial(args);
+            result
+        } else {
+            self.worker()
+                .process_proxy_from_identifier(id, true)?
+                .lock()?
+                .call_partial(args)
         }
     }
 

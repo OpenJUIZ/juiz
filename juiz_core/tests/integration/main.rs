@@ -15,6 +15,7 @@
 //! Python のプラグインなどは tests/python と tests/confs から読む(パスは変わらない)。
 
 mod broker_api;
+mod call_partial_test;
 mod common;
 
 mod composite_api_test;
