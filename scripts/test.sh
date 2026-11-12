@@ -65,6 +65,12 @@ esac
 RUSTC="$fake_rustc" cargo build --target-dir target/fake-rustc \
     -p increment_process -p example_container -p example_container_increment
 
+# ブローカーのプラグインを juiz_core の feature が違うホストで読むテスト (issue #450) が、
+# feature なしの juiz_core で作った qmp のプラグインを読む。ワークスペースの cargo build では
+# feature がそろってしまうので、-p juiz_qmp_broker だけを別の target-dir でビルドする
+step "juiz_core の feature なしで qmp のプラグインを作る (target/qmp-plugin-alone)"
+cargo build --target-dir target/qmp-plugin-alone -p juiz_qmp_broker
+
 step "C++ の例をビルドする (examples/cpp)"
 if ! command -v cmake >/dev/null 2>&1; then
     echo "error: cmake が見つかりません。C++ の例のビルドに cmake と C++ コンパイラが必要です。" >&2

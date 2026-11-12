@@ -17,6 +17,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 
 juiz_core = { workspace = true }
+juiz_sdk = { workspace = true }
 
 serde_json = { workspace = true }
 
@@ -30,5 +31,4 @@ tracing = { version = "0.1.10", default-features = false, features = ["std"] }
 tracing-futures = { version = "0.2.0", default-features = false, features = ["std-future"] }
 
 [dev-dependencies]
-juiz_sdk = { workspace = true }
 uuid = { workspace = true }

@@ -117,6 +117,13 @@ pub unsafe extern "Rust" fn broker_factory(
     qmp_broker_factory(core_broker)
 }
 
+/// プラグインをビルドしたコンパイラと juiz_sdk の版を返す。juiz_core は broker_factory を呼ぶ前に
+/// これを呼び、ホストと食い違えば読み込まない (juiz_sdk::build_info、issue #450)
+#[no_mangle]
+pub extern "C" fn broker_factory_build_info() -> *const std::os::raw::c_char {
+    juiz_sdk::build_info::build_info_ptr()
+}
+
 #[no_mangle]
 pub unsafe extern "Rust" fn broker_proxy_factory() -> JuizResult<Arc<Mutex<dyn BrokerProxyFactory>>>
 {

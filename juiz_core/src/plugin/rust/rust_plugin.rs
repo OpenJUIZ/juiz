@@ -307,6 +307,7 @@ impl RustPlugin {
             'a,
             unsafe extern "Rust" fn(CoreBrokerPtr) -> JuizResult<Arc<Mutex<dyn BrokerFactory>>>,
         >;
+        self.check_build_info("broker_factory")?;
         let symbol_bf = self.load_symbol::<BrokerFactorySymbolType>(b"broker_factory")?;
         unsafe { (symbol_bf)(system.core_broker().clone()) }
     }

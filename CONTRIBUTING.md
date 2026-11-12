@@ -37,7 +37,7 @@ cargo install --path juiz_app --no-default-features --features embed-python,qmp-
 ### QUIC (qmp) ブローカー
 
 QUIC (qmp) ブローカー(`brokers/qmp_broker`、クレート `juiz_qmp_broker`)は juiz_app の feature `qmp-broker`(既定でオン)で `juiz` コマンドに組み込まれます(issue #63)。設定ファイルの `brokers` / `broker_proxies` に `type_name: qmp` を書くだけで使え、`plugins.broker_factories` でプラグインを読み込む必要はありません。
-プラグインとしてビルドした `libqmp_broker.so` などを `plugins.broker_factories.qmp_broker` で読み込んだ場合は、そちらが優先されます。`path` は他のプラグインと同じく設定ファイルのあるディレクトリからの相対で書きます(0.0.27 まではブローカーと EC のプラグインだけカレントディレクトリからの相対でした、issue #284)。
+プラグインとしてビルドした `libqmp_broker.so` などを `plugins.broker_factories.qmp_broker` で読み込んだ場合は、そちらが優先されます。ブローカーのプラグインは Rust ABI で読み込むので、読み込む juiz と同じ rustc・同じ版の juiz_sdk でビルドしてください(食い違うと読み込み時にエラーになります)。juiz_core の feature はそろえなくてかまいません(issue #450 で、feature によってトレイトの並びが変わらないようにしました)。`path` は他のプラグインと同じく設定ファイルのあるディレクトリからの相対で書きます(0.0.27 まではブローカーと EC のプラグインだけカレントディレクトリからの相対でした、issue #284)。
 自分で `System` を作るアプリケーションでは、`setup()` の前に `qmp_broker::register()` を呼ぶと組み込みで使えます。
 
 ### Python 連携の feature

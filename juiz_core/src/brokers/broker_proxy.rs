@@ -278,7 +278,10 @@ pub trait TopicBrokerProxy {
     }
 
     /// 共有メモリに書いた本体の場所を送る Topic の push。supports_shared_memory が true のときだけ呼ぶ
-    #[cfg(feature = "ipc-broker")]
+    ///
+    /// ブローカーのプラグインは Rust ABI で読み込むので、このトレイトのメソッドの並び (vtable) は
+    /// juiz_core の feature によらず同じでなければならない。feature "ipc-broker" がなくても宣言し、
+    /// 既定の実装はエラーを返す (issue #450)
     fn topic_push_shared(
         &self,
         name: &str,
