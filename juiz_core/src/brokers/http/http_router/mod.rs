@@ -74,6 +74,8 @@ pub struct ListQuery {
 pub struct TopicNameAndUuidQuery {
     topic_name: Option<String>,
     system_uuid: Option<String>,
+    /// request_subscribe・request_publish が通ってきた System の UUID (`,` 区切り、issue #449)
+    via: Option<String>,
 }
 
 #[derive(Deserialize, IntoParams, Debug)]
@@ -99,6 +101,8 @@ pub struct FullQuery {
     reference_system: Option<String>,
     /// 回された Transform の始点の System の UUID (`transform/*`、§19.2 の 7)
     source_system: Option<String>,
+    /// topic/request_subscribe・request_publish が通ってきた System の UUID (`,` 区切り、issue #449)
+    via: Option<String>,
 }
 
 impl FullQuery {

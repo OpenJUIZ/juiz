@@ -65,8 +65,9 @@ pub(crate) fn create_update_calbacks() -> CallbackContainerType {
                 None
             }
         };
+        let via = crate::topics::via_from_param(args.get_param("via").map(|s| s.as_str()))?;
         cb.lock_mut()?
-            .topic_request_subscribe(topic_name.as_str(), system_uuid)
+            .topic_request_subscribe_via(topic_name.as_str(), system_uuid, &via)
             .and_then(|v| Ok(v.into()))
     });
     topic_cbs.insert("request_publish", |cb, args| {
@@ -85,8 +86,9 @@ pub(crate) fn create_update_calbacks() -> CallbackContainerType {
                 None
             }
         };
+        let via = crate::topics::via_from_param(args.get_param("via").map(|s| s.as_str()))?;
         cb.lock_mut()?
-            .topic_request_publish(topic_name.as_str(), system_uuid)
+            .topic_request_publish_via(topic_name.as_str(), system_uuid, &via)
             .and_then(|v| Ok(v.into()))
     });
     topic_cbs

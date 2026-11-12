@@ -379,3 +379,82 @@ fn test_stopped_app_is_removed_from_base_ipc() -> JuizResult<()> {
     app["subsystems"] = jvalue!([{ "type_name": "ipc", "name": base_ipc }]);
     check_stopped_app_is_removed_from_base(base, app)
 }
+
+/// サブシステムのつなぎ方が輪 (A の subsystems = [B, C]、C の subsystems = [B]) でも、
+/// topic/request_subscribe・request_publish が A に戻ってこず起動でき、C の publish が A に届く (issue #449)。
+/// A も publish する Topic を持つと、起動時に A から request_subscribe が出て A → C → B → A と回る
+fn check_topic_over_subsystem_cycle(b: Value, mut c: Value, mut a: Value) -> JuizResult<()> {
+    c["processes"] = jvalue!([
+        { "type_name": "increment_process", "name": "pub0", "publishes": ["topic0"], "p_apply": { "arg1": 10 } }
+    ]);
+    a["processes"] = jvalue!([
+        { "type_name": "increment_process", "name": "sub0", "subscribes": { "arg1": "topic0" } },
+        { "type_name": "increment_process", "name": "pub1", "publishes": ["topic1"] }
+    ]);
+    System::new(b)?.setup()?.run_and_do_once(|_b| {
+        System::new(c)?.setup()?.run_and_do_once(|c| {
+            System::new(a)?.setup()?.run_and_do_once(|a| {
+                let pub0: ProcessIdentifier =
+                    "core://core/process/pub0::increment_process".try_into()?;
+                let sub0: ProcessIdentifier =
+                    "core://core/process/sub0::increment_process".try_into()?;
+                assert_eq!(
+                    int_of(c.core_broker().lock_mut()?.process_execute(&pub0)),
+                    11
+                );
+                assert_eq!(
+                    int_of(a.core_broker().lock_mut()?.process_execute(&sub0)),
+                    12
+                );
+                Ok(())
+            })
+        })
+    })
+}
+
+#[cfg(all(test, feature = "ipc-broker"))]
+#[test]
+fn test_topic_over_subsystem_cycle_ipc() -> JuizResult<()> {
+    crate::common::logger::init();
+    let pid = std::process::id();
+    let ipc = |n: &str| format!("subsystem_cycle_{n}-{pid}");
+    let ipc_system = |n: &str, subs: &[&str]| -> Value {
+        let mut m = subsystem_manifest();
+        m["option"]["http_broker"]["start"] = jvalue!(false);
+        m["brokers"] = jvalue!([{ "type_name": "ipc", "name": ipc(n) }]);
+        m["subsystems"] = Value::Array(
+            subs.iter()
+                .map(|s| jvalue!({ "type_name": "ipc", "name": ipc(s) }))
+                .collect(),
+        );
+        m
+    };
+    check_topic_over_subsystem_cycle(
+        ipc_system("b", &[]),
+        ipc_system("c", &["b"]),
+        ipc_system("a", &["b", "c"]),
+    )
+}
+
+/// HTTP ではサブシステムの登録がお互い向きになるので、輪がもっと多い
+#[cfg(test)]
+#[test]
+fn test_topic_over_subsystem_cycle_http() -> JuizResult<()> {
+    crate::common::logger::init();
+    let http_system = |port: i64, subs: &[i64]| -> Value {
+        let mut m = subsystem_manifest();
+        m["option"]["http_broker"]["port"] = jvalue!(port);
+        m["subsystems"] = Value::Array(
+            subs.iter()
+                .map(|p| jvalue!({ "type_name": "http", "name": format!("127.0.0.1:{p}") }))
+                .collect(),
+        );
+        m
+    };
+    let (b, c, a) = (MASTER_PORT, MASTER_PORT + 1, MASTER_PORT + 2);
+    check_topic_over_subsystem_cycle(
+        http_system(b, &[]),
+        http_system(c, &[b]),
+        http_system(a, &[b, c]),
+    )
+}

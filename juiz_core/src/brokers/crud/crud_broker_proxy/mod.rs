@@ -903,12 +903,13 @@ impl TopicBrokerProxy for CRUDBrokerProxyHolder {
         self.broker.topic_push_shared(push, param_var)
     }
 
-    fn topic_request_subscribe(
+    fn topic_request_subscribe_via(
         &mut self,
         name: &str,
         opt_system_uuid: Option<Uuid>,
+        via: &[Uuid],
     ) -> JuizResult<Value> {
-        let param_var = if let Some(system_uuid) = opt_system_uuid {
+        let mut param_var = if let Some(system_uuid) = opt_system_uuid {
             topic_param(&[
                 ("topic_name", name),
                 ("system_uuid", system_uuid.to_string().as_str()),
@@ -916,17 +917,21 @@ impl TopicBrokerProxy for CRUDBrokerProxyHolder {
         } else {
             topic_param(&[("topic_name", name)])
         };
+        if !via.is_empty() {
+            param_var.insert("via".to_owned(), crate::topics::via_to_param(via));
+        }
         self.broker
             .update("topic", "request_subscribe", CapsuleMap::new(), param_var)
             .and_then(|cp| Ok(cp.lock_as_value(|v| v.clone())?))
     }
 
-    fn topic_request_publish(
+    fn topic_request_publish_via(
         &mut self,
         name: &str,
         opt_system_uuid: Option<Uuid>,
+        via: &[Uuid],
     ) -> JuizResult<Value> {
-        let param_var = if let Some(system_uuid) = opt_system_uuid {
+        let mut param_var = if let Some(system_uuid) = opt_system_uuid {
             topic_param(&[
                 ("topic_name", name),
                 ("system_uuid", system_uuid.to_string().as_str()),
@@ -934,6 +939,9 @@ impl TopicBrokerProxy for CRUDBrokerProxyHolder {
         } else {
             topic_param(&[("topic_name", name)])
         };
+        if !via.is_empty() {
+            param_var.insert("via".to_owned(), crate::topics::via_to_param(via));
+        }
         self.broker
             .update("topic", "request_publish", CapsuleMap::new(), param_var)
             .and_then(|cp| Ok(cp.lock_as_value(|v| v.clone())?))

@@ -141,6 +141,9 @@ fn construct_capsule_map(
             capsule_map.set_param("namespace", v.as_str());
         }
     }
+    if let Some(v) = query.via.clone() {
+        capsule_map.set_param("via", v.as_str());
+    }
     // Transformations (issue #370)。reference は ID なら identifier と同じく自分を指す http の ID を core に直す
     if let Some(v) = query.reference.clone() {
         capsule_map.set_param(

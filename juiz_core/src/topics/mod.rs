@@ -125,6 +125,24 @@ pub struct TopicPtr {
 }
 
 /// Topic は Value・Image・Native を通す。Empty はエラー (docs/spec/large-data.md §5)
+/// topic/request_subscribe・request_publish の `via` (通ってきた System の UUID の列) を param の文字列にする。
+/// `,` 区切り (issue #449)
+pub(crate) fn via_to_param(via: &[Uuid]) -> String {
+    via.iter().map(|u| u.to_string()).collect::<Vec<_>>().join(",")
+}
+
+/// via_to_param の逆。param が無い・空なら空の列
+pub(crate) fn via_from_param(param: Option<&str>) -> JuizResult<Vec<Uuid>> {
+    let Some(s) = param else {
+        return Ok(Vec::new());
+    };
+    s.split(',')
+        .map(|t| t.trim())
+        .filter(|t| !t.is_empty())
+        .map(|t| Ok(Uuid::parse_str(t)?))
+        .collect()
+}
+
 fn check_topic_capsule(v: &CapsulePtr) -> JuizResult<()> {
     if v.is_empty()? {
         return Err(anyhow!(JuizError::ArgumentError {

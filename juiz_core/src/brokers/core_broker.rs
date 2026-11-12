@@ -1473,12 +1473,13 @@ impl TopicBrokerProxy for CoreBroker {
         }
     }
 
-    fn topic_request_subscribe(
+    fn topic_request_subscribe_via(
         &mut self,
         name: &str,
         opt_system_uuid: Option<Uuid>,
+        via: &[Uuid],
     ) -> JuizResult<Value> {
-        log::trace!("topic_request_subscribe(name={name}) called");
+        log::trace!("topic_request_subscribe(name={name}, uuid={opt_system_uuid:?}, via={via:?}) called");
         let mut do_subscribe = false;
         for (topic_name, topic) in self.worker().store().topics.iter() {
             if topic_name.as_str() == name {
@@ -1491,43 +1492,29 @@ impl TopicBrokerProxy for CoreBroker {
         let my_uuid = Uuid::parse_str(self.system_uuid()?.as_str().unwrap())?;
         // ここでシステムとマスターシステムに問い合わせて、subscribe要求があれば、自身にTopicを追加して、
         // Systemに対するProxyを新しく生成したTopicに登録してデータがリレーされるようにする
-        if let Some(msp) = self.master_system_proxy.clone() {
-            // 呼び出し元のUUIDがマスターと一緒でなければマスターを検査
-            if opt_system_uuid.is_some() && (msp.uuid() != &opt_system_uuid.unwrap()) {
-                let result_value =
-                    juiz_write(&msp.broker_proxy())?.topic_request_subscribe(name, Some(my_uuid))?;
-                if obj_get_bool(&result_value, "subscribe")? {
-                    // システムが購読を希望していたら、自分のlocalにTopicPtrを作り、それと相手システムを接続する
-                    log::trace!("found subscriber of topic(name={name}) in master system");
-                    let topic = self.worker_mut().create_topic(name.to_owned())?;
-                    topic.register_subscriber_subsystem(msp.clone())?;
-                    do_subscribe = true;
-                }
+        for (ssp, next_via) in self.topic_request_targets(my_uuid, opt_system_uuid, via) {
+            let result = juiz_write(&ssp.broker_proxy()).and_then(|mut bp| {
+                bp.topic_request_subscribe_via(name, Some(my_uuid), &next_via)
+            });
+            if !Self::topic_request_answer(result, "subscribe", name, &ssp) {
+                continue;
             }
-        }
-        for ssp in self.subsystem_proxies.clone().iter() {
-            // 呼び出し元のUUIDがサブシステムと一緒でなければ検査
-            if opt_system_uuid.is_some() && (ssp.uuid() != &opt_system_uuid.unwrap()) {
-                let result_value =
-                    juiz_write(&ssp.broker_proxy())?.topic_request_subscribe(name, Some(my_uuid))?;
-                if obj_get_bool(&result_value, "subscribe")? {
-                    log::trace!("found subscriber of topic(name={name}) in subsystem");
-                    // システムが購読を希望していたら、自分のlocalにTopicPtrを作り、それと相手システムを接続する
-                    let topic = self.worker_mut().create_topic(name.to_owned())?;
-                    topic.register_subscriber_subsystem(ssp.clone())?;
-                    do_subscribe = true;
-                }
-            }
+            // システムが購読を希望していたら、自分のlocalにTopicPtrを作り、それと相手システムを接続する
+            log::trace!("found subscriber of topic(name={name}) in System({})", ssp.uuid());
+            let topic = self.worker_mut().create_topic(name.to_owned())?;
+            topic.register_subscriber_subsystem(ssp.clone())?;
+            do_subscribe = true;
         }
         Ok(jvalue!({"subscribe": do_subscribe}))
     }
 
-    fn topic_request_publish(
+    fn topic_request_publish_via(
         &mut self,
         name: &str,
         opt_system_uuid: Option<Uuid>,
+        via: &[Uuid],
     ) -> JuizResult<Value> {
-        log::trace!("topic_request_publish(name={name}, uuid={opt_system_uuid:?}) called");
+        log::trace!("topic_request_publish(name={name}, uuid={opt_system_uuid:?}, via={via:?}) called");
 
         let opt_parent_system = if opt_system_uuid.is_some() {
             let uuid = opt_system_uuid.unwrap();
@@ -1551,46 +1538,89 @@ impl TopicBrokerProxy for CoreBroker {
             }
         }
 
-        // サブシステムについて確認する。サブシステムがpublisherとしてtrueを返してきたら、
-        // 自分サイドのtopicを
+        // マスターシステムとサブシステムに問い合わせる。publisher として true を返してきたら、
+        // 自分の local に TopicPtr を作り、呼び出し元のシステムへデータがリレーされるようにする
         let my_uuid = Uuid::parse_str(self.system_uuid()?.as_str().unwrap())?;
-        // ここでシステムとマスターシステムに問い合わせて、subscribe要求があれば、自身にTopicを追加して、
-        // Systemに対するProxyを新しく生成したTopicに登録してデータがリレーされるようにする
-        if let Some(msp) = self.master_system_proxy.clone() {
-            // 呼び出し元のUUIDがマスターと一緒でなければマスターを検査
-            if opt_system_uuid.is_some() && (msp.uuid() != &opt_system_uuid.unwrap()) {
-                let uuid = msp.uuid();
-                let result_value =
-                    juiz_write(&msp.broker_proxy())?.topic_request_publish(name, Some(my_uuid))?;
-                if obj_get_bool(&result_value, "publish")? {
-                    log::trace!("Subsystem({}) publishes topic({})", uuid, name);
-                    // システムが出版を宣言していたら、自分のlocalにTopicPtrを作り、それと相手システムを接続する
-                    let topic = self.worker_mut().create_topic(name.to_owned())?;
-                    if let Some(parent_system) = opt_parent_system.as_ref() {
-                        topic.register_subscriber_subsystem(parent_system.clone())?;
-                    }
-                    do_publish = true;
-                }
+        for (ssp, next_via) in self.topic_request_targets(my_uuid, opt_system_uuid, via) {
+            let result = juiz_write(&ssp.broker_proxy()).and_then(|mut bp| {
+                bp.topic_request_publish_via(name, Some(my_uuid), &next_via)
+            });
+            if !Self::topic_request_answer(result, "publish", name, &ssp) {
+                continue;
             }
-        }
-        for ssp in self.subsystem_proxies.clone().iter() {
-            // 呼び出し元のUUIDがサブシステムと一緒でなければ検査
-            if opt_system_uuid.is_some() && (ssp.uuid() != &opt_system_uuid.unwrap()) {
-                let result_value =
-                    juiz_write(&ssp.broker_proxy())?.topic_request_publish(name, Some(my_uuid))?;
-                if obj_get_bool(&result_value, "publish")? {
-                    let uuid = ssp.uuid();
-                    log::trace!("Subsystem({}) publishes topic({})", uuid, name);
-                    // システムが購読を希望していたら、自分のlocalにTopicPtrを作り、それと相手システムを接続する
-                    let topic = self.worker_mut().create_topic(name.to_owned())?;
-                    if let Some(parent_system) = opt_parent_system.as_ref() {
-                        topic.register_subscriber_subsystem(parent_system.clone())?;
-                    }
-                    do_publish = true;
-                }
+            log::trace!("System({}) publishes topic({})", ssp.uuid(), name);
+            let topic = self.worker_mut().create_topic(name.to_owned())?;
+            if let Some(parent_system) = opt_parent_system.as_ref() {
+                topic.register_subscriber_subsystem(parent_system.clone())?;
             }
+            do_publish = true;
         }
         Ok(jvalue!({"publish": do_publish}))
+    }
+}
+
+impl CoreBroker {
+    /// topic/request_subscribe・request_publish を転送する相手 (マスターシステムとサブシステム) と、
+    /// 相手に渡す `via` の組。
+    ///
+    /// 呼び出し元 (`opt_system_uuid`) と、この問い合わせが通ってきた System (`via`) には転送しない。
+    /// 通ってきた System は応答を待っていて、そこへ戻すと輪になって止まる (issue #449)。
+    /// 呼び出し元が無い (`None`) ときは、これまでどおり転送しない。
+    fn topic_request_targets(
+        &self,
+        my_uuid: Uuid,
+        opt_system_uuid: Option<Uuid>,
+        via: &[Uuid],
+    ) -> Vec<(SubSystemProxy, Vec<Uuid>)> {
+        let Some(caller) = opt_system_uuid else {
+            return Vec::new();
+        };
+        if via.contains(&my_uuid) {
+            // 自分を通ってきた問い合わせが戻ってきた。転送すると自分の応答待ちに当たる
+            log::debug!("topic request came back to this System(uuid={my_uuid}) through {via:?}. Not forwarded.");
+            return Vec::new();
+        }
+        let mut next_via: Vec<Uuid> = via.to_vec();
+        for u in [caller, my_uuid] {
+            if !next_via.contains(&u) {
+                next_via.push(u);
+            }
+        }
+        let mut targets: Vec<(SubSystemProxy, Vec<Uuid>)> = Vec::new();
+        for ssp in self
+            .master_system_proxy
+            .iter()
+            .chain(self.subsystem_proxies.iter())
+        {
+            if next_via.contains(ssp.uuid()) {
+                continue;
+            }
+            if targets.iter().any(|(t, _)| t.uuid() == ssp.uuid()) {
+                continue;
+            }
+            targets.push((ssp.clone(), next_via.clone()));
+        }
+        targets
+    }
+
+    /// 転送した問い合わせの答え。失敗しても (相手が止まっている・応答待ちで時間切れなど) 自分の問い合わせは
+    /// 続ける (issue #449)。失敗は false として扱い、警告だけ出す
+    fn topic_request_answer(
+        result: JuizResult<Value>,
+        key: &str,
+        name: &str,
+        ssp: &SubSystemProxy,
+    ) -> bool {
+        match result.and_then(|v| obj_get_bool(&v, key)) {
+            Ok(b) => b,
+            Err(e) => {
+                log::warn!(
+                    "topic/request_{key}(name={name}) to System(uuid={}) failed. The topic is not relayed through it. {e:#}",
+                    ssp.uuid()
+                );
+                false
+            }
+        }
     }
 }
 
