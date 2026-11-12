@@ -13,5 +13,7 @@ brokers:
 
 自分で `System` を作るアプリケーションでは、`setup()` の前に `qmp_broker::register()` を呼んでください。
 
+設定ファイルの `plugins.broker_factories.qmp_broker` でプラグイン(`libqmp_broker.so` など)として読み込むこともできます(組み込みより優先されます)。プラグインは Rust ABI で読み込むので、読み込む juiz と同じ rustc・同じ版でビルドしてください。食い違うと、読み込むときに版の違いを示すエラーになります。
+
 画像などの大きなデータは、IPC ブローカーと同じ生バイトのフレーム(先頭が `JZF1`、[docs/spec/large-data.md](https://github.com/OpenJUIZ/juiz/blob/main/docs/spec/large-data.md) §3)で送ります。0.0.26 より前の qmp(MessagePack)とは互換がないので、つなぐ両方の juiz の版をそろえてください。
 1 回の要求・応答の大きさの上限は、manifest の `max_frame_bytes`(既定 1 GiB)で変えられます。

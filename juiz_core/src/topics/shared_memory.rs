@@ -185,20 +185,32 @@ impl SharedMemoryStats {
     }
 }
 
+/// 共有メモリのリング。feature "ipc-broker" がないときは作られない代わりの型
+///
+/// ブローカーのプラグインは Rust ABI で読み込むので、juiz_core の構造体の並びは feature によらず
+/// 同じにしておく (issue #450)。`Arc<T>` は T によらずポインタ 1 つなので、代わりの型でも並びは変わらない
+#[cfg(feature = "ipc-broker")]
+pub type SharedRing = crate::brokers::ipc::shm::ShmRing;
+/// 共有メモリのリング。feature "ipc-broker" がないときは作られない代わりの型
+#[cfg(not(feature = "ipc-broker"))]
+pub enum SharedRing {}
+
 /// 送り手の Topic が持つ共有メモリ。リングは最初に B で送るときに作る
 pub struct TopicSharedMemory {
     pub config: SharedMemoryConfig,
     stats: Arc<SharedMemoryStats>,
-    #[cfg(feature = "ipc-broker")]
-    ring: std::sync::Mutex<Option<Arc<crate::brokers::ipc::shm::ShmRing>>>,
+    #[allow(unused)]
+    ring: std::sync::Mutex<Option<Arc<SharedRing>>>,
     #[allow(unused)]
     warned_fallback: AtomicBool,
 }
 
 /// リングに書いた本体と、IPC で送る本体の説明 (shm 付き)
-#[cfg(feature = "ipc-broker")]
+///
+/// `BrokerProxy::topic_push_shared` の引数なので、feature "ipc-broker" がなくても定義する (issue #450)。
+/// そのときは SharedRing が作れないので、この値も作られない
 pub struct SharedPush {
-    pub ring: Arc<crate::brokers::ipc::shm::ShmRing>,
+    pub ring: Arc<SharedRing>,
     pub desc: crate::brokers::frame::BodyDesc,
 }
 
@@ -208,7 +220,6 @@ impl TopicSharedMemory {
         TopicSharedMemory {
             config,
             stats,
-            #[cfg(feature = "ipc-broker")]
             ring: std::sync::Mutex::new(None),
             warned_fallback: AtomicBool::new(false),
         }

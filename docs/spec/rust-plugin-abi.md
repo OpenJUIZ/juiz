@@ -455,6 +455,9 @@ typedef struct juiz_rust_native {
 
 EC・ブローカーのプラグインは今の `BuildInfo` の検査を続け、.juizapp でも rustc を検査する(app-package.md §12.1)。
 
+ブローカーのプラグインは、`broker_factory` の隣に `broker_factory_build_info`(`extern "C"`、juiz_sdk の `build_info_ptr()` を返す)を置き、juiz_core は `broker_factory` を呼ぶ前にこれでコンパイラと juiz_sdk の版を比べる(issue #450。無い古いプラグインは警告だけで読む)。
+juiz_core の feature はビルド情報に入れない。代わりに、プラグインとの境界に出るトレイトのメソッドと構造体の並びを feature で変えない(`BrokerProxy::topic_push_shared` は feature `ipc-broker` が無くても宣言する)。そのため、`cargo build -p juiz_qmp_broker` のように feature なしの juiz_core で作ったプラグインを、既定の feature の juiz から読んでもよい。
+
 ## 13. 範囲外(後の Step か、未定)
 
 - プラグインの中の `log` をホストの logger に流す(C の関数でログを渡す形)。今はプラグインごとの logger のまま

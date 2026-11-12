@@ -61,7 +61,8 @@ pub trait CRUDBrokerProxy: Send + Sync {
     }
 
     /// 共有メモリに書いた本体の場所を送る Topic の push (update / topic / push)。param は topic_name など
-    #[cfg(feature = "ipc-broker")]
+    ///
+    /// vtable を juiz_core の feature によらず同じにするため、feature "ipc-broker" がなくても宣言する (issue #450)
     fn topic_push_shared(
         &self,
         _push: &crate::topics::shared_memory::SharedPush,
@@ -884,7 +885,6 @@ impl TopicBrokerProxy for CRUDBrokerProxyHolder {
         self.broker.supports_shared_memory()
     }
 
-    #[cfg(feature = "ipc-broker")]
     fn topic_push_shared(
         &self,
         name: &str,

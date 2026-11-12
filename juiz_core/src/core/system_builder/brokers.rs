@@ -33,6 +33,9 @@ fn setup_broker_factory(
     let bpf;
     unsafe {
         let plugin: RustPlugin = RustPlugin::load(plugin_filename)?;
+        // ブローカーのプラグインは Rust ABI で読み込むので、コンパイラと juiz_sdk の版がそろっているか先に確かめる。
+        // broker_factory_build_info が無い (0.2.7 までの) プラグインは警告を出して読み込む (issue #450)
+        plugin.check_build_info("broker_factory")?;
         {
             type BrokerFactorySymbolType<'a> = libloading::Symbol<
                 'a,
