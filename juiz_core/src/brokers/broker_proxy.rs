@@ -296,12 +296,36 @@ pub trait TopicBrokerProxy {
         &mut self,
         name: &str,
         system_uuid: Option<Uuid>,
+    ) -> JuizResult<Value> {
+        self.topic_request_subscribe_via(name, system_uuid, &[])
+    }
+
+    /// topic_request_subscribe の転送版。`via` はこの問い合わせが通ってきた System の UUID の列で、
+    /// 列にある System には転送しない (サブシステムのつなぎ方が輪でも止まる、issue #449)
+    fn topic_request_subscribe_via(
+        &mut self,
+        name: &str,
+        system_uuid: Option<Uuid>,
+        via: &[Uuid],
     ) -> JuizResult<Value>;
 
     /// Topic をPublishする必要があるか問い合わせる
-    /// {"subscribe": true/false } が返る
-    fn topic_request_publish(&mut self, name: &str, system_uuid: Option<Uuid>)
-        -> JuizResult<Value>;
+    /// {"publish": true/false } が返る
+    fn topic_request_publish(
+        &mut self,
+        name: &str,
+        system_uuid: Option<Uuid>,
+    ) -> JuizResult<Value> {
+        self.topic_request_publish_via(name, system_uuid, &[])
+    }
+
+    /// topic_request_publish の転送版。`via` は topic_request_subscribe_via と同じ (issue #449)
+    fn topic_request_publish_via(
+        &mut self,
+        name: &str,
+        system_uuid: Option<Uuid>,
+        via: &[Uuid],
+    ) -> JuizResult<Value>;
 }
 
 /// 実行中に Composite を定義する API (issue #171、仕様 docs/spec/composition.md §9)

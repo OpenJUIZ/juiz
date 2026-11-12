@@ -802,28 +802,36 @@ impl TopicBrokerProxy for MessengerBrokerProxy {
         .and_then(|_| Ok(()))
     }
 
-    fn topic_request_subscribe(
+    fn topic_request_subscribe_via(
         &mut self,
         name: &str,
         system_uuid: Option<Uuid>,
+        via: &[Uuid],
     ) -> JuizResult<Value> {
-        let param = &[
-            ("topic_name".to_owned(), name.to_owned()),
-            ("system_uuid".to_owned(), system_uuid.unwrap().to_string()),
-        ];
-        capsule_value(self.update("topic", "request_subscribe", CapsuleMap::new(), param)?)
+        let mut param = vec![("topic_name".to_owned(), name.to_owned())];
+        if let Some(system_uuid) = system_uuid {
+            param.push(("system_uuid".to_owned(), system_uuid.to_string()));
+        }
+        if !via.is_empty() {
+            param.push(("via".to_owned(), crate::topics::via_to_param(via)));
+        }
+        capsule_value(self.update("topic", "request_subscribe", CapsuleMap::new(), &param)?)
     }
 
-    fn topic_request_publish(
+    fn topic_request_publish_via(
         &mut self,
         name: &str,
         system_uuid: Option<Uuid>,
+        via: &[Uuid],
     ) -> JuizResult<Value> {
-        let param = &[
-            ("topic_name".to_owned(), name.to_owned()),
-            ("system_uuid".to_owned(), system_uuid.unwrap().to_string()),
-        ];
-        capsule_value(self.update("topic", "request_publish", CapsuleMap::new(), param)?)
+        let mut param = vec![("topic_name".to_owned(), name.to_owned())];
+        if let Some(system_uuid) = system_uuid {
+            param.push(("system_uuid".to_owned(), system_uuid.to_string()));
+        }
+        if !via.is_empty() {
+            param.push(("via".to_owned(), crate::topics::via_to_param(via)));
+        }
+        capsule_value(self.update("topic", "request_publish", CapsuleMap::new(), &param)?)
     }
 }
 
