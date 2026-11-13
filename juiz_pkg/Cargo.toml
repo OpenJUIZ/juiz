@@ -1,7 +1,7 @@
 [package]
 name = "juiz_pkg"
 rust-version = "1.89"
-version = "0.2.7"
+version = "0.2.8"
 edition = "2021"
 description = "Skeleton generator for juiz packages: juiz pkg create / juiz-pkg."
 license.workspace = true

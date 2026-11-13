@@ -344,7 +344,7 @@ libjuiz_sdk は、v0.0.26 から [GitHub Releases](https://github.com/OpenJUIZ/j
 `scripts/install-juiz-sdk.sh` で取得して `~/.juiz/sdk/<版>` に展開できます。
 
 ```terminal
-curl -fsSL https://raw.githubusercontent.com/OpenJUIZ/juiz/main/scripts/install-juiz-sdk.sh | sh -s -- 0.2.7
+curl -fsSL https://raw.githubusercontent.com/OpenJUIZ/juiz/main/scripts/install-juiz-sdk.sh | sh -s -- 0.2.8
 ```
 
 それより前の版では、juiz のソースを同じ版のタグで取得し、`cargo build --release -p juiz_sdk` でできる `target/release` の libjuiz_sdk を使います。
@@ -358,8 +358,8 @@ hsjuiz は v0.2.6 から [Hackage](https://hackage.haskell.org/package/hsjuiz) �
 packages: .
 
 package hsjuiz
-  extra-lib-dirs: /home/me/.juiz/sdk/0.2.7/lib
-  ghc-options: -optl-Wl,-rpath,/home/me/.juiz/sdk/0.2.7/lib
+  extra-lib-dirs: /home/me/.juiz/sdk/0.2.8/lib
+  ghc-options: -optl-Wl,-rpath,/home/me/.juiz/sdk/0.2.8/lib
 ```
 
 ```terminal
@@ -371,11 +371,11 @@ Hackage に無い版(0.2.5 以前)や、未公開の変更を試すときは、j
 その `bindings/hsjuiz` を `cabal.project` の `packages:` に足します。
 
 ```cabal
-packages: . /home/me/juiz-0.2.7/bindings/hsjuiz
+packages: . /home/me/juiz-0.2.8/bindings/hsjuiz
 ```
 
 ```terminal
-git clone --depth 1 --branch v0.2.7 https://github.com/OpenJUIZ/juiz.git /home/me/juiz-0.2.7
+git clone --depth 1 --branch v0.2.8 https://github.com/OpenJUIZ/juiz.git /home/me/juiz-0.2.8
 ```
 
 juiz のリポジトリの中でビルドするときは、`cargo build` でできる `target/debug` の libjuiz_sdk を

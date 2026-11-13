@@ -1280,7 +1280,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_app"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "clap",
  "globset",
@@ -1299,7 +1299,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_core"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "axum",
  "futures",
@@ -1326,7 +1326,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_idl"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "base64 0.22.1",
  "clap",
@@ -1338,7 +1338,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_macro"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "litrs",
@@ -1350,7 +1350,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_pkg"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "clap",
  "juiz_idl",
@@ -1362,7 +1362,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_py"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "juiz_app",
  "juiz_core",
@@ -1371,9 +1371,10 @@ dependencies = [
 
 [[package]]
 name = "juiz_qmp_broker"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "juiz_core",
+ "juiz_sdk",
  "quinn",
  "quinn-proto",
  "rcgen",
@@ -1386,7 +1387,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_sdk"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -1405,7 +1406,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_std_types"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "juiz_idl",
  "juiz_sdk",
@@ -1413,7 +1414,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_types"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "base64 0.22.1",
  "regex",
@@ -1425,7 +1426,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_webui"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "rust-embed",
 ]
