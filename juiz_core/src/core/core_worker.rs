@@ -1380,6 +1380,11 @@ impl CoreWorker {
             &connection_identifier.destination_identifier,
             &connection_identifier.source_identifier,
         ] {
+            // 片端が別の System にあると、HTTP 越しの削除ではその端も core:// に書き換わって届く。
+            // 手元に無い端は探さずに飛ばす (探すと ObjectCollection::get が ERROR を出す、issue #479)
+            if process_id.broker_type_name == "core" && !self.has_local_process(process_id) {
+                continue;
+            }
             let Ok(process) = self.any_process_from_identifier(process_id, false) else {
                 continue;
             };
@@ -1393,6 +1398,13 @@ impl CoreWorker {
                 identifier: connection_identifier.to_string()
             })
         })
+    }
+
+    /// 手元の Process / ContainerProcess の一覧にその ID があるか (ログを出さずに調べる)
+    fn has_local_process(&self, id: &ProcessIdentifier) -> bool {
+        let key = id.to_string();
+        let store = self.store();
+        store.processes.contains(&key) || store.container_processes.contains(&key)
     }
 
     pub fn connection_profile(
