@@ -3,6 +3,10 @@
 hsjuiz の版は juiz(crates.io の juiz_app、PyPI の pyjuiz / juiz-cli)と同じ番号にそろえています。
 使う libjuiz_sdk も同じ版にしてください。
 
+## 0.2.9
+
+- hsjuiz の API は 0.2.8 から変えていない(Container の 3D モデル #379 と Zenoh ブローカー #487 の公開に版をそろえた。モデルは conf で書くので hsjuiz 側の追加はない)。
+
 ## 0.2.8
 
 - hsjuiz の API は 0.2.7 から変えていない(juiz 本体の不具合修正 #449・#450・#479 と、pyjuiz の call_partial #83 に版をそろえた)。
