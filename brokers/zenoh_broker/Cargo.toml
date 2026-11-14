@@ -1,0 +1,25 @@
+[package]
+name = "juiz_zenoh_broker"
+version = "0.2.8"
+edition = "2021"
+description = "Zenoh broker for JUIZ (docs/spec/zenoh-broker.md)."
+license.workspace = true
+repository = "https://github.com/OpenJUIZ/juiz"
+
+[lib]
+# プラグインとして読み込むときのファイル名 (libzenoh_broker.so など) と、
+# 設定ファイルの plugins.broker_factories.zenoh_broker のため、ライブラリ名は zenoh_broker にする
+name = "zenoh_broker"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+juiz_core = { workspace = true }
+juiz_sdk = { workspace = true }
+serde_json = { workspace = true }
+# TCP だけ。ほかの transport と共有メモリは入れない (docs/spec/zenoh-broker.md §2)
+zenoh = { version = "1.10.2", default-features = false, features = ["transport_tcp"] }
+
+[dev-dependencies]
+uuid = { workspace = true }
+# HTTP で受けた要求を zenoh の副系へ転送するテスト (tests/zenoh_errors_test.rs) のため。juiz_core が既に使っている
+reqwest = { workspace = true }

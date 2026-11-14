@@ -178,6 +178,24 @@ qmp と同じものを置く。
 - feature なしの juiz_core で作ったプラグインを読むテスト(#450 の `broker_plugin_features_cli_test` と同じ形)。
 - ベンチは large-data.md の `image_transfer_bench` と同じ大きさ(720p・4K)の call と Topic の push を、Zenoh のクレートの中のテストとして置き、qmp・IPC と並べて数字を残す(§2.1 のとおり juiz_core には置かない)。
 
+### 10.1 Step 1 で置いたもの(#490)
+
+- テストは `brokers/zenoh_broker/tests` の `zenoh_*_test.rs`。qmp のテスト(API・組み込み・Composite・3D モデル・ネームスペース・Transformations・型)を同じ形で置き、`zenoh_errors_test.rs` に上の 3 つ目の項目と、HTTP の処理から Zenoh の BrokerProxy を呼ぶ転送(§5.2)を置いた。ポートは 5212〜5250(HTTP は 8232〜8269)。
+- 別プロセスのテストは、`juiz` コマンドに Zenoh のプラグインを読ませる(組み込みは Step 2)。プラグインは `cargo test -p juiz_zenoh_broker` が juiz_core の feature なしで作るので、既定の feature の juiz に feature なしのプラグインを読ませる確かめ(#450)を兼ねる。別のテストは足していない。
+- ブローカーの `name` は省いてよい。省くと `<host>:<port>` にし、起動後に実際の住所に付け直す(§3)。
+- ベンチは `zenoh_bench_test.rs`(`#[ignore]`)。同じクラウドの環境(4 vCPU、release)で `image_transfer_bench` と並べた値(1 回あたり [ms]):
+
+| 大きさ | 方式 | call の戻り値 | 引数で送る | Topic の push |
+|---|---|---|---|---|
+| 720p | Zenoh(TCP) | 2.9 | 2.9 | 2.8 |
+| 720p | qmp | 7.4 | 8.4 | – |
+| 720p | IPC | 1.5 | 2.3 | 1.7(A、届くまで) |
+| 4K | Zenoh(TCP) | 25〜27 | 25〜27 | 26〜28 |
+| 4K | qmp | 73.6 | 81.4 | – |
+| 4K | IPC | 10.6 | 88.6 | 78.2(A、届くまで) |
+
+Zenoh は qmp より 720p で約 2.5 倍、4K で約 3 倍速い。Zenoh の Topic の push は受け手の Process の実行が終わって応答が返るまでの時間。juiz の外で測った値(§1、720p 1.2 ms)との差は、フレームを `Vec<u8>` に書く写しと、受け取り側で画像の領域へ読む写しなど。
+
 ## 11. 共有メモリ(Step 3)
 
 同じホストの別プロセスへは、Zenoh の共有メモリ(feature `shared-memory` + `unstable`)で本体を送る。Step 3 で決めること:

@@ -107,6 +107,8 @@ members = [
     "examples/rust/component/juiz_opencv",
     "examples/rust/component/example_component", 
     "brokers/qmp_broker",
+    # Zenoh はビルドが重いので default-members には入れない (docs/spec/zenoh-broker.md §2.1)
+    "brokers/zenoh_broker",
 
 
     "juiz_sdk/test_packages/a_arg_proc",
