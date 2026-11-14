@@ -176,8 +176,13 @@ jobs:
           key: zenoh-python${{ steps.setup-python.outputs.python-version }}
 
       # juiz(feature zenoh-broker)と例のプラグインのビルド、juiz_zenoh_broker と juiz_app の zenoh_cli_test(手元と同じスクリプト)
+      # Zenoh は共有メモリの pool 全体を mlock する。ランナーの一般ユーザーの RLIMIT_MEMLOCK (8 MiB) では
+      # pool (既定 64 MiB) を作れず TCP に戻るので、共有メモリの経路も確かめるために上限を外す (§11.3)
       - name: Build & test
-        run: scripts/test-zenoh.sh --verbose
+        run: |
+          sudo prlimit --pid $$ --memlock=unlimited:unlimited
+          ulimit -l
+          scripts/test-zenoh.sh --verbose
 
   # pip で入れる juiz(bindings/juiz_py、issue #88)の wheel を Linux でビルドし、
   # インストールした juiz コマンドで Python の Process とサンプルを動かす(juiz-wheels.yml)。

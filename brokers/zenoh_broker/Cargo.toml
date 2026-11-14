@@ -13,17 +13,24 @@ name = "zenoh_broker"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["plugin"]
+default = ["plugin", "shared-memory"]
 # プラグインとしての入口 (broker_factory など、#[no_mangle]) を置く。juiz_app の feature zenoh-broker は
 # これを切って組み込む。qmp_broker も同じ名前の入口を持つので、両方を juiz に入れるとリンクでぶつかるため (#491)
 plugin = []
+# 同じホストの相手へは Zenoh の共有メモリでフレームを送る (docs/spec/zenoh-broker.md §11)。
+# Zenoh の共有メモリの API は unstable なので、Zenoh の版を上げるときは壊れることがある
+shared-memory = ["zenoh/shared-memory", "zenoh/unstable"]
 
 [dependencies]
 juiz_core = { workspace = true }
 juiz_sdk = { workspace = true }
 serde_json = { workspace = true }
-# TCP だけ。ほかの transport と共有メモリは入れない (docs/spec/zenoh-broker.md §2)
+# TCP だけ。ほかの transport は入れない (docs/spec/zenoh-broker.md §2)。共有メモリは feature shared-memory
 zenoh = { version = "1.10.2", default-features = false, features = ["transport_tcp"] }
+
+[target.'cfg(unix)'.dependencies]
+# 共有メモリの pool を mlock できるか (RLIMIT_MEMLOCK) を調べる (docs/spec/zenoh-broker.md §11.3)
+libc = "0.2"
 
 [dev-dependencies]
 uuid = { workspace = true }

@@ -16,6 +16,7 @@ use zenoh::bytes::ZBytes;
 use zenoh::query::Query;
 use zenoh::Wait;
 
+use crate::shm::{frame_len, FrameEncoder};
 use crate::{frame_limits, zenoh_config, zerr, CRUD_KEY, DEFAULT_PORT, TYPE_NAME};
 
 /// 受け取り用のスレッドが、止める知らせを確かめる間隔
@@ -94,19 +95,21 @@ fn respond(payload: Option<&ZBytes>, crud_broker: &Arc<Mutex<CRUDBroker>>, limit
 }
 
 /// query を 1 つ処理して reply を返す。処理用のスレッドで呼ぶ
-fn serve_query(query: Query, crud_broker: Arc<Mutex<CRUDBroker>>, limits: FrameLimits) {
+fn serve_query(query: Query, crud_broker: Arc<Mutex<CRUDBroker>>, limits: FrameLimits, encoder: Arc<FrameEncoder>) {
     let response = respond(query.payload(), &crud_broker, &limits);
-    let bytes = match response.to_bytes() {
+    // 応答のフレームは共有メモリが使えればそこへ直接書く (§11)
+    let encoded = frame_len(&response).and_then(|len| encoder.encode(&response, len));
+    let bytes = match encoded {
         Ok(b) => b,
         Err(e) => {
             log::error!("zenoh_broker: can not write the response frame. {e:#}");
             match OutgoingFrame::error(response.header().id, "", "", format!("{e:#}")).to_bytes() {
-                Ok(b) => b,
+                Ok(b) => ZBytes::from(b),
                 Err(_) => return,
             }
         }
     };
-    if let Err(e) = query.reply(CRUD_KEY, ZBytes::from(bytes)).wait() {
+    if let Err(e) = query.reply(CRUD_KEY, bytes).wait() {
         log::error!("zenoh_broker: replying to a query failed. {e}");
     }
 }
@@ -177,6 +180,9 @@ pub async fn on_start(broker_manifest: Value, crud_broker: Arc<Mutex<CRUDBroker>
             return;
         }
     };
+    // 共有メモリの pool を用意する (§11)
+    let encoder = Arc::new(FrameEncoder::for_session(&session, &broker_manifest));
+    log::debug!("zenoh_broker: shared memory {}", if encoder.uses_shm() { "on" } else { "off" });
     let stop = Arc::new(AtomicBool::new(false));
     let _stop_on_drop = StopOnDrop(stop.clone());
 
@@ -189,9 +195,10 @@ pub async fn on_start(broker_manifest: Value, crud_broker: Arc<Mutex<CRUDBroker>
                 match queryable.recv_timeout(RECV_POLL) {
                     Ok(Some(query)) => {
                         let crud = crud.clone();
+                        let encoder = encoder.clone();
                         if let Err(e) = std::thread::Builder::new()
                             .name("zenoh_broker_query".to_owned())
-                            .spawn(move || serve_query(query, crud, limits))
+                            .spawn(move || serve_query(query, crud, limits, encoder))
                         {
                             log::error!("zenoh_broker: can not start a thread for a query. {e}");
                         }
