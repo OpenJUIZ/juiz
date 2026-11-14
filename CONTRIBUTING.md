@@ -40,6 +40,17 @@ QUIC (qmp) ブローカー(`brokers/qmp_broker`、クレート `juiz_qmp_broker`
 プラグインとしてビルドした `libqmp_broker.so` などを `plugins.broker_factories.qmp_broker` で読み込んだ場合は、そちらが優先されます。ブローカーのプラグインは Rust ABI で読み込むので、読み込む juiz と同じ rustc・同じ版の juiz_sdk でビルドしてください(食い違うと読み込み時にエラーになります)。juiz_core の feature はそろえなくてかまいません(issue #450 で、feature によってトレイトの並びが変わらないようにしました)。`path` は他のプラグインと同じく設定ファイルのあるディレクトリからの相対で書きます(0.0.27 まではブローカーと EC のプラグインだけカレントディレクトリからの相対でした、issue #284)。
 自分で `System` を作るアプリケーションでは、`setup()` の前に `qmp_broker::register()` を呼ぶと組み込みで使えます。
 
+### Zenoh ブローカー
+
+Zenoh ブローカー(`brokers/zenoh_broker`、クレート `juiz_zenoh_broker`、[docs/spec/zenoh-broker.md](docs/spec/zenoh-broker.md))は、Zenoh のビルドが重い(juiz_app の初回ビルドが約 2 倍になる)ので、ワークスペースの `default-members` に入れていません。ふだんの `cargo build` / `cargo test`、`scripts/test.sh`、CI のテストとカバレッジではビルドしません。触ったときは手元で次のように確かめます(テストはポート 5212〜5250 を使います)。
+
+```terminal
+cargo build
+cargo test -p juiz_zenoh_broker -- --test-threads=1
+```
+
+`juiz` コマンドへの組み込み(juiz_app の feature `zenoh-broker`、既定でオフ)と CI の別ジョブは issue #491 で足します。
+
 ### Python 連携の feature
 
 Python の Process などを読み込む機能は、juiz_core の feature で切り替えます。
@@ -133,6 +144,12 @@ cargo test --release -p juiz_core --test integration -- image_transfer_bench --i
 PYTHONPATH=bindings/pyjuiz cargo test --release -p juiz_core --test integration -- composite_bench --ignored --nocapture --test-threads=1
 ```
 
+Zenoh ブローカーのベンチは juiz_core に置かず(Zenoh を juiz_core のテストでビルドしないため)、`juiz_zenoh_broker` のテストにあります。
+
+```terminal
+cargo test --release -p juiz_zenoh_broker --test zenoh_bench_test -- --ignored --nocapture --test-threads=1
+```
+
 `image_transfer_bench` は、テストバイナリ自身を別プロセスの juiz として起動し(HTTP はポート 8050、qmp は 8051、IPC は名前 image_transfer_bench)、そこへ HTTP・IPC・qmp で画像を渡します。プラグインは使わないので、事前の準備は要りません。
 
 ### VS Code + Dev Containers で開発する
@@ -204,7 +221,7 @@ Hackage への公開には、Hackage のアカウント(アップロード権限
 | `juiz_std_types` | 標準の型 `juiz_std` の Rust のクレート (組み込みの JIDL から作る)。`juiz_std_types/test_package` は `extern_path` のテスト |
 | `juiz_core` | 機能要素を実体化・管理するコア (CoreBroker, Broker など) |
 | `juiz_app` | `juiz` コマンド |
-| `brokers` | 追加のブローカー実装 (QUIC の `juiz_qmp_broker` など) |
+| `brokers` | 追加のブローカー実装 (QUIC の `juiz_qmp_broker`、Zenoh の `juiz_zenoh_broker`) |
 | `ecs` | 実行コンテキスト (TimerEC, OneShotEC, MainLoopEC) |
 | `bindings` | C (`cjuiz`: libjuiz_sdk の C の関数の宣言 `juiz_sdk.h`)、C++ (`cppjuiz`)、Haskell (`hsjuiz`)、Python (`pyjuiz`、pip で入れる `juiz` コマンドの `juiz_py`)、JavaScript 向けバインディング |
 | `examples` | Rust / C++ / Python / Haskell のサンプル |
