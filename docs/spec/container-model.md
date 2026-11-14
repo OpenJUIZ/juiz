@@ -224,6 +224,7 @@ Step 1 で決めたこと: 断るのは `container/create` の `__manifest__` �
 - `identifier` は Container の ID か名前(transformations.md §13.1 の Step 3 で決めた解決の規則と同じ、根のネームスペースから)。**パスは受け付けない**(§5.5 と同じ理由)。
 - HTTP では READ(GET)、`identifier` はクエリ。パスは `/api/container/model_info`・`/api/container/model`。
 - サブシステム(別の System)の Container も、BrokerProxy 越しに取り出せる(管理画面が親の System だけにつないでいても全部見える)。中継する System はモデルを持たず、そのまま渡す。
+- 名前が自分の System の Container に無く、別 System の Container の写し(transformations.md §19.5)に当たれば、その写しの元の System に回す(`container/pose` の基準と同じく名前 `map` で引ける)。自分の Container が先(issue #497 で決めたこと)。
 
 ### 6.2 HTTP の `container/model`(生のバイト列)
 

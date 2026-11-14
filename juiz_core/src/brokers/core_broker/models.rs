@@ -1,6 +1,7 @@
 //! Container の 3D モデルの取り出し (docs/spec/container-model.md §6、issue #381)
 //!
 //! - `identifier` は Container の ID か名前 (名前は根のネームスペースから、Transformations と同じ解決の規則)。
+//!   名前が自分の System に無く、別 System の Container の写し (§19.5) に当たれば、その System に回す。
 //!   パスは受け付けない (§6.1)。
 //! - 別 System の Container (ブローカー付きの ID) なら、その System に回す。中継する System はモデルを持たず、
 //!   受け取ったものをそのまま渡す (§6.1)。
@@ -25,12 +26,17 @@ fn no_model(container: &str) -> juiz_sdk::anyhow::Error {
 
 impl CoreBroker {
     fn model_target(&self, identifier: &str) -> JuizResult<ModelTarget> {
-        match self.transformations().resolve_local_id(identifier, "") {
-            Ok(id) => Ok(ModelTarget::Local(id)),
-            Err(e) => match remote_container_id(identifier) {
-                Some(c) => Ok(ModelTarget::Remote(c)),
-                None => Err(e),
-            },
+        let e = match self.transformations().resolve_local_id(identifier, "") {
+            Ok(id) => return Ok(ModelTarget::Local(id)),
+            Err(e) => e,
+        };
+        if let Some(c) = remote_container_id(identifier) {
+            return Ok(ModelTarget::Remote(c));
+        }
+        // 名前が別 System の Container の写しに当たれば、その System に回す (§6.1、写しの ID はブローカー付き)
+        match self.transformations().resolve_replica_id(identifier, "") {
+            Ok(id) => remote_container_id(&id).map(ModelTarget::Remote).ok_or(e),
+            Err(_) => Err(e),
         }
     }
 

@@ -219,3 +219,104 @@ fn container_model_subcommands() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+const MAP_PORT: u16 = 8098;
+const ROBOT_PORT: u16 = 8099;
+
+/// ロボットの System から、名前 `map` で地図の System の map (写し、transformations.md §19.5) のモデルを引ける
+#[test]
+fn container_model_of_replica_by_name() {
+    let dir = temp_dir("model_cli_replica_test");
+    std::fs::create_dir_all(dir.join("models")).unwrap();
+    std::fs::write(dir.join("models/floor.glb"), glb()).unwrap();
+    let map_conf = dir.join("map.conf");
+    std::fs::write(
+        &map_conf,
+        format!(
+            r#"name: map_system
+option:
+  http_broker:
+    start: true
+    port: {MAP_PORT}
+containers:
+  - type_name: static_anchor
+    name: map
+    model:
+      path: models/floor.glb
+"#
+        ),
+    )
+    .unwrap();
+    let p = plugin_dir_str();
+    let robot_conf = dir.join("robot.conf");
+    std::fs::write(
+        &robot_conf,
+        format!(
+            r#"name: robot_system
+option:
+  http_broker:
+    start: true
+    port: {ROBOT_PORT}
+plugins:
+  container_factories:
+    example_container:
+      path: "{p}"
+containers:
+  - {{ type_name: example_container, name: base0 }}
+transforms:
+  - source: http://127.0.0.1:{MAP_PORT}/container/map::static_anchor
+    destination: base0
+    translation: {{x: 1.0, y: 0.0, z: 0.0}}
+    rate: 20.0
+"#
+        ),
+    )
+    .unwrap();
+    let client_conf = dir.join("client.conf");
+    std::fs::write(&client_conf, "name: client\n").unwrap();
+    let mut map = Daemon::spawn(&["-f", path_str(&map_conf), "-d"], dir.join("map.log"));
+    let mut robot = Daemon::spawn(&["-f", path_str(&robot_conf), "-d"], dir.join("robot.log"));
+    let robot_host = format!("http://127.0.0.1:{ROBOT_PORT}");
+    let client = |args: &[&str]| {
+        let mut all = vec!["-f", path_str(&client_conf), "-s", &robot_host];
+        all.extend_from_slice(args);
+        run(&all)
+    };
+    // 写しができるまで待つ (pose の基準に名前 map が使えるようになるまで)
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let out = client(&["container", "pose", "base0", "--reference", "map"]);
+        if String::from_utf8_lossy(&out.stdout)
+            .trim_start()
+            .starts_with('{')
+        {
+            break;
+        }
+        if Instant::now() > deadline {
+            panic!(
+                "replica of map was not made. robot log:\n{}\nmap log:\n{}",
+                robot.log_text(),
+                map.log_text()
+            );
+        }
+        std::thread::sleep(Duration::from_millis(300));
+    }
+    let glb = glb();
+    let out = client(&["container", "model", "map", "--info"]);
+    assert!(out.status.success(), "{out:?}");
+    let info = json_of(&String::from_utf8(out.stdout).unwrap());
+    assert_eq!(
+        info["sha256"],
+        juiz_core::models::sha256_hex(&glb).as_str(),
+        "{info}"
+    );
+    assert_eq!(info["file_name"], "floor.glb");
+    let file = dir.join("floor_copy.glb");
+    let out = client(&["container", "model", "map", "-o", path_str(&file)]);
+    assert!(out.status.success(), "{out:?}");
+    assert_eq!(std::fs::read(&file).unwrap(), glb);
+
+    assert!(robot.stop() || cfg!(not(unix)), "{}", robot.log_text());
+    assert!(map.stop() || cfg!(not(unix)), "{}", map.log_text());
+    let _ = std::fs::remove_dir_all(&dir);
+}
