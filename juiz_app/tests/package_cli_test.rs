@@ -358,6 +358,29 @@ fn ipc_profile(name: &str) -> Option<juiz_sdk::serde_json::Value> {
     out
 }
 
+/// IPC で相手の Container のモデル情報を取る
+fn ipc_model_info(name: &str, container: &str) -> juiz_sdk::serde_json::Value {
+    use juiz_core::prelude::*;
+    let mut out = None;
+    let _ = System::new(
+        jvalue!({ "name": "package_cli_probe", "option": { "http_broker": { "start": false } } }),
+    )
+    .unwrap()
+    .setup()
+    .unwrap()
+    .run_and_do_once(|system| {
+        let bp = system
+            .core_broker()
+            .lock()?
+            .worker()
+            .broker_proxy("ipc", name, true)?;
+        let v = juiz_borrow(&bp)?.container_model_info(container)?;
+        out = Some(v.get("__value__").cloned().unwrap_or(v));
+        Ok(())
+    });
+    out.expect("container_model_info")
+}
+
 fn wait_profile(
     name: &str,
     ok: impl Fn(&juiz_sdk::serde_json::Value) -> bool,
@@ -686,5 +709,124 @@ fn run_http_broker_flags() {
     assert!(!o.status.success(), "{o:?}");
     let err = String::from_utf8_lossy(&o.stderr);
     assert!(err.contains("--no-http"), "{err}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Container のモデルをパッケージに入れて pack・run する (issue #383、container-model.md §10、app-package.md §6.3 の 9)
+#[test]
+fn pack_and_run_container_model() {
+    let dir = temp_dir("package_model");
+    let src = dir.join("model_app_src");
+    let cache = dir.join("cache");
+    let name = format!("model_app_{}", std::process::id() % 100000);
+    std::fs::create_dir_all(src.join("conf")).unwrap();
+    std::fs::create_dir_all(src.join("models/meshes")).unwrap();
+    std::fs::write(
+        src.join("juizapp.yaml"),
+        "format: 1\nname: model_app\nversion: 0.1.0\nentry: conf/app.conf\n",
+    )
+    .unwrap();
+    std::fs::write(
+        src.join("models/floor.stl"),
+        "solid floor\nendsolid floor\n",
+    )
+    .unwrap();
+    let sdf = r#"<sdf version="1.9"><model name="m"><link name="l">
+<visual name="v"><geometry><mesh><uri>meshes/body.stl</uri></mesh></geometry></visual>
+</link></model></sdf>"#;
+    std::fs::write(src.join("models/robot.sdf"), sdf).unwrap();
+    std::fs::write(src.join("models/meshes/body.stl"), "solid b\nendsolid b\n").unwrap();
+    let write_conf = |floor: &str| {
+        std::fs::write(
+            src.join("conf/app.conf"),
+            format!(
+                "name: model_app\noption:\n  http_broker:\n    start: false\ncontainers:\n  - type_name: static_anchor\n    name: floor\n    model:\n      path: {floor}\n  - type_name: static_anchor\n    name: robot\n    model:\n      path: ../models/robot.sdf\n"
+            ),
+        )
+        .unwrap();
+    };
+    let pack = || {
+        juiz()
+            .current_dir(&dir)
+            .args(["pack", path_str(&src)])
+            .output()
+            .unwrap()
+    };
+    let pkg = dir.join("model_app-0.1.0.juizapp");
+
+    // パッケージの外を指す path はエラーで、何も書かない
+    std::fs::write(dir.join("outside.stl"), "solid o\nendsolid o\n").unwrap();
+    write_conf("../../outside.stl");
+    let o = pack();
+    assert!(!o.status.success(), "{o:?}");
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(
+        err.contains("inside the package") && err.contains("'floor'"),
+        "{err}"
+    );
+    assert!(!pkg.exists());
+
+    // exclude で外したファイルはエラー
+    write_conf("../models/floor.stl");
+    std::fs::write(src.join("juizapp.yaml"), "format: 1\nname: model_app\nversion: 0.1.0\nentry: conf/app.conf\nexclude: [\"models/floor.stl\"]\n").unwrap();
+    let o = pack();
+    assert!(!o.status.success(), "{o:?}");
+    assert!(
+        String::from_utf8_lossy(&o.stderr).contains("is not in the package"),
+        "{o:?}"
+    );
+
+    // mesh のファイルを外すと警告だけ
+    std::fs::write(src.join("juizapp.yaml"), "format: 1\nname: model_app\nversion: 0.1.0\nentry: conf/app.conf\nexclude: [\"models/meshes/**\"]\n").unwrap();
+    let o = pack();
+    assert!(o.status.success(), "{o:?}");
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(
+        err.contains("warning: models/robot.sdf: the mesh file 'models/meshes/body.stl'"),
+        "{err}"
+    );
+
+    // 入れれば警告なしで通り、juiz run で展開した先から読める
+    std::fs::write(
+        src.join("juizapp.yaml"),
+        "format: 1\nname: model_app\nversion: 0.1.0\nentry: conf/app.conf\n",
+    )
+    .unwrap();
+    let o = pack();
+    assert!(o.status.success(), "{o:?}");
+    assert!(
+        !String::from_utf8_lossy(&o.stderr).contains("warning:"),
+        "{o:?}"
+    );
+    let names = zip_names(&pkg);
+    for f in [
+        "conf/app.conf",
+        "models/floor.stl",
+        "models/robot.sdf",
+        "models/meshes/body.stl",
+    ] {
+        assert!(names.iter().any(|n| n == f), "{names:?}");
+    }
+
+    let mut cmd = juiz();
+    cmd.current_dir(&dir).env("JUIZ_CACHE_DIR", &cache).args([
+        "run",
+        path_str(&pkg),
+        "--ipc",
+        &name,
+        "--no-http",
+    ]);
+    let mut d = Daemon::spawn_command(cmd, dir.join("run.log"));
+    // system/profile_full にモデル情報は載らないので、container/model_info で確かめる
+    wait_profile(&name, |p| {
+        p["core_store"]["containers"]
+            .as_array()
+            .is_some_and(|c| c.len() == 2)
+    });
+    assert_eq!(ipc_model_info(&name, "floor")["format"], "stl");
+    let robot = ipc_model_info(&name, "robot");
+    assert_eq!(robot["format"], "sdf");
+    assert_eq!(robot["file_name"], "robot.sdf");
+    d.stop();
     let _ = std::fs::remove_dir_all(&dir);
 }

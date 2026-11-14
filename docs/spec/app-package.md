@@ -248,8 +248,13 @@ pack は次を順に行い、どれかが満たされなければエラーにし
    - Rust ABI のプラグインが無ければ `rust.rustc` は書かない。`juiz` を省いていれば `>=<pack した juiz の版>` を書く(§4.3)。書いてあり、その範囲が C ABI を読めない juiz(C ABI が入った 0.0.30 より前。pack は 0.0.29 が範囲に入るかで見る)を含むときは警告を出す。
 7. `kind: base` で `base.http_port` があるとき、entry の conf に `option.http_broker.port` があれば同じ値でなければならない。`kind: app` で `base` を書いてはならない。
 8. `depends` の名前が §4.2 に合い、版の範囲が読める。自分自身の名前を含んではならない。
-9. 各ファイルの SHA-256 を `files` に書く(パスの順に並べる)。
-10. §6.4 のとおり zip を書く。
+9. entry の conf の `containers`・`composite_containers` の各 Container の `model`(container-model.md §5.1・§10、#383)について:
+   - `model.path` は相対パスで、entry の conf の親ディレクトリから解決した結果がパッケージの中を指していなければならない(`..` で外に出てはならない、絶対パスは不可)。
+   - そのファイルが §6.2 で集めたファイル(除外規則の後)になければならない。
+   - core の作成時の検査(container-model.md §5.2。キーの型、大きさの上限は entry の conf の `option.model.max_bytes`、形式の先頭の確かめ)に通らなければならない。`juiz run` で起動したときに同じ検査で止まるものを、配る前に見つけるため。
+   - 形式が `sdf` なら、`<visual>` の `<geometry>` の `<mesh><uri>` は .sdf からの相対パスで、パッケージの中を指していなければならない(絶対パス・`..` で外に出るものはエラー)。指す先のファイルが pack に入らないとき、`uri` が `://` を含む(`model://`・`package://`・URL)ときは警告にとどめる(`<mesh>` は今は表示に使わない、container-model.md §3.2.1)。`<collision>` の `<mesh>` は見ない。
+10. 各ファイルの SHA-256 を `files` に書く(パスの順に並べる)。
+11. §6.4 のとおり zip を書く。
 
 C++ / Haskell のプラグインの隣に libjuiz_sdk が無いときは警告を出す(規則は #287 で決める、§12)。
 
@@ -557,3 +562,4 @@ format 1 では行わない。足すときは format を上げるか、format 1 
 | `--remap` と `--depend <名前>=none` | #452 | §7、§7.3、§10.2 |
 | Rust プラグインの C ABI(#291 の Step 4) | #332 | §4.1 の `rust.abi`・`rust.rustc`、§4.3、§6.3 の 6、§9 の段 6・10、§12.1(#328 で直し、#332 で実装) |
 | 段 6〜8 を展開の前に行う | #325 | §9 |
+| Container のモデルの検査(ContainerModel Step 3) | #383 | §6.3 の 9 |

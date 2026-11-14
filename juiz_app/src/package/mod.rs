@@ -3,6 +3,7 @@
 //! - [`manifest`]: マニフェスト `juizapp.yaml` の読み書きと項目の検査(§4)
 //! - [`names`]: zip のエントリ名の安全規則(§11)とパッケージ内の相対パス
 //! - [`pack`]: `juiz pack`(§6)
+//! - [`models`]: pack の Container のモデルの検査(§6.3 の 9、container-model.md §10)
 //! - [`run`]: `juiz run` の検証・キャッシュへの展開・起動(§7、§9)
 //! - [`install`]: `juiz install` / `uninstall` / `packages` とインストール済みの検索(§8)
 //! - [`depends`]: 基礎の起動時の設定と、depends の解決・確認(§10)
@@ -10,6 +11,7 @@
 pub(crate) mod depends;
 pub(crate) mod install;
 pub(crate) mod manifest;
+pub(crate) mod models;
 pub(crate) mod names;
 pub(crate) mod pack;
 pub(crate) mod run;

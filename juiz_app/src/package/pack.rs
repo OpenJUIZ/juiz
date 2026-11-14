@@ -240,7 +240,12 @@ pub(crate) fn pack(opts: &PackOptions) -> Result<Packed> {
         }
     }
 
-    // 9. files
+    // 9. Container のモデル(container-model.md §10、#383)
+    for w in super::models::check_models(&conf, &entry, dir, |rel| files.contains_key(rel))? {
+        warn(&w);
+    }
+
+    // 10. files
     let mut hashes = BTreeMap::new();
     for (rel, c) in &files {
         let f = File::open(&c.abs).with_context(|| format!("cannot open {}", c.abs.display()))?;
@@ -250,7 +255,7 @@ pub(crate) fn pack(opts: &PackOptions) -> Result<Packed> {
     m.targets = Some(targets);
     m.files = Some(hashes);
 
-    // 10. zip
+    // 11. zip
     let out = output_path(opts, &m)?;
     write_zip(&out, &m, &files).inspect_err(|_| {
         let _ = std::fs::remove_file(&out);
