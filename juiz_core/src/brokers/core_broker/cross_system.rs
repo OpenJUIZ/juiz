@@ -70,11 +70,7 @@ impl CoreBroker {
 
     /// UUID の System (マスターシステム・サブシステム) へのブローカーの (種類, 名前) (§19.2 の 5)
     fn broker_of_system(&self, uuid: &str) -> JuizResult<(String, String)> {
-        for ssp in self
-            .master_system_proxy
-            .iter()
-            .chain(self.subsystem_proxies.iter())
-        {
+        for ssp in self.connected_systems() {
             if ssp.uuid().to_string() == uuid {
                 let bp = ssp.broker_proxy();
                 let b = juiz_borrow(&bp)?;

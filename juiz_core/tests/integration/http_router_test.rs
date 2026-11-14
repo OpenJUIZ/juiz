@@ -300,7 +300,7 @@ fn check_add_mastersystem(c: &Client, system: &System) -> JuizResult<()> {
             // somewhere は要求元 (127.0.0.1) に置き換わる
             let profile = system.core_broker().lock()?.system_profile_full()?;
             assert_eq!(
-                profile["mastersystem"]["name"],
+                profile["mastersystem"][0]["name"],
                 jvalue!(format!("127.0.0.1:{MASTER_PORT}"))
             );
             let subs = master.core_broker().lock()?.system_profile_full()?["subsystems"].clone();

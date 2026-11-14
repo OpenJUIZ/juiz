@@ -94,7 +94,7 @@ fn test_stopped_subsystem_is_removed_from_master() -> JuizResult<()> {
                     Ok(())
                 })?;
             assert_eq!(subsystems(master)?.len(), 0);
-            assert!(mastersystem(master)?.is_null());
+            assert!(mastersystems(master)?.is_empty());
             assert_eq!(num_topic_subscriber_subsystems(master)?, 0);
             // 再帰的な一覧も止まった juiz に問い合わせない
             let procs = master.core_broker().lock()?.process_list(true, None)?;
@@ -314,8 +314,13 @@ fn test_namespaced_topic_over_subsystem() -> JuizResult<()> {
     })
 }
 
-fn mastersystem(system: &System) -> JuizResult<Value> {
-    Ok(system.core_broker().lock()?.system_profile_full()?["mastersystem"].clone())
+/// マスターシステムの一覧。複数持てるので配列 (issue #478)
+fn mastersystems(system: &System) -> JuizResult<Vec<Value>> {
+    let profile = system.core_broker().lock()?.system_profile_full()?;
+    Ok(profile["mastersystem"]
+        .as_array()
+        .expect("mastersystem must be array")
+        .clone())
 }
 
 /// juiz run のアプリのように、conf の subsystems に基礎を書いた側を止めると、
@@ -329,12 +334,12 @@ fn check_stopped_app_is_removed_from_base(base: Value, app: Value) -> JuizResult
             bp.topic_request_publish("topic0", Some(uuid))?;
             drop(cb);
             // http ではお互いを subsystems と mastersystem の両方に、ipc では基礎はアプリを mastersystem にだけ登録する
-            assert!(subsystems(base)?.len() == 1 || !mastersystem(base)?.is_null());
+            assert!(subsystems(base)?.len() == 1 || mastersystems(base)?.len() == 1);
             assert_eq!(num_topic_subscriber_subsystems(base)?, 1);
             Ok(())
         })?;
         assert_eq!(subsystems(base)?.len(), 0);
-        assert!(mastersystem(base)?.is_null());
+        assert!(mastersystems(base)?.is_empty());
         assert_eq!(num_topic_subscriber_subsystems(base)?, 0);
         let bps = base
             .core_broker()
@@ -457,4 +462,164 @@ fn test_topic_over_subsystem_cycle_http() -> JuizResult<()> {
         http_system(c, &[b]),
         http_system(a, &[b, c]),
     )
+}
+
+/// IPC で、subsystems に書いた相手 (`subs`) につなぐ System
+#[cfg(feature = "ipc-broker")]
+fn ipc_system(prefix: &str, n: &str, subs: &[&str]) -> Value {
+    let ipc = |n: &str| format!("{prefix}_{n}-{}", std::process::id());
+    let mut m = subsystem_manifest();
+    m["option"]["http_broker"]["start"] = jvalue!(false);
+    m["brokers"] = jvalue!([{ "type_name": "ipc", "name": ipc(n) }]);
+    m["subsystems"] = Value::Array(
+        subs.iter()
+            .map(|s| jvalue!({ "type_name": "ipc", "name": ipc(s) }))
+            .collect(),
+    );
+    m
+}
+
+/// マスターシステムへのブローカーの名前の一覧
+fn master_names(system: &System) -> JuizResult<Vec<String>> {
+    Ok(mastersystems(system)?
+        .iter()
+        .map(|m| m["name"].as_str().unwrap_or_default().to_owned())
+        .collect())
+}
+
+/// 星形 (A の subsystems = [B]、C の subsystems = [B]) では、B は A と C の両方をマスターシステムとして覚え、
+/// C の publish が B を通って A に届く。A・C を止めると B のマスターシステムから外れる (issue #478)。
+/// A と C はどちらも topic0 を publish も subscribe もするので、B は A と C の両方を転送先にし、A・C も B を転送先にする。
+/// 受け取ったデータを送ってきた System へ送り返すと C → B → C と回り続けるので、送り返さないことも確かめる
+#[cfg(all(test, feature = "ipc-broker"))]
+#[test]
+fn test_topic_over_star_ipc() -> JuizResult<()> {
+    crate::common::logger::init();
+    let b = ipc_system("subsystem_star", "b", &[]);
+    let mut a = ipc_system("subsystem_star", "a", &["b"]);
+    let mut c = ipc_system("subsystem_star", "c", &["b"]);
+    a["processes"] = jvalue!([
+        { "type_name": "increment_process", "name": "sub0", "subscribes": { "arg1": "topic0" } },
+        { "type_name": "increment_process", "name": "pub1", "publishes": ["topic0"], "p_apply": { "arg1": 20 } }
+    ]);
+    c["processes"] = jvalue!([
+        { "type_name": "increment_process", "name": "pub0", "publishes": ["topic0"], "p_apply": { "arg1": 10 } },
+        { "type_name": "increment_process", "name": "sub1", "subscribes": { "arg1": "topic0" } }
+    ]);
+    let a_ipc = a["brokers"][0]["name"].as_str().unwrap().to_owned();
+    let c_ipc = c["brokers"][0]["name"].as_str().unwrap().to_owned();
+    System::new(b)?.setup()?.run_and_do_once(|b| {
+        System::new(a)?.setup()?.run_and_do_once(|a| {
+            System::new(c)?.setup()?.run_and_do_once(|c| {
+                let mut masters = master_names(b)?;
+                masters.sort();
+                assert_eq!(masters, vec![a_ipc.clone(), c_ipc.clone()]);
+                let pub0: ProcessIdentifier =
+                    "core://core/process/pub0::increment_process".try_into()?;
+                let sub0: ProcessIdentifier =
+                    "core://core/process/sub0::increment_process".try_into()?;
+                let sub1: ProcessIdentifier =
+                    "core://core/process/sub1::increment_process".try_into()?;
+                // 送り返すと、IPC の応答待ちの時間切れまで C → B → C と回るので数十秒かかる
+                let started = std::time::Instant::now();
+                assert_eq!(
+                    int_of(c.core_broker().lock_mut()?.process_execute(&pub0)),
+                    11
+                );
+                assert!(started.elapsed() < std::time::Duration::from_secs(5), "{:?}", started.elapsed());
+                assert_eq!(
+                    int_of(a.core_broker().lock_mut()?.process_execute(&sub0)),
+                    12
+                );
+                assert_eq!(
+                    int_of(c.core_broker().lock_mut()?.process_execute(&sub1)),
+                    12
+                );
+                Ok(())
+            })?;
+            assert_eq!(master_names(b)?, vec![a_ipc.clone()]);
+            Ok(())
+        })?;
+        assert!(mastersystems(b)?.is_empty());
+        Ok(())
+    })
+}
+
+/// 星形で、後からつないだ C があっても、先につないだ A から B の Container へ Transform を張れる。
+/// 終点の B は A を source_system の UUID で探すので、A がマスターシステムに残っている必要がある (issue #478)
+#[cfg(all(test, feature = "ipc-broker"))]
+#[test]
+fn test_transform_over_star_ipc() -> JuizResult<()> {
+    use juiz_sdk::geometry::Vector3;
+    use juiz_sdk::manifests::TransformManifest;
+    struct Part {}
+    crate::common::logger::init();
+    let b_conf = ipc_system("subsystem_star_tf", "b", &[]);
+    let b_ipc = b_conf["brokers"][0]["name"].as_str().unwrap().to_owned();
+    System::new(b_conf)?.setup()?.run_and_do_once(|b| {
+        {
+            let mut cb = b.core_broker().lock_mut()?;
+            let juiz_sdk::factory::ContainerFactoryStruct(manifest, constructor) =
+                juiz_sdk::factory::container_factory(
+                    ContainerManifest::new("part"),
+                    |_args: CapsuleMap| Ok(Box::new(Part {})),
+                );
+            cb.worker_mut()
+                .store_mut()
+                .containers
+                .register_factory("part", container_factory_create(manifest, constructor)?)?;
+            cb.worker_mut().create_container_ref(
+                "part",
+                "base0",
+                Vec::<(&str, Value)>::new().into(),
+            )?;
+        }
+        System::new(ipc_system("subsystem_star_tf", "a", &["b"]))?
+            .setup()?
+            .run_and_do_once(|a| {
+                System::new(ipc_system("subsystem_star_tf", "c", &["b"]))?
+                    .setup()?
+                    .run_and_do_once(|_c| {
+                        let mut cb = a.core_broker().lock_mut()?;
+                        let bp: &mut dyn BrokerProxy = &mut *cb;
+                        bp.container_create(
+                            &ContainerManifest::new("static_anchor").name("map"),
+                            CapsuleMap::new(),
+                        )?;
+                        let p = bp.transform_create(
+                            &TransformManifest::new(
+                                "map",
+                                &format!("ipc://{b_ipc}/container/base0::part"),
+                            )
+                            .translation(Vector3::new(1.0, 0.0, 0.0)),
+                        )?;
+                        assert!(
+                            p["identifier"]
+                                .as_str()
+                                .is_some_and(|id| id.ends_with("|core://core/container/base0::part")),
+                            "{p}"
+                        );
+                        Ok(())
+                    })
+            })
+    })
+}
+
+/// 一本の木 (A の subsystems = [C]、C の subsystems = [B]) で、A の再帰的な一覧に B の Process も出る (issue #449・#478)
+#[cfg(all(test, feature = "ipc-broker"))]
+#[test]
+fn test_recursive_list_over_two_levels_ipc() -> JuizResult<()> {
+    crate::common::logger::init();
+    let b = ipc_system("subsystem_tree", "b", &[]);
+    let c = ipc_system("subsystem_tree", "c", &["b"]);
+    let a = ipc_system("subsystem_tree", "a", &["c"]);
+    System::new(b)?.setup()?.run_and_do_once(|_b| {
+        System::new(c)?.setup()?.run_and_do_once(|_c| {
+            System::new(a)?.setup()?.run_and_do_once(|a| {
+                let procs = a.core_broker().lock()?.process_list(true, None)?;
+                assert_eq!(procs.len(), 3, "{procs:?}");
+                Ok(())
+            })
+        })
+    })
 }

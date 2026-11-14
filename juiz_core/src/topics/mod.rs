@@ -152,6 +152,12 @@ fn check_topic_capsule(v: &CapsulePtr) -> JuizResult<()> {
     Ok(())
 }
 
+thread_local! {
+    /// 今 [`TopicPtr::push`] で受け取っているデータを送ってきた System。
+    /// Topic の Process の関数は push と同じスレッドで呼ばれるので、そこで読んで送り返さないようにする (issue #478)
+    static PUSHED_FROM: std::cell::Cell<Option<Uuid>> = const { std::cell::Cell::new(None) };
+}
+
 impl TopicPtr {
     pub fn new(name: &str, system_uuid: Uuid) -> Self {
         log::trace!("new(name={name}, uuid={system_uuid}) called");
@@ -172,6 +178,8 @@ impl TopicPtr {
             log::trace!("Topic ({my_topic_name}) / topic_func called");
             let v = arg.take("input")?;
             check_topic_capsule(&v)?;
+            // 送ってきた System へは送り返さない。星形や輪につなぐと、送り返したデータがまた戻ってきて回り続ける (issue #478)
+            let pushed_from = PUSHED_FROM.with(|c| c.take());
             let mut dropped: Vec<Uuid> = Vec::new();
             match my_topic.read() {
                 Ok(t) => {
@@ -182,6 +190,9 @@ impl TopicPtr {
                     let mut shared: Option<Option<shared_memory::SharedPush>> = None;
                     // 送れない転送先(止まったサブシステムなど)があっても、残りの転送先には送る (issue #67)
                     for subsystem in t.subsystem_proxies.iter() {
+                        if pushed_from.as_ref() == Some(subsystem.uuid()) {
+                            continue;
+                        }
                         log::trace!("- broker_proxy: subsystem={:?}", subsystem.uuid());
                         let r = juiz_borrow(&subsystem.broker_proxy()).and_then(|bp| {
                             #[cfg(feature = "ipc-broker")]
@@ -311,11 +322,13 @@ impl TopicPtr {
 
     pub fn push(&self, capsule: CapsulePtr, pushed_system_uuid: Option<Uuid>) -> JuizResult<()> {
         log::trace!("push(uuid={pushed_system_uuid:?}) called");
+        PUSHED_FROM.with(|c| c.set(pushed_system_uuid));
         let r = self
             .ptr
-            .lock()?
-            .push_by("input", capsule)
+            .lock()
+            .and_then(|mut p| p.push_by("input", capsule))
             .and_then(|_| Ok(()));
+        PUSHED_FROM.with(|c| c.set(None));
         log::trace!("push(uuid={pushed_system_uuid:?}) exit");
         r
     }
