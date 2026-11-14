@@ -12,6 +12,12 @@ repository = "https://github.com/OpenJUIZ/juiz"
 name = "zenoh_broker"
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = ["plugin"]
+# プラグインとしての入口 (broker_factory など、#[no_mangle]) を置く。juiz_app の feature zenoh-broker は
+# これを切って組み込む。qmp_broker も同じ名前の入口を持つので、両方を juiz に入れるとリンクでぶつかるため (#491)
+plugin = []
+
 [dependencies]
 juiz_core = { workspace = true }
 juiz_sdk = { workspace = true }

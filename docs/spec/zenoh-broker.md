@@ -37,7 +37,7 @@ Zenoh を足すと juiz_app の初回ビルドが 86 秒から 190 秒になる(
 - `brokers/zenoh_broker` はワークスペースの `members` に入れ、`default-members` には入れない。`scripts/test.sh` の `cargo build` / `cargo test` と、カバレッジのジョブ(`default-members` からパッケージを選ぶ)は Zenoh をビルドしない。
 - juiz_app の feature `zenoh-broker` は `default` に入れない(§8.2)。
 - juiz_core に `juiz_zenoh_broker` を dev-dependency として足さない(qmp は `image_transfer_bench` のために足しているが、そうすると juiz_core のテストが Zenoh をビルドする)。Zenoh のテストとベンチは `brokers/zenoh_broker/tests` に置く(§10)。
-- CI は Zenoh だけの別ジョブにする(Step 2 #491)。それまで Step 1 のテストは手元で `cargo test -p juiz_zenoh_broker -- --test-threads=1` で走らせる。
+- CI は Zenoh だけの別ジョブ(`test-linux.yml` の `zenoh`、キャッシュも別)にする。ジョブも手元も `scripts/test-zenoh.sh` で、feature `zenoh-broker` 付きの `juiz`・例のプラグイン・juiz_core の feature なしの Zenoh のプラグインを作り、`cargo test -p juiz_zenoh_broker` と juiz_app の `zenoh_cli_test` を走らせる(#491)。
 
 ## 3. ID と名前
 
@@ -155,13 +155,28 @@ qmp と同じものを置く。
 - `register()`: `juiz_core::register_builtin_broker_factory` で組み込みとして登録する。自分で `System` を作るアプリは `setup()` の前に呼ぶ。
 - プラグインとしての入口 `broker_factory`・`broker_proxy_factory`(`extern "Rust"`)と、`broker_factory_build_info`(`extern "C"`、`juiz_sdk::build_info::build_info_ptr()` を返す)。rust-plugin-abi.md §12 のとおり、juiz_core は `broker_factory` の前にこれで rustc と juiz_sdk の版を比べる。
 - プラグインとの境界(`BrokerProxy` などのトレイト)に `cfg(feature)` のメソッドや欄を足さない(#450)。Step 3 の共有メモリの feature も、境界の型を変えない形で入れる。
+- プラグインとしての入口(`#[no_mangle]` の 3 つ)は feature `plugin`(既定オン)のときだけ置く。qmp_broker も同じ名前の入口を持つので、両方を rlib として 1 つの実行ファイルに入れるとリンクで名前がぶつかる。juiz_app は `default-features = false` で組み込む(#491)。
 
 ### 8.2 juiz_app
 
 - feature `zenoh-broker = ["dep:juiz_zenoh_broker"]`。`default` に入れない。有効なとき、`main_with_args` で `zenoh_broker::register()` を呼ぶ。
 - 同じ `type_name` のプラグインを `plugins.broker_factories.zenoh_broker` で読んだときは、qmp と同じくプラグインを優先する。
-- feature が無い juiz で conf に `type_name: zenoh` を書いたときは、今の「知らないブローカーの種類」のエラーに、`--features zenoh-broker` でビルドするかプラグインを読むよう案内を足す(Step 2)。
-- pip の juiz-cli(juiz_py)の wheel だけ feature をオンにするかは Step 2 で決める。
+- feature が無い juiz で conf に `type_name: zenoh` を書いたとき、または `-s zenoh://...` で繋ごうとしたときは、「知らないブローカーの種類」のエラー(`BrokerFactoryCanNotFoundError` / `FactoryCanNotFoundError`)に、`--features zenoh-broker` でビルドするかプラグインを読むよう案内を足す。qmp も同じ(`juiz_core::brokers::builtin_broker_factories::broker_factory_not_found`)。
+- juiz_py には同じ名前の feature `zenoh-broker`(`juiz_app/zenoh-broker` を有効にする)を置く。pip の juiz-cli の wheel で使うかは §8.3。
+
+### 8.3 pip の juiz-cli の wheel
+
+juiz_py(PyPI の juiz-cli)の wheel を feature `zenoh-broker` ありとなしでビルドして比べた(クラウドの 4 vCPU、Linux x86_64、`maturin build --release`、キャッシュなし、2026-11-14)。
+
+| | なし | あり | 差 |
+|---|---|---|---|
+| wheel の大きさ | 14.0 MB | 18.0 MB | +4.0 MB(+29%) |
+| 展開後の `_native.abi3.so` | 42.6 MB | 56.3 MB | +13.7 MB |
+| release ビルドの時間 | 202 秒 | 297 秒 | +95 秒(+47%) |
+
+- pip の利用者はプラグインを自分でビルドしにくい(ホストと同じ rustc が要る)ので、公開する wheel には Zenoh を組み込む。
+- CI の時間を変えないため、`juiz-wheels.yml` は PR では feature なしでビルドし、PR 以外(main・release/* への push、タグでの公開、手動実行)でだけ `--features zenoh-broker` を付ける。そのときはスモークテスト(`bindings/juiz_py/tests/smoke_test.py`、環境変数 `JUIZ_SMOKE_ZENOH=1`)で `zenoh://` 経由の呼び出しも確かめる。
+- PR で作る wheel と公開する wheel の構成が違うことになる。Zenoh の部分は `test-linux.yml` の `zenoh` ジョブで、wheel の組み立ては main への push で確かめる。
 
 ## 9. 制限
 
@@ -208,7 +223,6 @@ Zenoh は qmp より 720p で約 2.5 倍、4K で約 3 倍速い。Zenoh の Top
 ## 12. 後で決めること
 
 - Topic を Zenoh の put / subscribe にするか。Step 1 の push(query / reply)の数字を見て、別の issue で決める。そのときは key expression `juiz/v1/topic/<ns>/<topic 名>` を使う。
-- juiz-cli の wheel で feature をオンにするか(Step 2)。
 
 ## 13. 対象外
 
@@ -224,7 +238,7 @@ Zenoh は qmp より 720p で約 2.5 倍、4K で約 3 倍速い。Zenoh の Top
 |---|---|---|
 | 0 仕様書 | #489 | 全体 |
 | 1 クレート・TCP の call / Topic・テスト・ベンチ | #490 | §2〜§7、§8.1、§10 |
-| 2 juiz_app / juiz_py への組み込み、publish.yml、CI の別ジョブ | #491 | §2.1、§8.2 |
+| 2 juiz_app / juiz_py への組み込み、publish.yml、CI の別ジョブ | #491 | §2.1、§8.1、§8.2、§8.3 |
 | 3 共有メモリ | #492 | §11 |
 | 4 公式サイトのガイド | OpenJUIZ.github.io#96 | §4 |
 | 5 リリース | #493 | – |

@@ -28,6 +28,8 @@ juiz_std_types = {version="0.2.8", path="juiz_std_types"}
 juiz_core = {version="0.2.8", path="juiz_core", default-features = false}
 juiz_app= {version="0.2.8", path="juiz_app"}
 juiz_qmp_broker = {version="0.2.8", path="brokers/qmp_broker"}
+# プラグインの入口 (feature plugin) は使う側で選ぶ (juiz_app/Cargo.toml を参照)
+juiz_zenoh_broker = {version="0.2.8", path="brokers/zenoh_broker", default-features = false}
 juiz_webui = {version="0.2.8", path="juiz_webui"}
 
 anyhow = "1.0.89"

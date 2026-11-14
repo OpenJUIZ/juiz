@@ -42,14 +42,15 @@ QUIC (qmp) ブローカー(`brokers/qmp_broker`、クレート `juiz_qmp_broker`
 
 ### Zenoh ブローカー
 
-Zenoh ブローカー(`brokers/zenoh_broker`、クレート `juiz_zenoh_broker`、[docs/spec/zenoh-broker.md](docs/spec/zenoh-broker.md))は、Zenoh のビルドが重い(juiz_app の初回ビルドが約 2 倍になる)ので、ワークスペースの `default-members` に入れていません。ふだんの `cargo build` / `cargo test`、`scripts/test.sh`、CI のテストとカバレッジではビルドしません。触ったときは手元で次のように確かめます(テストはポート 5212〜5250 を使います)。
+Zenoh ブローカー(`brokers/zenoh_broker`、クレート `juiz_zenoh_broker`、[docs/spec/zenoh-broker.md](docs/spec/zenoh-broker.md))は、Zenoh のビルドが重い(juiz_app の初回ビルドが約 2 倍になる)ので、ワークスペースの `default-members` に入れていません。`juiz` コマンドへの組み込みも juiz_app の feature `zenoh-broker`(既定でオフ)です。ふだんの `cargo build` / `cargo test`、`scripts/test.sh`、CI の rust ジョブとカバレッジではビルドしません。
+
+触ったときは手元で `scripts/test-zenoh.sh` を実行します。feature `zenoh-broker` 付きの `juiz` と例のプラグイン、juiz_core の feature なしの Zenoh のプラグインを作ってから、`juiz_zenoh_broker` のテストと juiz_app の `zenoh_cli_test` を走らせます(テストはポート 5212〜5251 を使います)。CI では `test-linux.yml` の `zenoh` ジョブが、別のキャッシュで同じスクリプトを実行します。
 
 ```terminal
-cargo build
-cargo test -p juiz_zenoh_broker -- --test-threads=1
+scripts/test-zenoh.sh
 ```
 
-`juiz` コマンドへの組み込み(juiz_app の feature `zenoh-broker`、既定でオフ)と CI の別ジョブは issue #491 で足します。
+`juiz_zenoh_broker` と `juiz_qmp_broker` はどちらもプラグインの入口(`broker_factory` など)を持つので、juiz_app は Zenoh を `default-features = false`(feature `plugin` なし)で組み込みます。両方のクレートを `-p` で選んだうえで juiz_app の `zenoh-broker` を有効にしてビルドすると、入口がリンクでぶつかります。
 
 ### Python 連携の feature
 

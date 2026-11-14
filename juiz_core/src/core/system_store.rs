@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use uuid::Uuid;
 
 use crate::brokers::broker_factories_wrapper::BrokerFactoriesWrapper;
+use crate::brokers::builtin_broker_factories::broker_factory_not_found;
 use crate::brokers::broker_ptr::BrokerPtr;
 use crate::prelude::*;
 
@@ -90,9 +91,12 @@ impl SystemStorePtr {
                     log::error!("creating BrokerProxy(type_name={type_name}) failed. Error ({e})");
                     Err(e)
                 }),
-            None => Err(anyhow!(JuizError::FactoryCanNotFoundError {
-                type_name: type_name.to_owned()
-            })),
+            None => Err(broker_factory_not_found(
+                type_name,
+                JuizError::FactoryCanNotFoundError {
+                    type_name: type_name.to_owned(),
+                },
+            )),
         }
     }
 

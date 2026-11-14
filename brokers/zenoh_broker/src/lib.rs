@@ -120,8 +120,11 @@ pub fn register() {
     juiz_core::register_builtin_broker_factory(zenoh_broker_factory, zenoh_broker_proxy_factory);
 }
 
-// 以下はプラグイン (libzenoh_broker.so など) として読み込まれたときの入口
+// 以下はプラグイン (libzenoh_broker.so など) として読み込まれたときの入口。
+// feature plugin (既定オン) のときだけ置く。juiz_app は default-features = false で組み込むので、
+// qmp_broker の同じ名前の入口 (#[no_mangle]) と juiz の中でぶつからない (#491)
 
+#[cfg(feature = "plugin")]
 #[no_mangle]
 pub unsafe extern "Rust" fn broker_factory(
     core_broker: CoreBrokerPtr,
@@ -130,12 +133,14 @@ pub unsafe extern "Rust" fn broker_factory(
     zenoh_broker_factory(core_broker)
 }
 
+#[cfg(feature = "plugin")]
 /// プラグインをビルドしたコンパイラと juiz_sdk の版を返す (juiz_sdk::build_info、issue #450)
 #[no_mangle]
 pub extern "C" fn broker_factory_build_info() -> *const std::os::raw::c_char {
     juiz_sdk::build_info::build_info_ptr()
 }
 
+#[cfg(feature = "plugin")]
 #[no_mangle]
 pub unsafe extern "Rust" fn broker_proxy_factory() -> JuizResult<Arc<Mutex<dyn BrokerProxyFactory>>>
 {

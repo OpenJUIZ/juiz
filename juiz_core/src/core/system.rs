@@ -17,6 +17,7 @@ use crate::plugin::replace_target_in_plugin_paths;
 use crate::prelude::*;
 
 use crate::brokers::broker_factories_wrapper::BrokerFactoriesWrapper;
+use crate::brokers::builtin_broker_factories::broker_factory_not_found;
 
 use super::system_builder;
 use super::system_store::{SystemStore, SystemStorePtr};
@@ -486,7 +487,8 @@ impl System {
         type_name: &str,
     ) -> JuizResult<Arc<Mutex<BrokerFactoriesWrapper>>> {
         match self.store.lock()?.broker_factories.get(type_name) {
-            None => Err(anyhow::Error::from(
+            None => Err(broker_factory_not_found(
+                type_name,
                 JuizError::BrokerFactoryCanNotFoundError {
                     type_name: type_name.to_string(),
                 },

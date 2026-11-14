@@ -152,6 +152,33 @@ jobs:
       - name: Test
         run: cargo test -p juiz_opencv
 
+  # Zenoh ブローカー(brokers/zenoh_broker、docs/spec/zenoh-broker.md)と juiz_app の feature zenoh-broker のビルドとテスト。
+  # Zenoh を足すと初回ビルドが約 100 秒延びるので、juiz_zenoh_broker は default-members に入れず、
+  # rust ジョブの時間を変えないよう、このジョブだけで別のキャッシュを使ってビルド・テストする(issue #491)。
+  # Python の例は使わないが、juiz コマンドが既定の feature(embed-python)で libpython にリンクするので setup-python する。
+  zenoh:
+    name: Zenoh broker build & test
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        id: setup-python
+        with:
+          python-version: "3.14"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # pyo3 のビルド結果に Python のパスが入るので、rust ジョブと同じくパッチ版までキーに入れる
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: zenoh-python${{ steps.setup-python.outputs.python-version }}
+
+      # juiz(feature zenoh-broker)と例のプラグインのビルド、juiz_zenoh_broker と juiz_app の zenoh_cli_test(手元と同じスクリプト)
+      - name: Build & test
+        run: scripts/test-zenoh.sh --verbose
+
   # pip で入れる juiz(bindings/juiz_py、issue #88)の wheel を Linux でビルドし、
   # インストールした juiz コマンドで Python の Process とサンプルを動かす(juiz-wheels.yml)。
   # PR では Linux x86_64 だけ
