@@ -8,6 +8,8 @@ Python の Process を読み込んだ juiz を起動し、HTTP 経由で呼び�
 Ctrl+C(Windows では CTRL_BREAK_EVENT)で止まることを確かめる。
 埋め込んだ管理画面が /ui/ で配信されることも確かめる(issue #117、wheel のビルド前に webui をビルドしておくこと)。
 IPC ブローカー(--ipc)で起動し、ipc:// 経由でも呼び出せることを確かめる(issue #237)。
+環境変数 JUIZ_SMOKE_ZENOH=1 のときは Zenoh ブローカー(wheel を feature zenoh-broker でビルドしたとき)も
+起動し、zenoh:// 経由でも呼び出せることを確かめる(docs/spec/zenoh-broker.md §8.3、issue #491)。
 juiz_examples_python のディレクトリを渡すと、そのサンプル(Process と Container)も同じように動かす。
 """
 
@@ -23,6 +25,8 @@ import urllib.request
 
 PORT = 18080
 IPC_NAME = "juiz_py_smoke_test"
+ZENOH_PORT = 17448
+ZENOH = os.environ.get("JUIZ_SMOKE_ZENOH") == "1"
 
 PROCESS = '''\
 from juiz import juiz_process
@@ -47,6 +51,13 @@ plugins:
 processes:
   - type_name: increment_process_python
     name: increment0
+'''
+
+ZENOH_CONF = f'''\
+brokers:
+  - type_name: zenoh
+    host: 127.0.0.1
+    port: {ZENOH_PORT}
 '''
 
 
@@ -88,11 +99,12 @@ def check_webui(port: int) -> bool:
 
 
 def run_case(juiz: str, cwd: str, conf: str, port: int, calls: list, webui: bool = False,
-             server_args: list = ()) -> bool:
+             server_args: list = (), extra_ports: list = ()) -> bool:
     """cwd で juiz -f conf -d を起動し、calls の各コマンドの出力に期待する文字列が含まれるか確かめてから止める。
 
     calls は (juiz のサブコマンドと引数のリスト, 出力に含まれるべき文字列) のリスト。
     webui が True なら管理画面の配信も確かめる。server_args は juiz の起動に足す引数。
+    extra_ports は port のほかに listen を待つポート(Zenoh ブローカーなど)。
     """
     print(f"--- {conf}")
     # 直前の juiz(別の Python の版で続けて動かしたときを含む)のソケットが TIME_WAIT に残ると
@@ -104,6 +116,8 @@ def run_case(juiz: str, cwd: str, conf: str, port: int, calls: list, webui: bool
     server = subprocess.Popen([juiz, "-f", conf, "-d", *server_args], cwd=cwd, **kwargs)
     try:
         wait_for_port(port, 60)
+        for p in extra_ports:
+            wait_for_port(p, 60)
         if webui and not check_webui(port):
             return False
         for args, expected in calls:
@@ -157,13 +171,21 @@ def main() -> int:
             f.write(PROCESS)
         with open(os.path.join(work, "smoke.conf"), "w", encoding="utf-8") as f:
             f.write(CONF)
+            if ZENOH:
+                f.write(ZENOH_CONF)
 
         url = f"http://127.0.0.1:{PORT}/process/increment0::increment_process_python"
         ipc_url = f"ipc://{IPC_NAME}/process/increment0::increment_process_python"
-        if not run_case(juiz, work, "smoke.conf", PORT, [
+        calls = [
             (["process", "call", url, '{"arg1": 3}', "-p"], "Value(4)"),
             (["-s", f"ipc://{IPC_NAME}", "process", "call", ipc_url, '{"arg1": 3}', "-p"], "Value(4)"),
-        ], webui=True, server_args=["--ipc", IPC_NAME]):
+        ]
+        if ZENOH:
+            zenoh = f"zenoh://127.0.0.1:{ZENOH_PORT}"
+            zenoh_url = f"{zenoh}/process/increment0::increment_process_python"
+            calls.append((["-s", zenoh, "process", "call", zenoh_url, '{"arg1": 3}', "-p"], "Value(4)"))
+        if not run_case(juiz, work, "smoke.conf", PORT, calls, webui=True, server_args=["--ipc", IPC_NAME],
+                        extra_ports=[ZENOH_PORT] if ZENOH else []):
             return 1
 
     if len(sys.argv) > 1 and not run_examples(juiz, sys.argv[1]):

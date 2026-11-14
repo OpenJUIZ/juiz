@@ -205,6 +205,18 @@ impl CoreWorker {
             .broker_proxies
             .factory(type_name)
             .or_else(|e| {
+                // feature やプラグインで足せる種類 (zenoh など) なら案内を付ける (docs/spec/zenoh-broker.md §8.2)
+                let e = match e.downcast_ref::<JuizError>() {
+                    Some(JuizError::FactoryCanNotFoundError { .. }) => {
+                        crate::brokers::builtin_broker_factories::broker_factory_not_found(
+                            type_name,
+                            JuizError::FactoryCanNotFoundError {
+                                type_name: type_name.to_owned(),
+                            },
+                        )
+                    }
+                    _ => e,
+                };
                 log::error!(
                     "creating BrokerProxyFactory(type_name={type_name}) failed. Error ({e})"
                 );

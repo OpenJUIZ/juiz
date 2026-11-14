@@ -15,6 +15,10 @@ name: juiz wheels
 # 呼び出し側は inputs.os で OS を絞れ(linux・macos・windows、既定はすべての組み合わせ)、
 # inputs.linux-only で linux-x86_64 だけに絞れる。
 # Test は OS ごとのワークフローからそれぞれの OS を指定して呼び、PR では linux-x86_64 だけにして Actions の実行時間を減らす。
+#
+# Zenoh ブローカー(juiz_py の feature zenoh-broker、docs/spec/zenoh-broker.md §8.3、issue #491)は、
+# PR 以外(main・release/* への push、タグでの公開、手動実行)で組み込み、スモークテストでも zenoh:// で呼ぶ。
+# Zenoh を入れると release のビルドが約 1.5 分延びるので、PR のジョブの時間は変えない。
 on:
   workflow_call:
     inputs:
@@ -91,12 +95,14 @@ jobs:
           working-directory: bindings/juiz_py
           target: ${{ env.TARGET }}
           manylinux: auto
-          args: --release --out dist
+          args: --release --out dist ${{ github.event_name != 'pull_request' && '--features zenoh-broker' || '' }}
           sccache: "true"
 
       # Python の版ごとに venv を作って wheel を入れ、その venv の python と juiz でスモークテストする
       - name: Smoke test (Python 3.10 and 3.14)
         env:
+          # wheel に Zenoh を組み込んだとき(PR 以外)は zenoh:// でも呼ぶ
+          JUIZ_SMOKE_ZENOH: ${{ github.event_name != 'pull_request' && '1' || '0' }}
           PYTHON_OLDEST: ${{ steps.python-oldest.outputs.python-path }}
           PYTHON_LATEST: ${{ steps.python-latest.outputs.python-path }}
         run: |

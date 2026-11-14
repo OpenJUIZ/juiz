@@ -14,6 +14,10 @@ publish = false
 name = "_native"
 crate-type = ["cdylib"]
 
+[features]
+# Zenoh ブローカーを組み込む (docs/spec/zenoh-broker.md §8.2、#491)
+zenoh-broker = ["juiz_app/zenoh-broker"]
+
 [dependencies]
 juiz_app = { path = "../../juiz_app", default-features = false, features = ["python-entry", "qmp-broker", "ipc-broker"] }
 # libpython にはリンクせず、juiz を起動した Python プロセスの中で動く

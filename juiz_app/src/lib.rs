@@ -698,6 +698,8 @@ where
     let _ = env_logger::try_init();
     #[cfg(feature = "qmp-broker")]
     qmp_broker::register();
+    #[cfg(feature = "zenoh-broker")]
+    zenoh_broker::register();
     let args = match Args::try_parse_from(args) {
         Ok(args) => args,
         Err(e) => {
