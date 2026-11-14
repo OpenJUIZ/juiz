@@ -221,6 +221,8 @@ Hackage への公開には、Hackage のアカウント(アップロード権限
 - [アプリ配布形式(.juizapp)](docs/spec/app-package.md)(issue #282)
 - [Rust プラグインの C ABI](docs/spec/rust-plugin-abi.md)(issue #291)
 - [雛形生成コマンド(juiz pkg)](docs/spec/pkg.md)(issue #455)
+- [Transformations(Container の位置姿勢と座標変換)](docs/spec/transformations.md)(issue #366)
+- [Container の 3D モデル(ContainerModel)](docs/spec/container-model.md)(issue #379)
 
 ## ライセンス
 
