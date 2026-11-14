@@ -255,6 +255,7 @@ qmp・IPC・メッセンジャー系のブローカーと、Rust の BrokerProxy
 - HTTP の BrokerProxy は `container/model` の生のバイト列(§6.2)と `container/model_info` を続けて取り、`ETag` と `info.sha256` が同じなら `{info, data}` にして返す。違えば(間にファイルが書き換わった)一度だけやり直す。別 System を中継するとき(§6.1)も、`identifier` のブローカー付きの ID を書き換えずに送る(`container/pose` と同じ)。
 - 自分の System の中では、HTTP ブローカーは base64 を通さずに中身を取り出して返す(`CRUDDispatcher::container_model_data`)。
 - pyjuiz のクライアント: `ContainerProxy.model_info()` → dict(無ければ `None`)、`ContainerProxy.model()` → bytes(Step 2 #382)。
+- Step 2 で決めたこと(pyjuiz): `SystemProxy.model_info(container)`・`SystemProxy.model(container)` も足した(`container` は名前・ID・`ContainerProxy`)。`HttpProxy` は `/api/container/model` の生のバイト列をそのまま返し、`IpcProxy` は JSON の経路の `data` の base64 をほどく(`CRUDProxy.read_model`)。モデルの無い Container の `model()` は HTTP では `NotFoundError`、IPC では `IpcRemoteError`(どちらも理由は `ContainerHasNoModelError`)。pyjuiz は `If-None-Match` を送らない(使い回したい側は `model_info()['sha256']` を見る、§6.3)。
 - CLI は §9。
 
 ### 6.5 ベンチ(Step 1 #381)
@@ -278,6 +279,7 @@ qmp・IPC・メッセンジャー系のブローカーと、Rust の BrokerProxy
 - Step 1 で決めたこと: `ContainerProfile` に `model: Option<Value>` を足した。§6.1 のとおり、モデルが無くても `"model": null` を出す(古い profile は無くても読める)。`ModelManifest` と形式の表(`ModelFormat`: 名前・拡張子・`media_type`・既定の `up_axis`)は juiz_sdk に置き、Step 2 の CLI からも使う。
 - `container/profile_full` はモデルのファイルが消えていればエラーになる(§5.3 の「その要求をエラーにする」)。
 - `juiz list --long` の Container の行に形式と大きさを出す(Step 2 #382)。
+- Step 2 で決めたこと: `juiz container list --long` の、モデルを持つ Container の行の下に `model: <format> <大きさ> (<file_name>)` を 1 行出す(例 `model: glb 1.2 MiB (pantilt.glb)`。大きさは 1024 未満は `B`、それ以上は `KiB`・`MiB` で小数 1 桁)。Anchor の種類(transformations.md §13.2)と同じく列は増やさず、Process の一覧と同じ表の形を保つ。値は `container/profile_full` の `model` から取る。
 
 ## 8. モデル情報の型 `juiz_std.model.ContainerModelInfo`
 
@@ -328,6 +330,13 @@ juiz container model <id> [--info] [-o <出力先>]
 - `-o` があれば中身を書き出す。`-o` がディレクトリなら `<file_name>` で書く。
 - HTTP でつないでいるときは HTTP の生の経路(§6.2)、それ以外は JSON の経路(§6.3)を使う。
 
+Step 2 で決めたこと:
+
+- 接続先は `-s`(既定 `http://localhost:8000`)。`identifier` は ID でも名前でもよい(§6.1)。
+- モデル情報は JSON(`container/model_info` の値をそのまま、2 段字下げ)で出す。モデルが無ければ `null`。
+- `-o` で書いたら `wrote: <パス> (<バイト数> bytes, <format>)` を出す。受け取った中身の SHA-256 が `info.sha256` と違えば書かずにエラーにする。モデルが無い Container に `-o` を付けたらエラーを表示し、ファイルは作らない。
+- エラーは他の `container` のコマンドと同じく `Error: …` を表示する(終了コードは 0)。
+
 ### 9.2 `juiz model check`
 
 ```
@@ -339,6 +348,15 @@ System を起動せずに、モデルのファイルを §3 の規則で確か�
 - SDF: 数の個数の誤り、知らない geometry、`<joint>`(§3.2)、`<mesh>`(§3.2.1)、扱えない `relative_to`、入れ子の `<model>`、`<material>` の色が 0〜1 の外。
 - glTF: 外部ファイルの参照(§3.3)。
 - 外接箱が大きすぎる・小さすぎる(STL・glTF は scale を掛けて 100 m 超・1 mm 未満、SDF は基本形の大きさから)。mm の STL に `scale` を書き忘れたときの注意。
+
+Step 2 で決めたこと:
+
+- 確かめる順は §5.2 と同じ(core の `ContainerModel::load` をそのまま使う。上限は既定の 64 MiB)。通らなければ `error: …` を出して終了コード 1。警告は `warning: …` で出し、警告だけなら最後に `OK (n warnings)`、終了コード 0。相対パスはカレントディレクトリから。
+- 最初の行は `<file>: <format> (<media_type>), <大きさ> bytes, sha256 <16 進>`、続けて `up_axis`・`scale`、分かれば `size: x × y × z m`(外接箱の大きさ。scale を掛け、`up_axis: y` なら Y と Z を入れ替えて juiz の軸にそろえたもの)。
+- 外接箱の求め方: STL はすべての頂点。glTF(glb・gltf)は既定のシーン(`scene`、無ければ 0 番)のノードをたどり、ノードの変換(`matrix` か translation・rotation・scale)を掛けた `POSITION` の accessor の `min`・`max` の 8 隅(シーンが無ければ変換なしで全 mesh)。SDF は表示できる基本形(box・cylinder・sphere・capsule・ellipsoid・plane)の外接箱の 8 隅を model・link・visual の `<pose>` で写したもの。`<mesh>` は大きさが分からないので入れない。
+- 100 m 超の STL で `--scale` を付けていなければ「mm なら `scale: 0.001`」と添える。
+- SDF の警告: `<pose>` の数が 6 個でない(その pose は単位として扱う)、`relative_to` がすぐ上の要素の名前でも空でもない、`<geometry>` が無い・空・知らない形、基本形の数の個数の誤り・0 以下の大きさ、`<diffuse>`・`<ambient>` が 3 か 4 個の 0〜1 の数でない、`<mesh>`(表示しない旨と、`<uri>` が無い・`://` を含む・ファイルが無い・.glb / .stl でない)、`<joint>`(個数)、入れ子の `<model>`、表示できる形が 1 つも無い。
+- .glb は JSON チャンクを読み、外部参照(`buffers[].uri`・`images[].uri` が `data:` で始まらない)を警告する。
 
 ## 10. .juizapp(Step 3 #383)
 

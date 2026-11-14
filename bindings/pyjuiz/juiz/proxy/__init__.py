@@ -1,3 +1,4 @@
+import base64
 import re
 import threading
 import urllib.parse
@@ -52,6 +53,11 @@ class CRUDProxy():
     
     def update(self, class_name, function_name, body, param_dict={}):
         pass
+
+    def read_model(self, identifier):
+        """Container のモデルの中身 (bytes)。JSON の経路 {info, data: base64} (docs/spec/container-model.md §6.3)"""
+        v = self.read('container', 'model', {'identifier': identifier})
+        return base64.b64decode(v['data'])
     
 class HttpProxy(CRUDProxy):
     
@@ -96,6 +102,15 @@ class HttpProxy(CRUDProxy):
         url = self._url(class_name, function_name, param_dict)
         return self._patch(url, body, profile=profile)
     
+    def read_model(self, identifier):
+        """Container のモデルの中身 (bytes)。HTTP は生のバイト列で返す (docs/spec/container-model.md §6.2)"""
+        url = self._url('container', 'model', {'identifier': identifier})
+        with httpx.Client() as client:
+            response = client.get(self._base_url + url)
+        if response.status_code != 200:
+            self._do_response(response)  # エラーの本文を例外に載せる
+        return response.content
+
     def _get(self, url):
         with httpx.Client() as client:
             return self._do_response(client.get(self._base_url + url))                
@@ -341,6 +356,16 @@ class SystemProxy():
     def pose_state(self, container: str):
         """Container の PoseState {identifier, system, version, changed, entries: [{anchor, pose, stamp, ...}]} (§19.4)"""
         return self.crud.read('container', 'pose_state', {'identifier': _id_str(container)})
+
+    # Container の 3D モデル (issue #382、docs/spec/container-model.md §6.4)
+
+    def model_info(self, container: str):
+        """Container のモデル情報 (juiz_std.model.ContainerModelInfo の dict)。モデルが無ければ None"""
+        return self.crud.read('container', 'model_info', {'identifier': _id_str(container)})
+
+    def model(self, container: str):
+        """Container のモデルの中身 (bytes)。モデルが無ければ例外 (ContainerHasNoModelError、HTTP では NotFoundError)"""
+        return self.crud.read_model(_id_str(container))
 
     def _ref(self, v):
         """別 System の ObjectProxy は、その System へのブローカー付きの ID にする"""
@@ -709,6 +734,15 @@ class ContainerProxy(ObjectProxy):
     def set_pose(self, reference: str, pose):
         """この Container を基準 reference から見て pose にする (issue #370)"""
         return self.system.set_pose(self.identifier(), reference, pose)
+
+    def model_info(self):
+        """この Container のモデル情報 (dict、issue #382)。モデルが無ければ None"""
+        return self.system.model_info(self.identifier())
+
+    def model(self):
+        """この Container のモデルの中身 (bytes、issue #382)。info の sha256 で中身を確かめるには
+        hashlib.sha256(data).hexdigest() と model_info()['sha256'] を比べる"""
+        return self.system.model(self.identifier())
 
     def processes(self):
         # Container の profile_full の processes は空のことがあるので、

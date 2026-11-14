@@ -1546,6 +1546,7 @@ dependencies = [
  "juiz_sdk",
  "predicates",
  "pyo3",
+ "roxmltree",
  "semver",
  "sha2",
  "yaml-rust2",

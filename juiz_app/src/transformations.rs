@@ -132,7 +132,7 @@ pub(crate) enum AnchorSubCommands {
     },
 }
 
-fn run_with_proxy(
+pub(crate) fn run_with_proxy(
     manifest: Value,
     working_dir: &Path,
     args: &Args,
@@ -151,7 +151,7 @@ fn run_with_proxy(
         })
 }
 
-fn print_error(r: JuizResult<()>) -> JuizResult<()> {
+pub(crate) fn print_error(r: JuizResult<()>) -> JuizResult<()> {
     if let Err(e) = r {
         println!("Error: {e:#}");
     }
