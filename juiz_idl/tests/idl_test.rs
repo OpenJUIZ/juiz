@@ -1126,6 +1126,7 @@ fn std_type_fingerprints_are_fixed() {
         "juiz_std/common.jidl",
         "juiz_std/geometry.jidl",
         "juiz_std/sensor.jidl",
+        "juiz_std/model.jidl",
     ])
     .unwrap();
     let actual: Vec<String> = model
@@ -1154,6 +1155,7 @@ fn std_type_fingerprints_are_fixed() {
         "juiz_std.sensor.Imu@sha256:462c7a2a736c262fcc206f6cfd599cf83434eff4741f11fce12281a0cb66c61d",
         "juiz_std.sensor.LaserScan@sha256:0a22cd83b68752d02353ecceecc0204c2150155a2947a4d8b5faa08031fbca74",
         "juiz_std.sensor.Range@sha256:579845925f2d9f69e940ef0ba97b1be20f641d9467582f0e4322b8e427ed2fa3",
+        "juiz_std.model.ContainerModelInfo@sha256:500282a80f0f81bd0641ae610d73a89d67cdd51ef94801fb2803e4a4a9b8cda1",
     ];
     assert_eq!(actual, expected);
 }

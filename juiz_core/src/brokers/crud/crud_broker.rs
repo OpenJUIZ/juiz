@@ -140,7 +140,9 @@ impl CRUDBroker {
     pub fn openapi_components(&self) -> JuizResult<serde_json::Map<String, Value>> {
         let factories = self.core_broker.lock()?.worker().factory_manifests()?;
         // Transformations の API の型 (juiz_std.geometry、issue #370) も載せる
-        let extra = crate::transformations::api_types::transformations_type_schemas()?;
+        let mut extra = crate::transformations::api_types::transformations_type_schemas()?;
+        // Container の 3D モデルのモデル情報の型 (juiz_std.model、docs/spec/container-model.md §8)
+        extra.extend(crate::models::container_model_type_schemas()?);
         Ok(crate::types::openapi::openapi_components(&factories, &extra))
     }
 
@@ -214,6 +216,20 @@ struct CRUDCallbacks {
 }
 
 impl CRUDDispatcher {
+    /// `container/model` のモデルの中身とモデル情報 (docs/spec/container-model.md §6.2)。
+    /// HTTP ブローカーが生のバイト列で返すために、JSON (base64) を通さずに取り出す
+    pub fn container_model_data(
+        &self,
+        identifier: &str,
+    ) -> JuizResult<crate::models::ContainerModelData> {
+        self.core_broker.lock()?.container_model_data(identifier)
+    }
+
+    /// `container/model_info` (§6.1)。304 の判定に使う
+    pub fn container_model_info(&self, identifier: &str) -> JuizResult<Value> {
+        self.core_broker.lock()?.container_model_info_impl(identifier)
+    }
+
     fn new(core_broker: CoreBrokerPtr) -> Self {
         CRUDDispatcher {
             core_broker,

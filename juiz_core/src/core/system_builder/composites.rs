@@ -68,8 +68,15 @@ fn invalid(message: String) -> juiz_sdk::anyhow::Error {
 }
 
 fn setup_composite_container(system: &System, v: &Value) -> JuizResult<()> {
-    create_composite_container_from_value(system.core_broker().lock_mut()?.worker_mut(), v)
-        .map(|_| ())
+    // model: は conf でだけ書ける (docs/spec/container-model.md §5.5)。ここで読んで、API と共通の作成には渡さない
+    let model = super::containers::load_model_from_conf(system, v)?;
+    let mut v = v.clone();
+    if let Some(o) = v.as_object_mut() {
+        o.remove("model");
+    }
+    let container =
+        create_composite_container_from_value(system.core_broker().lock_mut()?.worker_mut(), &v)?;
+    super::containers::attach_model(system, &container, model)
 }
 
 /// conf の `composite_containers:` の 1 件と同じ形の値から CompositeContainer と
@@ -80,6 +87,8 @@ pub(crate) fn create_composite_container_from_value(
     worker: &mut CoreWorker,
     v: &Value,
 ) -> JuizResult<ContainerPtr> {
+    // API から作るときは model を受け付けない (docs/spec/container-model.md §5.5)
+    crate::models::reject_model_from_api(v)?;
     let name = v
         .get("name")
         .and_then(|n| n.as_str())

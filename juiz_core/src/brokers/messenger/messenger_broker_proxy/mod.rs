@@ -576,6 +576,14 @@ impl ContainerBrokerProxy for MessengerBrokerProxy {
         Ok(serde_json::from_value(capsule_value(capsule)?)?)
     }
 
+    fn container_model_info(&self, identifier: &str) -> JuizResult<Value> {
+        capsule_value(self.read_by_id("container", "model_info", &identifier.to_owned())?)
+    }
+
+    fn container_model(&self, identifier: &str) -> JuizResult<Value> {
+        capsule_value(self.read_by_id("container", "model", &identifier.to_owned())?)
+    }
+
     fn container_list(
         &self,
         recursive: bool,

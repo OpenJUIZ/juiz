@@ -34,6 +34,10 @@ pub struct ContainerProfile {
     /// (docs/spec/transformations.md §19.10)。いなければ `None` で、出力しない
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_children: Option<Value>,
+    /// 3D モデルのモデル情報 (`juiz_std.model.ContainerModelInfo` の形、docs/spec/container-model.md §7・§8)。
+    /// モデルが無ければ `null`
+    #[serde(default)]
+    pub model: Option<Value>,
 }
 
 impl Display for ContainerProfile {
@@ -87,6 +91,7 @@ impl TryFrom<ContainerManifest> for ContainerProfile {
             slots: None,
             anchor: None,
             remote_children: None,
+            model: None,
         })
     }
 
@@ -118,6 +123,7 @@ impl ContainerProfile {
             slots: None,
             anchor: None,
             remote_children: None,
+            model: None,
         }
     }
 
@@ -138,6 +144,7 @@ impl ContainerProfile {
                 slots: None,
                 anchor: None,
                 remote_children: None,
+                model: None,
             })
         })
     }

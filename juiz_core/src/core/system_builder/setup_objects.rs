@@ -48,6 +48,17 @@ pub(crate) fn setup_objects(system: &mut System, manifest: &Value) -> JuizResult
         })
     })?;
 
+    // Container のモデルの大きさの上限 (option.model.max_bytes、docs/spec/container-model.md §5.4)
+    let max_bytes = crate::models::max_bytes_from_options(get_options(manifest))
+        .context("reading option.model.max_bytes in conf")?;
+    system
+        .core_broker()
+        .lock()?
+        .worker()
+        .store()
+        .models
+        .set_max_bytes(max_bytes)?;
+
     let _ = when_contains_do(manifest, "containers", |v| {
         setup_containers(system, v).with_context(|| {
             format!(

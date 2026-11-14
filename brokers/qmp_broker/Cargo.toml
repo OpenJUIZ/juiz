@@ -32,3 +32,5 @@ tracing-futures = { version = "0.2.0", default-features = false, features = ["st
 
 [dev-dependencies]
 uuid = { workspace = true }
+# モデルのベンチ (tests/qmp_container_model_test.rs) で HTTP の生のバイト列と比べるため
+reqwest = { workspace = true }

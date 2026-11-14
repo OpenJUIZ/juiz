@@ -6,6 +6,7 @@ mod process_profile;
 
 mod container_manifest;
 mod container_profile;
+mod model_manifest;
 
 mod argument_manifest;
 mod argument_profile;
@@ -40,6 +41,7 @@ pub use container_identifier::ContainerIdentifier;
 pub use container_manifest::ContainerManifest;
 pub use container_profile::ContainerProfile;
 pub use manifest_description::Description;
+pub use model_manifest::{ModelFormat, ModelManifest};
 pub use output_profile::{OutputProfile, PrimitiveProfile, StructProfile};
 pub use process_manifest::ProcessManifest;
 pub use process_profile::ProcessProfile;

@@ -1,6 +1,6 @@
 //! juiz の標準の型 `juiz_std` (issue #199、仕様 docs/spec/datatype.md §24.4)
 //!
-//! juiz_idl に組み込んだ JIDL (`juiz_std/common.jidl`・`geometry.jidl`・`sensor.jidl`) から build.rs で作った型。
+//! juiz_idl に組み込んだ JIDL (`juiz_std/common.jidl`・`geometry.jidl`・`sensor.jidl`・`model.jidl`) から build.rs で作った型。
 //! 名前空間 `juiz_std.geometry` の型は [`geometry`] (`juiz_std::geometry` と同じもの) に置く。
 //!
 //! ```
@@ -17,7 +17,7 @@
 
 include!(concat!(env!("OUT_DIR"), "/juiz_idl.rs"));
 
-pub use juiz_std::{common, geometry, sensor};
+pub use juiz_std::{common, geometry, model, sensor};
 
 /// build.rs の `extern_path` に渡す、名前空間 `juiz_std` に当たるモジュールのパス
 pub const RUST_PATH: &str = "::juiz_std_types::juiz_std";

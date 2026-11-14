@@ -179,19 +179,47 @@ pub fn full_query_to_map(query: &Query<FullQuery>) -> HashMap<String, String> {
 /// Process の実行と同じ spawn_blocking の中で呼ぶこと (issue #363)
 pub fn json_output_wrap(result: JuizResult<CapsulePtr>) -> Response {
     match result {
-        Err(e) => internal_server_error(e),
+        Err(e) => error_response(e, false),
         Ok(v) => capsule_ptr_to_response(v),
     }
 }
 
-fn internal_server_error(e: juiz_sdk::anyhow::Error) -> Response {
+/// [`json_output_wrap`] の、作成 (POST) の要求のもの。引数の誤りのエラーを 400 にする
+pub fn json_output_wrap_create(result: JuizResult<CapsulePtr>) -> Response {
+    match result {
+        Err(e) => error_response(e, true),
+        Ok(v) => capsule_ptr_to_response(v),
+    }
+}
+
+/// エラーの応答の状態 (docs/spec/container-model.md §11)。決まったもの以外は 500
+pub fn error_status(e: &juiz_sdk::anyhow::Error, creating: bool) -> StatusCode {
+    match e.chain().find_map(|c| c.downcast_ref::<JuizError>()) {
+        Some(JuizError::ContainerModelFileNotFoundError { .. })
+        | Some(JuizError::ContainerHasNoModelError { .. }) => StatusCode::NOT_FOUND,
+        Some(JuizError::ContainerModelInvalidError { .. }) if creating => StatusCode::BAD_REQUEST,
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
+pub fn error_response(e: juiz_sdk::anyhow::Error, creating: bool) -> Response {
+    let status = error_status(&e, creating);
+    let head = if status == StatusCode::INTERNAL_SERVER_ERROR {
+        "Internal Server Error"
+    } else {
+        status.canonical_reason().unwrap_or("Error")
+    };
     (
-        StatusCode::INTERNAL_SERVER_ERROR,
+        status,
         Json(jvalue!({
-            "message": format!("Internal Server Error:  {:#}, {:}", e, e.to_string())
+            "message": format!("{head}:  {:#}, {:}", e, e.to_string())
         })),
     )
         .into_response()
+}
+
+fn internal_server_error(e: juiz_sdk::anyhow::Error) -> Response {
+    error_response(e, false)
 }
 
 //#[cfg(not(feature= "opencv4"))]
@@ -484,6 +512,8 @@ pub fn openapi_with_types(mut api: Value, crud_broker: &Arc<Mutex<CRUDBroker>>) 
     }
     // Transformations の API の値の型 (issue #370)
     transformations::add_transformations_schemas(&mut api);
+    // Container の 3D モデル (docs/spec/container-model.md §8)
+    container::add_container_model_schemas(&mut api);
     api
 }
 

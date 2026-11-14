@@ -56,6 +56,10 @@ pub struct ContainerManifest {
     /// (docs/spec/transformations.md §4.3、[`AnchorManifest`](super::AnchorManifest))
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rate: Option<f64>,
+    /// Container の 3D モデル (conf の `model:`、docs/spec/container-model.md §5.1)。
+    /// conf でだけ書ける。API の `container/create` に付けるとエラー (§5.5)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<super::ModelManifest>,
 }
 
 impl Display for ContainerManifest {
@@ -98,6 +102,7 @@ impl ContainerManifest {
             broker_name: "core".to_owned(),
             broker_type_name: "core".to_owned(),
             rate: None,
+            model: None,
         }
     }
 
@@ -117,6 +122,7 @@ impl ContainerManifest {
             broker_name: self.broker_name.clone(),
             broker_type_name: self.broker_type_name.clone(),
             rate: None,
+            model: None,
         }
     }
 
@@ -165,6 +171,12 @@ impl ContainerManifest {
     /// Anchor の更新の周期 [Hz] を設定する (`periodic_anchor` 用)
     pub fn rate(mut self, rate: f64) -> Self {
         self.rate = Some(rate);
+        self
+    }
+
+    /// 3D モデルを設定する (docs/spec/container-model.md §5.1)
+    pub fn model(mut self, model: super::ModelManifest) -> Self {
+        self.model = Some(model);
         self
     }
 

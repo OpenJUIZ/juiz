@@ -361,6 +361,22 @@ impl ContainerProcessBrokerProxy for CRUDBrokerProxyHolder {
 }
 
 impl ContainerBrokerProxy for CRUDBrokerProxyHolder {
+    fn container_model_info(&self, identifier: &str) -> JuizResult<Value> {
+        capsule_value(self.broker.read(
+            "container",
+            "model_info",
+            param(&[("identifier", identifier)]),
+        )?)
+    }
+
+    fn container_model(&self, identifier: &str) -> JuizResult<Value> {
+        capsule_value(self.broker.read(
+            "container",
+            "model",
+            param(&[("identifier", identifier)]),
+        )?)
+    }
+
     fn container_profile_full(&self, id: &ContainerIdentifier) -> JuizResult<ContainerProfile> {
         let value = capsule_value(self.modify_profile(self.broker.read(
             "container",

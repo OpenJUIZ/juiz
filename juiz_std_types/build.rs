@@ -5,6 +5,7 @@ fn main() {
             "juiz_std/common.jidl",
             "juiz_std/geometry.jidl",
             "juiz_std/sensor.jidl",
+            "juiz_std/model.jidl",
         ])
         .unwrap();
 }

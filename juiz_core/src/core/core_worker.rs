@@ -476,6 +476,10 @@ impl CoreWorker {
         for s in crate::transformations::api_types::transformations_type_schemas()? {
             registry.add_schema(&s, crate::transformations::api_types::TRANSFORMATIONS_TYPE_USER)?;
         }
+        // Container の 3D モデルのモデル情報の型 (juiz_std.model、docs/spec/container-model.md §8)
+        for s in crate::models::container_model_type_schemas()? {
+            registry.add_schema(&s, crate::models::CONTAINER_MODEL_TYPE_USER)?;
+        }
         Ok(registry)
     }
 
@@ -773,6 +777,8 @@ impl CoreWorker {
         self.store()
             .transformations
             .remove_container(&identifier.to_string())?;
+        // 3D モデルも外す (docs/spec/container-model.md)
+        self.store().models.remove(&cont.identifier().to_string())?;
         self.store_mut()
             .containers
             .deregister_by_id(&identifier.to_string())?;

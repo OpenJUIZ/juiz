@@ -209,6 +209,8 @@ Container の作成時(conf の読み込み)に次を順に確かめ、満たさ
 
 `model` は **conf でだけ書ける**。ブローカー越しの `container/create`(HTTP・qmp・IPC・メッセンジャー、pyjuiz の `SystemProxy`)の manifest に `model` があれば `ContainerModelInvalidError` にする。理由: 遠くの利用者が任意のパスを指して、juiz を動かす機械の上のファイルを読み出せてしまうため。API での作成・差し替えは将来(§13)。
 
+Step 1 で決めたこと: 断るのは `container/create` の `__manifest__` の中と外(引数の `model`)、`composite_container/create`、Rust の `CoreBroker::container_create` に `ContainerManifest::model` を付けたとき。どれも Container を作る前に断る。
+
 ## 6. API
 
 ### 6.1 クラス / 関数
@@ -224,6 +226,8 @@ Container の作成時(conf の読み込み)に次を順に確かめ、満たさ
 - サブシステム(別の System)の Container も、BrokerProxy 越しに取り出せる(管理画面が親の System だけにつないでいても全部見える)。中継する System はモデルを持たず、そのまま渡す。
 
 ### 6.2 HTTP の `container/model`(生のバイト列)
+
+Step 1 で決めたこと: `If-None-Match` があれば、中身を読む前にモデル情報の SHA-256 と比べ、同じなら読まずに 304 を返す。`/api/container/model` だけは汎用の `/api/{class}/{function}` ではなく専用の経路で返す。`If-None-Match` は `,` 区切りの並び・`*`・弱い比較の `W/"…"` も受け付ける。`file_name` が ASCII の表示文字でない(日本語など)ときは `Content-Disposition: inline; filename="model"; filename*=UTF-8''<百分率符号化>`(RFC 6266)にする。
 
 - 本文はファイルの中身そのまま。`Content-Type` は `media_type`(§3.1)、`Content-Length` は大きさ。
 - `ETag` は強い ETag で SHA-256 の 16 進(小文字 64 文字)を引用符で囲んだもの(`"3a7bd3…"`)。
@@ -247,14 +251,32 @@ qmp・IPC・メッセンジャー系のブローカーと、Rust の BrokerProxy
 
 ### 6.4 Rust・pyjuiz・CLI(Step 1・2 で決める)
 
-- Rust: `CRUDBrokerProxy`(または Container 系の BrokerProxy)に `container_model_info(id) -> Value` と `container_model(id) -> (Value, Vec<u8>)` に当たるものを足す(名前と戻り値の形は Step 1 #381 で決める)。
+- Rust: `ContainerBrokerProxy` に `container_model_info(identifier: &str) -> JuizResult<Value>`(モデルが無ければ `Value::Null`)と `container_model(identifier: &str) -> JuizResult<Value>`(§6.3 の `{info, data}`)を足した(Step 1 #381)。バイト列にするのは `juiz_core::models::ContainerModelData::from_value`(`info` と `data: Vec<u8>`、逆は `to_value`)。`identifier` は文字列で、ID でも名前でもよい(Transformations の API と同じ)。
+- HTTP の BrokerProxy は `container/model` の生のバイト列(§6.2)と `container/model_info` を続けて取り、`ETag` と `info.sha256` が同じなら `{info, data}` にして返す。違えば(間にファイルが書き換わった)一度だけやり直す。別 System を中継するとき(§6.1)も、`identifier` のブローカー付きの ID を書き換えずに送る(`container/pose` と同じ)。
+- 自分の System の中では、HTTP ブローカーは base64 を通さずに中身を取り出して返す(`CRUDDispatcher::container_model_data`)。
 - pyjuiz のクライアント: `ContainerProxy.model_info()` → dict(無ければ `None`)、`ContainerProxy.model()` → bytes(Step 2 #382)。
 - CLI は §9。
+
+### 6.5 ベンチ(Step 1 #381)
+
+50 MB の .glb を同じ機械の上で取り出した時間(release、5 回の中央値、4 コアのクラウドの Linux、2026-11-14)。測り方は `brokers/qmp_broker/tests/qmp_container_model_test.rs` の `container_model_bench`(`#[ignore]`)。
+
+| 経路 | 時間 |
+|---|---|
+| HTTP の生のバイト列(§6.2) | 75 ms |
+| HTTP の 304(`If-None-Match` が同じ) | 0.6 ms |
+| qmp の JSON の経路(base64、§6.3) | 607 ms |
+| qmp の `container/model_info` | 0.7 ms |
+
+- 304 は中身を読まずに返す(`If-None-Match` があれば先にモデル情報の SHA-256 だけ比べる。ファイルが変わっていなければ SHA-256 も計算し直さない)。
+- JSON の経路は base64 で 4/3 倍になり、JSON の文字列としての組み立てと読み取りが加わるので HTTP の約 8 倍かかる。大きなモデルを何度も取るなら HTTP か、`model_info` の `sha256` を見て取り直さない使い方(§6.3)にする。16 MiB 超の WARN(§5.4)はこのため。
 
 ## 7. profile と list
 
 - `container/profile_full` の `model`(§6.1)。Composite の profile・Anchor の profile も同じ。
 - `ContainerManifest` に `model: Option<ModelManifest>`(conf の §5.1 の値。`None` なら直列化しない)を足す。manifest に載るのは conf の値で、モデル情報(大きさ・SHA-256)は profile の `model` に載る(Step 1 #381)。
+- Step 1 で決めたこと: `ContainerProfile` に `model: Option<Value>` を足した。§6.1 のとおり、モデルが無くても `"model": null` を出す(古い profile は無くても読める)。`ModelManifest` と形式の表(`ModelFormat`: 名前・拡張子・`media_type`・既定の `up_axis`)は juiz_sdk に置き、Step 2 の CLI からも使う。
+- `container/profile_full` はモデルのファイルが消えていればエラーになる(§5.3 の「その要求をエラーにする」)。
 - `juiz list --long` の Container の行に形式と大きさを出す(Step 2 #382)。
 
 ## 8. モデル情報の型 `juiz_std.model.ContainerModelInfo`
@@ -291,7 +313,8 @@ record ContainerModelInfo {
 - `format`・`up_axis` は実際に使う値(既定から決めたものも含む)を入れる。conf で省いたかどうかは区別しない。
 - `file_name` だけを出し、ディレクトリは出さない(System を動かす機械のパスを外に見せない)。
 - 型の登録所(`type/list`)と OpenAPI の `components.schemas` にいつも載せ、`container/model_info` と `container/profile_full` の `model` の応答はこの型を参照する(Transformations の型と同じ扱い、transformations.md §13.1)。
-- `.jidl` の正確な書き方(既定値の書式)と指紋の固定は Step 1 #381 で決め、ここに書き足す。
+- Step 1 で決めたこと: `.jidl` は `juiz_idl/std/juiz_std/model.jidl`。`import idl "geometry.jidl";` で `Transform` を読み、`origin` の既定値は `{"translation": {"x": 0.0, "y": 0.0, "z": 0.0}, "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}}`(geometry.jidl の `TransformStamped` と同じ書式)。指紋は `juiz_std.model.ContainerModelInfo@sha256:500282a80f0f81bd0641ae610d73a89d67cdd51ef94801fb2803e4a4a9b8cda1`(`juiz_idl/tests/idl_test.rs` の `std_type_fingerprints_are_fixed` で固定)。Rust は `juiz_std_types::model::ContainerModelInfo`、Python は pyjuiz 同梱の `juiz_std.model`。
+- 型の登録所(`type/list`)では `used_by` が `container_model`。OpenAPI では `container/model_info` の応答と `container/profile_full` の `model` がこの型(か `null`)を参照し、`container/model` の応答は §3.1 の 5 つの Content-Type のバイナリ。
 
 ## 9. CLI(Step 2 #382)
 
@@ -331,7 +354,11 @@ System を起動せずに、モデルのファイルを §3 の規則で確か�
 | `ContainerModelFileNotFoundError` | `path` のファイルが無い・開けない(作成時、取り出し時) |
 | `ContainerHasNoModelError` | モデルの無い Container に `container/model` |
 
-HTTP では `ContainerModelFileNotFoundError` と `ContainerHasNoModelError` を 404、`ContainerModelInvalidError` を 400(作成時)・500(取り出し時)にする(Step 1 #381 で既存のエラーの対応表に合わせる)。
+HTTP では `ContainerModelFileNotFoundError` と `ContainerHasNoModelError` を 404、`ContainerModelInvalidError` を 400(作成時)・500(取り出し時)にする。
+
+Step 1 で決めたこと: それまでの HTTP ブローカーはエラーをすべて 500 で返していた(対応表は無かった)。エラーの応答を作る所(`http_router::error_status`)で、エラーの連なりの中の `JuizError` を見て上の 3 つだけを振り分け、それ以外は今までどおり 500 にした。「作成時」は POST(`*/create`)の要求のこと。404 はどの経路(`container/model`・`model_info`・`profile_full`)でも同じ。本文は今までどおり `{"message": …}`。
+
+ローカルブローカー・qmp などのメッセンジャー系の BrokerProxy では、相手のエラーは文(`BrokerProxyRemoteError`)で届く(既存の扱い)。
 
 ## 12. 管理画面の 3D 表示(Step 4 #384)
 

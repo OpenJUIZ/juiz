@@ -11,13 +11,23 @@ pub(crate) fn create_create_callbacks() -> CallbackContainerType {
     let mut container_callbacks = CallbackContainerType::new();
     container_callbacks.insert("create", |cb, args| {
         log::debug!("[CREATE] container/create called");
-        let manifest: ContainerManifest =
-            serde_json::from_value(args.get("__manifest__")?.extract_value()?)?;
+        let manifest_value = args.get("__manifest__")?.extract_value()?;
+        // model は conf でだけ書ける。manifest を読む前に断る (docs/spec/container-model.md §5.5)
+        crate::models::reject_model_from_api(&manifest_value)?;
+        let manifest: ContainerManifest = serde_json::from_value(manifest_value)?;
         let profile: ContainerProfile = cb.lock_mut()?.container_create(&manifest, args)?;
         // container/profile_full と同じく identifier と class_name を添える (issue #370)
         Ok(container_profile_value(&profile)?.into())
     });
     container_callbacks
+}
+
+fn identifier_param(args: &CapsuleMap) -> JuizResult<String> {
+    args.get_param("identifier").cloned().ok_or_else(|| {
+        anyhow!(JuizError::CRUDBrokerCanNotParameterFunctionError {
+            key_name: "identifier".to_owned()
+        })
+    })
 }
 
 pub(crate) fn create_read_callbacks() -> CallbackContainerType {
@@ -35,6 +45,17 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
             .try_into()?;
         let profile: ContainerProfile = cb.lock()?.container_profile_full(&container_id)?;
         Ok(container_profile_value(&profile)?.into())
+    });
+    // 3D モデル (docs/spec/container-model.md §6)。identifier は ID か名前
+    cont_cbs.insert("model_info", |cb, args| {
+        log::debug!("[READ  ] container/model_info called");
+        let identifier = identifier_param(&args)?;
+        Ok(cb.lock()?.container_model_info(&identifier)?.into())
+    });
+    cont_cbs.insert("model", |cb, args| {
+        log::debug!("[READ  ] container/model called");
+        let identifier = identifier_param(&args)?;
+        Ok(cb.lock()?.container_model(&identifier)?.into())
     });
     cont_cbs.insert("list", |cb, args| {
         log::debug!("[READ  ] container/list called");

@@ -143,7 +143,7 @@ console.log(Pose2DType.fingerprint); // .avsc と同じ指紋
 
 ## 標準の型 juiz_std
 
-`juiz_std/common.jidl` (`Time`・`Header` など)、`juiz_std/geometry.jidl` (`Point2D`・`Pose2D`・`Pose`・`Twist` など)、`juiz_std/sensor.jidl` (`ImageInfo`・`Imu`・`LaserScan`・`Range`) は juiz-idl に組み込まれていて、ファイルがなくても import や入力に書けます。
+`juiz_std/common.jidl` (`Time`・`Header` など)、`juiz_std/geometry.jidl` (`Point2D`・`Pose2D`・`Pose`・`Twist` など)、`juiz_std/sensor.jidl` (`ImageInfo`・`Imu`・`LaserScan`・`Range`)、`juiz_std/model.jidl` (`ContainerModelInfo`) は juiz-idl に組み込まれていて、ファイルがなくても import や入力に書けます。
 
 ```text
 namespace my.robot;
