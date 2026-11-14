@@ -16,10 +16,10 @@ use juiz_core::{
     prelude::*,
     CRUDBrokerProxy, CRUDBrokerProxyHolder,
 };
-use zenoh::bytes::ZBytes;
 use zenoh::query::{ConsolidationMode, QueryTarget};
 use zenoh::{Session, Wait};
 
+use crate::shm::{frame_len, FrameEncoder};
 use crate::zenoh_broker::host_port_string;
 use crate::{frame_limits, zenoh_config, CRUD_KEY, DEFAULT_PORT, TYPE_NAME};
 
@@ -47,6 +47,7 @@ pub struct ZenohBrokerProxy {
     session: Session,
     timeout: Duration,
     limits: FrameLimits,
+    encoder: FrameEncoder,
     next_id: AtomicU64,
 }
 
@@ -89,7 +90,13 @@ impl ZenohBrokerProxy {
         };
         let config = zenoh_config(manifest, None, Some(&locator), &limits)?;
         // 同期の wait() は tokio のランタイムの中 (current_thread) では使えないので、別スレッドで開く
-        let session = std::thread::spawn(move || zenoh::open(config).wait().map_err(|e| e.to_string()))
+        // 共有メモリの pool もここで用意しておく (§11)
+        let m = manifest.clone();
+        let (session, encoder) = std::thread::spawn(move || {
+            let session = zenoh::open(config).wait().map_err(|e| e.to_string())?;
+            let encoder = FrameEncoder::for_session(&session, &m);
+            Ok::<_, String>((session, encoder))
+        })
             .join()
             .map_err(|_| anyhow!("zenoh://{name}: opening a zenoh session panicked"))?
             .map_err(|e| anyhow!("{TYPE_NAME}://{name}: can not connect ({locator}). {e}"))?;
@@ -99,8 +106,15 @@ impl ZenohBrokerProxy {
             session,
             timeout,
             limits,
+            encoder,
             next_id: AtomicU64::new(1),
         })
+    }
+
+    /// 大きなフレームを共有メモリに書くか (feature shared-memory があり、conf の shared_memory が false でなく、
+    /// Zenoh の pool が用意できたとき、§11)。相手が別のホストなら、書いた後で Zenoh が TCP で送る
+    pub fn uses_shared_memory(&self) -> bool {
+        self.encoder.uses_shm()
     }
 
     fn label(&self) -> String {
@@ -110,20 +124,21 @@ impl ZenohBrokerProxy {
     /// 要求のフレームを query で送り、最初の reply を応答として読む
     fn request(&self, frame: &OutgoingFrame) -> JuizResult<CapsulePtr> {
         let id = frame.header().id;
-        let bytes = frame.to_bytes()?;
+        let len = frame_len(frame)?;
         // 上限を超えるメッセージは Zenoh が黙って捨てるので、送る前に確かめる (§5.2)
-        if bytes.len() as u64 > self.limits.max_frame_bytes {
+        if len as u64 > self.limits.max_frame_bytes {
             return Err(anyhow!(
-                "{}: the request frame is too large ({} bytes > max_frame_bytes {} bytes)",
+                "{}: the request frame is too large ({len} bytes > max_frame_bytes {} bytes)",
                 self.label(),
-                bytes.len(),
                 self.limits.max_frame_bytes
             ));
         }
+        // 共有メモリが使えればそこへ直接書く (§11)
+        let bytes = self.encoder.encode(frame, len)?;
         let replies = self
             .session
             .get(CRUD_KEY)
-            .payload(ZBytes::from(bytes))
+            .payload(bytes)
             .target(QueryTarget::BestMatching)
             .consolidation(ConsolidationMode::None)
             .timeout(self.timeout)
