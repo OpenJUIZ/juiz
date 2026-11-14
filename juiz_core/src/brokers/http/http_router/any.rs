@@ -18,7 +18,7 @@ use crate::{
     prelude::*,
 };
 
-use super::{full_query_to_map, json_output_wrap};
+use super::{full_query_to_map, json_output_wrap, json_output_wrap_create};
 use utoipa::OpenApi;
 
 #[utoipa::path(
@@ -48,7 +48,7 @@ pub async fn object_post_handler(
         // ロックは dispatcher を取り出す間だけ握り、Process の実行中は外しておく (issue #356)
         let dispatcher = juiz_lock(&crud_broker).unwrap().dispatcher();
         // 応答 (画像の PNG 化など) もワーカーの外で作る (issue #363)
-        json_output_wrap((|| {
+        json_output_wrap_create((|| {
             dispatcher.create_class(
                 class_name.as_str(),
                 function_name.as_str(),
@@ -78,7 +78,7 @@ fn body_to_capsule_map(body: Value, _headers: &HeaderMap) -> Result<CapsuleMap, 
 ///
 /// HTTP/1.1 は Host ヘッダに入る。HTTP/2 には Host ヘッダが無く `:authority` 疑似ヘッダで送られ、
 /// hyper はそれをリクエストの URI の authority に入れるので、Host が無いときはそちらを使う (issue #361)。
-fn accessed_host(headers: &HeaderMap, uri: &Uri) -> Option<String> {
+pub(super) fn accessed_host(headers: &HeaderMap, uri: &Uri) -> Option<String> {
     headers
         .get(axum::http::header::HOST)
         .and_then(|h| h.to_str().ok())
@@ -415,6 +415,11 @@ pub async fn object_delete_handler(
 
 pub fn object_router(crud_broker: Arc<Mutex<CRUDBroker>>) -> Router {
     Router::new()
+        // モデルの中身は生のバイト列で返す (docs/spec/container-model.md §6.2)
+        .route(
+            "/container/model",
+            routing::get(super::container::model_handler),
+        )
         .route(
             "/:class_name/:function_name",
             routing::patch(object_patch_handler)

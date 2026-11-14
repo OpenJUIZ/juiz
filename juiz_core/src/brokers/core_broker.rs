@@ -26,6 +26,7 @@ use crate::core::SubSystemProxy;
 use crate::core::SystemStorePtr;
 
 mod cross_system;
+mod models;
 pub(crate) use cross_system::remote_container_id;
 
 #[allow(unused)]
@@ -1138,7 +1139,17 @@ impl ContainerBrokerProxy for CoreBroker {
         let mut profile = store.container_profile(&container)?;
         // 写しを取りに来ている別 System (transformations.md §19.10)
         profile.remote_children = self.transformations().remote_children(&id.to_string())?;
+        // 3D モデルのモデル情報。無ければ null (container-model.md §6.1・§7)
+        profile.model = store.models.info(&container.identifier().to_string())?;
         Ok(profile)
+    }
+
+    fn container_model_info(&self, identifier: &str) -> JuizResult<Value> {
+        self.container_model_info_impl(identifier)
+    }
+
+    fn container_model(&self, identifier: &str) -> JuizResult<Value> {
+        self.container_model_json(identifier)
     }
 
     fn container_list(
@@ -1181,6 +1192,10 @@ impl ContainerBrokerProxy for CoreBroker {
         args: CapsuleMap,
     ) -> JuizResult<ContainerProfile> {
         log::trace!("【呼出】container_create({}, {})", manifest, args);
+        // model は conf でだけ書ける (docs/spec/container-model.md §5.5)
+        if manifest.model.is_some() || args.get("model").is_ok() {
+            crate::models::reject_model_from_api(&jvalue!({"model": true}))?;
+        }
         let type_name: String = manifest.type_name.clone(); // manifest.get("type_name")?.try_into()?;
         let name = manifest
             .name

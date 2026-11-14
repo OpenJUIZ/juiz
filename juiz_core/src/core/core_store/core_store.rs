@@ -34,6 +34,8 @@ pub struct CoreStore {
     pub broker_proxies: Box<BufferObjectCollection<dyn BrokerProxy, dyn BrokerProxyFactory>>,
     /// Transformations 登録所 (docs/spec/transformations.md §9.1)
     pub transformations: crate::transformations::TransformationsPtr,
+    /// Container の 3D モデルの登録所 (docs/spec/container-model.md §5)
+    pub models: crate::models::ContainerModelsPtr,
 }
 
 /// setup の途中で失敗したときなど、cleanup を通らずに捨てられる場合も、
@@ -62,6 +64,7 @@ impl CoreStore {
             container_processes: ObjectCollection::new("container_process"),
             ecs: MutexObjectCollection::new("ecs"),
             transformations: crate::transformations::Transformations::new(),
+            models: crate::models::ContainerModels::new(),
         }
     }
 
@@ -91,6 +94,7 @@ impl CoreStore {
         log::trace!("CoreStore::clear() called");
         // Periodic Anchor のスレッドを止め、Container を登録所から外してから捨てる
         self.transformations.clear()?;
+        self.models.clear()?;
         self.clear_container_process_factories()?;
         self.clear_container_factories()?;
         self.clear_process_factories()?;

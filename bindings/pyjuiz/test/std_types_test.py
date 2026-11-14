@@ -12,12 +12,16 @@ sys.path.append('.')
 from juiz import juiz_process
 from juiz_std.common import Header, Time
 from juiz_std.geometry import Point2D, Pose, Pose2D, Quaternion, Twist2D, Vector2
+from juiz_std.model import ContainerModelInfo
 from juiz_std.sensor import ImageInfo, LaserScan
 
 # すべてのフィールドに既定値がある
 assert Pose().orientation == Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
 assert ImageInfo().encoding == 'rgb8'
 assert ImageInfo().header == Header(stamp=Time(sec=0, nanosec=0), frame_id='')
+# Container の 3D モデルの付帯情報 (docs/spec/container-model.md §8)
+assert ContainerModelInfo().origin.rotation == Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+assert ContainerModelInfo.from_value({'format': 'glb', 'size': 12}).size == 12
 
 pose = Pose2D(position=Point2D(x=1.0, y=-2.0), theta=0.5)
 assert pose.to_value() == {'position': {'x': 1.0, 'y': -2.0}, 'theta': 0.5}

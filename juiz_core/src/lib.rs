@@ -11,6 +11,8 @@ mod ecs;
 mod processes;
 mod topics;
 /// Transformations (Container の位置姿勢と座標変換) の登録所と Anchor (docs/spec/transformations.md)
+/// Container の 3D モデル (docs/spec/container-model.md、issue #381)
+pub mod models;
 pub mod transformations;
 
 pub mod types;

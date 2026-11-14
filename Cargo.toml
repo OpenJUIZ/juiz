@@ -62,6 +62,8 @@ reqwest = {version="0.12.8", default-features = false, features = ["blocking", "
 serde = {version = "1.0.209", features = ["derive"]}
 serde_json="1.0.127"
 sha2 = "0.11.1"
+# SDF (XML) のモデルのファイルの確かめ (docs/spec/container-model.md §3.1)
+roxmltree = "0.20"
 signal-hook = "0.3.17"
 
 syn = { version = "2.0.87", features = ["full", "extra-traits", "parsing"] }

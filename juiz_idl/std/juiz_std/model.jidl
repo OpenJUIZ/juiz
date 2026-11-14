@@ -1,0 +1,27 @@
+// juiz の標準の型 (juiz_std): Container の 3D モデル (docs/spec/container-model.md §8)
+// juiz-idl に組み込まれていて、どこからでも `import idl "juiz_std/model.jidl";` で読める (docs/spec/datatype.md §24)。
+namespace juiz_std.model;
+
+import idl "geometry.jidl";
+
+/** Container の 3D モデルの付帯情報 (docs/spec/container-model.md) */
+record ContainerModelInfo {
+  /** 形式: glb / gltf / stl / sdf / other */
+  string format = "other";
+  /** Content-Type */
+  string media_type = "application/octet-stream";
+  /** ファイルの大きさ [byte] */
+  long size = 0;
+  /** ファイルの SHA-256 (16 進、小文字 64 文字) */
+  string sha256 = "";
+  /** ファイル名 (ディレクトリを除いたもの) */
+  string file_name = "";
+  /** 1 単位を何 m にするか */
+  double scale = 1.0;
+  /** Container の座標から見たモデルの取り付け位置 */
+  juiz_std.geometry.Transform origin = {"translation": {"x": 0.0, "y": 0.0, "z": 0.0}, "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}};
+  /** ファイルの上の軸: y / z */
+  string up_axis = "z";
+  /** 色を持たない形式の表示色 ("#RRGGBB" / "#RRGGBBAA")。無ければ空 */
+  string color = "";
+}

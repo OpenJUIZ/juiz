@@ -27,10 +27,14 @@ pub(super) fn setup_container_factories(
 pub(super) fn setup_containers(system: &System, manifest: &Value) -> JuizResult<()> {
     log::trace!("setup_containers({manifest}) called");
     for container_manifest_value in get_array(manifest)?.iter() {
+        // model: の誤りは ContainerModelInvalidError にしたいので、manifest 全体を読む前に確かめる (container-model.md §5.2)
+        let model = load_model_from_conf(system, container_manifest_value).with_context(|| {
+            format!("loading 'model' of Container in conf ({container_manifest_value})")
+        })?;
         let container_manifest: ContainerManifest =
             serde_json::from_value(container_manifest_value.clone())?;
         log::debug!("Container ({:?}) Creating...", container_manifest);
-        setup_container(system, container_manifest.clone(), container_manifest_value)
+        setup_container(system, container_manifest.clone(), container_manifest_value, model)
             .with_context(|| {
                 format!(
                     "setup_container({}) in setup_containers() in containers.rs",
@@ -122,10 +126,55 @@ fn setup_container_factory(
 ///
 /// 各コンテナを作成後に対応するコンテナプロセスを作成する。
 ///
+/// conf の Container の `model:` を読み、ファイルを確かめる (docs/spec/container-model.md §5.2)。
+/// 相対パスは conf の親ディレクトリから。`model:` が無ければ `None`。Container を作る前に呼ぶ
+pub(super) fn load_model_from_conf(
+    system: &System,
+    container_manifest_value: &Value,
+) -> JuizResult<Option<crate::models::ContainerModel>> {
+    let Some(v) = container_manifest_value.get("model").filter(|v| !v.is_null()) else {
+        return Ok(None);
+    };
+    let manifest = juiz_sdk::manifests::ModelManifest::from_value(v)?;
+    let models = system.core_broker().lock()?.worker().store().models.clone();
+    let model = crate::models::ContainerModel::load(
+        &manifest,
+        system.get_working_dir().as_deref(),
+        models.max_bytes()?,
+    )?;
+    log::debug!(
+        "ContainerModel ({}) loaded: {}",
+        manifest.path,
+        model.info()
+    );
+    Ok(Some(model))
+}
+
+/// 作った Container にモデルを付ける
+pub(super) fn attach_model(
+    system: &System,
+    container: &ContainerPtr,
+    model: Option<crate::models::ContainerModel>,
+) -> JuizResult<()> {
+    if let Some(model) = model {
+        let id = container.identifier().to_string();
+        log::info!("【モデル】Container({id}) has model {}", model.info());
+        system
+            .core_broker()
+            .lock()?
+            .worker()
+            .store()
+            .models
+            .insert(&id, model)?;
+    }
+    Ok(())
+}
+
 fn setup_container(
     system: &System,
     container_manifest: ContainerManifest,
     container_manifest_value: &Value,
+    model: Option<crate::models::ContainerModel>,
 ) -> JuizResult<()> {
     let container_argument: CapsuleMap = container_manifest_value.clone().try_into()?;
     let container_process_values = container_manifest_value
@@ -139,6 +188,7 @@ fn setup_container(
         .lock_mut()?
         .worker_mut()
         .create_container_ref(type_name.as_str(), name.as_str(), container_argument)?;
+    attach_model(system, &container, model)?;
     setup_container_processes(
         system,
         container,

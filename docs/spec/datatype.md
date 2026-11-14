@@ -869,6 +869,7 @@ juiz-idl(`juiz_idl/std/juiz_std/*.jidl`)に組み込み、どこからでも `im
 | `juiz_std/common.jidl` | `juiz_std.common` | `Time {sec, nanosec}`、`Duration {sec, nanosec}`、`Header {stamp, frame_id}` |
 | `juiz_std/geometry.jidl` | `juiz_std.geometry` | `Point2D`、`Point3D`、`Vector2`、`Vector3`、`Quaternion`(既定は回転なし `w = 1`)、`Pose2D {position, theta}`、`Pose {position, orientation}`、`Twist2D {linear: Vector2, angular}`、`Twist {linear, angular}`、`Pose2DStamped`、`PoseStamped`、`Transform {translation: Vector3, rotation: Quaternion}`・`TransformStamped {header, child_frame_id, transform}`(0.2 系で追加、[transformations.md](transformations.md)) |
 | `juiz_std/sensor.jidl` | `juiz_std.sensor` | `ImageInfo {header, width, height, encoding}`(画像のメタ情報。画素は `image` 型で別に渡す、§3.3)、`Imu`、`LaserScan`、`Range`(この 3 つは ROS 2 の `sensor_msgs` と同じフィールドを持つ、§25.2) |
+| `juiz_std/model.jidl` | `juiz_std.model` | `ContainerModelInfo {format, media_type, size, sha256, file_name, scale, origin, up_axis, color}`(Container の 3D モデルの付帯情報、0.2 系で追加、[container-model.md](container-model.md) §8) |
 
 - 名前とフィールドは ROS 2 の `std_msgs`・`builtin_interfaces`・`geometry_msgs`・`sensor_msgs` に寄せた(Step 13 の取り込みで対応を付けやすくするため)。ただし juiz の型として別に定義したもので、`ros2.*` の型とは指紋が違う。ROS 2 の型を取り込むと、辞書の形が同じものは juiz_std に置き換わる(§25.2)。
 - 一度出した型は変えない(フィールドを足すときは既定値を付ける)。指紋は `juiz_idl/tests/idl_test.rs` の `std_type_fingerprints_are_fixed` で固定する。

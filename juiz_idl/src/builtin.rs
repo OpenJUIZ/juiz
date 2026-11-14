@@ -7,7 +7,7 @@
 pub const BUILTIN_PREFIX: &str = "<builtin>/";
 
 /// 組み込みのファイル (import に書くパス、中身)
-pub const BUILTIN_FILES: [(&str, &str); 3] = [
+pub const BUILTIN_FILES: [(&str, &str); 4] = [
     (
         "juiz_std/common.jidl",
         include_str!("../std/juiz_std/common.jidl"),
@@ -19,6 +19,10 @@ pub const BUILTIN_FILES: [(&str, &str); 3] = [
     (
         "juiz_std/sensor.jidl",
         include_str!("../std/juiz_std/sensor.jidl"),
+    ),
+    (
+        "juiz_std/model.jidl",
+        include_str!("../std/juiz_std/model.jidl"),
     ),
 ];
 

@@ -25,7 +25,7 @@ pub(crate) fn remote_container_id(s: &str) -> Option<ContainerIdentifier> {
     Some(id)
 }
 
-fn core_form(id: &ContainerIdentifier) -> ContainerIdentifier {
+pub(super) fn core_form(id: &ContainerIdentifier) -> ContainerIdentifier {
     let mut c = id.clone();
     c.broker_type_name = "core".to_owned();
     c.broker_name = "core".to_owned();
@@ -53,6 +53,14 @@ fn forward_error(e: juiz_sdk::anyhow::Error, target: &ContainerIdentifier) -> ju
     cross_error(format!(
         "can not reach the System of Container({target}): {e:#}"
     ))
+}
+
+/// 別 System に回した Container の API (モデルなど) のエラーに、どの System で起きたかを添える
+pub(super) fn proxy_error_context(
+    e: juiz_sdk::anyhow::Error,
+    target: &ContainerIdentifier,
+) -> juiz_sdk::anyhow::Error {
+    e.context(format!("in the System of Container({target})"))
 }
 
 /// 回した先の答えの `frame_id` (相手の写しの ID) を、自分の System での基準の名前にする (§5.4)
@@ -97,7 +105,7 @@ impl CoreBroker {
         Ok(c.to_string())
     }
 
-    fn proxy_of(&self, id: &ContainerIdentifier) -> JuizResult<Arc<RwLock<dyn BrokerProxy>>> {
+    pub(super) fn proxy_of(&self, id: &ContainerIdentifier) -> JuizResult<Arc<RwLock<dyn BrokerProxy>>> {
         self.worker()
             .broker_proxy(&id.broker_type_name, &id.broker_name, true)
             .map_err(|e| {

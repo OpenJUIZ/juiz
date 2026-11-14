@@ -57,6 +57,10 @@ juiz_webui = { workspace = true, optional = true }
 juiz_sdk = { workspace = true}
 # Transformations の API の引数・戻り値の型 (juiz_std.geometry、issue #370)
 juiz_std_types = { workspace = true }
+# Container の 3D モデル (docs/spec/container-model.md): 指紋 (ETag)・JSON の経路の base64・SDF の確かめ
+sha2 = { workspace = true }
+base64 = { workspace = true }
+roxmltree = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

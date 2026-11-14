@@ -139,7 +139,9 @@ fn construct_url(
     }
     // container/pose・set_pose の identifier は別 System の Container (ブローカー付きの ID) でもよいので書き換えない。
     // このサーバー自身を指す ID はサーバー側で core の ID に直す (localize_identifier、transformations.md §19.8)
-    let keep_identifier = class_name == "container" && matches!(function_name, "pose" | "set_pose");
+    // container/model・model_info も同じ (別 System の Container を中継する、container-model.md §6.1)
+    let keep_identifier = class_name == "container"
+        && matches!(function_name, "pose" | "set_pose" | "model" | "model_info");
     let m = param.iter().map(|(k, v)| {
         if keep_identifier && k == "identifier" {
             k.clone() + "=" + v.as_str()
@@ -148,6 +150,49 @@ fn construct_url(
         }
     });
     return url + "?" + m.collect::<Vec<String>>().join("&").as_str();
+}
+
+impl HTTPBrokerProxy {
+    fn status_error(response: Response) -> anyhow::Error {
+        anyhow::Error::from(HTTPBrokerError::HTTPStatusError {
+            status_code: response.status(),
+            message: response.text().unwrap_or_default(),
+        })
+    }
+
+    /// `container/model` (docs/spec/container-model.md §6.2・§6.3)。HTTP では中身が生のバイト列で届くので、
+    /// `container/model_info` と合わせて JSON の経路の形 `{info, data: <base64>}` にする。
+    /// 2 つの間にファイルが書き換わった (ETag と info.sha256 が違う) ら、一度だけやり直す
+    fn read_container_model(&self, param: &HashMap<String, String>) -> JuizResult<CapsulePtr> {
+        let url = construct_url(&self.base_url, "container", "model", param);
+        let info_url = construct_url(&self.base_url, "container", "model_info", param);
+        for _ in 0..2 {
+            let response = self.client.get(url.clone()).send()?;
+            if response.status() != 200 {
+                return Err(Self::status_error(response));
+            }
+            let etag = response
+                .headers()
+                .get(reqwest::header::ETAG)
+                .and_then(|v| v.to_str().ok())
+                .map(|v| v.trim_matches('"').to_owned())
+                .unwrap_or_default();
+            let data = response.bytes()?.to_vec();
+            let response = self.client.get(info_url.clone()).send()?;
+            if response.status() != 200 {
+                return Err(Self::status_error(response));
+            }
+            let info = response.json::<Value>()?;
+            let d = crate::models::ContainerModelData { info, data };
+            if d.sha256() == etag {
+                return Ok(d.to_value().into());
+            }
+            log::debug!("container/model: the model file changed between model and model_info. Retrying");
+        }
+        Err(anyhow::anyhow!(JuizError::ContainerModelInvalidError {
+            message: "model file keeps changing while being read".to_owned()
+        }))
+    }
 }
 
 impl CRUDBrokerProxy for HTTPBrokerProxy {
@@ -237,6 +282,9 @@ impl CRUDBrokerProxy for HTTPBrokerProxy {
             self.base_url
         );
 
+        if class_name == "container" && function_name == "model" {
+            return self.read_container_model(&param);
+        }
         let url = construct_url(&self.base_url, class_name, function_name, &param);
         log::trace!("【read】(url={url:})に対してリクエストをします。");
         match self.client.get(url.clone()).send() {

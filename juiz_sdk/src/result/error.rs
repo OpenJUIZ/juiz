@@ -412,6 +412,16 @@ pub enum JuizError {
     /// 写しでない別 System の Container の PoseState の問い合わせなど
     #[error("Cross-System Transform error: {message}")]
     CrossSystemTransformError { message: String },
+    /// Container の 3D モデルの不備 (docs/spec/container-model.md §11): conf の `model:` の型・値の誤り、
+    /// 上限超え、形式の判定に合わない、API からの作成に `model`
+    #[error("ContainerModel is invalid: {message}")]
+    ContainerModelInvalidError { message: String },
+    /// `model.path` のファイルが無い・開けない (作成時、取り出し時)
+    #[error("ContainerModel file is not found: {message}")]
+    ContainerModelFileNotFoundError { message: String },
+    /// モデルの無い Container に `container/model`
+    #[error("Container({container}) has no model.")]
+    ContainerHasNoModelError { container: String },
 }
 
 impl<T> From<PoisonError<T>> for JuizError {

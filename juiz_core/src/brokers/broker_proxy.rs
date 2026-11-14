@@ -180,6 +180,16 @@ pub trait ContainerBrokerProxy {
     ) -> JuizResult<Vec<ContainerIdentifier>>;
 
     fn container_profile_full(&self, id: &ContainerIdentifier) -> JuizResult<ContainerProfile>;
+
+    /// Container `identifier` (ID か名前) の 3D モデルのモデル情報 (`juiz_std.model.ContainerModelInfo` の形)。
+    /// モデルが無ければ `Null` (docs/spec/container-model.md §6.1)。
+    /// 別 System の Container (ブローカー付きの ID) なら、その System に回す
+    fn container_model_info(&self, identifier: &str) -> JuizResult<Value>;
+
+    /// Container `identifier` (ID か名前) の 3D モデルの中身 `{"info": モデル情報, "data": "<base64>"}` (§6.3)。
+    /// モデルが無ければ `ContainerHasNoModelError`。
+    /// バイト列にするには [`crate::models::ContainerModelData::from_value`] を使う
+    fn container_model(&self, identifier: &str) -> JuizResult<Value>;
 }
 
 pub trait ContainerProcessBrokerProxy {
