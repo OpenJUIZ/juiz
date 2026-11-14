@@ -278,6 +278,7 @@ qmp・IPC・メッセンジャー系のブローカーと、Rust の BrokerProxy
 - `ContainerManifest` に `model: Option<ModelManifest>`(conf の §5.1 の値。`None` なら直列化しない)を足す。manifest に載るのは conf の値で、モデル情報(大きさ・SHA-256)は profile の `model` に載る(Step 1 #381)。
 - Step 1 で決めたこと: `ContainerProfile` に `model: Option<Value>` を足した。§6.1 のとおり、モデルが無くても `"model": null` を出す(古い profile は無くても読める)。`ModelManifest` と形式の表(`ModelFormat`: 名前・拡張子・`media_type`・既定の `up_axis`)は juiz_sdk に置き、Step 2 の CLI からも使う。
 - `container/profile_full` はモデルのファイルが消えていればエラーになる(§5.3 の「その要求をエラーにする」)。
+- `system/profile_full` の `core_store.containers[].model` にも同じ値を載せる(Step 4 #384 で決めたこと。それまでは常に `null` だった)。ただし一覧は管理画面が数秒ごとに取るので、ファイルが消えたなどで取り出せない Container は一覧全体をエラーにせず `null` にし、WARN も出さない(`container/profile_full` か `container/model_info` を呼べば WARN とエラーが出る)。
 - `juiz list --long` の Container の行に形式と大きさを出す(Step 2 #382)。
 - Step 2 で決めたこと: `juiz container list --long` の、モデルを持つ Container の行の下に `model: <format> <大きさ> (<file_name>)` を 1 行出す(例 `model: glb 1.2 MiB (pantilt.glb)`。大きさは 1024 未満は `B`、それ以上は `KiB`・`MiB` で小数 1 桁)。Anchor の種類(transformations.md §13.2)と同じく列は増やさず、Process の一覧と同じ表の形を保つ。値は `container/profile_full` の `model` から取る。
 
@@ -395,6 +396,18 @@ Step 1 で決めたこと: それまでの HTTP ブローカーはエラーを�
 - モデルは HTTP の `container/model` を ETag 付きで取り、SHA-256 ごとに 1 回だけ読み込んで使い回す(同じ形の Container が 10 台あっても 1 回)。
 - 位置は `transformations/tree?anchor=` の問い合わせ(5〜10 Hz)で更新する。押し出し(SSE / WebSocket)は将来。
 - 3D 表示で Container を選ぶと、既存の右側の詳細(profile・ContainerProcess・Pose)を出す。
+
+Step 4 で決めたこと(#384):
+
+- 中央の表示に「系の図」と「3D」の切り替えを置く(選んだ方はブラウザに覚える)。three.js(0.187、MIT)は npm の依存として同梱し、`ModelView` を `React.lazy` で読み込むので、3D を開くまで three.js の部分(約 670 kB)は読まない。
+- Anchor は右上で選ぶ(最上位の系の Anchor の木と写しの Anchor の木、最初は先頭)。位置は選んだ Anchor の `transformations/tree` を 5 Hz(200 ms)で取り、前の問い合わせが終わっていなければその回は飛ばす。「一時停止」で止められる。
+- モデル情報は `system/profile_full` の `core_store.containers[].model` から取る(§7 の Step 4 で決めたこと)。写しなど system/profile_full に載らない容器と、`model` のキーが無い古い juiz では `container/model_info` を 5 秒ごとに取る。
+- モデルの使い回しの鍵は「SHA-256・形式・色」(色は glTF では使わないので鍵に入れない)。`container/model` は `fetch` で取り、`Cache-Control: no-cache` と `ETag` によりブラウザが `If-None-Match` を付けて問い合わせ直す。読み込みに失敗したら、次の更新で取り直す。
+- 置き方は §4.4 のとおり `pose_A(C) ∘ origin ∘ U ∘ S`。SDF の形は S の内側に置く(model・link・visual の `<pose>` は U と S の右)。計算は `webui/src/three/placement.ts` にまとめ、§4.4 の数値の例を `webui/tests/placement.test.ts`(`npm test`、node の test runner)で確かめる。CI の WebUI ワークフローでも走らせる。
+- モデルを表示した Container は座標軸を出さない。モデルの無い Container・`other`・読めないモデル・`<mesh>` だけの SDF は座標軸(x 赤・y 緑・z 青)を出す。名前の札はすべての Container に出し、札かモデル(モデルが無ければ座標軸の原点の見えない球)を押すと右側の詳細を出す。選んだ Container は外接箱の枠で示す。写しの Container は選べない(系の中に要素が無い)。
+- 注意は右上に Container ごとに出す: 表示しない形式(`other`)、表示しない SDF の要素(`<mesh>`・読めない `<pose>`・未対応の形・`relative_to`・`<joint>`・入れ子の `<model>`)、読み込みの失敗、外接箱が 100 m を超えるモデル(`scale` の書き忘れの見当)。100 m を超えるモデルは「全体」の範囲に入れない。
+- 面の法線が 0 の STL(書き出す道具によくある)は形から法線を求め直す。バイナリ STL の面の色があればそれを使う。
+- 右側の容器の詳細に「3D モデル」の節(ファイル名・形式・大きさ・縮尺・上の軸・取り付け位置・色・SHA-256 の先頭)を足した。
 
 ## 13. 範囲の外(将来)
 

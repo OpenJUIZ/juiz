@@ -1,6 +1,7 @@
 import type { paths } from "./openapi.gen.ts";
 import type {
   ConnectionProfile,
+  ContainerModelInfo,
   PoseStamped,
   SystemProfile,
   TransformationsTreeNode,
@@ -133,6 +134,33 @@ export class JuizClient {
   /** Anchor を根とする木。各ノードに Anchor から見た位置姿勢と、親からの Transform の値が入る */
   async transformationsTree(anchor: string, signal?: AbortSignal): Promise<TransformationsTreeNode> {
     return (await this.get("/api/transformations/tree", { anchor }, signal)) as TransformationsTreeNode;
+  }
+
+  /* ---------- Container の 3D モデル(#381、#384) ---------- */
+
+  /** モデル情報。モデルが無ければ null */
+  async containerModelInfo(identifier: string, signal?: AbortSignal): Promise<ContainerModelInfo | null> {
+    return (await this.get("/api/container/model_info", { identifier }, signal)) as ContainerModelInfo | null;
+  }
+
+  /**
+   * モデルの中身(生のバイト列、container-model.md §6.2)と ETag(SHA-256)。
+   * juiz は Cache-Control: no-cache と ETag を付けて返すので、ブラウザが If-None-Match で問い合わせ直し、
+   * 変わっていなければ 304 で手元の写しを使う
+   */
+  async containerModel(identifier: string, signal?: AbortSignal): Promise<{ data: ArrayBuffer; sha256: string | null }> {
+    const path = "/api/container/model";
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl}${path}?${new URLSearchParams({ identifier })}`, { signal });
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") throw e;
+      throw new JuizApiError(`接続できません: ${(e as Error).message}`);
+    }
+    if (!res.ok) throw new JuizApiError(`${path} が ${res.status} を返しました`, res.status);
+    const etag = res.headers.get("ETag");
+    const sha256 = etag ? etag.replace(/^W\//, "").replace(/"/g, "") : null;
+    return { data: await res.arrayBuffer(), sha256 };
   }
 
   /** 基準 reference から見た Container の位置姿勢 */

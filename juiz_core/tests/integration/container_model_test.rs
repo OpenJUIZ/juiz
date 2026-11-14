@@ -154,6 +154,21 @@ fn check_proxy(bp: &dyn BrokerProxy, kind: &str) -> JuizResult<()> {
     assert_eq!(bp.container_profile_full(&id)?.model, Some(info.clone()), "{kind}");
     let plain = ContainerIdentifier::try_from("core://core/container/plain::static_anchor".to_owned())?;
     assert_eq!(bp.container_profile_full(&plain)?.model, None, "{kind}");
+
+    // system/profile_full の containers にも載る (#384、管理画面の 3D 表示が使う)
+    let sys = bp.system_profile_full()?;
+    // BrokerProxy によっては {"__value__": …} に包まれて返る
+    let sys = sys.get("__value__").cloned().unwrap_or(sys);
+    let model_of = |name: &str| -> Value {
+        sys["core_store"]["containers"]
+            .as_array()
+            .and_then(|cs| cs.iter().find(|c| c["name"] == name))
+            .map(|c| c["model"].clone())
+            .unwrap_or_else(|| panic!("{kind}: {name} is not in system/profile_full"))
+    };
+    assert_eq!(model_of("pantilt0"), info, "{kind}");
+    assert_eq!(model_of("cc0")["format"], "glb", "{kind}");
+    assert_eq!(model_of("plain"), Value::Null, "{kind}");
     Ok(())
 }
 
@@ -283,6 +298,14 @@ fn check_http_raw(dir: &TempDir, port: i64) -> JuizResult<()> {
         .query(&[("identifier", "pantilt0")])
         .send()?;
     assert_eq!(r.status(), 404);
+    // system/profile_full は一覧全体をエラーにせず、その Container の model を null にする (#384)
+    let v: Value = c.get(format!("{base}/system/profile_full")).send()?.json()?;
+    let pantilt = v["core_store"]["containers"]
+        .as_array()
+        .and_then(|cs| cs.iter().find(|c| c["name"] == "pantilt0"))
+        .cloned()
+        .unwrap_or_default();
+    assert!(pantilt.get("model").is_some_and(|m| m.is_null()), "{pantilt}");
     std::fs::write(&path, &glb)?;
     let r = c
         .get(format!("{base}/container/model"))

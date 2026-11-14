@@ -1,0 +1,118 @@
+/* 3D 表示(#384) */
+.model-view {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.model-host {
+  position: absolute;
+  inset: 0;
+}
+
+.model-host .model-canvas {
+  display: block;
+}
+
+.model-host .model-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.model-label {
+  font-family: var(--font-mono);
+  font-weight: normal;
+  font-size: 12px;
+  color: var(--kind-container);
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+.model-label.selectable {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.model-label.selectable:hover {
+  border-color: var(--accent);
+}
+
+.model-label.selected {
+  color: var(--bg);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.model-tools {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.model-tools label {
+  color: var(--text-dim);
+}
+
+.model-tools select {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+
+.model-notes {
+  position: absolute;
+  top: 48px;
+  right: 10px;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-weight: normal;
+  font-size: 12px;
+}
+
+.model-notes > div {
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 4px 8px;
+}
+
+.model-notes .warn {
+  border-color: var(--kind-ec);
+}
+
+.model-notes .error {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.model-legend {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  font-weight: normal;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.model-legend .x {
+  color: #ff4d4d;
+}
+
+.model-legend .y {
+  color: #4dff4d;
+}
+
+.model-legend .z {
+  color: #4d8dff;
+}

@@ -3,7 +3,7 @@
 ブラウザで juiz の系(System)を確認する画面です。親 issue は [#110](https://github.com/OpenJUIZ/juiz/issues/110)。
 今は左のツリーと右の性質欄([#114](https://github.com/OpenJUIZ/juiz/issues/114))までできています。中央の図は [#115](https://github.com/OpenJUIZ/juiz/issues/115) で作ります。
 
-TypeScript + React + Vite で作り、図は React Flow(`@xyflow/react`)、自動配置は elkjs を使います。
+TypeScript + React + Vite で作り、図は React Flow(`@xyflow/react`)、自動配置は elkjs、3D 表示は three.js を使います。
 
 ## 必要なもの
 
@@ -141,6 +141,16 @@ juiz に接続できないときは、上部の状態が「未接続」になり
 - 要素や接続の線をクリックすると選ばれ、ツリーと性質欄にも同じものが出ます。選んだ要素には照準の輪が重なり、処理なら輪の左に引数ごと、右に出力の弧が出ます(つながっているものが光る)。
 - 副系(別プロセスの juiz)があるときは、系ごとに破線の枠で囲み、別の系どうしの接続は枠をまたぐ矢印で描きます([#116](https://github.com/OpenJUIZ/juiz/issues/116))。枠は中の要素を囲む大きさになり、見出しを押すとその系が選ばれます。
 
+## 3D 表示
+
+中央の左上で「系の図」と「3D」を切り替えます([#384](https://github.com/OpenJUIZ/juiz/issues/384)、仕様は [container-model.md](../docs/spec/container-model.md) §12)。
+
+- 右上で選んだ Anchor の木の Container を、Anchor から見た位置に置きます。位置は 5 Hz で取り直します(「一時停止」で止まる)。Transform は親子を結ぶ水色の線です。
+- conf の `model:` で 3D モデル(.glb・.gltf・.stl・SDF の部分集合)を持つ Container はモデルを、持たない Container は座標軸(x 赤・y 緑・z 青)を出します。
+- 名前の札かモデルを押すと、その Container が選ばれ、性質欄に詳細が出ます。ドラッグで回転、右ドラッグで平行移動、ホイールで指した所へ寄ります。「全体」で全体が見える位置に戻ります。
+- 表示しない形式・要素、読めないモデル、外接箱が 100 m を超えるモデル(`scale` の書き忘れの見当)は右上に注意を出します。
+- three.js は 3D を開いたときだけ読み込みます。同じファイル(SHA-256)のモデルは 1 回だけ取り出します。
+
 ## 開発用のコマンド
 
 | コマンド | 内容 |
@@ -148,12 +158,13 @@ juiz に接続できないときは、上部の状態が「未接続」になり
 | `npm run lint` | ESLint |
 | `npm run typecheck` | 型検査 |
 | `npm run build` | 型検査とビルド |
+| `npm test` | 3D 表示の位置の計算のテスト(`tests/`、node の test runner) |
 | `npm run gen:api` | `src/api/openapi.json` から API の型 `src/api/openapi.gen.ts` を作る |
 | `npm run check:fonts` | 画面の字がすべて同梱フォントに入っているか確かめる |
 | `npm run fonts:chars` | 同梱フォントに入れる字の一覧 `src/assets/fonts/subset-chars.txt` を作り直す |
 | `npm run gen:api -- http://localhost:8000` | 動いている juiz から OpenAPI 定義を取り直して型を作る(プラグインを読み込んでいない juiz から取る。OpenAPI 定義には読み込んだ Process の引数と型のスキーマが入るため) |
 
-CI(`.github/workflows/webui.yml`)は lint・型検査・ビルドと、`openapi.gen.ts` が `openapi.json` と合っているか、画面の字が同梱フォントに入っているかを確かめます。
+CI(`.github/workflows/webui.yml`)は lint・型検査・テスト・ビルドと、`openapi.gen.ts` が `openapi.json` と合っているか、画面の字が同梱フォントに入っているかを確かめます。
 
 ### 同梱フォント
 
@@ -187,6 +198,8 @@ scripts/subset-fonts.sh <ZenOldMincho-Regular.ttf と ZenOldMincho-Black.ttf を
 | `src/assets/fonts/` | 同梱フォント(画面の字だけに絞った woff2)と字の一覧 `subset-chars.txt` |
 | `public/fonts/ZenOldMincho-OFL.txt` | 同梱フォントのライセンス。ビルドした画面の `fonts/` に入る |
 | `src/components/` | 上部の帯、ツリー、図、性質欄(呼び出すフォーム `CallForm.tsx`、位置姿勢と変換の `PoseSections.tsx`、共通の部品 `props-parts.tsx` を含む)、設定の画面部品 |
+| `src/components/CenterPane.tsx`, `ModelView.tsx` | 中央の表示の切り替えと 3D 表示(`ModelView` は動的 import) |
+| `src/three/` | 3D 表示の中身。位置の計算 `placement.ts`、SDF の読み取り `sdf.ts`、モデルの取り出しと使い回し `loaders.ts`、three.js の場面 `scene.ts` |
 | `src/diagram/` | 中央の図の中身。モデルから図の要素と線を作る `graph.ts`、自動配置 `layout.ts`、位置の保存 `positions.ts`、要素・線・湾曲グリッドの部品と `diagram.css` |
 
 ## ライセンス
