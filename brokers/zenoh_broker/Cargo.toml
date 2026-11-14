@@ -28,6 +28,10 @@ serde_json = { workspace = true }
 # TCP だけ。ほかの transport は入れない (docs/spec/zenoh-broker.md §2)。共有メモリは feature shared-memory
 zenoh = { version = "1.10.2", default-features = false, features = ["transport_tcp"] }
 
+[target.'cfg(unix)'.dependencies]
+# 共有メモリの pool を mlock できるか (RLIMIT_MEMLOCK) を調べる (docs/spec/zenoh-broker.md §11.3)
+libc = "0.2"
+
 [dev-dependencies]
 uuid = { workspace = true }
 # HTTP で受けた要求を zenoh の副系へ転送するテスト (tests/zenoh_errors_test.rs) のため。juiz_core が既に使っている

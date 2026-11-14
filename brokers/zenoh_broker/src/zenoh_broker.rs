@@ -181,7 +181,7 @@ pub async fn on_start(broker_manifest: Value, crud_broker: Arc<Mutex<CRUDBroker>
         }
     };
     // 共有メモリの pool を用意する (§11)
-    let encoder = Arc::new(FrameEncoder::for_session_async(&session, &broker_manifest).await);
+    let encoder = Arc::new(FrameEncoder::for_session(&session, &broker_manifest));
     log::debug!("zenoh_broker: shared memory {}", if encoder.uses_shm() { "on" } else { "off" });
     let stop = Arc::new(AtomicBool::new(false));
     let _stop_on_drop = StopOnDrop(stop.clone());

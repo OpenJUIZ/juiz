@@ -86,7 +86,10 @@ fn zenoh_shared_memory_combinations() -> JuizResult<()> {
 
         // 両方が共有メモリを使う
         let proxy = ZenohBrokerProxy::new(&jvalue!({ "name": name, "shm_pool_bytes": 13 << 20 }))?;
-        assert_eq!(proxy.uses_shared_memory(), cfg!(feature = "shared-memory"));
+        // feature があっても、pool を mlock できない環境 (RLIMIT_MEMLOCK が小さい) では TCP で送る
+        let usable =
+            cfg!(feature = "shared-memory") && zenoh_broker::memlock_allows(13 << 20).is_ok();
+        assert_eq!(proxy.uses_shared_memory(), usable);
         send_images(&proxy, 10)?;
         drop(proxy);
 

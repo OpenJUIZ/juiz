@@ -234,7 +234,7 @@ Zenoh は qmp より 720p で約 2.5 倍、4K で約 3 倍速い。Zenoh の Top
 - フレーム全体(先頭 `JZF1`・ヘッダ・本体)を、共有メモリの領域 1 つにそのまま書く。その領域を `ZBytes` にして query / reply の payload にする。受け手は TCP のときと同じく `ZBytes` の `reader()` でフレームを読む(§5.2)。
   - large-data.md §6 の共有メモリ(B、`body_len` 0 の本体)は使わない。B は juiz がリングと寿命を管理するが、Zenoh では領域の参照数・回収・watchdog を Zenoh が管理するので、juiz の側で管理する物が無い。同じ System で IPC の B と Zenoh の共有メモリを両方使ってよい。
 - 書く前にフレームの長さ(8 + ヘッダ + 本体ごとに 8 + 本体)を求め、その大きさの領域を借りて `OutgoingFrame::write_to` で直接書く。画像はカプセルから領域へ 1 回だけ写す(TCP のときの `Vec<u8>` への写しが無くなる)。
-- 領域は Zenoh のセッションが持つ provider(`Session::get_shm_provider()`、transport_optimization の pool)から借りる。セッションを開いた後、provider の用意ができるまで待つ。
+- 領域は Zenoh のセッションが持つ provider(`Session::get_shm_provider()`、transport_optimization の pool)から借りる。Zenoh は pool を作ると全体を mlock する(常に実メモリを占める)ので、pool は 64 KiB 以上のフレームを初めて送るときに作り、できるまで待つ。大きなフレームを送らないセッションは pool を持たない。
 - 64 KiB より小さなフレームは共有メモリに書かず `Vec<u8>` で渡す(領域を借りる手間の方が大きいため)。このとき Zenoh の transport_optimization が 3072 バイト以上のメッセージを自分で共有メモリへ写すことはある(Zenoh の既定)。
 - 借り方は `GarbageCollect<Defragment>` で、空きが無ければ 1 ms ごとに最大 1 秒試す。それでも空かないとき、pool(`shm_pool_bytes`)より大きいフレーム、provider が無いときは、警告を出して `Vec<u8>` で送る(エラーにしない)。Zenoh の `BlockOn` は使わない。pool より大きいフレームで永久に待つため。
 - 応答のフレーム(サーバー)も要求のフレーム(クライアント)も同じ規則で書く。Topic の push も要求なので同じ。
@@ -249,7 +249,9 @@ Zenoh は qmp より 720p で約 2.5 倍、4K で約 3 倍速い。Zenoh の Top
 | `shared_memory` | `true` | `false` で Zenoh の `transport/shared_memory/enabled` を `false` にし、フレームを共有メモリに書かない。片方が `false` なら、その間は TCP で送る |
 | `shm_pool_bytes` | 67108864(64 MiB) | Zenoh の `transport/shared_memory/transport_optimization/pool_size`。4K の RGB(約 25 MB)のフレームが 2 つ入る大きさ。これより大きなフレームは TCP で送る |
 
-- pool はセッションごと(サーバーは 1 つ、クライアントは繋ぎ先ごとに 1 つ)にでき、`/dev/shm` などの共有メモリを使う。Docker の既定の `/dev/shm`(64 MB)では足りないことがあるので、`--shm-size` を増やすか `shm_pool_bytes` を下げる。
+- pool はセッションごと(サーバーは 1 つ、クライアントは繋ぎ先ごとに 1 つ)に、大きなフレームを初めて送るときにでき、`/dev/shm` などの共有メモリを使う。Docker の既定の `/dev/shm`(64 MB)では足りないことがあるので、`--shm-size` を増やすか `shm_pool_bytes` を下げる。
+- Zenoh は pool の全体を mlock する。Unix では、セッションを開く前に RLIMIT_MEMLOCK を調べ、ソフトの上限が `shm_pool_bytes` より小さければハードの上限まで上げる。それでも足りなければ(root でなく、多くの Linux の一般ユーザーの既定 8 MiB など)、警告を 1 度出して共有メモリを切り(`transport/shared_memory/enabled` を `false`)、TCP で送る。切らないと Zenoh が pool を作れず、ERROR を出し続けるため。使うには `ulimit -l`(systemd なら `LimitMEMLOCK`)を上げるか、`shm_pool_bytes` を上限より小さくする。Windows は mlock しないので調べない。
+- CI の `zenoh` ジョブは `sudo prlimit --memlock=unlimited` で上限を外し、共有メモリの経路を通す。
 
 ### 11.4 テスト
 
@@ -283,6 +285,7 @@ Zenoh は qmp より 720p で約 2.5 倍、4K で約 3 倍速い。Zenoh の Top
 
 - Zenoh の共有メモリの API(`zenoh::shm`、`Session::get_shm_provider`)は `unstable` で、Zenoh の版を上げると変わることがある。zenoh は 1.10.2 に固定しておき、上げるときは `shm.rs` を直す。直せないときは feature `shared-memory` を外して出せる(§11.1)。
 - Zenoh の既定の設定の説明に、CPU の負荷が高いと送っている途中の共有メモリの領域が watchdog に無効にされる競合が query / reply にあると書かれている(eclipse-zenoh/zenoh#2628)。起きると受け手がフレームを読めず、エラー応答か応答なしになる。起きる環境では `shared_memory: false` にする。
+- 一般ユーザーの既定の RLIMIT_MEMLOCK(8 MiB)では既定の pool(64 MiB)を mlock できず、何もしなければ TCP で送る(§11.3)。速さが要る環境では上限を上げる必要がある。
 - 異常終了したプロセスの領域は `/dev/shm` に残るが、Zenoh は次に共有メモリを使い始めるときに持ち主のいない領域を消す。
 - Windows・macOS では、CI の zenoh ジョブ(Linux)では確かめていない。公開する wheel(§8.3)の組み立てが main への push でビルドを確かめる。
 

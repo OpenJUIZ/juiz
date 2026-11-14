@@ -19,6 +19,8 @@ mod zenoh_broker_proxy;
 
 /// Zenoh の CRUD を直接使うとき (list の namespace 絞り込みなど BrokerProxy に無い引数を渡すとき) に使う
 pub use zenoh_broker_proxy::ZenohBrokerProxy;
+/// 共有メモリの pool (bytes) を mlock できるか (RLIMIT_MEMLOCK、§11.3)。できなければ理由
+pub use shm::memlock_allows;
 
 /// ブローカーの種類名
 pub const TYPE_NAME: &str = "zenoh";
@@ -69,7 +71,7 @@ pub(crate) fn zenoh_config(
     )?;
     // 共有メモリ (§11)。feature shared-memory が無いと Zenoh の設定にこのキーが無いので触らない
     if cfg!(feature = "shared-memory") {
-        if shm::shm_enabled(manifest) {
+        if shm::shm_usable(manifest) {
             set(
                 "transport/shared_memory/transport_optimization/pool_size",
                 shm::shm_pool_bytes(manifest).to_string(),
@@ -184,7 +186,12 @@ mod tests {
     fn config_for_shared_memory() {
         let limits = FrameLimits::default();
         let c = zenoh_config(&jvalue!({}), Some("tcp/127.0.0.1:7448"), None, &limits).unwrap();
-        assert_eq!(c.get_json("transport/shared_memory/enabled").unwrap(), "true");
+        // pool (64 MiB) を mlock できない環境 (一般ユーザーの GitHub Actions など) では切る
+        let usable = shm::memlock_allows(shm::DEFAULT_SHM_POOL_BYTES).is_ok();
+        assert_eq!(c.get_json("transport/shared_memory/enabled").unwrap(), usable.to_string());
+        if !usable {
+            return;
+        }
         assert_eq!(
             c.get_json("transport/shared_memory/transport_optimization/pool_size").unwrap(),
             shm::DEFAULT_SHM_POOL_BYTES.to_string()

@@ -26,6 +26,65 @@ pub(crate) fn shm_enabled(manifest: &Value) -> bool {
             .unwrap_or(true)
 }
 
+/// 共有メモリを使えるか (§11.3)。manifest で切っていなくても、pool を mlock できなければ使わない。
+/// Zenoh は pool の全体を mlock するので、RLIMIT_MEMLOCK (多くの Linux で一般ユーザーは 8 MiB) が
+/// pool より小さいと pool を作れず、Zenoh が ERROR を出し続ける。そうなる前にここで切る
+pub(crate) fn shm_usable(manifest: &Value) -> bool {
+    if !shm_enabled(manifest) {
+        return false;
+    }
+    match memlock_allows(shm_pool_bytes(manifest)) {
+        Ok(()) => true,
+        Err(message) => {
+            // 設定とセッションごとに何度も呼ばれるので、警告はプロセスで 1 度だけ
+            static WARNED: std::sync::Once = std::sync::Once::new();
+            WARNED.call_once(|| log::warn!("zenoh: shared memory is turned off. {message}"));
+            false
+        }
+    }
+}
+
+/// pool (bytes) を mlock できるか。ソフトの上限が足りなければハードの上限まで上げてみる
+#[cfg(unix)]
+pub fn memlock_allows(bytes: u64) -> Result<(), String> {
+    let mut lim = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: lim は有効な rlimit を指す
+    if unsafe { libc::getrlimit(libc::RLIMIT_MEMLOCK, &mut lim) } != 0 {
+        return Ok(()); // 調べられないときは Zenoh に任せる
+    }
+    let enough = |v: libc::rlim_t| v == libc::RLIM_INFINITY || v as u64 >= bytes;
+    // root は CAP_IPC_LOCK で上限を超えて mlock できる
+    // SAFETY: 引数の無い呼び出し
+    if enough(lim.rlim_cur) || unsafe { libc::geteuid() } == 0 {
+        return Ok(());
+    }
+    if enough(lim.rlim_max) {
+        let raised = libc::rlimit {
+            rlim_cur: lim.rlim_max,
+            rlim_max: lim.rlim_max,
+        };
+        // SAFETY: raised は有効な rlimit を指す
+        if unsafe { libc::setrlimit(libc::RLIMIT_MEMLOCK, &raised) } == 0 {
+            return Ok(());
+        }
+    }
+    Err(format!(
+        "the shared memory pool (shm_pool_bytes = {bytes}) can not be locked in memory \
+         (RLIMIT_MEMLOCK = {} bytes). raise it (ulimit -l, or LimitMEMLOCK in systemd) \
+         or lower shm_pool_bytes. frames are sent over TCP",
+        lim.rlim_cur
+    ))
+}
+
+/// Windows は mlock しない
+#[cfg(not(unix))]
+pub fn memlock_allows(_bytes: u64) -> Result<(), String> {
+    Ok(())
+}
+
 /// manifest の shm_pool_bytes (省くと DEFAULT_SHM_POOL_BYTES)
 pub(crate) fn shm_pool_bytes(manifest: &Value) -> u64 {
     manifest
@@ -43,11 +102,18 @@ pub(crate) fn frame_len(frame: &OutgoingFrame) -> JuizResult<usize> {
     usize::try_from(len).map_err(|_| anyhow!("the frame is too large ({len} bytes)"))
 }
 
+#[cfg(feature = "shared-memory")]
+type Provider = std::sync::Arc<zenoh::shm::ShmProvider<zenoh::shm::PosixShmProviderBackend>>;
+
 /// フレームを ZBytes にする道具。セッションごとに 1 つ作る
 pub(crate) struct FrameEncoder {
+    /// 共有メモリを使うときのセッション
+    #[cfg_attr(not(feature = "shared-memory"), allow(dead_code))]
+    session: Option<Session>,
+    /// pool。Zenoh は pool を作ると全体を mlock するので、大きなフレームを初めて送るときに作る
     #[cfg(feature = "shared-memory")]
-    provider: Option<std::sync::Arc<zenoh::shm::ShmProvider<zenoh::shm::PosixShmProviderBackend>>>,
-    #[cfg(feature = "shared-memory")]
+    provider: std::sync::OnceLock<Option<Provider>>,
+    #[cfg_attr(not(feature = "shared-memory"), allow(dead_code))]
     pool_bytes: u64,
 }
 
@@ -55,58 +121,28 @@ impl FrameEncoder {
     /// 共有メモリを使わないもの
     pub(crate) fn plain() -> Self {
         FrameEncoder {
+            session: None,
             #[cfg(feature = "shared-memory")]
-            provider: None,
-            #[cfg(feature = "shared-memory")]
+            provider: std::sync::OnceLock::new(),
             pool_bytes: 0,
         }
     }
 
-    /// セッションの共有メモリの provider を使うもの。使えなければ plain() と同じ。
-    /// pool は最初に使うときに作られる (mode: lazy) ので、ここで作り終わるまで待つ。
-    /// 同期の wait() は tokio のランタイムの中では使えないので、ランタイムの外のスレッドで呼ぶ
-    #[allow(unused_variables)]
+    /// セッションの共有メモリの provider を使うもの。manifest で切ったとき・使えないときは plain() と同じ
     pub(crate) fn for_session(session: &Session, manifest: &Value) -> Self {
-        #[cfg(feature = "shared-memory")]
-        if shm_enabled(manifest) {
-            use zenoh::Wait;
-            return Self::with_provider(session.get_shm_provider().wait(), manifest);
+        if shm_usable(manifest) {
+            return FrameEncoder {
+                session: Some(session.clone()),
+                pool_bytes: shm_pool_bytes(manifest),
+                ..Self::plain()
+            };
         }
         Self::plain()
-    }
-
-    /// for_session() の async 版 (ブローカーの on_start で使う)
-    #[allow(unused_variables)]
-    pub(crate) async fn for_session_async(session: &Session, manifest: &Value) -> Self {
-        #[cfg(feature = "shared-memory")]
-        if shm_enabled(manifest) {
-            return Self::with_provider(session.get_shm_provider().await, manifest);
-        }
-        Self::plain()
-    }
-
-    #[cfg(feature = "shared-memory")]
-    fn with_provider(
-        provider: Option<
-            std::sync::Arc<zenoh::shm::ShmProvider<zenoh::shm::PosixShmProviderBackend>>,
-        >,
-        manifest: &Value,
-    ) -> Self {
-        if provider.is_none() {
-            log::warn!("zenoh: shared memory is not available. frames are sent over TCP");
-        }
-        FrameEncoder {
-            provider,
-            pool_bytes: shm_pool_bytes(manifest),
-        }
     }
 
     /// 共有メモリを使うか
     pub(crate) fn uses_shm(&self) -> bool {
-        #[cfg(feature = "shared-memory")]
-        return self.provider.is_some();
-        #[cfg(not(feature = "shared-memory"))]
-        false
+        self.session.is_some()
     }
 
     /// フレームを ZBytes にする。len は frame_len(frame)
@@ -141,10 +177,23 @@ impl FrameEncoder {
         use zenoh::shm::{Defragment, GarbageCollect, ZAllocError, ZLayoutAllocError};
         use zenoh::Wait;
         const WAIT: std::time::Duration = std::time::Duration::from_secs(1);
-        let provider = self.provider.as_ref()?;
+        let session = self.session.as_ref()?;
         if len < SHM_THRESHOLD || len as u64 > self.pool_bytes {
             return None;
         }
+        // 最初に使うときに pool を作り、できるまで待つ (Zenoh の shared_memory の mode は lazy)
+        let provider = self
+            .provider
+            .get_or_init(|| {
+                let p = session.get_shm_provider().wait();
+                if p.is_none() {
+                    log::warn!(
+                        "zenoh: can not create the shared memory pool. frames are sent over TCP"
+                    );
+                }
+                p
+            })
+            .as_ref()?;
         // Zenoh の BlockOn は空くまで (pool より大きくても) 待ち続けるので使わず、ここで待つ時間を区切る
         let deadline = std::time::Instant::now() + WAIT;
         loop {
@@ -194,5 +243,7 @@ mod tests {
         assert!(!shm_enabled(&jvalue!({"shared_memory": false})));
         assert_eq!(shm_pool_bytes(&jvalue!({})), DEFAULT_SHM_POOL_BYTES);
         assert_eq!(shm_pool_bytes(&jvalue!({"shm_pool_bytes": 1024})), 1024);
+        // 小さな pool はどこでも mlock できる
+        assert!(memlock_allows(4096).is_ok());
     }
 }
