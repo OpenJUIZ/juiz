@@ -501,9 +501,11 @@ fn install_base_and_connect_app() {
     cmd.args(["run", "my_patrol"]);
     let mut app_daemon = Daemon::spawn_command(cmd, dir.join("app.log"));
     let p = wait_profile(&base, |p| {
-        p.get("mastersystem").is_some_and(|m| !m.is_null())
+        p.get("mastersystem")
+            .and_then(|m| m.as_array())
+            .is_some_and(|m| !m.is_empty())
     });
-    assert!(p["mastersystem"].is_object(), "{p}");
+    assert_eq!(p["mastersystem"].as_array().map(Vec::len), Some(1), "{p}");
     app_daemon.stop();
 
     // --depend で http につなぐ。ポートを省くとインストール済みの基礎の base.http_port (8073) を使う

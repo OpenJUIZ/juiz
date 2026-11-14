@@ -160,7 +160,7 @@ fn system_manifest_subsystems_and_mastersystem() -> JuizResult<()> {
                 .setup()?
                 .run_and_do_once(|child| {
                     let profile = child.core_broker().lock()?.system_profile_full()?;
-                    assert!(profile["mastersystem"].is_object(), "{profile:?}");
+                    assert_eq!(profile["mastersystem"].as_array().map(Vec::len), Some(1), "{profile:?}");
                     Ok(())
                 })
         })

@@ -34,7 +34,8 @@ pub struct CoreBroker {
     core: ObjectCore,
     manifest: Value,
     worker: CoreWorker,
-    master_system_proxy: Option<SubSystemProxy>,
+    /// マスターシステム。星形につなぐと 1 つの System が複数の master を持つ (issue #478)
+    master_system_proxies: Vec<SubSystemProxy>,
     subsystem_proxies: Vec<SubSystemProxy>,
     system_store: SystemStorePtr,
 }
@@ -134,7 +135,7 @@ impl CoreBrokerPtr {
     #[doc(hidden)]
     pub fn forget_connected_systems(&self) -> JuizResult<()> {
         let mut cb = self.lock_mut()?;
-        cb.master_system_proxy = None;
+        cb.master_system_proxies.clear();
         cb.subsystem_proxies.clear();
         Ok(())
     }
@@ -146,9 +147,9 @@ impl CoreBrokerPtr {
     pub fn leave_connected_systems(&self) -> JuizResult<()> {
         let (peers, my_uuid) = {
             let mut cb = self.lock_mut()?;
-            let mut peers: Vec<SubSystemProxy> =
-                cb.master_system_proxy.take().into_iter().collect();
-            for ssp in cb.subsystem_proxies.drain(..) {
+            let mut peers: Vec<SubSystemProxy> = Vec::new();
+            let masters: Vec<SubSystemProxy> = cb.master_system_proxies.drain(..).collect();
+            for ssp in masters.into_iter().chain(cb.subsystem_proxies.drain(..)) {
                 if !peers.iter().any(|p| p.uuid() == ssp.uuid()) {
                     peers.push(ssp);
                 }
@@ -208,7 +209,7 @@ impl CoreBroker {
             worker: CoreWorker::new(uuid, manifest.clone()),
             core: ObjectCore::create(JuizObjectClass::BrokerProxy("CoreBroker"), "core", "core"),
             manifest: check_corebroker_manifest(manifest)?,
-            master_system_proxy: None,
+            master_system_proxies: Vec::new(),
             subsystem_proxies: Vec::new(),
             system_store,
         })
@@ -252,20 +253,17 @@ impl CoreBroker {
         &mut self.system_store
     }
 
+    /// つないでいる System (マスターシステムとサブシステム)。マスターシステムが先
+    fn connected_systems(&self) -> impl Iterator<Item = &SubSystemProxy> {
+        self.master_system_proxies
+            .iter()
+            .chain(self.subsystem_proxies.iter())
+    }
+
     fn find_subsystem_by_uuid(&self, uuid: Uuid) -> Option<SubSystemProxy> {
-        if self.master_system_proxy.is_some()
-            && self.master_system_proxy.as_ref().unwrap().uuid() == &uuid
-        {
-            Some(self.master_system_proxy.as_ref().unwrap().clone())
-        } else {
-            for ssp in self.subsystem_proxies.iter() {
-                // 呼び出し元のUUIDがサブシステムと一緒でなければ検査
-                if ssp.uuid() == &uuid {
-                    return Some(ssp.clone());
-                }
-            }
-            None
-        }
+        self.connected_systems()
+            .find(|ssp| ssp.uuid() == &uuid)
+            .cloned()
     }
 
     pub fn create_broker_proxy(
@@ -299,14 +297,15 @@ impl JuizObject for CoreBroker {
                 "core_store" : core_store,
             }),
         )?;
-        let master_profile = if let Some(system) = self.master_system_proxy.as_ref() {
-            system.profile_full()?
-        } else {
-            Value::Null
-        };
+        // マスターシステムは複数持てるので配列 (issue #478)
+        let master_profiles = self
+            .master_system_proxies
+            .iter()
+            .map(|p| p.profile_full())
+            .collect::<JuizResult<Vec<Value>>>()?;
         let mut v = obj_merge(v, &jvalue!({
             "system_store" : self.system_store.profile_full()?,
-            "mastersystem": master_profile,
+            "mastersystem": master_profiles,
             "subsystems": self.subsystem_proxies.iter().map(|p|{p.profile_full().unwrap()}).collect::<Vec<Value>>()
         }))?;
         // juiz run でパッケージから起動したときは、その名前と版を載せる (docs/spec/app-package.md §10.1)
@@ -458,15 +457,14 @@ impl SystemBrokerProxy for CoreBroker {
         }
         // juiz run のアプリのように相手が conf の subsystems にこちらを書いてつないだときは、
         // こちらは相手をマスターシステムとして登録しているので、そちらも外す
-        if self
-            .master_system_proxy
-            .as_ref()
-            .is_some_and(|m| m.uuid() == &uuid)
+        if let Some(index) = self
+            .master_system_proxies
+            .iter()
+            .position(|m| m.uuid() == &uuid)
         {
-            removed.extend(self.master_system_proxy.take());
+            removed.push(self.master_system_proxies.remove(index));
         }
-        // マスターシステムは 1 つしか持てないので、同じ基礎に複数のアプリがつなぐと先のアプリは
-        // Topic の転送先にだけ残っていることがある。Topic の転送先はいつも探す
+        // Topic の転送先はいつも探す (サブシステムでもマスターシステムでもない System が残っていることもある)
         let mut removed_from_topics = Vec::new();
         for (name, topic) in self.worker().store().topics.iter() {
             if let Some(ssp) = topic.remove_subscriber_subsystem(&uuid)? {
@@ -488,9 +486,7 @@ impl SystemBrokerProxy for CoreBroker {
         for ssp in removed.iter().chain(removed_from_topics.iter()) {
             let bp_id = juiz_borrow(&ssp.broker_proxy())?.identifier().clone();
             let still_used = self
-                .subsystem_proxies
-                .iter()
-                .chain(self.master_system_proxy.iter())
+                .connected_systems()
                 .any(|other| {
                     juiz_borrow(&other.broker_proxy())
                         .map(|b| *b.identifier() == bp_id)
@@ -852,7 +848,25 @@ impl CoreBroker {
         log::info!(
             "mastersystem(uuid={uuid})を登録しました。マスターシステムのproxyを登録します。"
         );
-        self.master_system_proxy = Some(SubSystemProxy::new(uuid, plan.bp.clone())?);
+        // 星形につなぐと複数の System がこちらを subsystem にするので、マスターシステムは足していく (issue #478)。
+        // 同じ UUID のもの (つなぎ直し) と、同じアドレスに別の UUID で残っているもの (止まって再起動する前の古いもの、
+        // issue #60 と同じ) は置き換える
+        let new_bp_id = juiz_borrow(&plan.bp)?.identifier();
+        self.master_system_proxies.retain(|m| {
+            let same = m.uuid() == &uuid
+                || juiz_borrow(&m.broker_proxy())
+                    .map(|b| b.identifier() == new_bp_id)
+                    .unwrap_or(false);
+            if same {
+                log::info!(
+                    "Mastersystem(uuid={}) at {new_bp_id} is replaced by Mastersystem(uuid={uuid}).",
+                    m.uuid()
+                );
+            }
+            !same
+        });
+        self.master_system_proxies
+            .push(SubSystemProxy::new(uuid, plan.bp.clone())?);
         Ok(())
     }
 }
@@ -1587,11 +1601,7 @@ impl CoreBroker {
             }
         }
         let mut targets: Vec<(SubSystemProxy, Vec<Uuid>)> = Vec::new();
-        for ssp in self
-            .master_system_proxy
-            .iter()
-            .chain(self.subsystem_proxies.iter())
-        {
+        for ssp in self.connected_systems() {
             if next_via.contains(ssp.uuid()) {
                 continue;
             }
