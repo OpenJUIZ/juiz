@@ -568,6 +568,110 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/container/model": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Container の ID か名前 (根のネームスペースから解決する)。パスは受け付けない */
+                    identifier?: string | null;
+                };
+                header?: {
+                    /** @description 前に受け取った ETag。同じなら 304 */
+                    "If-None-Match"?: string | null;
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description モデルのファイルの中身 (Content-Type は形式による、ETag は SHA-256) */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/octet-stream": string;
+                        "application/xml": string;
+                        "model/gltf+json": string;
+                        "model/gltf-binary": string;
+                        "model/stl": string;
+                    };
+                };
+                /** @description If-None-Match の ETag と同じ */
+                304: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description モデルが無い (ContainerHasNoModelError)・ファイルが無い (ContainerModelFileNotFoundError) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/container/model_info": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Container の ID か名前 (根のネームスペースから解決する)。パスは受け付けない */
+                    identifier?: string | null;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description モデル情報 (juiz_std.model.ContainerModelInfo)。モデルが無ければ null */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["juiz_std.model.ContainerModelInfo"] | null;
+                    };
+                };
+                /** @description モデルのファイルが無い (ContainerModelFileNotFoundError) */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/container/pose": {
         parameters: {
             query?: never;
@@ -679,7 +783,11 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            model?: components["schemas"]["juiz_std.model.ContainerModelInfo"] | null;
+                        };
+                    };
                 };
             };
         };
@@ -753,6 +861,46 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
+        patch: {
+            parameters: {
+                query?: {
+                    identifier?: string | null;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            responses: {
+                /** @description System */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/container_process/call_partial": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** 一部の引数だけで呼び出す。省いた引数は p_apply・push 済みの値、それも無ければ既定値で補う (issue #83) */
         patch: {
             parameters: {
                 query?: {
@@ -1362,6 +1510,46 @@ export interface paths {
         };
         trace?: never;
     };
+    "/api/process/call_partial": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** 一部の引数だけで呼び出す。省いた引数は p_apply・push 済みの値、それも無ければ既定値で補う (issue #83) */
+        patch: {
+            parameters: {
+                query?: {
+                    identifier?: string | null;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            responses: {
+                /** @description System */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        trace?: never;
+    };
     "/api/process/create": {
         parameters: {
             query?: never;
@@ -1655,6 +1843,8 @@ export interface paths {
                     reference_system?: string | null;
                     /** @description 回された Transform の始点の System の UUID (`transform/*`、§19.2 の 7) */
                     source_system?: string | null;
+                    /** @description topic/request_subscribe・request_publish が通ってきた System の UUID (`,` 区切り、issue #449) */
+                    via?: string | null;
                 };
                 header?: never;
                 path?: never;
@@ -1910,6 +2100,8 @@ export interface paths {
                 query?: {
                     topic_name?: string | null;
                     system_uuid?: string | null;
+                    /** @description request_subscribe・request_publish が通ってきた System の UUID (`,` 区切り、issue #449) */
+                    via?: string | null;
                 };
                 header?: never;
                 path?: never;
@@ -1950,6 +2142,8 @@ export interface paths {
                 query?: {
                     topic_name?: string | null;
                     system_uuid?: string | null;
+                    /** @description request_subscribe・request_publish が通ってきた System の UUID (`,` 区切り、issue #449) */
+                    via?: string | null;
                 };
                 header?: never;
                 path?: never;
@@ -2580,6 +2774,71 @@ export interface components {
              * @default 0
              */
             z: number;
+        };
+        /**
+         * juiz_std.model.ContainerModelInfo
+         * @description Container の 3D モデルの付帯情報 (docs/spec/container-model.md)
+         */
+        "juiz_std.model.ContainerModelInfo": {
+            /**
+             * @description 色を持たない形式の表示色 ("#RRGGBB" / "#RRGGBBAA")。無ければ空
+             * @default
+             */
+            color: string;
+            /**
+             * @description ファイル名 (ディレクトリを除いたもの)
+             * @default
+             */
+            file_name: string;
+            /**
+             * @description 形式: glb / gltf / stl / sdf / other
+             * @default other
+             */
+            format: string;
+            /**
+             * @description Content-Type
+             * @default application/octet-stream
+             */
+            media_type: string;
+            /**
+             * @description Container の座標から見たモデルの取り付け位置
+             * @default {
+             *       "rotation": {
+             *         "w": 1,
+             *         "x": 0,
+             *         "y": 0,
+             *         "z": 0
+             *       },
+             *       "translation": {
+             *         "x": 0,
+             *         "y": 0,
+             *         "z": 0
+             *       }
+             *     }
+             */
+            origin: components["schemas"]["juiz_std.geometry.Transform"];
+            /**
+             * Format: double
+             * @description 1 単位を何 m にするか
+             * @default 1
+             */
+            scale: number;
+            /**
+             * @description ファイルの SHA-256 (16 進、小文字 64 文字)
+             * @default
+             */
+            sha256: string;
+            /**
+             * Format: int64
+             * @description ファイルの大きさ [byte]
+             * @default 0
+             */
+            size: number;
+            /**
+             * @description ファイルの上の軸: y / z
+             * @default z
+             */
+            up_axis: string;
         };
     };
     responses: never;

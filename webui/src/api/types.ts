@@ -109,6 +109,28 @@ export interface ContainerProfile extends ObjectProfile {
   anchor?: AnchorInfo | null;
   /** この容器の位置を取りに来ている別の系(System をまたぐ Transform の子、#416)。いなければ無い */
   remote_children?: RemoteChild[] | null;
+  /** 3D モデルのモデル情報(container-model.md §7)。モデルが無ければ null、古い juiz では無い */
+  model?: ContainerModelInfo | null;
+}
+
+/** juiz_std.model.ContainerModelInfo(container-model.md §8) */
+export interface ContainerModelInfo {
+  /** glb / gltf / stl / sdf / other */
+  format: string;
+  media_type: string;
+  /** ファイルの大きさ [byte] */
+  size: number;
+  /** ファイルの SHA-256(16 進、小文字 64 文字) */
+  sha256: string;
+  file_name: string;
+  /** 1 単位を何 m にするか */
+  scale: number;
+  /** Container の座標から見たモデルの取り付け位置 */
+  origin: TransformValue;
+  /** ファイルの上の軸: y / z */
+  up_axis: string;
+  /** 色を持たない形式の表示色("#RRGGBB" / "#RRGGBBAA")。無ければ空 */
+  color: string;
 }
 
 /** 容器の位置を取りに来ている別の系(transformations.md §19.10) */

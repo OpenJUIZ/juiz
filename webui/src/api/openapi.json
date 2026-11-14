@@ -303,6 +303,77 @@
         "title": "juiz_std.geometry.Vector3",
         "type": "object",
         "x-juiz-fingerprint": "sha256:4abcfbbda65f821c0bbc57db2869c4eaf0c37db9629abdafe4b45e16dc2b5e8b"
+      },
+      "juiz_std.model.ContainerModelInfo": {
+        "description": "Container の 3D モデルの付帯情報 (docs/spec/container-model.md)",
+        "properties": {
+          "color": {
+            "default": "",
+            "description": "色を持たない形式の表示色 (\"#RRGGBB\" / \"#RRGGBBAA\")。無ければ空",
+            "type": "string"
+          },
+          "file_name": {
+            "default": "",
+            "description": "ファイル名 (ディレクトリを除いたもの)",
+            "type": "string"
+          },
+          "format": {
+            "default": "other",
+            "description": "形式: glb / gltf / stl / sdf / other",
+            "type": "string"
+          },
+          "media_type": {
+            "default": "application/octet-stream",
+            "description": "Content-Type",
+            "type": "string"
+          },
+          "origin": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/juiz_std.geometry.Transform"
+              }
+            ],
+            "default": {
+              "rotation": {
+                "w": 1,
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "translation": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              }
+            },
+            "description": "Container の座標から見たモデルの取り付け位置"
+          },
+          "scale": {
+            "default": 1,
+            "description": "1 単位を何 m にするか",
+            "format": "double",
+            "type": "number"
+          },
+          "sha256": {
+            "default": "",
+            "description": "ファイルの SHA-256 (16 進、小文字 64 文字)",
+            "type": "string"
+          },
+          "size": {
+            "default": 0,
+            "description": "ファイルの大きさ [byte]",
+            "format": "int64",
+            "type": "integer"
+          },
+          "up_axis": {
+            "default": "z",
+            "description": "ファイルの上の軸: y / z",
+            "type": "string"
+          }
+        },
+        "title": "juiz_std.model.ContainerModelInfo",
+        "type": "object",
+        "x-juiz-fingerprint": "sha256:500282a80f0f81bd0641ae610d73a89d67cdd51ef94801fb2803e4a4a9b8cda1"
       }
     }
   },
@@ -312,7 +383,7 @@
       "name": "MIT OR Apache-2.0"
     },
     "title": "juiz_core",
-    "version": "0.2.0"
+    "version": "0.2.8"
   },
   "openapi": "3.0.3",
   "paths": {
@@ -678,6 +749,121 @@
         ]
       }
     },
+    "/api/container/model": {
+      "get": {
+        "operationId": "model_dummy",
+        "parameters": [
+          {
+            "description": "Container の ID か名前 (根のネームスペースから解決する)。パスは受け付けない",
+            "in": "query",
+            "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "前に受け取った ETag。同じなら 304",
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/xml": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "model/gltf+json": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "model/gltf-binary": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "model/stl": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "モデルのファイルの中身 (Content-Type は形式による、ETag は SHA-256)"
+          },
+          "304": {
+            "description": "If-None-Match の ETag と同じ"
+          },
+          "404": {
+            "description": "モデルが無い (ContainerHasNoModelError)・ファイルが無い (ContainerModelFileNotFoundError)"
+          }
+        },
+        "tags": [
+          "universal.container"
+        ]
+      }
+    },
+    "/api/container/model_info": {
+      "get": {
+        "operationId": "model_info_dummy",
+        "parameters": [
+          {
+            "description": "Container の ID か名前 (根のネームスペースから解決する)。パスは受け付けない",
+            "in": "query",
+            "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/juiz_std.model.ContainerModelInfo"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "モデル情報 (juiz_std.model.ContainerModelInfo)。モデルが無ければ null"
+          },
+          "404": {
+            "description": "モデルのファイルが無い (ContainerModelFileNotFoundError)"
+          }
+        },
+        "tags": [
+          "universal.container"
+        ]
+      }
+    },
     "/api/container/pose": {
       "get": {
         "operationId": "pose_dummy",
@@ -821,6 +1007,25 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "model": {
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/juiz_std.model.ContainerModelInfo"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
             "description": "Container"
           }
         },
@@ -922,6 +1127,39 @@
             "description": "System"
           }
         },
+        "tags": [
+          "universal.container_process"
+        ]
+      }
+    },
+    "/api/container_process/call_partial": {
+      "patch": {
+        "operationId": "call_partial_dummy",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        },
+        "summary": "一部の引数だけで呼び出す。省いた引数は p_apply・push 済みの値、それも無ければ既定値で補う (issue #83)",
         "tags": [
           "universal.container_process"
         ]
@@ -1358,6 +1596,39 @@
         ]
       }
     },
+    "/api/process/call_partial": {
+      "patch": {
+        "operationId": "call_partial_dummy",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        },
+        "summary": "一部の引数だけで呼び出す。省いた引数は p_apply・push 済みの値、それも無ければ既定値で補う (issue #83)",
+        "tags": [
+          "universal.process"
+        ]
+      }
+    },
     "/api/process/create": {
       "post": {
         "operationId": "create_dummy",
@@ -1692,6 +1963,16 @@
               "nullable": true,
               "type": "string"
             }
+          },
+          {
+            "description": "topic/request_subscribe・request_publish が通ってきた System の UUID (`,` 区切り、issue #449)",
+            "in": "query",
+            "name": "via",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -1872,6 +2153,16 @@
               "nullable": true,
               "type": "string"
             }
+          },
+          {
+            "description": "request_subscribe・request_publish が通ってきた System の UUID (`,` 区切り、issue #449)",
+            "in": "query",
+            "name": "via",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -1908,6 +2199,16 @@
           {
             "in": "query",
             "name": "system_uuid",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "request_subscribe・request_publish が通ってきた System の UUID (`,` 区切り、issue #449)",
+            "in": "query",
+            "name": "via",
             "required": false,
             "schema": {
               "nullable": true,

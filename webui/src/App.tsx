@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { DiagramPane } from "./components/DiagramPane.tsx";
+import { CenterPane } from "./components/CenterPane.tsx";
 import { PropertyPane } from "./components/PropertyPane.tsx";
 import { SettingsDialog } from "./components/SettingsDialog.tsx";
 import { TopBar } from "./components/TopBar.tsx";
@@ -78,7 +78,7 @@ export default function App() {
         onToggle={toggle}
         onOpenSettings={() => setSettingsOpen(true)}
       />
-      <DiagramPane
+      <CenterPane
         model={model}
         serverUrl={settings.serverUrl}
         selectedKey={selectedKey}

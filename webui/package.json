@@ -14,19 +14,22 @@
     "typecheck": "tsc -b",
     "gen:api": "node scripts/gen-api.mjs",
     "fonts:chars": "node scripts/font-chars.mjs",
-    "check:fonts": "node scripts/font-chars.mjs --check"
+    "check:fonts": "node scripts/font-chars.mjs --check",
+    "test": "node --test \"tests/**/*.test.ts\""
   },
   "dependencies": {
     "@xyflow/react": "12.12.0",
     "elkjs": "0.12.0",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "three": "0.187.0"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "@types/node": "22.20.5",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
+    "@types/three": "0.187.0",
     "@vitejs/plugin-react": "6.1.1",
     "eslint": "10.12.0",
     "eslint-plugin-react-hooks": "7.1.1",

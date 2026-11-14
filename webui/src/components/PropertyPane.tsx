@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { ArgumentProfile, CompositeArgument, CompositeNode, Composition, TypeSchemaRef } from "../api/types.ts";
+import type { ArgumentProfile, CompositeArgument, ContainerModelInfo, CompositeNode, Composition, TypeSchemaRef } from "../api/types.ts";
 import { shortTypeName } from "../avro.ts";
 import { MARK_CLASS } from "../marks.ts";
 import { connectionTypeLabel, ecStateLabel, formatValue } from "../labels.ts";
@@ -116,6 +116,43 @@ function TypeName({ schema, fallback }: { schema?: TypeSchemaRef | null; fallbac
     <code className="mono typed" title={`${schema.name}@${schema.fingerprint}`}>
       {shortTypeName(schema.name)}
     </code>
+  );
+}
+
+/** 大きさの表示(juiz container list --long と同じ、container-model.md §7) */
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KiB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MiB`;
+}
+
+/** 容器の 3D モデルのモデル情報(#384)。位置は中央の「3D」で見る */
+function ModelSection({ info }: { info: ContainerModelInfo }) {
+  const t = info.origin.translation;
+  const r = info.origin.rotation;
+  const isIdentity = t.x === 0 && t.y === 0 && t.z === 0 && r.x === 0 && r.y === 0 && r.z === 0;
+  return (
+    <Section title="3D モデル">
+      <Fields
+        rows={[
+          ["ファイル", <Mono>{info.file_name}</Mono>],
+          ["形式", <Mono>{info.format}</Mono>],
+          ["大きさ", formatBytes(info.size)],
+          ["縮尺", info.scale === 1 ? null : <Mono>{info.scale}</Mono>],
+          ["上の軸", <Mono>{info.up_axis}</Mono>],
+          [
+            "取り付け位置",
+            isIdentity ? null : (
+              <Mono>
+                ({t.x}, {t.y}, {t.z}) / ({r.x}, {r.y}, {r.z}, {r.w})
+              </Mono>
+            ),
+          ],
+          ["色", info.color ? <Mono>{info.color}</Mono> : null],
+          ["SHA-256", <Mono>{info.sha256.slice(0, 16)}…</Mono>],
+        ]}
+      />
+    </Section>
   );
 }
 
@@ -458,6 +495,7 @@ function ContainerBody({ element: e, model, onSelect, serverUrl }: BodyProps<Con
         <SubsystemPoseSection key={e.key} element={e} model={model} onSelect={onSelect} serverUrl={serverUrl} />
       )}
       <RemoteChildrenSection element={e} model={model} onSelect={onSelect} />
+      {p.model && <ModelSection info={p.model} />}
       <Section title="引数">
         <ArgumentTable
           args={p.arguments ?? []}

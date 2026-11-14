@@ -208,7 +208,12 @@ impl CoreStore {
         self.containers
             .objects()
             .iter()
-            .map(|(_k, c)| container_profile_value(&self.container_profile(c)?))
+            .map(|(_k, c)| {
+                let mut profile = self.container_profile(c)?;
+                // 3D モデルのモデル情報 (container-model.md §7)。管理画面の 3D 表示 (§12) が使う
+                profile.model = self.models.info_for_listing(&c.identifier().to_string());
+                container_profile_value(&profile)
+            })
             .collect()
     }
 

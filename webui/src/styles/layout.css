@@ -269,6 +269,38 @@ button.conn-type:hover {
   font-weight: var(--font-weight-heading);
 }
 
+/* 中央の表示の切り替え(系の図・3D、#384) */
+.view-tabs {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  gap: 0;
+  z-index: 5;
+}
+
+.view-tabs button {
+  border-radius: 0;
+}
+
+.view-tabs button:first-child {
+  border-radius: 3px 0 0 3px;
+}
+
+.view-tabs button:last-child {
+  border-radius: 0 3px 3px 0;
+}
+
+.view-tabs button[aria-selected="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.view-loading {
+  padding: 48px 12px;
+  color: var(--text-dim);
+}
+
 .props-pane {
   grid-area: props;
   border-left: 1px solid var(--line);

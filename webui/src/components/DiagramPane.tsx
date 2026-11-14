@@ -40,14 +40,12 @@ const MARKER_COLOR: Record<DiagramEdgeKind, string | null> = {
   subscribe: "var(--kind-topic)",
 };
 
-/** 中央の系の図(#115) */
+/** 中央の系の図(#115)。外枠は CenterPane */
 export function DiagramPane(props: Props) {
   return (
-    <main className="diagram-pane">
-      <ReactFlowProvider>
-        <Diagram {...props} />
-      </ReactFlowProvider>
-    </main>
+    <ReactFlowProvider>
+      <Diagram {...props} />
+    </ReactFlowProvider>
   );
 }
 

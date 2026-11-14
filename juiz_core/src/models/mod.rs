@@ -502,6 +502,25 @@ impl ContainerModels {
         Ok(Some(m.info()))
     }
 
+    /// system/profile_full の一覧に載せるモデル情報 (§7)。取り出せないとき (ファイルが消えたなど) は
+    /// 一覧全体をエラーにせず `None` にする。一覧は管理画面が数秒ごとに取るので、WARN は出さない
+    /// (`container/profile_full`・`container/model_info` を呼べば WARN とエラーが出る)
+    pub fn info_for_listing(&self, container_id: &str) -> Option<Value> {
+        match self.lock().and_then(|mut inner| {
+            let max = inner.max_bytes;
+            match inner.models.get_mut(container_id) {
+                None => Ok(None),
+                Some(m) => m.refresh(max, false).map(|_| Some(m.info())),
+            }
+        }) {
+            Ok(v) => v,
+            Err(e) => {
+                log::debug!("ContainerModel of Container({container_id}) is not listed: {e:#}");
+                None
+            }
+        }
+    }
+
     /// 中身とモデル情報 (§5.3)。モデルが無ければ `None`。
     /// 読む間に書き換わった (大きさが違う) ら、もう一度だけ覚え直して読み直す。
     /// ファイルを読む間は登録所のロックを外す
