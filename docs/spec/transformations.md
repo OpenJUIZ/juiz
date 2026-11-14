@@ -38,6 +38,8 @@ ROS の tf との違い: tf の frame は Container とは別の名前だが、j
 
 位置姿勢 P = (t, q) は、並進 t = (x, y, z) [m] と単位四元数 q = (x, y, z, w) の組とする。
 
+座標の約束は **メートル・右手系・Z 上**(ROS の REP 103 と同じ。x 前・y 左・z 上)とする。Container の 3D モデル(container-model.md §4、#380)も同じ約束で置く。
+
 - 四元数の並びは **(x, y, z, w)**(w が最後)。JSON・辞書・C の構造体・引数の順番のすべてで同じ。ROS・`juiz_std.geometry.Quaternion` と同じ。
 - 回転なしは (0, 0, 0, 1)。
 - 保存するとき(Transform の作成・更新、`set_pose`、Anchor の更新)に**正規化しなければならない**。長さが 0(1e-12 未満)の四元数、NaN・無限大を含む値はエラー(`InvalidPoseValueError`)。
