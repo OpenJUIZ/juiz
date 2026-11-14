@@ -996,6 +996,11 @@ impl Transformations {
         self.lock()?.resolve_local(reference, namespace)
     }
 
+    /// 名前か ID を写しの ID (ブローカー付き) にする (§19.5 の 2)。自分の System の Container は探さない
+    pub fn resolve_replica_id(&self, reference: &str, namespace: &str) -> JuizResult<String> {
+        self.lock()?.resolve_remote(reference, namespace)
+    }
+
     /// 名前か ID が、自分の System の Container か写しに当たるか (§19.5 の 1・2)
     pub fn knows(&self, reference: &str, namespace: &str) -> JuizResult<bool> {
         Ok(self.lock()?.resolve(reference, namespace).is_ok())
