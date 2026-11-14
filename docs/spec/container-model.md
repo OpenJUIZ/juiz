@@ -364,6 +364,16 @@ Step 2 で決めたこと:
 - pack の検査(app-package.md §6.3)に次を足す: entry の conf の各 Container の `model.path` は相対パスで、パッケージの中を指していなければならず(`..` で外に出てはならない、絶対パスは不可)、そのファイルが pack に入るファイル(除外規則の後)になければならない。
 - `juiz run` は conf を展開した場所から読むので、conf 相対のパスはそのまま解決される。
 
+Step 3 で決めたこと:
+
+- 検査は app-package.md §6.3 の 9 に置いた(entry の conf の Container の検査を済ませた後、`files` を書く前)。実装は juiz_app の `package::models::check_models`。
+- 見るのは entry の conf の `containers` と `composite_containers`(CompositeContainer もモデルを持てる、§5.1)。
+- `model.path` は §5.1 のとおり **entry の conf の親ディレクトリからの相対** で解決する(entry を `conf/app.conf` にしたときは `../models/x.glb` と書ける。パッケージの外に出なければよい)。
+- パスの検査に加えて core の作成時の検査(§5.2、`ContainerModel::load`)も pack で通す。大きさの上限は entry の conf の `option.model.max_bytes`(§5.4)。
+- SDF の `<mesh><uri>`(§3.2.1)は issue #383 のとおりパッケージの中を指さなければならない(外を指せばエラー)。指す先が pack に入らないときと `://` を含むときは警告。`<mesh>` は表示に使わないので、起動を止める理由にはしない。
+- `juiz run` は変えていない。展開した先の conf から読むので、パッケージの中のモデルはそのまま解決される(`package_cli_test` の `pack_and_run_container_model` で確かめた)。
+- 気づいたこと(この Step では直さない): `system/profile_full` の `core_store.containers[].model` は、モデルがあっても `null` になる(モデル情報を入れるのは `container/profile_full` だけ、§7)。
+
 ## 11. エラー
 
 | エラー | いつ |
