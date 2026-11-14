@@ -123,6 +123,8 @@ pub(crate) fn container_details(system: &System, id: &ContainerIdentifier) -> Ve
     // Anchor は種類と rate を出す (issue #370)
     details_or_error(profile.map(|p| {
         let mut lines = crate::transformations::anchor_lines(&p);
+        // モデルの形式と大きさ (issue #382)
+        lines.extend(crate::model::model_lines(&p));
         lines.extend(slots_lines(&p));
         lines
     }))

@@ -46,6 +46,8 @@ pyo3 = { workspace = true, optional = true }
 globset = "0.4"
 semver = "1"
 sha2 = { workspace = true }
+# juiz model check の SDF の検査 (docs/spec/container-model.md §9.2、#382)
+roxmltree = { workspace = true }
 yaml-rust2 = { workspace = true }
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 

@@ -185,6 +185,24 @@ def check_http(port):
     assert vecho.call({"a": [1, 2.5]}) == {"a": [1, 2.5]}
 
 
+def check_model(name, model_path):
+    # Container の 3D モデル (issue #382)。IPC は JSON の経路 {info, data: base64} で受け取る
+    import hashlib
+    with open(model_path, "rb") as f:
+        expected = f.read()
+    c0 = ContainerProxy("c0", ipc=name)
+    info = c0.model_info()
+    assert info["format"] == "stl" and info["size"] == len(expected), info
+    assert info["sha256"] == hashlib.sha256(expected).hexdigest(), info
+    assert c0.model() == expected
+    # モデルの無い Container は無い (IPC の Container は c0 だけ)。存在しない Container はエラー
+    try:
+        connect(f"ipc://{name}").model("nothing0")
+        raise AssertionError("model() of a missing Container must fail")
+    except IpcRemoteError:
+        pass
+
+
 if __name__ == '__main__':
     name = sys.argv[1]
     port = int(sys.argv[2])
@@ -196,4 +214,5 @@ if __name__ == '__main__':
     check_errors(name)
     check_reconnect(name)
     check_http(port)
+    check_model(name, sys.argv[3])
     print("ipc_proxy_test passed")

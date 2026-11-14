@@ -3,6 +3,7 @@
 //! System を起動したまま別プロセスの Python で bindings/pyjuiz/test/proxy_test.py を実行し、
 //! ProcessProxy(name, host, port) / ContainerProxy の call / execute / p_apply を確かめる。
 //! ネームスペース robot1 にも同じ名前の inc0 と c0 を置き、名前の取り違えが無いことも確かめる (issue #152)。
+//! ルートの c0 には 3D モデル (STL) を持たせ、model_info / model を確かめる (issue #382)。
 
 use crate::broker_api;
 
@@ -15,6 +16,8 @@ const PORT: i64 = 8014;
 fn pyjuiz_proxy_over_http_broker() -> JuizResult<()> {
     crate::common::logger::init();
     let mut manifest = system_manifest("pyjuiz_proxy_test", PORT);
+    let model = write_model_file("pyjuiz_proxy_test");
+    manifest["containers"][0]["model"] = jvalue!({ "path": model.to_string_lossy(), "scale": 0.001 });
     manifest["processes"].as_array_mut().unwrap().push(jvalue!(
         { "type_name": "increment_process", "name": "inc0", "namespace": "robot1" }
     ));
@@ -31,7 +34,9 @@ fn pyjuiz_proxy_over_http_broker() -> JuizResult<()> {
             let output = std::process::Command::new(python)
                 .current_dir("../bindings/pyjuiz")
                 .env("PYTHONPATH", ".")
-                .args(["test/proxy_test.py", PORT.to_string().as_str()])
+                .arg("test/proxy_test.py")
+                .arg(PORT.to_string())
+                .arg(&model)
                 .output()?;
             assert!(
                 output.status.success(),
@@ -41,4 +46,16 @@ fn pyjuiz_proxy_over_http_broker() -> JuizResult<()> {
             );
             Ok(())
         })
+}
+
+/// テスト用の小さなバイナリ STL (三角形 2 つ) を一時ディレクトリに書き、そのパスを返す
+pub(crate) fn write_model_file(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("juiz_{name}_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut v = vec![0u8; 80];
+    v.extend_from_slice(&2u32.to_le_bytes());
+    v.extend((0..100).map(|i| i as u8));
+    let path = dir.join("c0.stl");
+    std::fs::write(&path, v).unwrap();
+    path
 }

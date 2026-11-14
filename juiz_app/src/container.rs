@@ -62,6 +62,23 @@ pub(crate) enum ContSubCommands {
         identifier: String,
     },
 
+    /// Show the 3D model info of a Container, or write the model file with -o
+    #[clap(arg_required_else_help = true)]
+    Model {
+        #[arg(help = "Container: ID or name (ex., pantilt0, robot1/pantilt0)")]
+        identifier: String,
+
+        #[arg(long = "info", help = "Show the model info (default when -o is not given)")]
+        info: bool,
+
+        #[arg(
+            short = 'o',
+            long = "output",
+            help = "Write the model file here. If it is a directory, the file name of the model is used"
+        )]
+        output: Option<String>,
+    },
+
     /// Destroy a container (CompositeContainer included)
     #[clap(arg_required_else_help = true)]
     Destroy {
@@ -130,6 +147,11 @@ pub(crate) fn on_container_inner(
         ContSubCommands::PoseState { identifier } => {
             crate::transformations::on_container_pose_state(manifest, working_dir, args, identifier)
         }
+        ContSubCommands::Model {
+            identifier,
+            info,
+            output,
+        } => crate::model::on_container_model(manifest, working_dir, args, identifier, info, output),
         ContSubCommands::Destroy { identifier } => {
             let server = args.server;
             System::new(manifest)?

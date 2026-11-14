@@ -1,10 +1,11 @@
 """HTTP Broker を立てた juiz に pyjuiz のプロキシで繋ぐテスト (issue #79)
 
 juiz_core/tests/integration/pyjuiz_proxy_test.rs が System を起動してから、このスクリプトを
-    python test/proxy_test.py <port>
+    python test/proxy_test.py <port> <c0 のモデルのファイル>
 で実行する。プロセス inc0 (arg1 + 1 を返す) と、コンテナ c0 (c0inc で加算、c0get で取得) がある前提。
 ネームスペース robot1 にも同じ名前の inc0 と c0 がある (issue #152)。
 """
+import hashlib
 import sys
 
 from juiz.proxy import (ProcessProxy, ContainerProxy, SystemProxy, HttpProxy, NotFoundError,
@@ -190,6 +191,34 @@ def check_transformations(port):
     assert system.anchors() == []
 
 
+def check_model(port, model_path):
+    # Container の 3D モデル (issue #382)。ルートの c0 だけがモデルを持つ
+    with open(model_path, "rb") as f:
+        expected = f.read()
+    c0 = ContainerProxy("c0", "localhost", port)
+    info = c0.model_info()
+    assert info["format"] == "stl", info
+    assert info["media_type"] == "model/stl", info
+    assert info["size"] == len(expected), info
+    assert info["sha256"] == hashlib.sha256(expected).hexdigest(), info
+    assert info["file_name"] == "c0.stl", info
+    assert info["scale"] == 0.001, info
+    data = c0.model()
+    assert isinstance(data, bytes) and data == expected, len(data)
+    system = SystemProxy(HttpProxy("localhost", port))
+    assert system.model_info("c0") == info
+    assert system.model(c0) == expected
+
+    # モデルの無い Container は model_info が None、model は 404
+    r1 = ContainerProxy("c0", "localhost", port, namespace="robot1")
+    assert r1.model_info() is None
+    try:
+        r1.model()
+        raise AssertionError("model() of a Container without a model must fail")
+    except NotFoundError as e:
+        assert "model" in str(e), e
+
+
 def main():
     port = int(sys.argv[1])
     check_process(port)
@@ -198,6 +227,7 @@ def main():
     check_namespaced_container(port)
     check_composite(port)
     check_transformations(port)
+    check_model(port, sys.argv[2])
     print("ok")
 
 

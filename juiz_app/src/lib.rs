@@ -11,6 +11,7 @@ mod container;
 mod container_process;
 mod default_juiz_conf;
 mod execution_context;
+mod model;
 mod namespace;
 mod package;
 mod process;
@@ -245,6 +246,13 @@ enum SubCommands {
     Type {
         #[clap(subcommand)]
         subcommand: TypeSubCommands,
+    },
+
+    // Model tools (ContainerModel、issue #382)
+    #[clap(arg_required_else_help = false)]
+    Model {
+        #[clap(subcommand)]
+        subcommand: model::ModelSubCommands,
     },
 
     /// Generate schemas and code from juiz IDL (.jidl) files (same as juiz-idl, issue #191)
@@ -707,6 +715,10 @@ where
             }
         };
     }
+    // juiz model check も系を作らない (docs/spec/container-model.md §9.2)
+    if let Some(SubCommands::Model { subcommand }) = &args.subcommand {
+        return model::run_model_command(subcommand);
+    }
     // juiz pkg も系を作らない (docs/spec/pkg.md §2.1)
     if let Some(SubCommands::Pkg { args }) = &args.subcommand {
         return match juiz_pkg::cli::run(args) {
@@ -898,6 +910,7 @@ fn run(args: Args) -> JuizResult<()> {
         }
         SubCommands::Anchor { subcommand } => on_anchor(manifest, working_dir, subcommand, args),
         SubCommands::Idl { .. }
+        | SubCommands::Model { .. }
         | SubCommands::Pkg { .. }
         | SubCommands::Pack { .. }
         | SubCommands::Run { .. }

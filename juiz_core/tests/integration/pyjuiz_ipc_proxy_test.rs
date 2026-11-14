@@ -17,6 +17,9 @@ fn pyjuiz_proxy_over_ipc_broker() -> JuizResult<()> {
     let ipc_name = "pyjuiz_ipc_test";
     let mut manifest = server_manifest("pyjuiz_ipc_proxy_test", ipc_name);
     manifest["option"]["http_broker"] = jvalue!({ "start": true, "port": PORT });
+    // c0 に 3D モデルを持たせる (issue #382)
+    let model = crate::pyjuiz_proxy_test::write_model_file("pyjuiz_ipc_proxy_test");
+    manifest["containers"][0]["model"] = jvalue!({ "path": model.to_string_lossy() });
     System::new(manifest)?
         .setup()?
         .run_and_do_once(|system| {
@@ -26,6 +29,7 @@ fn pyjuiz_proxy_over_ipc_broker() -> JuizResult<()> {
                 .current_dir("../bindings/pyjuiz")
                 .env("PYTHONPATH", ".")
                 .args(["test/ipc_proxy_test.py", ipc_name, PORT.to_string().as_str()])
+                .arg(&model)
                 .output()?;
             assert!(
                 output.status.success(),
