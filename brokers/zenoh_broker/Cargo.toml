@@ -1,6 +1,6 @@
 [package]
 name = "juiz_zenoh_broker"
-version = "0.2.8"
+version = "0.2.9"
 edition = "2021"
 description = "Zenoh broker for JUIZ (docs/spec/zenoh-broker.md)."
 license.workspace = true
