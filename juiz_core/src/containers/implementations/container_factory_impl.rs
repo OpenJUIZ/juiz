@@ -161,7 +161,7 @@ mod tests {
         let args: CapsuleMap = jvalue!({"name": "counter0", "initial": 100}).try_into()?;
         let container = factory.create_container(&mut worker, "counter0".to_owned(), args)?;
         let profile = container.lock()?.profile()?;
-        assert_eq!(profile.name, "counter0");
+        assert_eq!(profile.instance_name(), "counter0");
         assert_eq!(profile.type_name, "counter");
         // ContainerProcess の宣言はインスタンスのプロファイルには入らない
         assert!(profile.processes.is_empty());
@@ -186,7 +186,7 @@ mod tests {
         let container =
             factory.create_container(&mut worker, "counter0".to_owned(), CapsuleMap::new())?;
         let profile = container.lock()?.profile()?;
-        assert_eq!(profile.name, "counter0");
+        assert_eq!(profile.instance_name(), "counter0");
         assert_eq!(profile.type_name, "counter");
         Ok(())
     }

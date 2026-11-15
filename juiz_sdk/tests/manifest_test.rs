@@ -314,7 +314,7 @@ fn process_manifest_serde_defaults() -> JuizResult<()> {
 #[test]
 fn process_profile_from_manifest() -> JuizResult<()> {
     let p: ProcessProfile = sample_process_manifest().try_into()?;
-    assert_eq!(p.name, "adder0");
+    assert_eq!(p.instance_name(), "adder0");
     assert_eq!(p.language, "python");
     assert_eq!(p.arguments.len(), 7);
     assert_eq!(p.publishes[0].name, "out_topic");
@@ -350,7 +350,7 @@ fn process_profile_builder_and_instance_manifest() -> JuizResult<()> {
         .publishes("t1")
         .subscribes("i", "t2")
         .container(ContainerManifest::new("ct").name("cn"));
-    assert_eq!(p.name, "p1");
+    assert_eq!(p.instance_name(), "p1");
     assert_eq!(p.arguments.len(), 7);
     assert_eq!(p.container_type.as_deref(), Some("ct"));
     let id = p.identifier();
@@ -365,10 +365,11 @@ fn process_profile_builder_and_instance_manifest() -> JuizResult<()> {
     assert_eq!(p.identifier().class_name, "process");
     assert!(p.outputs().is_some());
 
-    let partial = ProcessProfile::new("inst", "ignored").add_int_arg("i", "", 100);
-    let inst = p.build_instance_manifest(partial)?;
+    // インスタンスの manifest は Manifest 側で作る (Profile の build_instance_manifest は #505 で消した)
+    let partial = ProcessManifest::new("ignored").name("inst").add_int_arg("i", "", 100);
+    let inst = p.manifest.build_instance_manifest(partial)?;
     assert_eq!(inst.type_name, "p");
-    assert_eq!(inst.name, "inst");
+    assert_eq!(inst.name.as_deref(), Some("inst"));
     assert_eq!(inst.arguments.len(), 7);
     assert_eq!(
         inst.arguments
@@ -436,7 +437,7 @@ fn container_profile_from_manifest() -> JuizResult<()> {
         .add_int_arg("init", "", 0)
         .add_process(ProcessManifest::new("get").name("get0"));
     let p: ContainerProfile = c.try_into()?;
-    assert_eq!(p.name, "counter0");
+    assert_eq!(p.instance_name(), "counter0");
     assert_eq!(p.type_name, "counter");
     assert_eq!(p.arguments.len(), 1);
     assert_eq!(p.processes.len(), 1);
@@ -454,9 +455,11 @@ fn container_profile_from_manifest() -> JuizResult<()> {
     assert!(msg.contains("type_name=counter, name=c0"), "{msg}");
     assert!(msg.contains("type_name=get"), "{msg}");
 
-    let p2 = ContainerProfile::new("counter", "c2");
-    let inst = p.build_instance_manifest(p2)?;
-    assert_eq!(inst.name, "c2");
+    let inst = p
+        .manifest
+        .build_instance_manifest(ContainerManifest::new("ignored").name("c2"))?;
+    assert_eq!(inst.name.as_deref(), Some("c2"));
+    assert_eq!(inst.type_name, "counter");
     Ok(())
 }
 

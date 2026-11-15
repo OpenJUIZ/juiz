@@ -191,14 +191,14 @@ fn check_http_broker_proxy(system: &mut System) -> JuizResult<()> {
         format!("http://{host}/process/traced0::inc_twice").try_into()?;
     let profile = bp.process_profile_full(&traced0)?;
     assert_eq!(
-        serde_json::to_value(profile.composition.expect("composition"))?["body"],
+        serde_json::to_value(profile.manifest.composition.expect("composition"))?["body"],
         inc_twice_body()
     );
 
     let chain0: ProcessIdentifier =
         format!("http://{host}/container_process/chain0::add_chain:cc0").try_into()?;
     let profile = bp.container_process_profile_full(&chain0)?;
-    let composition = profile.composition.expect("composition");
+    let composition = profile.manifest.composition.expect("composition");
     assert_eq!(composition.containers.len(), 2);
     assert_eq!(composition.body.container.as_deref(), Some("b"));
 
@@ -221,7 +221,7 @@ fn check_container_proxy_profile(system: &mut System) -> JuizResult<()> {
         .container_from_identifier(&cc0)?;
     assert_eq!(container.identifier(), cc0);
     let profile = container.lock()?.profile()?;
-    assert_eq!(profile.name, "cc0");
+    assert_eq!(profile.instance_name(), "cc0");
     assert_eq!(profile.slots.expect("slots").len(), 2);
     Ok(())
 }

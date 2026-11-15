@@ -202,7 +202,7 @@ fn check_processes(bp: &mut dyn BrokerProxy, ipc_name: &str) -> JuizResult<()> {
     let inc0 = find_process(&ids, "inc0");
     assert_eq!(int_of(bp.process_call(inc0, args("arg1", 10))), 11);
     assert_eq!(int_of(bp.any_process_call(inc0, args("arg1", 20))), 21);
-    assert_eq!(bp.process_profile_full(inc0)?.name, "inc0");
+    assert_eq!(bp.process_profile_full(inc0)?.instance_name(), "inc0");
     bp.process_p_apply(inc0, "arg1", jvalue!(1).into())?;
     assert_eq!(int_of(bp.process_execute(inc0)), 2);
     // call_partial は省いた引数を拘束値で補う (issue #83)
@@ -231,24 +231,24 @@ fn check_containers(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     assert_eq!(int_of(bp.any_process_call(get, CapsuleMap::new())), before + 4);
     let containers = bp.container_list(false, None)?;
     assert_eq!(containers.len(), 1);
-    assert_eq!(bp.container_profile_full(&containers[0])?.name, "c0");
+    assert_eq!(bp.container_profile_full(&containers[0])?.instance_name(), "c0");
     Ok(())
 }
 
 fn check_create_destroy(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     let n = bp.process_list(false, None)?.len();
     let created = bp.process_create(&ProcessManifest::new("increment_process").name("inc_new"))?;
-    assert_eq!(created.name, "inc_new");
+    assert_eq!(created.instance_name(), "inc_new");
     assert_eq!(bp.process_list(false, None)?.len(), n + 1);
-    assert_eq!(bp.process_destroy(&created.identifier())?.name, "inc_new");
+    assert_eq!(bp.process_destroy(&created.identifier())?.instance_name(), "inc_new");
     assert_eq!(bp.process_list(false, None)?.len(), n);
 
     let cprofile = bp.container_create(
         &ContainerManifest::new("example_container").name("c_new"),
         vec![("name", jvalue!("c_new")), ("initial_value", jvalue!(5))].into(),
     )?;
-    assert_eq!(cprofile.name, "c_new");
-    assert_eq!(bp.container_destroy(&cprofile.identifier())?.name, "c_new");
+    assert_eq!(cprofile.instance_name(), "c_new");
+    assert_eq!(bp.container_destroy(&cprofile.identifier())?.instance_name(), "c_new");
     Ok(())
 }
 

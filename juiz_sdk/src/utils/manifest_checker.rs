@@ -1,6 +1,6 @@
-use crate::manifests::ArgumentProfile;
+use crate::manifests::ArgumentManifest;
 use crate::manifests::ArgumentType;
-use crate::manifests::ProcessProfile;
+use crate::manifests::ProcessManifest;
 use crate::prelude::*;
 use crate::types::DataType;
 use crate::value::*;
@@ -78,7 +78,7 @@ pub fn check_connection_manifest(connection_manifest: Value) -> Result<Value, Ju
 //     Ok(process_manifest)
 // }
 
-fn check_arguments(args_manifest: &Vec<ArgumentProfile>, argument: &CapsuleMap) -> JuizResult<()> {
+fn check_arguments(args_manifest: &Vec<ArgumentManifest>, argument: &CapsuleMap) -> JuizResult<()> {
     //let arg_map = get_hashmap(argument).context("check_arguments")?;
     for arg_manifest in args_manifest.iter() {
         match argument.get(arg_manifest.name.as_str()) {
@@ -106,7 +106,7 @@ fn check_arguments(args_manifest: &Vec<ArgumentProfile>, argument: &CapsuleMap) 
 ///
 /// 画像の引数と、既定値が `null` の引数は既定値なしとして扱う。
 /// ただし型付きで `T?` の引数は `null` が既定値になる (仕様 docs/spec/datatype.md §6)。
-fn default_for_missing(arg_manifest: &ArgumentProfile) -> Option<Value> {
+fn default_for_missing(arg_manifest: &ArgumentManifest) -> Option<Value> {
     if arg_manifest.type_name == ArgumentType::Image {
         return None;
     }
@@ -136,7 +136,8 @@ fn default_for_missing(arg_manifest: &ArgumentProfile) -> Option<Value> {
 /// 渡された引数はそのまま使う。既定値の無い引数は補わないので、
 /// そのあとの [`check_manifest_before_call`] で ArgumentMissingWhenCallingError になる。
 /// p_apply で拘束した値は使わない (call は拘束値を見ない)。
-pub fn fill_default_arguments(manifest: &ProcessProfile, mut argument: CapsuleMap) -> CapsuleMap {
+/// `manifest` はインスタンスの manifest (docs/spec/manifest-profile.md §3 の 2)。
+pub fn fill_default_arguments(manifest: &ProcessManifest, mut argument: CapsuleMap) -> CapsuleMap {
     for arg_manifest in manifest.arguments.iter() {
         if argument.get_map().contains_key(arg_manifest.name.as_str()) {
             continue;
@@ -148,8 +149,10 @@ pub fn fill_default_arguments(manifest: &ProcessProfile, mut argument: CapsuleMa
     argument
 }
 
+/// 呼び出しの前に、manifest の引数がそろっているかを検査する。
+/// `manifest` はインスタンスの manifest (docs/spec/manifest-profile.md §3 の 2)。
 pub fn check_manifest_before_call(
-    manifest: &ProcessProfile,
+    manifest: &ProcessManifest,
     argument: &CapsuleMap,
 ) -> JuizResult<()> {
     check_arguments(&manifest.arguments, argument)
@@ -158,11 +161,10 @@ pub fn check_manifest_before_call(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manifests::{ArgumentManifest, ProcessManifest};
     use crate::types::TypeSchema;
 
-    fn profile(manifest: ProcessManifest) -> ProcessProfile {
-        manifest.name("p").try_into().unwrap()
+    fn profile(manifest: ProcessManifest) -> ProcessManifest {
+        manifest.name("p")
     }
 
     fn value_of(args: &CapsuleMap, key: &str) -> Value {

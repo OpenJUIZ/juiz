@@ -99,7 +99,7 @@ fn test_same_conf_in_two_namespaces() -> JuizResult<()> {
 
             // profile の name は短い名前のまま、namespace が付く
             let prof = system.core_broker().lock()?.process_profile_full(&r2_inc0)?;
-            assert_eq!(prof.name, "inc0");
+            assert_eq!(prof.instance_name(), "inc0");
             assert_eq!(prof.namespace, "robot2");
             assert_eq!(prof.identifier(), r2_inc0);
 
@@ -115,7 +115,7 @@ fn test_same_conf_in_two_namespaces() -> JuizResult<()> {
             for c in containers.iter() {
                 let cprof: ContainerProfile =
                     system.core_broker().lock()?.container_profile_full(c)?;
-                assert_eq!(cprof.name, "container0");
+                assert_eq!(cprof.instance_name(), "container0");
                 assert_eq!(cprof.namespace, c.namespace);
             }
             let r1_cp: ProcessIdentifier =

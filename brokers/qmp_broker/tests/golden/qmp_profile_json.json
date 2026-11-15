@@ -1,0 +1,373 @@
+{
+  "core_store": {
+    "container_processes": [
+      {
+        "arguments": [],
+        "broker_name": "core",
+        "broker_type_name": "core",
+        "class_name": "container_process",
+        "container_name": "c0",
+        "container_type": "example_container",
+        "description": {
+          "text": "Default description of Process(example_container_get)"
+        },
+        "factory": "process_factory",
+        "identifier": "core://core/container_process/c0get::example_container_get:c0",
+        "language": "rust",
+        "name": "c0get",
+        "namespace": "",
+        "outputs": null,
+        "publishes": [],
+        "subscribes": {},
+        "type_name": "example_container_get",
+        "use_memo": false
+      },
+      {
+        "arguments": [
+          {
+            "default": 1,
+            "description": {
+              "text": "Default description for argument arg1"
+            },
+            "name": "arg1",
+            "type_name": "Int"
+          }
+        ],
+        "broker_name": "core",
+        "broker_type_name": "core",
+        "class_name": "container_process",
+        "container_name": "c0",
+        "container_type": "example_container",
+        "description": {
+          "text": "Container Process for example_container. This process will add given value to container."
+        },
+        "factory": "process_factory",
+        "identifier": "core://core/container_process/c0inc::example_container_increment:c0",
+        "language": "rust",
+        "name": "c0inc",
+        "namespace": "",
+        "outputs": null,
+        "publishes": [],
+        "subscribes": {},
+        "type_name": "example_container_increment",
+        "use_memo": false
+      }
+    ],
+    "containers": [
+      {
+        "args": {},
+        "arguments": [
+          {
+            "default": 0,
+            "description": {
+              "text": "Default description for argument initial_value"
+            },
+            "name": "initial_value",
+            "type_name": "Int"
+          }
+        ],
+        "class_name": "container",
+        "description": {
+          "text": "Default description of Container(example_container)"
+        },
+        "factory": "container_factory",
+        "identifier": "core://core/container/c0::example_container",
+        "language": "rust",
+        "model": null,
+        "name": "c0",
+        "namespace": "",
+        "parent_name": null,
+        "parent_type_name": null,
+        "processes": [
+          {
+            "arguments": [],
+            "broker_name": "core",
+            "broker_type_name": "core",
+            "class_name": "container_process",
+            "container_name": "c0",
+            "container_type": "example_container",
+            "description": {
+              "text": "Default description of Process(example_container_get)"
+            },
+            "factory": "process_factory",
+            "identifier": "core://core/container_process/c0get::example_container_get:c0",
+            "language": "rust",
+            "name": "c0get",
+            "namespace": "",
+            "outputs": null,
+            "publishes": [],
+            "subscribes": {},
+            "type_name": "example_container_get",
+            "use_memo": false
+          },
+          {
+            "arguments": [
+              {
+                "default": 1,
+                "description": {
+                  "text": "Default description for argument arg1"
+                },
+                "name": "arg1",
+                "type_name": "Int"
+              }
+            ],
+            "broker_name": "core",
+            "broker_type_name": "core",
+            "class_name": "container_process",
+            "container_name": "c0",
+            "container_type": "example_container",
+            "description": {
+              "text": "Container Process for example_container. This process will add given value to container."
+            },
+            "factory": "process_factory",
+            "identifier": "core://core/container_process/c0inc::example_container_increment:c0",
+            "language": "rust",
+            "name": "c0inc",
+            "namespace": "",
+            "outputs": null,
+            "publishes": [],
+            "subscribes": {},
+            "type_name": "example_container_increment",
+            "use_memo": false
+          }
+        ],
+        "type_name": "example_container"
+      },
+      {
+        "anchor": {
+          "kind": "static"
+        },
+        "args": {},
+        "arguments": [],
+        "class_name": "container",
+        "description": {
+          "text": ""
+        },
+        "factory": "static_anchor",
+        "identifier": "core://core/container/world::static_anchor",
+        "language": "rust",
+        "model": null,
+        "name": "world",
+        "namespace": "",
+        "parent_name": null,
+        "parent_type_name": null,
+        "processes": [],
+        "type_name": "static_anchor"
+      }
+    ],
+    "processes": [
+      {
+        "arguments": [
+          {
+            "default": 0,
+            "description": {
+              "text": "Default description for argument arg1"
+            },
+            "name": "arg1",
+            "type_name": "Int"
+          }
+        ],
+        "broker_name": "core",
+        "broker_type_name": "core",
+        "class_name": "process",
+        "container_name": null,
+        "container_type": null,
+        "description": {
+          "text": "Default description of Process(increment_process)"
+        },
+        "factory": "process_factory",
+        "identifier": "core://core/process/inc0::increment_process",
+        "language": "rust",
+        "name": "inc0",
+        "namespace": "",
+        "outputs": null,
+        "publishes": [],
+        "subscribes": {},
+        "type_name": "increment_process",
+        "use_memo": false
+      },
+      {
+        "arguments": [
+          {
+            "default": 0,
+            "description": {
+              "text": "Default description for argument arg1"
+            },
+            "name": "arg1",
+            "type_name": "Int",
+            "value": 5
+          }
+        ],
+        "broker_name": "core",
+        "broker_type_name": "core",
+        "class_name": "process",
+        "container_name": null,
+        "container_type": null,
+        "description": {
+          "text": "Default description of Process(increment_process)"
+        },
+        "factory": "process_factory",
+        "identifier": "core://core/process/inc1::increment_process",
+        "language": "rust",
+        "name": "inc1",
+        "namespace": "",
+        "outputs": null,
+        "publishes": [],
+        "subscribes": {},
+        "type_name": "increment_process",
+        "use_memo": false
+      }
+    ]
+  },
+  "typed": {
+    "anchor": {
+      "anchor": {
+        "kind": "static"
+      },
+      "args": {},
+      "arguments": [],
+      "description": {
+        "text": ""
+      },
+      "factory": "static_anchor",
+      "language": "rust",
+      "model": null,
+      "name": "world",
+      "namespace": "",
+      "parent_name": null,
+      "parent_type_name": null,
+      "processes": [],
+      "type_name": "static_anchor"
+    },
+    "container": {
+      "args": {},
+      "arguments": [
+        {
+          "default": 0,
+          "description": {
+            "text": "Default description for argument initial_value"
+          },
+          "name": "initial_value",
+          "type_name": "Int"
+        }
+      ],
+      "description": {
+        "text": "Default description of Container(example_container)"
+      },
+      "factory": "container_factory",
+      "language": "rust",
+      "model": null,
+      "name": "c0",
+      "namespace": "",
+      "parent_name": null,
+      "parent_type_name": null,
+      "processes": [
+        {
+          "arguments": [],
+          "broker_name": "core",
+          "broker_type_name": "core",
+          "container_name": "c0",
+          "container_type": "example_container",
+          "description": {
+            "text": "Default description of Process(example_container_get)"
+          },
+          "factory": "process_factory",
+          "language": "rust",
+          "name": "c0get",
+          "namespace": "",
+          "outputs": null,
+          "publishes": [],
+          "subscribes": {},
+          "type_name": "example_container_get",
+          "use_memo": false
+        },
+        {
+          "arguments": [
+            {
+              "default": 1,
+              "description": {
+                "text": "Default description for argument arg1"
+              },
+              "name": "arg1",
+              "type_name": "Int"
+            }
+          ],
+          "broker_name": "core",
+          "broker_type_name": "core",
+          "container_name": "c0",
+          "container_type": "example_container",
+          "description": {
+            "text": "Container Process for example_container. This process will add given value to container."
+          },
+          "factory": "process_factory",
+          "language": "rust",
+          "name": "c0inc",
+          "namespace": "",
+          "outputs": null,
+          "publishes": [],
+          "subscribes": {},
+          "type_name": "example_container_increment",
+          "use_memo": false
+        }
+      ],
+      "type_name": "example_container"
+    },
+    "container_process": {
+      "arguments": [
+        {
+          "default": 1,
+          "description": {
+            "text": "Default description for argument arg1"
+          },
+          "name": "arg1",
+          "type_name": "Int"
+        }
+      ],
+      "broker_name": "core",
+      "broker_type_name": "core",
+      "container_name": "c0",
+      "container_type": "example_container",
+      "description": {
+        "text": "Container Process for example_container. This process will add given value to container."
+      },
+      "factory": "process_factory",
+      "language": "rust",
+      "name": "c0inc",
+      "namespace": "",
+      "outputs": null,
+      "publishes": [],
+      "subscribes": {},
+      "type_name": "example_container_increment",
+      "use_memo": false
+    },
+    "process": {
+      "arguments": [
+        {
+          "default": 0,
+          "description": {
+            "text": "Default description for argument arg1"
+          },
+          "name": "arg1",
+          "type_name": "Int",
+          "value": 5
+        }
+      ],
+      "broker_name": "core",
+      "broker_type_name": "core",
+      "container_name": null,
+      "container_type": null,
+      "description": {
+        "text": "Default description of Process(increment_process)"
+      },
+      "factory": "process_factory",
+      "language": "rust",
+      "name": "inc1",
+      "namespace": "",
+      "outputs": null,
+      "publishes": [],
+      "subscribes": {},
+      "type_name": "increment_process",
+      "use_memo": false
+    }
+  }
+}

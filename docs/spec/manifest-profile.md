@@ -54,8 +54,8 @@ juiz のコード・API・文書では「manifest」と「profile」が混ざっ
 | PoseListener | `PoseListenerManifest` | 見張る Container・呼ぶ Process・引数・基準・`on_update`・`initial` | なし | 最後に呼んだ時刻 | `pose_listener/profile_full` |
 | System | conf 全体(`.juizapp` から起動したときはその `package` も) | conf に書いたもの、`package: {name, version}`(app-package.md §10.1) | `system_store.uuid`・ブローカー、`core_store`(上の各 Profile の一覧)、`subsystems`・`mastersystem`(今つながっている System の profile) | — | `system/profile_full` |
 
-- Topic の Rust の型は Step 1 で `TopicManifest` / `TopicProfile` の形を見直すとき、今の `TopicProfile { name }` が Manifest の中身しか持たないことに合わせて扱いを決める(Step 1 で決める)。
-- Broker の profile に今出ている `BrokerProfile` は Manifest と同じ中身。Step 1 で型を `BrokerManifest` を含む形にする。
+- Topic の Rust の型: `TopicProfile` は `TopicManifest` を含むだけの型にした(状態なし、§8.1)。Topic の profile の API は Process の profile(`ProcessProfile`)で返り、`TopicProfile` は使わない。
+- Broker の profile に今出ている `BrokerProfile` は Manifest と同じ中身。Step 1 で `BrokerManifest` を `#[serde(flatten)]` で含む形にした(§8.1)。
 
 ## 5. Factory の profile
 
@@ -71,9 +71,11 @@ juiz のコード・API・文書では「manifest」と「profile」が混ざっ
 | Step | issue | 今の名前 | 新しい名前 | 外から見えるか | 別名 |
 | --- | --- | --- | --- | --- | --- |
 | 1 | #505 | `ProcessImpl` が持つ `profile: ProcessProfile`(process_impl.rs) | `manifest: ProcessManifest`。`profile()` は manifest + 状態から作る | いいえ | 不要 |
-| 1 | #505 | `check_manifest_before_call(&ProcessProfile, …)`・`fill_default_arguments(&ProcessProfile, …)`(juiz_sdk の manifest_checker.rs) | 引数を `&ProcessManifest` に | Rust の SDK の公開関数 | Step 1 で決める(使っているのが core だけなら別名なし) |
+| 1 | #505 | `check_manifest_before_call(&ProcessProfile, …)`・`fill_default_arguments(&ProcessProfile, …)`(juiz_sdk の manifest_checker.rs) | 引数を `&ProcessManifest` に | Rust の SDK の公開関数 | なし(使っているのが core だけだったため。§8.1) |
+| 1 | #505 | juiz_core の `argument_schema`・`check_argument_value`・`check_call_arguments`(types/mod.rs)、`process_openapi_spec`(types/openapi.rs)の `&ProcessProfile` | `&ProcessManifest`(profile しか無い所は `&profile` を渡すと Deref で manifest になる) | juiz_core の公開関数 | 不要 |
+| 1 | #505 | `ContainerImpl` が持つ `profile: ContainerProfile`(juiz_sdk の container_impl.rs)と `profile_mut()` | `manifest: ContainerManifest` + profile に載せるスロット・Anchor の値。`profile_mut()` は `set_profile_slots()`・`set_profile_anchor()` に | Rust の SDK の公開関数(`profile_mut`) | なし(使っているのが core だけだったため。§8.1) |
 | 1 | #505 | Composite の子の検査用の `ProcessProfile`(composite_process_factory.rs) | `ProcessManifest` | いいえ | 不要 |
-| 1 | #505 | `ProcessProfile` / `ContainerProfile` / `ArgumentProfile` / `BrokerProfile` の中身 | Manifest の型 + 状態のフィールド(`#[serde(flatten)]`) | 型名は変えない | 不要 |
+| 1 | #505 | `ProcessProfile` / `ContainerProfile` / `ArgumentProfile` / `BrokerProfile` / `TopicProfile` の中身 | Manifest の型 + 状態のフィールド(§8.1 の表) | 型名は変えない。フィールドは変わる(`profile.name` は `profile.instance_name()` に) | 不要 |
 | 1 | #505 | `ProcessProfile::build_instance_manifest` / `ContainerProfile::build_instance_manifest`(テストだけが使う) | 消す(`ProcessManifest::build_instance_manifest` 等を使う) | Rust の SDK の公開関数 | なし(使う所がテストだけのため、§7 の例外) |
 | 2 | #506 | `OutputProfile` / `PrimitiveProfile` / `StructProfile`(juiz_sdk の output_profile.rs) | `OutputManifest` / `PrimitiveManifest` / `StructManifest`(ファイルも output_manifest.rs に) | Rust の SDK の公開型 | 古い名前を `#[deprecated] pub type` で残す |
 | 2 | #506 | pyjuiz の `_returns_profile`、`PrimitiveProfile` 等(decorators.py・juiz.py) | `_returns_manifest`、`PrimitiveManifest` 等 | pyjuiz の公開名(`_` で始まるものを除く) | 古い名前を残す |
@@ -94,4 +96,25 @@ juiz のコード・API・文書では「manifest」と「profile」が混ざっ
 
 ## 8. Step ごとに決めたこと
 
-(Step 1〜4 の PR で書き足す)
+(Step 2〜4 の PR で書き足す)
+
+### 8.1 Step 1(#505)
+
+**Profile の型の形。** どれも Manifest の型をフィールド `manifest` に持ち、`Deref` / `DerefMut` で Manifest の項目をそのまま読み書きできる(`profile.type_name`・`profile.arguments` など)。Manifest への変換は `into_manifest()` か `From`、Manifest から状態を空にした Profile は `TryFrom`(Process・Container は名前が無ければエラー)か `From`。
+
+| 型 | Manifest | 状態のフィールド | JSON の作り方 |
+| --- | --- | --- | --- |
+| `ArgumentProfile` | `manifest: ArgumentManifest` | `value: Option<Value>` | `#[serde(flatten)]` |
+| `ProcessProfile` | `manifest: ProcessManifest` | `argument_values: BTreeMap<String, Value>`(引数名 → 今の値) | 手書き(下の 1) |
+| `ContainerProfile` | `manifest: ContainerManifest` | `processes: Vec<ProcessProfile>`・`slots`・`anchor`・`remote_children`・`model` | 手書き(下の 2) |
+| `BrokerProfile` | `manifest: BrokerManifest` | なし | `#[serde(flatten)]` |
+| `TopicProfile` | `manifest: TopicManifest` | なし | `#[serde(flatten)]` |
+
+1. `ProcessProfile` の状態(引数の今の値)は JSON では `arguments` の各要素の `value` に入るので、`#[serde(flatten)]` だけでは書けない。Manifest を JSON にしてから各引数に `value` を差し込む直列化を手で書いた。読むときは `value` を抜き出して `argument_values` に入れ、残りを Manifest として読む(`value: null` は値なしとして扱う。今までの `Option<Value>` と同じ)。
+2. `ContainerProfile` の `processes` と `model` は、Manifest にも同じ名前の項目(conf に書いた ContainerProcess の宣言、3D モデルの宣言)がある。JSON には状態の方(今ある ContainerProcess の profile、読み直したモデル情報)を出す。読むときは状態の項目を抜き出し、Manifest の `processes` には読んだ ContainerProcess の manifest を入れる。Rust では構造体のフィールドが `Deref` より先に見えるので、`profile.processes`・`profile.model` は状態、Manifest の宣言は `profile.manifest.processes` で読む。
+3. **Manifest にあって今の profile の JSON に無い項目は出さない**(§3 の 4)。Process の `trace`、Container の `broker_type_name`・`broker_name`・`rate`。出すかどうかは別の issue で決める。
+4. JSON が変わらないことは、HTTP は juiz_core の `profile_json_test`、qmp は juiz_qmp_broker の `qmp_profile_json_test` で確かめる。どちらも Step 1 の前(main d758bd9)の応答を写した golden の JSON と、キーと値が全部同じであることを見る。
+
+**実行中のオブジェクトが持つ値。** `ProcessImpl` はインスタンスの `ProcessManifest` を持ち、`profile()` で問い合わせのたびに manifest と Inlet の今の値から `ProcessProfile` を作る。`ContainerImpl` も `ContainerManifest` を持ち、`profile()` で作る(CompositeContainer のスロットと Anchor の `{kind, rate}` は `set_profile_slots`・`set_profile_anchor` で持たせる)。呼び出し前の検査・既定値の補い・Composite の子の検査・型検査・`process/openapi_spec` は Manifest を受ける。
+
+**別名。** `check_manifest_before_call`・`fill_default_arguments` の引数の型と `ContainerImpl::profile_mut` は SDK の公開名だが、使っているのが juiz_core だけ(サンプル 4 言語・pyjuiz・バインディングでは使っていない)なので別名を残さない。`ProcessProfile::build_instance_manifest`・`ContainerProfile::build_instance_manifest` は §6 のとおり消した(`ProcessManifest::build_instance_manifest` 等を使う)。

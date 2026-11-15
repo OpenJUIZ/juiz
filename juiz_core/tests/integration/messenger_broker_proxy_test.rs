@@ -231,13 +231,13 @@ fn check_composite(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
         "slots": { "a": "c0", "b": "c0" },
         "processes": [ { "type_name": "add_chain", "name": "chain0" } ]
     }))?;
-    assert_eq!(container.name, "cc0");
+    assert_eq!(container.instance_name(), "cc0");
     let chain0: ProcessIdentifier =
         "core://core/container_process/chain0::add_chain:cc0".try_into()?;
     assert!(int_of(bp.container_process_call(&chain0, args("arg1", 1))) > 0);
     let mut names = vec![];
     for id in bp.container_list(false, None)? {
-        names.push(bp.container_profile_full(&id)?.name);
+        names.push(bp.container_profile_full(&id)?.instance_name().to_owned());
     }
     assert!(names.iter().any(|n| n == "cc0"), "{names:?}");
     Ok(())
@@ -300,7 +300,7 @@ fn check_process_proxy(bp: Arc<RwLock<dyn BrokerProxy>>) -> JuizResult<()> {
     assert_eq!(proxy.identifier(), id);
     assert!(format!("{:?}", &*proxy.lock()?).contains("ProcessProxy"));
     assert_eq!(int_of(proxy.lock()?.call(args("arg1", 1))), 2);
-    assert_eq!(proxy.lock()?.profile()?.name, "inc0");
+    assert_eq!(proxy.lock()?.profile()?.instance_name(), "inc0");
     assert_eq!(int_of(proxy.lock()?.push_by("arg1", jvalue!(5).into())), 6);
     proxy.lock_mut()?.p_apply("arg1", jvalue!(1).into())?;
     assert!(proxy.lock()?.openapi_spec()?.is_object());

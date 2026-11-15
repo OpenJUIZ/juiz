@@ -123,7 +123,7 @@ pub fn check_processes(bp: &mut dyn BrokerProxy, broker_name: &str) -> JuizResul
     let inc0 = find_process(&ids, "inc0");
     assert_eq!(int_of(bp.process_call(inc0, args("arg1", 10))), 11);
     assert_eq!(int_of(bp.any_process_call(inc0, args("arg1", 20))), 21);
-    assert_eq!(bp.process_profile_full(inc0)?.name, "inc0");
+    assert_eq!(bp.process_profile_full(inc0)?.instance_name(), "inc0");
     bp.process_p_apply(inc0, "arg1", jvalue!(1).into())?;
     assert_eq!(int_of(bp.process_execute(inc0)), 2);
     // HTTP と同じく、結果の option は空 (#277)
@@ -137,7 +137,7 @@ pub fn check_containers(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     let names: Vec<String> = bp
         .container_list(false, None)?
         .iter()
-        .map(|id| bp.container_profile_full(id).map(|p| p.name))
+        .map(|id| bp.container_profile_full(id).map(|p| p.instance_name().to_owned()))
         .collect::<JuizResult<_>>()?;
     assert_eq!(names, vec!["c0"]);
 
@@ -194,14 +194,14 @@ pub fn check_connections(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
 
 pub fn check_create_destroy(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     let created = bp.process_create(&ProcessManifest::new("increment_process").name("inc_new"))?;
-    assert_eq!(created.name, "inc_new");
+    assert_eq!(created.instance_name(), "inc_new");
     let ids = bp.process_list(false, None)?;
     assert_eq!(ids.len(), 3);
     assert_eq!(
         int_of(bp.process_call(find_process(&ids, "inc_new"), args("arg1", 1))),
         2
     );
-    assert_eq!(bp.process_destroy(&created.identifier())?.name, "inc_new");
+    assert_eq!(bp.process_destroy(&created.identifier())?.instance_name(), "inc_new");
     assert_eq!(bp.process_list(false, None)?.len(), 2);
     Ok(())
 }

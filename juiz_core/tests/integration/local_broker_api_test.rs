@@ -28,7 +28,7 @@ fn check_lists_and_profiles(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
         let id = find_process(&ids, name);
         let profile = bp.process_profile_full(id)?;
         assert_eq!(
-            (profile.name.as_str(), profile.type_name.as_str()),
+            (profile.instance_name(), profile.type_name.as_str()),
             (name, type_name)
         );
     }
@@ -38,19 +38,19 @@ fn check_lists_and_profiles(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     for (_container_name, add_name, _arg_name, get_name) in CONTAINERS {
         assert_eq!(
             bp.container_process_profile_full(find_process(&ids, add_name))?
-                .name,
+                .instance_name(),
             add_name
         );
         assert_eq!(
             bp.container_process_profile_full(find_process(&ids, get_name))?
-                .name,
+                .instance_name(),
             get_name
         );
     }
 
     let mut names = vec![];
     for id in bp.container_list(false, None)? {
-        names.push(bp.container_profile_full(&id)?.name);
+        names.push(bp.container_profile_full(&id)?.instance_name().to_owned());
     }
     names.sort();
     assert_eq!(names, vec!["c0", "cppc0", "pyc0"]);
@@ -122,27 +122,27 @@ fn check_connections(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
 
 fn check_create_destroy(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     let created = bp.process_create(&ProcessManifest::new("increment_process").name("inc_new"))?;
-    assert_eq!(created.name, "inc_new");
+    assert_eq!(created.instance_name(), "inc_new");
     assert_eq!(bp.process_list(false, None)?.len(), 4);
-    assert_eq!(bp.process_destroy(&created.identifier())?.name, "inc_new");
+    assert_eq!(bp.process_destroy(&created.identifier())?.instance_name(), "inc_new");
     assert_eq!(bp.process_list(false, None)?.len(), 3);
 
     let cprofile = bp.container_create(
         &ContainerManifest::new("example_container").name("c_new"),
         vec![("name", jvalue!("c_new")), ("initial_value", jvalue!(5))].into(),
     )?;
-    assert_eq!(cprofile.name, "c_new");
+    assert_eq!(cprofile.instance_name(), "c_new");
     let cid = cprofile.identifier();
     assert_eq!(bp.container_list(false, None)?.len(), 4);
     let pprofile = bp.container_process_create(
         &cid,
         &ProcessManifest::new("example_container_get").name("c_new_get"),
     )?;
-    assert_eq!(pprofile.name, "c_new_get");
+    assert_eq!(pprofile.instance_name(), "c_new_get");
     let pid = find_process(&bp.container_process_list(false, None)?, "c_new_get").clone();
-    assert_eq!(bp.container_process_destroy(&pid)?.name, "c_new_get");
+    assert_eq!(bp.container_process_destroy(&pid)?.instance_name(), "c_new_get");
     assert_eq!(bp.container_process_list(false, None)?.len(), 6);
-    assert_eq!(bp.container_destroy(&cid)?.name, "c_new");
+    assert_eq!(bp.container_destroy(&cid)?.instance_name(), "c_new");
     assert_eq!(bp.container_list(false, None)?.len(), 3);
 
     // Value を返す EC の API は __value__ で包んだまま返す
