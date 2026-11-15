@@ -58,6 +58,10 @@ class CRUDProxy():
         """Container のモデルの中身 (bytes)。JSON の経路 {info, data: base64} (docs/spec/container-model.md §6.3)"""
         v = self.read('container', 'model', {'identifier': identifier})
         return base64.b64decode(v['data'])
+
+    def is_self_broker(self, broker_type, broker_name):
+        """ID のブローカー部分 (<broker_type>://<broker_name>) が、この接続先の System を指すか (issue #502)"""
+        return False
     
 class HttpProxy(CRUDProxy):
     
@@ -70,6 +74,16 @@ class HttpProxy(CRUDProxy):
     def broker_id(self):
         """別 System に渡す ID のブローカーの部分 ('http://host:port')"""
         return self._base_url
+
+    def is_self_broker(self, broker_type, broker_name):
+        """http://<host>:<port> がこの接続先を指すか (issue #502)。ポートが同じで、ホストが
+        接続に使ったホストかループバック (localhost・127.0.0.1・::1) なら同じとみなす"""
+        if broker_type != 'http':
+            return False
+        host, port = _split_host_port(broker_name)
+        if port is None or str(port) != str(self._port):
+            return False
+        return host == self._host or host in _LOOPBACK_HOSTS
 
     def _do_response(self, response):
         if response.status_code == 200:
@@ -193,6 +207,10 @@ class IpcProxy(CRUDProxy):
     def broker_id(self):
         """別 System に渡す ID のブローカーの部分 ('ipc://name')"""
         return f'ipc://{self._name}'
+
+    def is_self_broker(self, broker_type, broker_name):
+        """ipc://<name> がこの接続先を指すか (issue #502)"""
+        return broker_type == 'ipc' and broker_name == self._name
 
     def close(self):
         with self._lock:
@@ -466,25 +484,25 @@ class SystemProxy():
         self._processes = [ProcessProxy.new(self, pid) for pid in self._list('process', namespace)]
         return self._processes.copy()
 
-    def process(self, id):
-        ps = self.crud.read('process', 'list')
-        for pid in ps:
-            pid = to_identifier(pid, 'process')
-            if pid == id:
-                return ProcessProxy.new(self, pid)
-        return None            
+    def process(self, id, namespace=None):
+        """Process を名前か ID で探す (issue #502)。見つからなければ None。
+
+        id は名前 ('inc0')、ネームスペースを含めた名前 ('robot1/inc0')、ID
+        ('core://core/process/inc0::increment'、'http://127.0.0.1:8000/process/inc0::increment' など)、
+        ProcessProxy のどれでもよい。名前の探し方は ProcessProxy(name) と同じ
+        (ルートを優先し、複数のネームスペースにあれば AmbiguousNameError)。
+        ID のブローカー部分は、core:// か、この System を指していれば (ホスト名の書き方は問わない) 同じとみなす。
+        """
+        return _find_object(self, self.processes(), 'process', id, namespace)
         
     def containers(self, update=False, namespace=None):
         self._containers = [ContainerProxy.new(self, cid) for cid in self._list('container', namespace)]
         return self._containers
 
-    def container(self, id):
-        cs = self.crud.read('container', 'list')
-        for pid in cs:
-            pid = to_identifier(pid, 'container')
-            if pid == id:
-                return ContainerProxy.new(self, pid)
-        return None            
+    def container(self, id, namespace=None):
+        """Container を名前か ID で探す (issue #502)。見つからなければ None。
+        受け付ける形は process(id) と同じ"""
+        return _find_object(self, self.containers(), 'container', id, namespace)
     
     def container_processes(self, update=False, namespace=None):
         if namespace is not None:
@@ -503,6 +521,50 @@ def _id_str(v):
     if isinstance(v, dict):
         return to_identifier(v)
     return v
+
+
+_LOOPBACK_HOSTS = ('localhost', '127.0.0.1', '::1')
+
+
+def _split_host_port(broker_name):
+    """'host:port' を (host, port) に分ける。'[::1]:8000' も扱う。ポートが無ければ None"""
+    if broker_name.startswith('['):
+        host, _, rest = broker_name[1:].partition(']')
+        return host, (rest[1:] if rest.startswith(':') else None)
+    host, sep, port = broker_name.rpartition(':')
+    return (host, port) if sep else (broker_name, None)
+
+
+def _same_broker(system, s: 'IdentifierStruct', o: 'IdentifierStruct'):
+    """s のブローカー部分が、一覧の要素 o と同じ System を指すか"""
+    if s.broker_type == 'core':
+        return True
+    if (s.broker_type, s.broker_name) == (o.broker_type, o.broker_name):
+        return True
+    is_self = getattr(system.crud, 'is_self_broker', None)
+    return bool(is_self and is_self(s.broker_type, s.broker_name))
+
+
+def _find_object(system, objs, class_name, id, namespace=None):
+    """objs (ObjectProxy の並び) から名前か ID で探す (issue #502)。見つからなければ None"""
+    if isinstance(id, ObjectProxy) or isinstance(id, IdentifierStruct) or isinstance(id, dict):
+        id = _id_str(id)
+    if not isinstance(id, str):
+        raise TypeError(f'invalid {class_name} identifier: {id!r}')
+    if _IDENTIFIER_REGEX.match(id) is None:
+        return _find_by_name(objs, id, namespace)
+    s = IdentifierStruct.fromIdentifier(id)
+    if s.class_name != class_name:
+        return None
+    for o in objs:
+        # 完全に同じなら、ブローカー部分を比べるまでもない
+        if o.identifier() == id:
+            return o
+        os = IdentifierStruct.fromIdentifier(o.identifier())
+        if ((os.namespace, os.name, os.type_name) == (s.namespace, s.name, s.type_name)
+                and _same_broker(system, s, os)):
+            return o
+    return None
 
 
 def _vector3(v):
@@ -755,10 +817,12 @@ class ContainerProxy(ObjectProxy):
                 and (p.get('namespace') or '') == self.namespace()]
         
     def process(self, id):
-        for p in self.processes():
-            if p.identifier() == id:
-                return p
-        return None          
+        """この Container の ContainerProcess を名前か ID で探す (issue #502)。見つからなければ None"""
+        ps = self.processes()
+        if isinstance(id, str) and _IDENTIFIER_REGEX.match(id) is None:
+            # ContainerProcess の名前は Container の中で一意なので、ネームスペースは見ない
+            return next((p for p in ps if p.name() == id), None)
+        return _find_object(self.system, ps, 'container_process', id)
     
     def __getattr__(self, name):
         # search process by name:

@@ -47,6 +47,10 @@ jobs:
         working-directory: bindings/pyjuiz
         run: python test/identifier_test.py
 
+      - name: Run pyjuiz system lookup test
+        working-directory: bindings/pyjuiz
+        run: python test/system_lookup_test.py
+
       - name: Run pyjuiz datatype test
         working-directory: bindings/pyjuiz
         run: python test/datatype_test.py
