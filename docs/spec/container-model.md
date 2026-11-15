@@ -232,14 +232,40 @@ def pantilt(initial_value: int = 0):
     ...
 ```
 
+```cpp
+// cppjuiz (#509)。model() に conf の model: と同じ形のオブジェクトか、path だけの文字列を渡す
+auto manifest() {
+    return ContainerManifest("pantilt")
+        .model({
+            {"path", "models/pantilt.glb"},
+            {"scale", 0.001},
+            {"origin", {{"translation", {{"z", -0.02}}}}}
+        });
+}
+```
+
+```haskell
+-- hsjuiz (#509)。model に conf の model: と同じ形のオブジェクト、path だけなら modelPath
+manifest :: ContainerManifest
+manifest = containerManifest "pantilt_hs"
+  & model (object
+      [ "path" .= JString "models/pantilt.glb"
+      , "scale" .= JFloat 0.001
+      , "origin" .= object ["translation" .= object ["z" .= JFloat (-0.02)]]
+      ])
+```
+
 - **相対パスはプラグインのファイル(`libpantilt.so`・`pantilt.dll`・`pantilt.py` など)のあるディレクトリからの相対**。conf の `plugins` の `path` で指したディレクトリと同じ所になる。絶対パスも書けるが、配るプラグインでは使わない。
 - **優先順位**: conf のインスタンスに `model:` があれば、それを丸ごと使う(キーごとに混ぜない。既定の `scale` などは引き継がない)。インスタンスに `model: null` と書けば既定を使わず、モデル無しで作る。`model` のキーが無ければ型の既定を使う。
 - **確かめる時**: プラグインを読み込んで Factory を登録するときに §5.2 の 1〜5 を行い、満たさなければ **Factory の登録をエラーにする**(プラグインの読み込みのエラーと同じ扱い)。Container を作るたびに、型の既定を写してファイルの大きさと更新時刻を見直し(§5.3)、`option.model.max_bytes`(§5.4)を当て直す。超えていれば Container の作成をエラーにする(プラグインは `option` を読む前に読み込むため)。
 - **API からの作成**: ブローカー越しの `container/create` で作った Container にも型の既定が付く。パスを決めたのはプラグインを書いた人と、そのプラグインを conf で読ませた人で、遠くの利用者が任意のパスを指すことにはならないので §5.5 の理由に当たらない。§5.5 の「API の manifest に `model` があればエラー」はそのまま。
 - **Container の manifest**: 作った Container の `ContainerManifest.model` には型の既定を入れない(プラグインからの相対パスのまま残さない)。モデル情報は §7 のとおり profile の `model` に載る。
 - **Factory の profile**: Factory の `profile_full` の `container_factory.model` に manifest に書いたままの値を載せる(無ければ `null`)。
-- **言語ごと**: core は Factory の manifest の JSON を読むだけなので、manifest に `model` を載せられればどの言語でも使える。この Step で書き方を用意したのは Rust(`#[juiz_container]`・`#[juiz_component_container]` の `model = {...}`)と Python(`@juiz_container(model=...)`・`@juiz_component_container(model=...)`。辞書か、`path` だけなら文字列)。C++(cppjuiz の `ContainerManifest`)と Haskell(hsjuiz の `ContainerManifest`)の書き方は別 issue。
+- **言語ごと**: core は Factory の manifest の JSON を読むだけなので、manifest に `model` を載せられればどの言語でも使える。この Step で書き方を用意したのは Rust(`#[juiz_container]`・`#[juiz_component_container]` の `model = {...}`)と Python(`@juiz_container(model=...)`・`@juiz_component_container(model=...)`。辞書か、`path` だけなら文字列)。C++ と Haskell の書き方は #509 で用意した(下)。
 - Rust のマクロの attr は負の数(`z = -0.02`)も書ける(Step 8 で attr の読み取りを直した)。
+- **C++(#509)**: cppjuiz の `ContainerManifest::model(const juiz::Value&)`。オブジェクトはそのまま、文字列は `{"path": 文字列}`、`juiz::Value()`(null)は既定のモデルを外す。`model("models/pantilt.glb")` と path だけでも書ける。Component の Container(`ComponentManifest::add_container`)にも同じく書ける。
+- **Haskell(#509)**: hsjuiz の `model :: Value -> ContainerManifest -> ContainerManifest` と `modelPath :: Text -> ContainerManifest -> ContainerManifest`。`model` の `JString` は path だけ、`JNull` は既定のモデルを外す。`Value` は `IsString` を持たないので、path だけのときは `modelPath` を使う。Component の Container(`componentContainer`)にも同じく書ける。
+- C++・Haskell のプラグインでも相対パスの起点はプラグインのファイル(`libpantilt.so`・`pantilt.dll`)のあるディレクトリ。
 - **.juizapp**: プラグインの横に置いたモデルのファイルは、パッケージのディレクトリに入っていれば pack に入る(§10)。pack はプラグインを読み込まないので、型の既定のモデルは pack の検査(§10)の対象にしない。足りなければ `juiz run` のプラグインの読み込みでエラーになる。
 
 ## 6. API
@@ -470,4 +496,5 @@ Step 4 で決めたこと(#384):
 | 5 サンプル | #385 | Transformations のサンプル(map → odom → 台車 → 雲台 → カメラ)にモデルを足す。モデルは単純な形をスクリプトで作った .glb / .stl と手書きの .sdf |
 | 6 公式サイト | site#65 | ガイド container-model |
 | 7 リリース | #386 | |
-| 8 Factory の既定のモデル | #387 | §5.6 |
+| 8 Factory の既定のモデル | #387 | §5.6(Rust・Python) |
+| 8 の続き C++・Haskell | #509 | §5.6 |

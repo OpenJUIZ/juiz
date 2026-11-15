@@ -74,6 +74,14 @@ foreign-library example_container_hs_increment
     other-modules:    ExampleContainerIncrement
                       ExampleContainerState
 
+foreign-library model_container_hs
+    import:           plugin
+    type:             native-shared
+    if os(windows)
+        options:      standalone
+        mod-def-file: def/model_container_hs.def
+    other-modules:    ModelContainer
+
 foreign-library example_container_hs_get
     import:           plugin
     type:             native-shared

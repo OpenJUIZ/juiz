@@ -3,6 +3,10 @@
 hsjuiz の版は juiz(crates.io の juiz_app、PyPI の pyjuiz / juiz-cli)と同じ番号にそろえています。
 使う libjuiz_sdk も同じ版にしてください。
 
+## 未公開
+
+- `model` / `modelPath` で Container の型の既定の 3D モデルを書けるようにした(`ContainerManifest` に `cmModel` を足した、#509)。
+
 ## 0.2.9
 
 - hsjuiz の API は 0.2.8 から変えていない(Container の 3D モデル #379 と Zenoh ブローカー #487 の公開に版をそろえた。モデルは conf で書くので hsjuiz 側の追加はない)。

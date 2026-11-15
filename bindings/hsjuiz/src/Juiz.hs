@@ -80,6 +80,8 @@ module Juiz
   , useMemo
   , readonly
   , containerType
+  , model
+  , modelPath
   , addArg
   , addBoolArg
   , addIntArg
