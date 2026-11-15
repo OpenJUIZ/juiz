@@ -242,6 +242,7 @@ Hackage への公開には、Hackage のアカウント(アップロード権限
 - [Transformations(Container の位置姿勢と座標変換)](docs/spec/transformations.md)(issue #366)
 - [Container の 3D モデル(ContainerModel)](docs/spec/container-model.md)(issue #379)
 - [Zenoh ブローカー](docs/spec/zenoh-broker.md)(issue #487)
+- [Manifest と Profile の用語](docs/spec/manifest-profile.md)(issue #503)
 
 ## ライセンス
 

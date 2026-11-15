@@ -308,7 +308,7 @@ composition:
 |---|---|---|
 | `POST /api/composite/create` | ボディ `{"__manifest__": <Composite の定義>}` | Factory の manifest(§8.2、`composition` を含む) |
 | `GET /api/composite/list` | なし | Composite の型名の配列(名前順) |
-| `GET /api/composite/profile_full?identifier=<型名>` | 型名 | Factory の manifest |
+| `GET /api/composite/profile_full?identifier=<型名>` | 型名 | Factory の profile。Factory は実行時の状態を持たないので Factory の manifest と同じ(manifest-profile.md §5) |
 | `DELETE /api/composite/destroy?identifier=<型名>` | 型名 | 消した Factory の manifest |
 | `POST /api/composite_container/create` | ボディ `{"__manifest__": <composite_containers: の 1 件>}` | CompositeContainer の profile(`identifier` と `slots` つき) |
 
