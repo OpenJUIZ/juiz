@@ -142,6 +142,9 @@ class ContainerManifest:
     parent_type_name: Optional[str] = None
     parent_name: Optional[str] = None
     name: Optional[str] = None
+    # 型の既定のモデル (docs/spec/container-model.md §5.6)。conf の model: と同じ辞書。
+    # path はこの Python ファイルのあるディレクトリからの相対
+    model: Optional[dict] = None
     
     @classmethod
     def new(cls, type_name):
@@ -156,6 +159,18 @@ class ContainerManifest:
     def set_description(self, desc): 
         if desc is not None:
             self.description = desc
+        return self
+
+    def set_model(self, model):
+        """型の既定のモデル (conf の model: と同じ辞書、または path の文字列)。None なら付けない"""
+        if model is None:
+            self.model = None
+        elif isinstance(model, str):
+            self.model = {"path": model}
+        elif isinstance(model, dict):
+            self.model = dict(model)
+        else:
+            raise TypeError("model must be a dict or a str (path), but {!r}".format(model))
         return self
     
     def into_value(self):

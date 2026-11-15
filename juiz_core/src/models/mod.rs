@@ -6,6 +6,7 @@
 //!   更新時刻・SHA-256 と conf の値だけ。中身は持たない (§5.2)。
 //! - 取り出しのたびに大きさと更新時刻を見て、変わっていれば確かめ直す (§5.3)。
 //! - 登録所 [`ContainerModels`] は CoreStore が持ち、Container の ID (core の ID の文字列) で引く。
+//! - 型 (Factory) の既定のモデル (§5.6、issue #387) も同じ登録所が型名で持ち、Container を作るときに写す。
 
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
@@ -332,6 +333,23 @@ impl ContainerModel {
         &self.state.sha256
     }
 
+    /// 型の既定のモデル (§5.6) を Container 1 つ分に写す。ファイルが変わっていれば確かめ直し、
+    /// 今の上限 (`option.model.max_bytes`) を超えていればエラー。既定は conf の `option` を読む前
+    /// (プラグインの読み込み時) に確かめているので、ここで上限を当て直す
+    pub fn for_instance(&self, max_bytes: u64) -> JuizResult<ContainerModel> {
+        let mut m = self.clone();
+        let file_name = m.file_name.clone();
+        m.refresh(max_bytes, false).with_context_path(&file_name)?;
+        if m.state.size > max_bytes {
+            return Err(invalid(format!(
+                "model file '{}' is too large ({} bytes > {max_bytes} bytes). \
+                 Raise option.model.max_bytes",
+                m.file_name, m.state.size
+            )));
+        }
+        Ok(m)
+    }
+
     /// モデル情報 (`juiz_std.model.ContainerModelInfo` の形、§8)
     pub fn info(&self) -> Value {
         jvalue!({
@@ -419,6 +437,8 @@ impl ContainerModelData {
 #[derive(Debug)]
 struct Inner {
     models: HashMap<String, ContainerModel>,
+    /// 型 (Factory) の既定のモデル。型名で引く (§5.6)
+    defaults: HashMap<String, ContainerModel>,
     max_bytes: u64,
     /// 16 MiB 超を JSON の経路で返したと WARN を出した Container (1 Container につき 1 回、§5.4)
     json_warned: HashSet<String>,
@@ -437,6 +457,7 @@ impl ContainerModels {
         Arc::new(ContainerModels {
             inner: Mutex::new(Inner {
                 models: HashMap::new(),
+                defaults: HashMap::new(),
                 max_bytes: DEFAULT_MODEL_MAX_BYTES,
                 json_warned: HashSet::new(),
             }),
@@ -479,8 +500,25 @@ impl ContainerModels {
     pub fn clear(&self) -> JuizResult<()> {
         let mut inner = self.lock()?;
         inner.models.clear();
+        inner.defaults.clear();
         inner.json_warned.clear();
         Ok(())
+    }
+
+    /// 型の既定のモデルを登録する (§5.6)。同じ型名がすでにあれば置き換える
+    pub fn set_default(&self, type_name: &str, model: ContainerModel) -> JuizResult<()> {
+        self.lock()?.defaults.insert(type_name.to_owned(), model);
+        Ok(())
+    }
+
+    /// 型の既定のモデルがあれば、Container 1 つ分に写して返す (§5.6)。無ければ `None`
+    pub fn default_for(&self, type_name: &str) -> JuizResult<Option<ContainerModel>> {
+        let inner = self.lock()?;
+        let max = inner.max_bytes;
+        match inner.defaults.get(type_name) {
+            Some(m) => Ok(Some(m.for_instance(max)?)),
+            None => Ok(None),
+        }
     }
 
     /// 取り出しの失敗は WARN に出す (Container は消さない、§5.3)

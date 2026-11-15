@@ -57,7 +57,8 @@ pub struct ContainerManifest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rate: Option<f64>,
     /// Container の 3D モデル (conf の `model:`、docs/spec/container-model.md §5.1)。
-    /// conf でだけ書ける。API の `container/create` に付けるとエラー (§5.5)
+    /// conf でだけ書ける。API の `container/create` に付けるとエラー (§5.5)。
+    /// プラグインの Factory の manifest に書けば、その型の既定のモデルになる (§5.6、パスはプラグインのファイルからの相対)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<super::ModelManifest>,
 }

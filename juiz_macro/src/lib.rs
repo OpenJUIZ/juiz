@@ -221,6 +221,10 @@ pub fn juiz_process(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///     Ok(Box::new(ExampleContainer{value:initial_value}))
 /// }
 /// ```
+///
+/// `model = { path = "models/x.glb", scale = 0.001 }` と書くと、その型の既定の 3D モデルになる
+/// (docs/spec/container-model.md §5.6)。`path` はプラグインのファイルのあるディレクトリからの相対で、
+/// conf のインスタンスに `model:` があればそちらを使う。
 #[proc_macro_attribute]
 pub fn juiz_container(attr: TokenStream, item: TokenStream) -> TokenStream {
     container::juiz_container_inner(attr, item)

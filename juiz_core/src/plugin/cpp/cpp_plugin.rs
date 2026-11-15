@@ -117,6 +117,11 @@ impl Drop for CppContainerStruct {
 pub type Symbol<'lib, T> = libloading::Symbol<'lib, libloading::Symbol<'lib, T>>;
 */
 impl CppPlugin {
+    /// プラグインのファイルのパス
+    pub fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+
     /// CppPluginのコンストラクタ
     /// path:
     /// manifest_entry_point: ファイル自体のマニフェストのエントリーポイント

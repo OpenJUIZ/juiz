@@ -2423,6 +2423,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "model_container"
+version = "0.1.0"
+dependencies = [
+ "juiz_sdk",
+]
+
+[[package]]
 name = "mopa"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

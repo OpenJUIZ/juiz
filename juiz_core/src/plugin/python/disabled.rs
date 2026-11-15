@@ -22,6 +22,11 @@ fn python_disabled_error(path: &PathBuf) -> anyhow::Error {
 }
 
 impl PythonPlugin {
+    /// プラグインのファイルのパス
+    pub fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+
     pub fn profile_full(&self) -> JuizResult<Value> {
         Ok(jvalue!({
             "path": self.path,

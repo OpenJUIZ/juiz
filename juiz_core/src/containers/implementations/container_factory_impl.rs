@@ -59,6 +59,8 @@ impl JuizObject for ContainerFactoryImpl {
             &jvalue!({
                 "arguments": vv,
                 "language": self.manifest.language,
+                // 型の既定のモデル (manifest に書いたまま、§5.6)。無ければ null
+                "model": self.manifest.model,
             }),
         )?;
         Ok(v)
@@ -117,6 +119,9 @@ impl ContainerFactory for ContainerFactoryImpl {
         // ContainerProcess のインスタンスは Container を作った後に別途作って登録するので、
         // 作成する Container のマニフェストには引き継がない。
         manifest.processes.clear();
+        // 型の既定のモデル (§5.6) は core が型名で持ち、作った後に Container に付ける。
+        // プラグインのファイルからの相対パスのまま Container のマニフェストに残さない
+        manifest.model = None;
         (self.binded_container_constructor)(manifest, args)
     }
 
@@ -124,6 +129,10 @@ impl ContainerFactory for ContainerFactoryImpl {
         // todo!()
         log::trace!("ContainerFractoryImpl::destroy_container() called");
         c.lock()?.profile()
+    }
+
+    fn default_model(&self) -> Option<juiz_sdk::manifests::ModelManifest> {
+        self.manifest.model.clone()
     }
 }
 
