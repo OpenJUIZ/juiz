@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use juiz_sdk::manifests::{
-    CompositeArgument, CompositeNode, Composition, ExposeSpec, OutputProfile,
+    CompositeArgument, CompositeNode, Composition, ExposeSpec, OutputManifest,
     COMPOSITE_CONTAINER_PROCESS_FACTORY_NAME, COMPOSITE_CONTAINER_TYPE_NAME,
     COMPOSITE_PROCESS_FACTORY_NAME,
 };
@@ -143,7 +143,7 @@ fn pure_composite_exposes_in_evaluation_order() -> JuizResult<()> {
 #[test]
 fn outputs_come_from_root() -> JuizResult<()> {
     let mut children = children();
-    let out = OutputProfile::default();
+    let out = OutputManifest::default();
     children.get_mut("scale").unwrap().outputs = Some(out.clone());
     let c = CompositeManifest::new(
         "s",

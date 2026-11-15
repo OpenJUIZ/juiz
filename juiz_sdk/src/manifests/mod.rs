@@ -20,7 +20,7 @@ mod broker_profile;
 mod component_manifest;
 mod composite_manifest;
 mod container_identifier;
-mod output_profile;
+mod output_manifest;
 mod topic_manifest;
 mod topic_profile;
 mod transformations_manifest;
@@ -42,7 +42,11 @@ pub use container_manifest::ContainerManifest;
 pub use container_profile::ContainerProfile;
 pub use manifest_description::Description;
 pub use model_manifest::{ModelFormat, ModelManifest};
-pub use output_profile::{OutputProfile, PrimitiveProfile, StructProfile};
+#[allow(deprecated)]
+pub use output_manifest::{
+    OutputManifest, OutputProfile, PrimitiveManifest, PrimitiveProfile, StructManifest,
+    StructProfile,
+};
 pub use process_manifest::ProcessManifest;
 pub use process_profile::ProcessProfile;
 pub use topic_manifest::TopicManifest;
