@@ -921,7 +921,7 @@ impl CoreWorker {
         }
         // 識別子の type_name は "<type_name>:<container_name>" の形なので、
         // ファクトリの検索にはプロファイルの type_name を使う
-        let type_name = process.lock()?.profile()?.type_name;
+        let type_name = process.lock()?.profile()?.into_manifest().type_name;
         process.lock_mut()?.purge()?;
         let f = self
             .store()
@@ -1200,7 +1200,7 @@ impl CoreWorker {
         let topic_name = topic_info.name.as_str();
         let topic = self.create_topic(topic_name.to_owned())?;
         // Topic の既存の subscribe 側と型を比べる (issue #193)
-        let schema = process.lock()?.profile()?.output_schema;
+        let schema = process.lock()?.profile()?.into_manifest().output_schema;
         topic.check_publisher(schema.as_ref())?;
         let process_id = process.identifier().to_string();
         self.connect_to_topic(process, topic.clone())?;
@@ -1219,7 +1219,8 @@ impl CoreWorker {
         let topic_name = topic_info.name.as_str();
         let topic = self.create_topic(topic_name.to_owned())?;
         // Topic の既存の publish 側と型を比べる (issue #193)
-        let schema = crate::types::argument_schema(&process.lock()?.profile()?, arg_name).cloned();
+        let profile = process.lock()?.profile()?;
+        let schema = crate::types::argument_schema(&profile, arg_name).cloned();
         topic.check_subscriber(schema.as_ref())?;
         let process_id = process.identifier().to_string();
         //let p = self.process_from_id(&id)?.clone();

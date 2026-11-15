@@ -20,10 +20,9 @@ fn args(pairs: &[(&str, i64)]) -> CapsuleMap {
 fn bound_value(p: &ProcessPtr, name: &str) -> JuizResult<Option<Value>> {
     Ok(p.lock()?
         .profile()?
-        .arguments
-        .iter()
-        .find(|a| a.name == name)
-        .and_then(|a| a.value.clone()))
+        .argument_values
+        .get(name)
+        .cloned())
 }
 
 /// 渡さなかった引数は p_apply 済みの値で、それも無ければ既定値で補う

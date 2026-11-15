@@ -260,7 +260,7 @@ fn composite_container_process_spans_two_containers() -> JuizResult<()> {
         );
         assert_eq!(profile_slots.get("motor"), Some(&motor_id));
         assert_eq!(profile.processes.len(), 1);
-        assert_eq!(profile.processes[0].name, "ssd0");
+        assert_eq!(profile.processes[0].instance_name(), "ssd0");
         let value = serde_json::to_value(&profile)?;
         assert_eq!(
             value["slots"]["sensor"],

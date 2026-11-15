@@ -300,22 +300,7 @@ pub fn openapi_components(
 ///
 /// `{"arguments": 引数の辞書, "returns": 戻り値 (型なしなら null), "components": {"schemas": 使う名前付き型}}`。
 /// 参照は `#/components/schemas/<完全名>`。
-pub fn process_openapi_spec(profile: &ProcessProfile) -> Value {
-    let mut m = ProcessManifest::new(&profile.type_name);
-    m.description = profile.description.clone();
-    m.output_schema = profile.output_schema.clone();
-    m.arguments = profile
-        .arguments
-        .iter()
-        .map(|a| ArgumentManifest {
-            type_name: a.type_name.clone(),
-            name: a.name.clone(),
-            description: a.description.clone(),
-            default: a.default.clone(),
-            schema: a.schema.clone(),
-        })
-        .collect();
-    let m = &m;
+pub fn process_openapi_spec(m: &ProcessManifest) -> Value {
     let types = named_types_of(&[m], &[]);
     let keys = SchemaKeys::new(&types);
     let mut schemas = Map::new();
@@ -441,7 +426,7 @@ mod tests {
             .add_typed_arg("pose", "", schema(&pose()), Value::Null)
             .unwrap()
             .add_int_arg("n", "回数", 3);
-        let s = process_openapi_spec(&m.name("mv0").try_into().unwrap());
+        let s = process_openapi_spec(&m.name("mv0"));
         assert_eq!(s["returns"], Value::Null);
         assert_eq!(
             s["arguments"]["properties"]["n"],

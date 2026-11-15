@@ -1,43 +1,127 @@
 use std::collections::BTreeMap;
 use std::fmt::Display;
+use std::ops::{Deref, DerefMut};
 
 use anyhow::{anyhow, Context};
-use serde::{Deserialize, Serialize};
+use serde::{de, ser, Deserialize, Deserializer, Serialize, Serializer};
 
-use super::{manifest_description::Description, ArgumentProfile, ProcessProfile};
+use super::{ArgumentProfile, ProcessProfile};
 use crate::prelude::*;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Container の profile。インスタンスの manifest ([`ContainerManifest`]) と実行時の状態を合わせたもの
+/// (docs/spec/manifest-profile.md §3・§4)。
+///
+/// JSON は manifest のキーに状態のキーを重ねた形 (仕様 §8)。`processes` と `model` は、
+/// manifest の宣言ではなく状態 (今ある ContainerProcess の profile、読み直したモデル情報) を出す。
+/// manifest の項目は [`Deref`] で読める (`profile.type_name` など)。`processes` と `model` は
+/// このフィールドの方が先に見えるので、manifest の宣言は `profile.manifest.processes` で読む。
+#[derive(Debug, Clone)]
 pub struct ContainerProfile {
-    pub name: String,
-    /// ネームスペース (`/` 区切り、空ならルート)。`name` には含まない
-    #[serde(default)]
-    pub namespace: String,
-    pub language: String,
-    pub type_name: String,
-    pub factory: String,
-    pub arguments: Vec<ArgumentProfile>,
-    pub description: Description,
-    pub parent_type_name: Option<String>,
-    pub parent_name: Option<String>,
+    /// インスタンスの manifest。`name` は必ず `Some`
+    pub manifest: ContainerManifest,
+    /// この Container に属する ContainerProcess の profile
     pub processes: Vec<ProcessProfile>,
-    pub args: Value,
     /// CompositeContainer のスロット名 → 参照先の Container の ID (issue #168)。
     /// CompositeContainer 以外では `None` で、出力しない
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slots: Option<BTreeMap<String, String>>,
     /// Anchor の種類と周期 `{"kind": "periodic" | "static", "rate": <Hz>}`
     /// (docs/spec/transformations.md §4.1)。Anchor 以外では `None` で、出力しない
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anchor: Option<Value>,
     /// この Container の写しを取りに来ている別 System `[{system, destinations, last_access}]`
     /// (docs/spec/transformations.md §19.10)。いなければ `None` で、出力しない
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_children: Option<Value>,
     /// 3D モデルのモデル情報 (`juiz_std.model.ContainerModelInfo` の形、docs/spec/container-model.md §7・§8)。
     /// モデルが無ければ `null`
-    #[serde(default)]
     pub model: Option<Value>,
+}
+
+impl Deref for ContainerProfile {
+    type Target = ContainerManifest;
+    fn deref(&self) -> &Self::Target {
+        &self.manifest
+    }
+}
+
+impl DerefMut for ContainerProfile {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.manifest
+    }
+}
+
+/// 状態のキー。直列化では manifest の同じキーを上書きし、読むときは manifest から外す
+const STATE_KEYS: [&str; 5] = ["processes", "slots", "anchor", "remote_children", "model"];
+
+/// manifest にはあるが、今の profile の JSON に無いキー。JSON の形を変えないために出さない
+/// (足すかは別の issue で決める、仕様 §3 の 4・§8)
+const HIDDEN_MANIFEST_KEYS: [&str; 3] = ["broker_type_name", "broker_name", "rate"];
+
+impl Serialize for ContainerProfile {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut value = serde_json::to_value(&self.manifest).map_err(ser::Error::custom)?;
+        let map = value
+            .as_object_mut()
+            .ok_or_else(|| ser::Error::custom("ContainerManifest must be serialized as an object"))?;
+        for key in STATE_KEYS.iter().chain(HIDDEN_MANIFEST_KEYS.iter()) {
+            map.remove(*key);
+        }
+        let processes = serde_json::to_value(&self.processes).map_err(ser::Error::custom)?;
+        map.insert("processes".to_owned(), processes);
+        if let Some(slots) = self.slots.as_ref() {
+            map.insert(
+                "slots".to_owned(),
+                serde_json::to_value(slots).map_err(ser::Error::custom)?,
+            );
+        }
+        if let Some(anchor) = self.anchor.as_ref() {
+            map.insert("anchor".to_owned(), anchor.clone());
+        }
+        if let Some(rc) = self.remote_children.as_ref() {
+            map.insert("remote_children".to_owned(), rc.clone());
+        }
+        map.insert(
+            "model".to_owned(),
+            self.model.clone().unwrap_or(Value::Null),
+        );
+        value.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for ContainerProfile {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let mut value = Value::deserialize(deserializer)?;
+        let map = value
+            .as_object_mut()
+            .ok_or_else(|| de::Error::custom("ContainerProfile must be an object"))?;
+        let mut take = |key: &str| map.remove(key).filter(|v| !v.is_null());
+        let processes: Vec<ProcessProfile> = match take("processes") {
+            Some(v) => serde_json::from_value(v).map_err(de::Error::custom)?,
+            None => Vec::new(),
+        };
+        let slots = match take("slots") {
+            Some(v) => Some(serde_json::from_value(v).map_err(de::Error::custom)?),
+            None => None,
+        };
+        let anchor = take("anchor");
+        let remote_children = take("remote_children");
+        let model = take("model");
+        let mut manifest: ContainerManifest =
+            serde_json::from_value(value).map_err(de::Error::custom)?;
+        if manifest.name.is_none() {
+            return Err(de::Error::custom(format!(
+                "ContainerProfile needs 'name' (type_name={}).",
+                manifest.type_name
+            )));
+        }
+        manifest.processes = processes.iter().map(|p| p.manifest.clone()).collect();
+        Ok(Self {
+            manifest,
+            processes,
+            slots,
+            anchor,
+            remote_children,
+            model,
+        })
+    }
 }
 
 impl Display for ContainerProfile {
@@ -56,9 +140,12 @@ impl Display for ContainerProfile {
 }
 
 impl TryFrom<ContainerManifest> for ContainerProfile {
+    /// 状態を空にした profile を作る。`processes` には manifest に書いた ContainerProcess を
+    /// (状態なしの profile にして) 入れる。インスタンスの manifest でなければ (名前が無ければ) エラー
     fn try_from(value: ContainerManifest) -> Result<Self, Self::Error> {
         let name = value
             .name
+            .clone()
             .ok_or(anyhow!(JuizError::ContainerManifestInvalidError {
                 message: format!(
                     "ContainerManifest (type_name={}) does not include 'name' value.",
@@ -67,8 +154,8 @@ impl TryFrom<ContainerManifest> for ContainerProfile {
             }))?;
         let processes = value
             .processes
-            .into_iter()
-            .map(|p| -> JuizResult<ProcessProfile> { p.try_into() })
+            .iter()
+            .map(|p| -> JuizResult<ProcessProfile> { p.clone().try_into() })
             .collect::<JuizResult<Vec<ProcessProfile>>>()
             .with_context(|| {
                 format!(
@@ -77,17 +164,8 @@ impl TryFrom<ContainerManifest> for ContainerProfile {
                 )
             })?;
         Ok(Self {
-            name,
-            namespace: value.namespace,
-            language: value.language,
-            type_name: value.type_name,
-            factory: value.factory,
-            arguments: value.arguments.into_iter().map(|a| a.into()).collect(),
-            description: value.description,
-            parent_type_name: value.parent_type_name,
-            parent_name: value.parent_name,
+            manifest: value,
             processes,
-            args: value.args,
             slots: None,
             anchor: None,
             remote_children: None,
@@ -98,28 +176,21 @@ impl TryFrom<ContainerManifest> for ContainerProfile {
     type Error = anyhow::Error;
 }
 
+impl From<ContainerProfile> for ContainerManifest {
+    fn from(value: ContainerProfile) -> Self {
+        value.manifest
+    }
+}
+
 impl ContainerProfile {
-    pub fn build_instance_manifest(
-        &self,
-        mut partial_instance_manifest: ContainerProfile,
-    ) -> JuizResult<Self> {
-        partial_instance_manifest.type_name = self.type_name.clone();
-        Ok(partial_instance_manifest.description(self.description.as_str()))
+    pub fn new(type_name: &str, name: &str) -> Self {
+        Self::from_manifest_unchecked(ContainerManifest::new(type_name).name(name))
     }
 
-    pub fn new(type_name: &str, name: &str) -> Self {
+    fn from_manifest_unchecked(manifest: ContainerManifest) -> Self {
         Self {
-            name: name.to_owned(),
-            namespace: String::new(),
-            language: "rust".to_owned(),
-            type_name: type_name.to_owned(),
-            factory: "container_factory".to_owned(),
-            description: "".into(),
-            parent_type_name: None,
-            parent_name: None,
+            manifest,
             processes: Vec::new(),
-            args: jvalue!({}),
-            arguments: Vec::new(),
             slots: None,
             anchor: None,
             remote_children: None,
@@ -127,30 +198,30 @@ impl ContainerProfile {
         }
     }
 
+    /// インスタンスの名前 (manifest の `name`)
+    pub fn instance_name(&self) -> &str {
+        self.manifest.name.as_deref().unwrap_or("")
+    }
+
+    /// インスタンスの manifest を取り出す
+    pub fn into_manifest(self) -> ContainerManifest {
+        self.manifest
+    }
+
     pub fn parent_container_profile(&self) -> Option<Self> {
-        self.parent_name.as_ref().and_then(|pn| {
-            Some(Self {
-                name: pn.clone(),
-                namespace: self.namespace.clone(),
-                language: "rust".to_owned(),
-                type_name: self.parent_type_name.as_ref().unwrap().clone(),
-                factory: "component_factory".to_owned(),
-                description: "".into(),
-                parent_type_name: None,
-                parent_name: None,
-                processes: Vec::new(),
-                args: jvalue!({}),
-                arguments: Vec::new(),
-                slots: None,
-                anchor: None,
-                remote_children: None,
-                model: None,
-            })
+        self.parent_name.as_ref().map(|pn| {
+            let mut m = ContainerManifest::new(self.parent_type_name.as_ref().unwrap())
+                .name(pn)
+                .namespace(&self.namespace)
+                .factory("component_factory");
+            m.broker_name = self.broker_name.clone();
+            m.broker_type_name = self.broker_type_name.clone();
+            Self::from_manifest_unchecked(m)
         })
     }
 
     pub fn name(mut self, name: &str) -> Self {
-        self.name = name.to_owned();
+        self.manifest.name = Some(name.to_owned());
         self
     }
 
@@ -175,13 +246,11 @@ impl ContainerProfile {
     }
 
     pub fn add_process(mut self, process_profile: ProcessProfile) -> Self {
-        // println!("add_process({})", process_manifest);
-        self.processes.push(
-            process_profile
-                .container_name(Some(self.name.clone()))
-                .container_type(Some(self.type_name.clone())),
-        );
-        // println!("cm: {}", self);
+        let p = process_profile
+            .container_name(self.manifest.name.clone())
+            .container_type(Some(self.type_name.clone()));
+        self.manifest.processes.push(p.manifest.clone());
+        self.processes.push(p);
         self
     }
 
@@ -191,7 +260,7 @@ impl ContainerProfile {
     }
 
     pub fn add_arg(mut self, arg: ArgumentProfile) -> Self {
-        self.arguments.push(arg);
+        self.manifest.arguments.push(arg.into_manifest());
         self
     }
 
@@ -235,7 +304,7 @@ impl ContainerProfile {
         ContainerIdentifier::new(
             format!("core"),
             format!("core"),
-            self.name.clone(),
+            self.instance_name().to_owned(),
             self.type_name.clone(),
         )
         .with_namespace(&self.namespace)

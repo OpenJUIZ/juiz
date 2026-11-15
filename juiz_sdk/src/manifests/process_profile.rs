@@ -1,47 +1,52 @@
-use super::{manifest_description::Description, ArgumentProfile, TopicProfile};
+use super::{ArgumentProfile, TopicManifest};
 use crate::{
-    manifests::{Composition, OutputProfile},
+    manifests::OutputProfile,
     prelude::*,
     process_identifier::ProcessIdentifier,
-    types::TypeSchema,
 };
 use anyhow::anyhow;
-use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fmt::Display};
+use serde::{de, ser, Deserialize, Deserializer, Serialize, Serializer};
+use std::{
+    collections::BTreeMap,
+    fmt::Display,
+    ops::{Deref, DerefMut},
+};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+/// Process の profile。インスタンスの manifest ([`ProcessManifest`]) と実行時の状態を合わせたもの
+/// (docs/spec/manifest-profile.md §3・§4)。
+///
+/// 実行時の状態は引数ごとの今の値 (拘束値か push で届いた値、issue #112) で、
+/// JSON では `arguments` の各要素の `value` に出る。状態が引数の要素の中にあるので、
+/// `#[serde(flatten)]` だけでは書けず、manifest の JSON に `value` を差し込む直列化を手で書いている
+/// (仕様 §8)。JSON の形は manifest のキー + `arguments[].value`。
+///
+/// manifest の項目は [`Deref`] で読める (`profile.type_name` など)。名前は manifest では
+/// `Option<String>` なので、文字列で欲しいときは [`ProcessProfile::instance_name`] を使う。
+#[derive(Clone, Debug)]
 pub struct ProcessProfile {
-    pub name: String,
-    /// ネームスペース (`/` 区切り、空ならルート)。`name` には含まない
-    #[serde(default)]
-    pub namespace: String,
-    pub type_name: String,
-    pub description: Description,
-    pub arguments: Vec<ArgumentProfile>,
-    pub factory: String,
-    pub use_memo: bool,
-    pub language: String,
-    pub broker_type_name: String,
-    pub broker_name: String,
-    pub publishes: Vec<TopicProfile>,
-    pub subscribes: HashMap<String, TopicProfile>,
-    pub container_name: Option<String>,
-    pub container_type: Option<String>,
-    pub outputs: Option<OutputProfile>,
-    /// 戻り値の型参照 (型付きの Process だけ、仕様 docs/spec/datatype.md §6)。型なしなら JSON には出さない
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub output_schema: Option<TypeSchema>,
-    /// Composite の式の木とスロット (Composite でなければ `None`、issue #166)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub composition: Option<Composition>,
-    /// readonly の ContainerProcess (docs/spec/transformations.md §14、issue #377)。false なら JSON には出さない
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub readonly: bool,
+    /// インスタンスの manifest。`name` は必ず `Some`
+    pub manifest: ProcessManifest,
+    /// 引数名 → 次の実行で使われる値。値が無い引数は入れない
+    pub argument_values: BTreeMap<String, Value>,
+}
+
+impl Deref for ProcessProfile {
+    type Target = ProcessManifest;
+    fn deref(&self) -> &Self::Target {
+        &self.manifest
+    }
+}
+
+impl DerefMut for ProcessProfile {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.manifest
+    }
 }
 
 impl TryFrom<ProcessManifest> for ProcessProfile {
     type Error = anyhow::Error;
 
+    /// 状態を空にした profile を作る。インスタンスの manifest でなければ (名前が無ければ) エラー
     fn try_from(value: ProcessManifest) -> Result<Self, Self::Error> {
         if value.name.is_none() {
             return Err(anyhow!(JuizError::InvalidArgumentError {
@@ -52,60 +57,88 @@ impl TryFrom<ProcessManifest> for ProcessProfile {
             }));
         }
         Ok(Self {
-            name: value.name.unwrap(),
-            namespace: value.namespace,
-            type_name: value.type_name,
-            description: value.description,
-            arguments: value.arguments.into_iter().map(|a| a.into()).collect(),
-            factory: value.factory,
-            use_memo: value.use_memo,
-            language: value.language,
-            broker_type_name: value.broker_type_name,
-            broker_name: value.broker_name,
-            publishes: value.publishes.into_iter().map(|t| t.into()).collect(),
-            subscribes: value
-                .subscribes
-                .into_iter()
-                .map(|(k, v)| (k, v.into()))
-                .collect(),
-            container_name: value.container_name,
-            container_type: value.container_type,
-            outputs: value.outputs,
-            output_schema: value.output_schema,
-            composition: value.composition,
-            readonly: value.readonly,
+            manifest: value,
+            argument_values: BTreeMap::new(),
         })
     }
 }
 
-// impl TryFrom<ProcessManifest> for ProcessProfile {
-//     type Error = anyhow::Error;
+impl From<ProcessProfile> for ProcessManifest {
+    fn from(value: ProcessProfile) -> Self {
+        value.manifest
+    }
+}
 
-//     fn try_from(value: ProcessManifest) -> Result<Self, Self::Error> {
-//         Ok( Self {
-//             name: value.name.ok_or(anyhow!(JuizError::ProcessManifestInvalidError { message: format!("ProcessManifest does not include 'name' value.") }))?,
-//             type_name: value.type_name,
-//             description: value.description,
-//             arguments: value.arguments.into_iter().map(|a|{a.into()}).collect(),
-//             factory: value.factory,
-//             use_memo: value.use_memo,
-//             language: value.language,
-//             broker_type_name: value.broker_type_name,
-//             broker_name: value.broker_name,
-//             publishes: value.publishes.into_iter().map(|p| {p.into()}).collect(),
-//             subscribes: value.subscribes.into_iter().map(|(k, v)| { (k, v.into()) }).collect(),
-//             container_name: value.container_name,
-//             container_type: value.container_type
-//         })
-//     }
-// }
+/// manifest にはあるが、今の profile の JSON に無いキー。JSON の形を変えないために出さない
+/// (足すかは別の issue で決める、仕様 §3 の 4・§8)
+const HIDDEN_MANIFEST_KEYS: [&str; 1] = ["trace"];
+
+impl Serialize for ProcessProfile {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut value = serde_json::to_value(&self.manifest).map_err(ser::Error::custom)?;
+        if let Some(map) = value.as_object_mut() {
+            for key in HIDDEN_MANIFEST_KEYS {
+                map.remove(key);
+            }
+        }
+        if let Some(args) = value.get_mut("arguments").and_then(|a| a.as_array_mut()) {
+            for arg in args.iter_mut() {
+                let Some(obj) = arg.as_object_mut() else {
+                    continue;
+                };
+                let current = obj
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .and_then(|n| self.argument_values.get(n));
+                if let Some(v) = current {
+                    obj.insert("value".to_owned(), v.clone());
+                }
+            }
+        }
+        value.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for ProcessProfile {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let mut value = Value::deserialize(deserializer)?;
+        let mut argument_values = BTreeMap::new();
+        if let Some(args) = value.get_mut("arguments").and_then(|a| a.as_array_mut()) {
+            for arg in args.iter_mut() {
+                let Some(obj) = arg.as_object_mut() else {
+                    continue;
+                };
+                let Some(v) = obj.remove("value") else {
+                    continue;
+                };
+                if v.is_null() {
+                    continue;
+                }
+                if let Some(name) = obj.get("name").and_then(|n| n.as_str()) {
+                    argument_values.insert(name.to_owned(), v);
+                }
+            }
+        }
+        let manifest: ProcessManifest = serde_json::from_value(value).map_err(de::Error::custom)?;
+        if manifest.name.is_none() {
+            return Err(de::Error::custom(format!(
+                "ProcessProfile needs 'name' (type_name={}).",
+                manifest.type_name
+            )));
+        }
+        Ok(Self {
+            manifest,
+            argument_values,
+        })
+    }
+}
 
 impl Display for ProcessProfile {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("ProcessProfile(")?;
-        f.write_fmt(format_args!("{}", self.name))?;
+        f.write_fmt(format_args!("{}", self.instance_name()))?;
         f.write_fmt(format_args!("::{}, args=[", self.type_name.as_str()))?;
-        for a in self.arguments.iter() {
+        for a in self.argument_profiles().iter() {
             f.write_fmt(format_args!("{}, ", a))?;
         }
         f.write_fmt(format_args!(
@@ -119,13 +152,9 @@ impl Display for ProcessProfile {
         for (arg_name, tm) in self.subscribes.iter() {
             f.write_fmt(format_args!("{}:{}, ", arg_name, tm))?;
         }
-        if self.outputs.is_none() {
-            f.write_fmt(format_args!("}}, outputs=null"))?;
-        } else {
-            f.write_fmt(format_args!(
-                "}}, outputs={}",
-                self.outputs.as_ref().unwrap()
-            ))?;
+        match self.outputs.as_ref() {
+            None => f.write_fmt(format_args!("}}, outputs=null"))?,
+            Some(outputs) => f.write_fmt(format_args!("}}, outputs={}", outputs))?,
         }
         f.write_str(")")?;
         Ok(())
@@ -133,48 +162,9 @@ impl Display for ProcessProfile {
 }
 
 impl ProcessProfile {
-    /// FactoryにあるManifestとインスタンス用のマニフェストをマージして、完備なインスタンス用マニフェストを作ります。
-    ///
-    ///
-    pub fn build_instance_manifest(
-        &self,
-        mut partial_instance_manifest: ProcessProfile,
-    ) -> JuizResult<Self> {
-        partial_instance_manifest.type_name = self.type_name.clone();
-        partial_instance_manifest = partial_instance_manifest
-            .description(self.description.as_str())
-            .use_memo(self.use_memo)
-            .container_type(self.container_type.as_ref().map(|v| v.clone()));
-
-        let mut new_argument_manif: Vec<ArgumentProfile> = Vec::new();
-        for arg_manif in self.arguments.iter() {
-            let arg_name = &arg_manif.name;
-            let arg_type = &arg_manif.type_name;
-            let description = arg_manif.description.clone();
-            let mut default_value = arg_manif.default.clone();
-
-            for instance_arg_manif in partial_instance_manifest.arguments.iter() {
-                if arg_name == &instance_arg_manif.name {
-                    default_value = instance_arg_manif.default.clone();
-                }
-            }
-            new_argument_manif.push(ArgumentProfile::new(
-                arg_type.clone(),
-                arg_name.as_str(),
-                description,
-                default_value,
-            ));
-        }
-        partial_instance_manifest.arguments.clear();
-        partial_instance_manifest.arguments = new_argument_manif;
-        partial_instance_manifest.readonly = self.readonly;
-
-        Ok(partial_instance_manifest)
-    }
-
     /// ```
     /// use juiz_sdk::prelude::*;
-    /// let manifest = ProcessProfile::new("hoge_type", "hoge01")
+    /// let manifest = ProcessProfile::new("hoge01", "hoge_type")
     ///   .description("hoge manifest")
     ///   .add_int_arg("arg0", "int_arg", 1.into())
     ///   .add_float_arg("arg1", "float_arg", 1.0.into())
@@ -188,59 +178,81 @@ impl ProcessProfile {
     /// ```
     pub fn new(name: &str, type_name: &str) -> Self {
         Self {
-            name: name.to_owned(),
-            namespace: String::new(),
-            type_name: type_name.to_owned(),
-            description: "".into(),
-            arguments: Vec::new(),
-            use_memo: false,
-            factory: "process_factory".to_owned(),
-            broker_name: "core".to_owned(),
-            broker_type_name: "core".to_owned(),
-            publishes: Vec::new(),
-            subscribes: HashMap::new(),
-            container_name: None,
-            container_type: None,
-            language: "rust".to_owned(),
-            outputs: None, // OutputProfile::default()
-            output_schema: None,
-            composition: None,
-            readonly: false,
+            manifest: ProcessManifest::new(type_name).name(name),
+            argument_values: BTreeMap::new(),
+        }
+    }
+
+    /// インスタンスの名前 (manifest の `name`)
+    pub fn instance_name(&self) -> &str {
+        self.manifest.name.as_deref().unwrap_or("")
+    }
+
+    /// インスタンスの manifest を取り出す
+    pub fn into_manifest(self) -> ProcessManifest {
+        self.manifest
+    }
+
+    /// 引数の profile (引数の manifest + 今の値) の一覧。並びは manifest の `arguments` の順
+    pub fn argument_profiles(&self) -> Vec<ArgumentProfile> {
+        self.manifest
+            .arguments
+            .iter()
+            .map(|a| ArgumentProfile {
+                manifest: a.clone(),
+                value: self.argument_values.get(&a.name).cloned(),
+            })
+            .collect()
+    }
+
+    /// 引数 `name` の今の値を設定する。`None` なら消す
+    pub fn set_argument_value(&mut self, name: &str, value: Option<Value>) {
+        match value {
+            Some(v) => {
+                self.argument_values.insert(name.to_owned(), v);
+            }
+            None => {
+                self.argument_values.remove(name);
+            }
         }
     }
 
     pub fn name(mut self, name: &str) -> Self {
-        self.name = name.to_owned();
+        self.manifest.name = Some(name.to_owned());
         self
     }
 
     pub fn language(mut self, language: &str) -> Self {
-        self.language = language.to_owned();
+        self.manifest.language = language.to_owned();
         self
     }
 
     pub fn use_memo(mut self, use_memo: bool) -> Self {
-        self.use_memo = use_memo;
+        self.manifest.use_memo = use_memo;
         self
     }
 
     pub fn factory(mut self, factory: &str) -> Self {
-        self.factory = factory.to_owned();
+        self.manifest.factory = factory.to_owned();
         self
     }
 
     pub fn description(mut self, description: &str) -> Self {
-        self.description = description.into();
+        self.manifest.description = description.into();
         self
     }
 
+    /// 引数を足す。`arg.value` があれば今の値としても持つ
     pub fn add_arg(mut self, arg: ArgumentProfile) -> Self {
-        self.arguments.push(arg);
+        let ArgumentProfile { manifest, value } = arg;
+        self.set_argument_value(&manifest.name.clone(), value);
+        self.manifest.arguments.push(manifest);
         self
     }
+
     /// ```
     /// use juiz_sdk::prelude::*;
-    /// let manifest = ProcessProfile::new("hoge_type", "hoge01")
+    /// let manifest = ProcessProfile::new("hoge01", "hoge_type")
     ///   .description("hoge manifest")
     ///   .add_bool_arg("arg0", "boolt_arg", false.into());
     /// assert_eq!(manifest.arguments[0].name, "arg0");
@@ -250,26 +262,10 @@ impl ProcessProfile {
         self.add_arg(ArgumentProfile::new_bool(name, default).description(description))
     }
 
-    /// ```
-    /// use juiz_sdk::prelude::*;
-    /// let manifest = ProcessProfile::new("hoge_type", "hoge01")
-    ///   .description("hoge manifest")
-    ///   .add_int_arg("arg0", "int_arg", 1.into());
-    /// assert_eq!(manifest.arguments[0].name, "arg0");
-    /// assert_eq!(manifest.arguments[0].type_name.as_str(), "Int");
-    /// ```
     pub fn add_int_arg(self, name: &str, description: &str, default: i64) -> Self {
         self.add_arg(ArgumentProfile::new_int(name, default).description(description))
     }
 
-    /// ```
-    /// use juiz_sdk::prelude::*;
-    /// let manifest = ProcessProfile::new("hoge_type", "hoge01")
-    ///   .description("hoge manifest")
-    ///   .add_float_arg("arg1", "float_arg", 1.0.into());
-    /// assert_eq!(manifest.arguments[0].name, "arg1");
-    /// assert_eq!(manifest.arguments[0].type_name.as_str(), "Float");
-    /// ```
     pub fn add_float_arg(self, name: &str, description: &str, default: f64) -> Self {
         self.add_arg(ArgumentProfile::new_float(name, default).description(description))
     }
@@ -286,245 +282,83 @@ impl ProcessProfile {
         self.add_arg(ArgumentProfile::new_image(name).description(description))
     }
 
-    /// ```
-    /// use juiz_sdk::prelude::*;
-    /// let manifest = ProcessProfile::new("hoge_type", "hoge01")
-    ///   .description("hoge manifest")
-    ///   .add_string_arg("arg2", "string_arg", "default_string".into());
-    /// assert_eq!(manifest.arguments[0].name, "arg2");
-    /// assert_eq!(manifest.arguments[0].type_name.as_str(), "String");
-    /// ```
     pub fn add_string_arg(self, name: &str, description: &str, default: &str) -> Self {
         self.add_arg(ArgumentProfile::new_string(name, default).description(description))
     }
 
     pub fn container(mut self, container: ContainerManifest) -> Self {
-        self.container_type = Some(container.type_name.clone());
-        self.container_name = container.name.clone();
+        self.manifest.container_type = Some(container.type_name.clone());
+        self.manifest.container_name = container.name.clone();
         self
     }
 
     pub fn container_type(mut self, container: Option<String>) -> Self {
-        self.container_type = container;
+        self.manifest.container_type = container;
         self
     }
 
     pub fn container_name(mut self, container: Option<String>) -> Self {
-        self.container_name = container;
+        self.manifest.container_name = container;
         self
     }
 
     /// ```
     /// use juiz_sdk::prelude::*;
-    /// let manifest = ProcessProfile::new("hoge_type", "hoge01")
+    /// let manifest = ProcessProfile::new("hoge01", "hoge_type")
     ///   .description("hoge manifest")
     ///   .publishes("topic1");
     /// assert_eq!(manifest.publishes[0].name, "topic1");
     /// ```
     pub fn publishes(mut self, topic_name: &str) -> Self {
-        self.publishes.push(TopicProfile::new(topic_name));
+        self.manifest.publishes.push(TopicManifest::new(topic_name));
         self
     }
 
     /// ```
     /// use juiz_sdk::prelude::*;
-    /// let manifest = ProcessProfile::new("hoge_type", "hoge01")
+    /// let manifest = ProcessProfile::new("hoge01", "hoge_type")
     ///   .description("hoge manifest")
     ///   .add_int_arg("arg0", "int_arg", 1.into())
     ///   .subscribes("arg0", "topic1");
     /// assert_eq!(manifest.subscribes.get("arg0").unwrap().name, "topic1");
     /// ```
     pub fn subscribes(mut self, arg_name: &str, topic_name: &str) -> Self {
-        self.subscribes
-            .insert(arg_name.to_owned(), TopicProfile::new(topic_name));
+        self.manifest
+            .subscribes
+            .insert(arg_name.to_owned(), TopicManifest::new(topic_name));
         self
     }
 
     pub fn identifier(&self) -> ProcessIdentifier {
-        // identifier_new(
-        //     self.broker_type_name.as_str(),
-        //     self.broker_name.as_str(),
-        //     "Process",
-        //     self.type_name.as_str(),
-        //     self.name.as_str())
         // ContainerProcess の ID は型名の後ろに「:Container 名」が付く (issue #46)
-        match &self.container_name {
+        let m = &self.manifest;
+        let name = self.instance_name().to_owned();
+        match &m.container_name {
             Some(container_name) => ProcessIdentifier::new_container_process_id(
-                self.broker_name.clone(),
-                self.broker_type_name.clone(),
-                self.type_name.clone(),
+                m.broker_name.clone(),
+                m.broker_type_name.clone(),
+                m.type_name.clone(),
                 container_name.clone(),
-                self.name.clone(),
+                name,
             )
-            .with_namespace(&self.namespace),
+            .with_namespace(&m.namespace),
             None => ProcessIdentifier::new_process_id(
-                self.broker_name.clone(),
-                self.broker_type_name.clone(),
-                self.type_name.clone(),
-                self.name.clone(),
+                m.broker_name.clone(),
+                m.broker_type_name.clone(),
+                m.type_name.clone(),
+                name,
             )
-            .with_namespace(&self.namespace),
+            .with_namespace(&m.namespace),
         }
     }
 
     pub fn outputs(&self) -> Option<OutputProfile> {
-        self.outputs.clone()
+        self.manifest.outputs.clone()
     }
 
     pub fn set_outputs(mut self, outputs: Option<OutputProfile>) -> Self {
-        self.outputs = outputs;
+        self.manifest.outputs = outputs;
         self
     }
+
 }
-
-// #[allow(dead_code)]
-// fn arguments_to_object(args: Vec<ArgumentProfile>) -> Value {
-//     let mut v : serde_json::Map<String, Value> = serde_json::Map::new();
-//     for a in args.into_iter() {
-//         v.insert(a.name.clone(), serde_json::to_value(a).unwrap());
-//     }
-//     v.into()
-// }
-
-// fn arguments_to_array(args: Vec<ArgumentProfile>) -> Value {
-//     args.into_iter().map(|arg| -> Value {
-//         arg.into()
-//     }).collect()
-// }
-
-// / ```
-// / use juiz_core::prelude::*;
-// / fn main() -> JuizResult<()> {
-// /     let manifest = ProcessProfile::new("hoge_type")
-// /         .description("hoge manifest")
-// /         .add_int_arg("arg0", "int_arg", 1.into());
-// /     let value: Value = manifest.into();
-// /     assert_eq!(obj_get_str(&value, "type_name")?, "hoge_type");
-// /     assert_eq!(obj_get_str(&value, "description")?, "hoge manifest");
-// /     let arr: &Vec<Value> = obj_get_array(&value, "arguments")?;
-// /     assert_eq!(obj_get_str(&arr[0] , "type")?, "int");
-// /     assert_eq!(obj_get_str(&arr[0] , "name")?, "arg0");
-// /     assert_eq!(obj_get_str(&arr[0] , "description")?, "int_arg");
-// /     Ok(())
-// / }
-// / ```
-// impl Into<Value> for ProcessProfile {
-//     fn into(self) -> Value {
-//         let mut v = jvalue!({
-//             "name": self.name,
-//             "type_name": self.type_name,
-//             "description": self.description.to_str(),
-//             "language": self.language,
-//             "arguments": arguments_to_array(self.arguments),
-//             "publishes": self.publishes.iter().map(|v|{ v.clone().into() }).collect::<Vec<Value>>(),
-//             "subscribes": self.subscribes.iter().map(|(k,v)|{ (k.clone(), v.clone().into() ) }).collect::<Map<String, Value>>(),
-//             "factory": self.factory,
-//         });
-//         let map = v.as_object_mut().unwrap();
-//         if let Some(container_name) = self.container_name {
-//             map.insert("container_name".to_owned(), container_name.into());
-//         }
-//         if let Some(container_type) = self.container_type {
-//             map.insert("container_type".to_owned(), container_type.into());
-//         }
-//         v
-//     }
-// }
-
-// / ```
-// / use juiz_core::prelude::*;
-// / fn main() -> JuizResult<()> {
-// /
-// / let manifest_value: Value = jvalue!({
-// /   "type_name": "hoge_type",
-// /   "description": "hoge manifest",
-// /   "arguments": [
-// /     {
-// /        "name": "arg0",
-// /        "type": "int",
-// /        "default": 1,
-// /        "description": "int_arg"
-// /     },
-// /   ]
-// / });
-// / let manifest: ProcessProfile = manifest_value.try_into()?;
-// /
-// / Ok(())}
-// /// ```
-// impl TryFrom<Value> for ProcessProfile {
-//     fn try_from(value: Value) -> anyhow::Result<Self> {
-//         // println!("try_from({value:?})");
-//         let desc = match obj_get_str(&value, "description") {
-//             Ok(v) => v,
-//             Err(_) => ""
-//         };
-//         let mut p = ProcessProfile::new(obj_get_str(&value, "name")?, obj_get_str(&value, "type_name")?)
-//             .description(desc);
-//         match obj_get_array(&value, "arguments") {
-//             Ok(arg_manifest_values) => {
-//                 for arg_manifest_value in arg_manifest_values.iter() {
-//                     p = p.add_arg(arg_manifest_value.clone().try_into()?);
-//                 }
-//             }
-//             Err(_) => {},
-//         }
-//         match obj_get_str(&value, "name") {
-//             Ok(name) => {
-//                 p = p.name(name);
-//             },
-//             Err(_) => {}
-//         }
-//         match obj_get_str(&value, "language") {
-//             Ok(language) => {
-//                 p = p.name(language);
-//             },
-//             Err(_) => {
-//                 p = p.language("rust");
-//             }
-//         }
-//         match obj_get_str(&value, "factory") {
-//             Ok(factory) => {
-//                 p = p.factory(factory);
-//             },
-//             Err(_) => {
-//                 p = p.factory("process_factory");
-//             }
-//         }
-//         match obj_get_bool(&value, "use_memo") {
-//             Ok(flag) => {
-//                 p = p.use_memo(flag);
-//             },
-//             Err(_) => {}
-//         }
-//         match obj_get_str(&value, "container_type") {
-//             Ok(container_type) => {
-//                 p = p.container_type(Some(container_type.to_owned()));
-//             },
-//             Err(_) => {}
-//         }
-//         match obj_get_str(&value, "container_name") {
-//             Ok(container_name) => {
-//                 p = p.container_name(Some(container_name.to_owned()));
-//             },
-//             Err(_) => {}
-//         }
-//         match obj_get_array(&value, "publishes") {
-//             Ok(value_array) => {
-//                 for arg_obj in value_array.into_iter() {
-//                     p = p.publishes(arg_obj.as_str().unwrap());
-//                 }
-//             }
-//             Err(_) => {},
-//         };
-//         match obj_get_obj(&value, "subscribes") {
-//             Ok(value_map) => {
-//                 for (arg_name, arg_obj) in value_map.into_iter() {
-//                     p = p.subscribes(arg_name.as_str(), arg_obj.as_str().unwrap());
-//                 }
-//             }
-//             Err(_) => {},
-//         };
-//         Ok(p)
-//     }
-//     type Error = anyhow::Error;
-// }

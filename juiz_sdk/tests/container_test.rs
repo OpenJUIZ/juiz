@@ -104,7 +104,7 @@ fn container_impl_derefs_to_user_struct() -> JuizResult<()> {
     assert_eq!(c.value, 3);
     c.value += 1;
     assert_eq!(c.t.value, 4);
-    assert_eq!(c.profile()?.name, "counter0");
+    assert_eq!(c.profile()?.instance_name(), "counter0");
     assert_eq!(c.profile()?.type_name, "counter");
     assert!(format!("{}", c).starts_with("ContainerImpl(identifier="));
     assert!(format!("{:?}", c).contains("User object."));

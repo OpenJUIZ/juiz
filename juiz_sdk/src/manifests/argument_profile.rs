@@ -1,25 +1,36 @@
 use std::fmt::Display;
+use std::ops::{Deref, DerefMut};
 
 use serde::{Deserialize, Serialize};
 
 use super::argument_type::{type_check, ArgumentType};
 use super::manifest_description::Description;
 use crate::prelude::*;
-use crate::types::TypeSchema;
 
+/// 引数の profile。引数の manifest ([`ArgumentManifest`]) と、実行時の状態 (今の値 `value`) を合わせたもの
+/// (docs/spec/manifest-profile.md §3・§4)。JSON は manifest のキーに `value` を足した形
+/// (`#[serde(flatten)]`)。manifest の項目は [`Deref`] で読める。
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ArgumentProfile {
-    pub type_name: ArgumentType,
-    pub name: String,
-    pub description: Description,
-    pub default: Value,
+    #[serde(flatten)]
+    pub manifest: ArgumentManifest,
     /// 次の実行で使われる値。p_apply で拘束した値か、push で届いた値 (issue #112)。
     /// 値がまだ無いとき、画像のように値型でないとき、ファクトリの profile では None で、JSON には出さない。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<Value>,
-    /// 型参照 (型付きの引数だけ、仕様 docs/spec/datatype.md §6)。型なしなら JSON には出さない
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub schema: Option<TypeSchema>,
+}
+
+impl Deref for ArgumentProfile {
+    type Target = ArgumentManifest;
+    fn deref(&self) -> &Self::Target {
+        &self.manifest
+    }
+}
+
+impl DerefMut for ArgumentProfile {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.manifest
+    }
 }
 
 impl Display for ArgumentProfile {
@@ -34,15 +45,18 @@ impl Display for ArgumentProfile {
 impl From<ArgumentManifest> for ArgumentProfile {
     fn from(value: ArgumentManifest) -> Self {
         Self {
-            type_name: value.type_name,
-            name: value.name,
-            description: value.description,
-            default: value.default,
+            manifest: value,
             value: None,
-            schema: value.schema,
         }
     }
 }
+
+impl From<ArgumentProfile> for ArgumentManifest {
+    fn from(value: ArgumentProfile) -> Self {
+        value.manifest
+    }
+}
+
 impl ArgumentProfile {
     pub fn new(
         type_name: ArgumentType,
@@ -50,14 +64,7 @@ impl ArgumentProfile {
         description: Description,
         default: Value,
     ) -> Self {
-        ArgumentProfile {
-            type_name,
-            name: name.to_owned(),
-            description,
-            default,
-            value: None,
-            schema: None,
-        }
+        ArgumentManifest::new(type_name, name, description, default).into()
     }
 
     pub fn new_with_check(
@@ -67,18 +74,16 @@ impl ArgumentProfile {
         default: Value,
     ) -> JuizResult<Self> {
         type_check(&type_name, &default)?;
-        Ok(ArgumentProfile {
-            type_name,
-            name: name.to_owned(),
-            description,
-            default,
-            value: None,
-            schema: None,
-        })
+        Ok(Self::new(type_name, name, description, default))
+    }
+
+    /// 引数の manifest を取り出す
+    pub fn into_manifest(self) -> ArgumentManifest {
+        self.manifest
     }
 
     pub fn description(mut self, description: &str) -> Self {
-        self.description = description.into();
+        self.manifest.description = description.into();
         self
     }
 

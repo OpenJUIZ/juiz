@@ -33,6 +33,6 @@ pub fn anchor_container_new(
     container_manifest.rate = manifest.rate;
     let mut container =
         AnchorContainer::new(container_manifest, Box::new(AnchorState { manifest }))?;
-    container.profile_mut().anchor = Some(manifest.to_profile_value());
+    container.set_profile_anchor(Some(manifest.to_profile_value()));
     Ok(ContainerPtr::new(container))
 }

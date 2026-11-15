@@ -1,17 +1,42 @@
 use super::broker_identifier::parse_broker_identifier;
-use super::manifest_description::Description;
 use crate::prelude::*;
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
+use std::ops::{Deref, DerefMut};
 
+/// Broker の profile。Broker は実行時の状態を profile に載せないので、中身は manifest
+/// ([`BrokerManifest`]) と同じ (docs/spec/manifest-profile.md §4)。JSON は manifest と同じ形
+/// (`#[serde(flatten)]`)。manifest の項目は [`Deref`] で読める。
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BrokerProfile {
-    pub type_name: String,
-    pub name: String,
-    pub broker_type_name: String,
-    pub broker_name: String,
-    pub description: Description,
+    #[serde(flatten)]
+    pub manifest: BrokerManifest,
+}
+
+impl Deref for BrokerProfile {
+    type Target = BrokerManifest;
+    fn deref(&self) -> &Self::Target {
+        &self.manifest
+    }
+}
+
+impl DerefMut for BrokerProfile {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.manifest
+    }
+}
+
+impl From<BrokerManifest> for BrokerProfile {
+    fn from(manifest: BrokerManifest) -> Self {
+        Self { manifest }
+    }
+}
+
+impl From<BrokerProfile> for BrokerManifest {
+    fn from(value: BrokerProfile) -> Self {
+        value.manifest
+    }
 }
 
 impl Display for BrokerProfile {
@@ -41,7 +66,7 @@ impl Into<Value> for BrokerProfile {
             "name": self.name,
             "broker_type_name": self.broker_type_name,
             "broker_name": self.broker_name,
-            "description": self.description.text
+            "description": self.description.text.clone()
         })
     }
 }
@@ -67,13 +92,7 @@ impl BrokerProfile {
         broker_name: &str,
         description: &str,
     ) -> Self {
-        Self {
-            name: name.to_owned(),
-            type_name: type_name.to_owned(),
-            broker_type_name: broker_type_name.to_owned(),
-            broker_name: broker_name.to_owned(),
-            description: description.into(),
-        }
+        BrokerManifest::new(name, type_name, broker_type_name, broker_name, description).into()
     }
 }
 

@@ -10,9 +10,9 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use juiz_sdk::anyhow::{self, anyhow, Context};
+use juiz_sdk::anyhow::{self, anyhow};
 use juiz_sdk::manifests::{
-    CompositeArgument, CompositeManifest, CompositeNode, ProcessProfile, COMPOSITE_ROOT_PATH,
+    CompositeArgument, CompositeManifest, CompositeNode, COMPOSITE_ROOT_PATH,
 };
 use juiz_sdk::utils::check_manifest_before_call;
 
@@ -62,8 +62,8 @@ struct CompiledNode {
     path: String,
     /// 子の type_name
     process: String,
-    /// 子の引数の検査用 (`check_manifest_before_call`)
-    profile: ProcessProfile,
+    /// 子の引数の検査用 (`check_manifest_before_call`)。子のインスタンスの manifest
+    manifest: ProcessManifest,
     function: NodeFunction,
     /// 子の arguments の宣言順に並べた引数
     args: Vec<(String, CompiledArgument)>,
@@ -161,7 +161,7 @@ impl CompositeBody {
             values.push((name.clone(), value));
         }
         let child_args: CapsuleMap = values.into();
-        let result = check_manifest_before_call(&node.profile, &child_args)
+        let result = check_manifest_before_call(&node.manifest, &child_args)
             .and_then(|_| match &node.function {
                 NodeFunction::Process(f) => f(child_args),
                 // 子は自分の Container を自分でロックする (仕様 §7.3)
@@ -417,15 +417,11 @@ where
         };
         args.push((child_arg.name.clone(), compiled));
     }
-    let profile: ProcessProfile = child_manifest
-        .clone()
-        .name(&child_manifest.type_name)
-        .try_into()
-        .with_context(|| format!("Composite({type_name}) at {path}"))?;
+    let manifest = child_manifest.clone().name(&child_manifest.type_name);
     Ok(CompiledNode {
         path: path.to_owned(),
         process: node.process.clone(),
-        profile,
+        manifest,
         function,
         args,
         _factory: child,

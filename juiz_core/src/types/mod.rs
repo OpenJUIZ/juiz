@@ -187,9 +187,10 @@ pub fn check_connectable(
     Ok(c)
 }
 
-/// Process の profile から、引数 `arg_name` の型参照を取り出す (なければ型なし)
-pub fn argument_schema<'a>(profile: &'a ProcessProfile, arg_name: &str) -> Option<&'a TypeSchema> {
-    profile
+/// Process の manifest から、引数 `arg_name` の型参照を取り出す (なければ型なし)。
+/// profile しか無いときは `&profile` をそのまま渡せる (Deref で manifest になる)
+pub fn argument_schema<'a>(manifest: &'a ProcessManifest, arg_name: &str) -> Option<&'a TypeSchema> {
+    manifest
         .arguments
         .iter()
         .find(|a| a.name == arg_name)
@@ -210,11 +211,11 @@ pub fn type_check_on_call_enabled(system_manifest: &Value) -> bool {
 ///
 /// 値でないもの (画像、Rust のネイティブ値) と、型なしの引数・渡されていない引数は見ない。
 pub fn check_argument_value(
-    profile: &ProcessProfile,
+    manifest: &ProcessManifest,
     arg_name: &str,
     value: &CapsulePtr,
 ) -> JuizResult<()> {
-    let Some(schema) = argument_schema(profile, arg_name) else {
+    let Some(schema) = argument_schema(manifest, arg_name) else {
         return Ok(());
     };
     if !value.is_value()? {
@@ -224,9 +225,9 @@ pub fn check_argument_value(
 }
 
 /// `args` の各引数を [`check_argument_value`] で検査する
-pub fn check_call_arguments(profile: &ProcessProfile, args: &CapsuleMap) -> JuizResult<()> {
+pub fn check_call_arguments(manifest: &ProcessManifest, args: &CapsuleMap) -> JuizResult<()> {
     for (name, value) in args.iter() {
-        check_argument_value(profile, name, value)?;
+        check_argument_value(manifest, name, value)?;
     }
     Ok(())
 }

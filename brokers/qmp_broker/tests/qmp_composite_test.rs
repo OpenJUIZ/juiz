@@ -67,6 +67,7 @@ fn qmp_composite_profile() -> JuizResult<()> {
             format!("qmp://{broker_name}/process/t0::inc_twice").try_into()?;
         let composition = bp
             .process_profile_full(&t0)?
+            .manifest
             .composition
             .expect("composition");
         assert_eq!(composition.body.process, "increment_process");
@@ -78,6 +79,7 @@ fn qmp_composite_profile() -> JuizResult<()> {
             format!("qmp://{broker_name}/container_process/a0::add_twice:cc0").try_into()?;
         let composition = bp
             .container_process_profile_full(&a0)?
+            .manifest
             .composition
             .expect("composition");
         assert_eq!(

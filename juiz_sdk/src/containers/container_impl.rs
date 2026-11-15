@@ -9,7 +9,7 @@ use crate::{
 ///
 ///
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     fmt::Display,
     ops::{Deref, DerefMut},
 };
@@ -17,7 +17,12 @@ use std::{
 #[allow(unused)]
 pub struct ContainerImpl<S: 'static> {
     // core: ObjectCore,
-    profile: ContainerProfile,
+    /// インスタンスの manifest (docs/spec/manifest-profile.md §3 の 2)。profile は問い合わせのたびに作る
+    manifest: ContainerManifest,
+    /// profile に載せる CompositeContainer のスロット (issue #168)
+    profile_slots: Option<BTreeMap<String, String>>,
+    /// profile に載せる Anchor の種類と周期 (docs/spec/transformations.md §4.1)
+    profile_anchor: Option<Value>,
     identifier: ContainerIdentifier,
     pub t: Box<S>,
     processes: HashMap<String, ProcessPtr>,
@@ -29,7 +34,7 @@ pub struct ContainerImpl<S: 'static> {
 impl<S: 'static> std::fmt::Debug for ContainerImpl<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ContainerImpl")
-            .field("profile", &self.profile)
+            .field("manifest", &self.manifest)
             .field("identifier", &self.identifier)
             .field("t", &"User object.".to_owned())
             .field("processes", &self.processes)
@@ -54,7 +59,9 @@ impl<S: 'static> ContainerImpl<S> {
             // core: ObjectCore::create(JuizObjectClass::Container("ContainerImpl"), manifest.type_name.to_owned(), manifest.name.as_ref().unwrap().to_owned()),
             pose: ContainerPoseHandle::new(identifier.clone()),
             identifier,
-            profile: manifest.try_into()?,
+            manifest: Self::checked_manifest(manifest)?,
+            profile_slots: None,
+            profile_anchor: None,
             t,
             processes: HashMap::new(),
             parent_container: None,
@@ -72,16 +79,34 @@ impl<S: 'static> ContainerImpl<S> {
         Ok(ContainerImpl {
             pose: ContainerPoseHandle::new(identifier.clone()),
             identifier,
-            profile: manifest.try_into()?,
+            manifest: Self::checked_manifest(manifest)?,
+            profile_slots: None,
+            profile_anchor: None,
             t,
             processes: HashMap::new(),
             parent_container: Some(parent_container),
         })
     }
 
-    /// profile を書き換える。CompositeContainer がスロットを profile に載せるのに使う (issue #168)
-    pub fn profile_mut(&mut self) -> &mut ContainerProfile {
-        &mut self.profile
+    /// profile にできる manifest か (名前があり、processes の各要素にも名前があるか) を作るときに確かめる
+    fn checked_manifest(manifest: ContainerManifest) -> JuizResult<ContainerManifest> {
+        ContainerProfile::try_from(manifest.clone())?;
+        Ok(manifest)
+    }
+
+    /// インスタンスの manifest
+    pub fn manifest(&self) -> &ContainerManifest {
+        &self.manifest
+    }
+
+    /// profile に CompositeContainer のスロット (スロット名 → 参照先の Container の ID) を載せる (issue #168)
+    pub fn set_profile_slots(&mut self, slots: Option<BTreeMap<String, String>>) {
+        self.profile_slots = slots;
+    }
+
+    /// profile に Anchor の種類と周期 `{"kind", "rate"}` を載せる (docs/spec/transformations.md §4.1)
+    pub fn set_profile_anchor(&mut self, anchor: Option<Value>) {
+        self.profile_anchor = anchor;
     }
 
     /// 基準 Container `reference` (ID か名前) から見たこの Container の ContainerPose を読む
@@ -196,7 +221,10 @@ impl<S: 'static> Container for ContainerImpl<S> {
     }
 
     fn profile(&self) -> JuizResult<ContainerProfile> {
-        Ok(self.profile.clone())
+        let mut profile = ContainerProfile::try_from(self.manifest.clone())?;
+        profile.slots = self.profile_slots.clone();
+        profile.anchor = self.profile_anchor.clone();
+        Ok(profile)
     }
 
     fn process(&self, name_or_id: &String) -> Option<ProcessPtr> {

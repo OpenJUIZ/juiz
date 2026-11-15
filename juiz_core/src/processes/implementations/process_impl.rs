@@ -20,8 +20,9 @@ use crate::processes::{ProcessBodyFunctionTrait, ProcessBodyFunctionType};
 
 pub struct ProcessImpl {
     // core: ObjectCore,
-    // manifest: ProcessManifest,
-    profile: ProcessProfile,
+    /// インスタンスの manifest。呼び出し前の検査と既定値の補いに使う
+    /// (docs/spec/manifest-profile.md §3 の 2)。profile は問い合わせのたびに manifest と状態から作る
+    manifest: ProcessManifest,
     function: Arc<ProcessBodyFunctionTrait>,
     /// 受け取ったカプセルをそのまま返す関数 (Topic が使う)。あれば function の代わりに呼ぶ
     passthrough_function: Option<Arc<dyn Fn(CapsuleMap) -> JuizResult<CapsulePtr> + 'static>>,
@@ -34,7 +35,7 @@ pub struct ProcessImpl {
 impl std::fmt::Debug for ProcessImpl {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ProcessImpl")
-            .field("profile", &self.profile)
+            .field("manifest", &self.manifest)
             .field("identifier", &self.identifier)
             .field("outlet", &self.outlet)
             .field("inlets", &self.inlets)
@@ -97,7 +98,8 @@ impl ProcessImpl {
         connection_factory: Box<impl ConnectionFactory + 'static>,
     ) -> JuizResult<Self> {
         log::trace!("【呼出】ProcessImpl::new_from_clousure_ref_and_class_name(manifest={manifest:})が呼ばれました");
-        let process_profile = manifest.clone().try_into()?;
+        // 名前の無い manifest (インスタンスの manifest でないもの) はここでエラーにする
+        let process_profile: ProcessProfile = manifest.clone().try_into()?;
         log::debug!("ProcessImplオブジェクト (prof={process_profile:}) を作成します。");
         Ok(Self {
             //core: ObjectCore::create(class_name, manifest.type_name.clone(), manifest.name.as_ref().unwrap()),
@@ -106,7 +108,7 @@ impl ProcessImpl {
             identifier: manifest.identifier()?, //identifier_from_manifest("core", "core", "Process", &manifest)?,
             outlet: Outlet::new(manifest.name.as_ref().unwrap().as_str(), manifest.use_memo),
             inlets: Self::create_inlets(&manifest),
-            profile: process_profile,
+            manifest,
             connection_factory,
         })
     }
@@ -243,14 +245,10 @@ impl ProcessImpl {
 
 impl Process for ProcessImpl {
     fn profile(&self) -> JuizResult<ProcessProfile> {
-        // 引数ごとに今の値 (拘束値) を添える (issue #112)
-        let mut profile = self.profile.clone();
-        for arg in profile.arguments.iter_mut() {
-            arg.value = self
-                .inlets
-                .iter()
-                .find(|inlet| inlet.name() == &arg.name)
-                .and_then(|inlet| inlet.current_value());
+        // インスタンスの manifest に、引数ごとの今の値 (拘束値) を添える (issue #112)
+        let mut profile: ProcessProfile = self.manifest.clone().try_into()?;
+        for inlet in self.inlets.iter() {
+            profile.set_argument_value(inlet.name(), inlet.current_value());
         }
         Ok(profile)
     }
@@ -258,8 +256,8 @@ impl Process for ProcessImpl {
     fn call(&self, args: RequestMap) -> JuizResult<ResponsePtr> {
         log::trace!("【呼出】ProcessImpl({:})::call({args})", self.identifier());
         // 省かれた引数は manifest の既定値で補う (issue #265)
-        let args = fill_default_arguments(&self.profile, args);
-        check_manifest_before_call(&(self.profile), &args)?;
+        let args = fill_default_arguments(&self.manifest, args);
+        check_manifest_before_call(&self.manifest, &args)?;
         let result = match self.passthrough_function.as_ref() {
             Some(f) => f(args),
             None => (self.function)(args).map(|v| v.into()),
@@ -477,7 +475,7 @@ impl Process for ProcessImpl {
     fn openapi_spec(&self) -> JuizResult<Value> {
         log::trace!("【呼出】ProcessImpl({})::openapi_spec()", self.identifier());
         // 引数の辞書と戻り値のスキーマ (issue #197、仕様 datatype.md §23.3)
-        Ok(crate::types::openapi::process_openapi_spec(&self.profile))
+        Ok(crate::types::openapi::process_openapi_spec(&self.manifest))
     }
 }
 

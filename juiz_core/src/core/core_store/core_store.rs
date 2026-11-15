@@ -227,7 +227,7 @@ impl CoreStore {
             let p = cp.lock()?.profile()?;
             let same_type =
                 p.container_type.is_none() || p.container_type.as_ref() == Some(&profile.type_name);
-            if p.container_name.as_ref() == Some(&profile.name) && same_type {
+            if p.container_name == profile.manifest.name && same_type {
                 processes.push(p);
             }
         }

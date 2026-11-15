@@ -61,7 +61,7 @@ pub fn composite_container_new(
         .map(|(k, c)| (k.clone(), c.identifier().into()))
         .collect::<BTreeMap<String, String>>();
     let mut container = CompositeContainer::new(manifest, Box::new(CompositeSlots::new(slots)))?;
-    container.profile_mut().slots = Some(slot_ids);
+    container.set_profile_slots(Some(slot_ids));
     Ok(ContainerPtr::new(container))
 }
 

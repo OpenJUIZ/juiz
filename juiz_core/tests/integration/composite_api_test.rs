@@ -246,7 +246,7 @@ fn check_composite_container(system: &mut System, bp: &mut dyn BrokerProxy) -> J
     let cc0: ContainerIdentifier = "core://core/container/robot1/cc0::composite_container"
         .to_owned()
         .try_into()?;
-    assert_eq!(bp.container_destroy(&cc0)?.name, "cc0");
+    assert_eq!(bp.container_destroy(&cc0)?.instance_name(), "cc0");
     assert_eq!(bp.composite_destroy("add_chain")?.type_name, "add_chain");
     Ok(())
 }
