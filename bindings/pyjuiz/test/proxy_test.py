@@ -83,6 +83,29 @@ def check_container(port):
     assert c0.c0get() == before + 6
 
 
+def check_system_lookup(port):
+    # SystemProxy.container(id)・process(id) は名前でも、接続に使ったホストと違う書き方の ID でも探せる (issue #502)
+    system = SystemProxy(HttpProxy("localhost", port))
+    c0 = system.container("c0")
+    assert c0 is not None and c0.namespace() == "", c0
+    for key in [f"http://127.0.0.1:{port}/container/c0::{c0.type_name()}",
+                f"core://core/container/c0::{c0.type_name()}",
+                c0.identifier()]:
+        assert system.container(key).identifier() == c0.identifier(), key
+    assert system.container("robot1/c0").full_name() == "robot1/c0"
+    assert system.container("nothing0") is None
+    assert system.container(f"http://127.0.0.1:{port + 1}/container/c0::{c0.type_name()}") is None
+
+    inc = system.process("inc0")
+    assert inc is not None and inc.namespace() == "", inc
+    for key in [f"http://127.0.0.1:{port}/process/inc0::increment_process",
+                "core://core/process/inc0::increment_process"]:
+        assert system.process(key).identifier() == inc.identifier(), key
+    assert system.process("inc0", namespace="robot1").full_name() == "robot1/inc0"
+    assert system.process(key).call(1) == 2
+    assert c0.process("c0get").name() == "c0get"
+
+
 def check_composite(port):
     # 実行中に Composite を定義する (issue #171)
     system = SystemProxy(HttpProxy("localhost", port))
@@ -225,6 +248,7 @@ def main():
     check_container(port)
     check_namespaced_process(port)
     check_namespaced_container(port)
+    check_system_lookup(port)
     check_composite(port)
     check_transformations(port)
     check_model(port, sys.argv[2])
