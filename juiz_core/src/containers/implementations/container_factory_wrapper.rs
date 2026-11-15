@@ -101,6 +101,10 @@ impl ContainerFactory for ContainerFactoryWrapper {
         self.containers.borrow_mut().remove(index);
         self.container_factory.lock_mut()?.destroy_container(c)
     }
+
+    fn default_model(&self) -> Option<juiz_sdk::manifests::ModelManifest> {
+        self.container_factory.lock().ok()?.default_model()
+    }
 }
 
 impl Drop for ContainerFactoryWrapper {

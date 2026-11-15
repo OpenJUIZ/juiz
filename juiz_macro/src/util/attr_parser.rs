@@ -106,6 +106,34 @@ pub(crate) fn toplevel_key_value(
                                                         }
                                                     }
                                                 }
+                                                proc_macro::TokenTree::Punct(minus)
+                                                    if minus.as_char() == '-' =>
+                                                {
+                                                    // 負の数 (`x = -0.02`)。トークンは '-' と数のリテラルに分かれる
+                                                    let key = kident.to_string();
+                                                    let literal = match attr.next() {
+                                                        Some(proc_macro::TokenTree::Literal(l)) => l,
+                                                        other => panic!("'-' の後は数を予期していますが {other:?} でした"),
+                                                    };
+                                                    let val = match litrs::Literal::parse(
+                                                        literal.to_string().as_str(),
+                                                    )? {
+                                                        litrs::Literal::Integer(integer_lit) => {
+                                                            json!(-integer_lit
+                                                                .raw_input()
+                                                                .parse::<i64>()
+                                                                .unwrap())
+                                                        }
+                                                        litrs::Literal::Float(float_lit) => {
+                                                            json!(-float_lit
+                                                                .raw_input()
+                                                                .parse::<f64>()
+                                                                .unwrap())
+                                                        }
+                                                        _var => panic!("'-' の後は数を予期していますが {_var:?} でした"),
+                                                    };
+                                                    value.insert(key, val);
+                                                }
                                                 proc_macro::TokenTree::Ident(ident) => {
                                                     let _key = kident.to_string();
                                                     let _val = ident.to_string();

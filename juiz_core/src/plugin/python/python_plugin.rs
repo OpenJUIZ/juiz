@@ -48,6 +48,11 @@ pub struct PythonContainerStruct {
 pub type Symbol<'lib, T> = libloading::Symbol<'lib, libloading::Symbol<'lib, T>>;
 */
 impl PythonPlugin {
+    /// プラグインのファイルのパス
+    pub fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+
     pub fn profile_full(&self) -> JuizResult<Value> {
         Ok(jvalue!({
             "path": self.path,

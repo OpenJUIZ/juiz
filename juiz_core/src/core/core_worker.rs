@@ -691,6 +691,16 @@ impl CoreWorker {
         self.store()
             .containers
             .check_not_registered(&id.to_string())?;
+        // 型の既定のモデル (docs/spec/container-model.md §5.6)。引数に `model` があれば (conf の
+        // インスタンスの `model:`、`model: null` も) 使わない。conf の `model:` は呼び出し側が付け直す
+        let default_model = if args.get("model").is_ok() {
+            None
+        } else {
+            self.store()
+                .models
+                .default_for(type_name)
+                .with_context(|| format!("the default model of Container type '{type_name}'"))?
+        };
         let p = arc_pf
             .lock()?
             .create_container(self, name.to_owned(), args)?;
@@ -700,6 +710,13 @@ impl CoreWorker {
             .containers
             .register(&id.to_string(), p)?
             .clone();
+        if let Some(model) = default_model {
+            log::info!(
+                "【モデル】Container({id}) has the default model of type '{type_name}' {}",
+                model.info()
+            );
+            self.store().models.insert(&id.to_string(), model)?;
+        }
         self.store().transformations.add_container(&p, None)?;
         Ok(p)
     }

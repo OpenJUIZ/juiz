@@ -151,6 +151,15 @@ impl JuizObjectPlugin {
         )?)))
     }
 
+    /// プラグインのファイルのパス (型の既定のモデルの相対パスの起点、docs/spec/container-model.md §5.6)
+    pub fn file_path(&self) -> &std::path::Path {
+        match self {
+            JuizObjectPlugin::Rust(p) => p.path(),
+            JuizObjectPlugin::Python(p) => p.path(),
+            JuizObjectPlugin::Cpp(p) => p.path(),
+        }
+    }
+
     pub fn profile_full(&self) -> JuizResult<Value> {
         match self {
             JuizObjectPlugin::Rust(p) => p.profile_full(),

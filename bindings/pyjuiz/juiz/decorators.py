@@ -279,11 +279,11 @@ def juiz_process(process_function, description="Default Description"):
     return JuizProcess(process_function)
 
 class JuizContainer(object):
-    def __init__(self, proc):
+    def __init__(self, proc, model=None):
         self.__proc = proc
         self.name = proc.__name__
         self.signature = _signature(proc)
-        self._manifest = ContainerManifest.new(self.name).set_description(proc.__doc__)
+        self._manifest = ContainerManifest.new(self.name).set_description(proc.__doc__).set_model(model)
         self._arg_names = list(self.signature.parameters)
         self._arg_types = []
         for p in self.signature.parameters:
@@ -296,12 +296,18 @@ class JuizContainer(object):
         return self.__proc(*args, **kwargs)
     
 @allow_no_arg_decorator
-def juiz_container(constructor_function, description="Default Description"):
-    return JuizContainer(constructor_function)
+def juiz_container(constructor_function, description="Default Description", model=None):
+    """Container を作る関数に付ける。
+
+    model: 型の既定のモデル (docs/spec/container-model.md §5.6)。conf の model: と同じ辞書
+    (例: {"path": "models/pantilt.glb", "scale": 0.001}) か、path の文字列。
+    path はこの Python ファイルのあるディレクトリからの相対。conf のインスタンスに model: があればそちらを使う
+    """
+    return JuizContainer(constructor_function, model=model)
 
 @allow_no_arg_decorator
-def juiz_component_container(constructor_function, description="Default Description"):
-    return JuizContainer(constructor_function)
+def juiz_component_container(constructor_function, description="Default Description", model=None):
+    return JuizContainer(constructor_function, model=model)
 
 class JuizContainerProcess(object):
     def __init__(self, proc, container_type, readonly=False):

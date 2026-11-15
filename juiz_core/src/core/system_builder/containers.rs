@@ -293,7 +293,9 @@ pub(crate) fn register_container_factory(
         })?
         .type_name()
         .to_owned();
+    let plugin_file = plugin.file_path().to_path_buf();
     let wrapper = ContainerFactoryPtr::new(ContainerFactoryWrapper::new(plugin, pf)?);
+    register_default_model(core_worker, &type_name, &plugin_file, &wrapper)?;
     let _result = core_worker
         .store_mut()
         .containers
@@ -301,6 +303,35 @@ pub(crate) fn register_container_factory(
     log::debug!("ContainerFactory(type_name={type_name}) registered");
     log::trace!("register_container_factory() exit");
     Ok(wrapper)
+}
+
+/// 型 (Factory) の既定のモデル (プラグインの manifest の `model`、docs/spec/container-model.md §5.6) を
+/// 確かめて登録する。相対パスはプラグインのファイルのあるディレクトリから。
+/// ファイルが無い・形式が合わないときは Factory の登録をエラーにする (§5.2 と同じ検査)
+fn register_default_model(
+    core_worker: &CoreWorker,
+    type_name: &str,
+    plugin_file: &std::path::Path,
+    factory: &ContainerFactoryPtr,
+) -> JuizResult<()> {
+    let Some(manifest) = factory.lock()?.default_model() else {
+        return Ok(());
+    };
+    let plugin_file = std::path::absolute(plugin_file).unwrap_or(plugin_file.to_path_buf());
+    let base_dir = plugin_file.parent();
+    let models = core_worker.store().models.clone();
+    let model = crate::models::ContainerModel::load(&manifest, base_dir, models.max_bytes()?)
+        .with_context(|| {
+            format!(
+                "loading the default 'model' of Container type '{type_name}' \
+                 (relative to the plugin {plugin_file:?})"
+            )
+        })?;
+    log::info!(
+        "【モデル】Container type '{type_name}' has default model {}",
+        model.info()
+    );
+    models.set_default(type_name, model)
 }
 
 pub(crate) fn register_container_process_factory(

@@ -2,7 +2,7 @@
 
 - 状態: 確定(Step 0、issue #380、2026-11-14)
 - 親 issue: #379。計画と経緯はプロジェクトの計画書 model-plan.md(2026-11-02 確定)にある
-- この文書は Step 1〜7(#381〜#386、site#65)の実装の基準になる。実装で仕様を変えるときは、同じ PR でこの文書を直す
+- この文書は Step 1〜8(#381〜#387、site#65)の実装の基準になる。実装で仕様を変えるときは、同じ PR でこの文書を直す
 - 「しなければならない」「エラーにする」は必須の規則、「してよい」は任意を表す。「(Step n で決める)」と書いた所は、その Step の PR でこの文書に書き足す
 - 位置姿勢・Transform・Anchor の言葉と計算規則は [transformations.md](transformations.md) に従う
 
@@ -207,9 +207,40 @@ Container の作成時(conf の読み込み)に次を順に確かめ、満たさ
 
 ### 5.5 API からの作成
 
-`model` は **conf でだけ書ける**。ブローカー越しの `container/create`(HTTP・qmp・IPC・メッセンジャー、pyjuiz の `SystemProxy`)の manifest に `model` があれば `ContainerModelInvalidError` にする。理由: 遠くの利用者が任意のパスを指して、juiz を動かす機械の上のファイルを読み出せてしまうため。API での作成・差し替えは将来(§13)。
+`model` は **conf でだけ書ける**(ほかにプラグインの manifest に型の既定を書ける、§5.6)。ブローカー越しの `container/create`(HTTP・qmp・IPC・メッセンジャー、pyjuiz の `SystemProxy`)の manifest に `model` があれば `ContainerModelInvalidError` にする。理由: 遠くの利用者が任意のパスを指して、juiz を動かす機械の上のファイルを読み出せてしまうため。API での作成・差し替えは将来(§13)。
 
 Step 1 で決めたこと: 断るのは `container/create` の `__manifest__` の中と外(引数の `model`)、`composite_container/create`、Rust の `CoreBroker::container_create` に `ContainerManifest::model` を付けたとき。どれも Container を作る前に断る。
+
+### 5.6 型(Factory)の既定のモデル(Step 8 #387)
+
+Container の型を作るプラグインが「この型の既定のモデル」を持てる。プラグインの manifest(Factory の `ContainerManifest`)に `model` を書く。値の形は §5.1 の表と同じ。
+
+```rust
+#[juiz_container(
+    model = {
+        path = "models/pantilt.glb",          // プラグインのファイルのあるディレクトリからの相対
+        scale = 0.001,
+        origin = { translation = { z = -0.02 } }
+    }
+)]
+fn pantilt(initial_value: i64) -> JuizResult<Box<PanTilt>> { ... }
+```
+
+```python
+@juiz_container(model={"path": "models/pantilt.glb", "scale": 0.001})
+def pantilt(initial_value: int = 0):
+    ...
+```
+
+- **相対パスはプラグインのファイル(`libpantilt.so`・`pantilt.dll`・`pantilt.py` など)のあるディレクトリからの相対**。conf の `plugins` の `path` で指したディレクトリと同じ所になる。絶対パスも書けるが、配るプラグインでは使わない。
+- **優先順位**: conf のインスタンスに `model:` があれば、それを丸ごと使う(キーごとに混ぜない。既定の `scale` などは引き継がない)。インスタンスに `model: null` と書けば既定を使わず、モデル無しで作る。`model` のキーが無ければ型の既定を使う。
+- **確かめる時**: プラグインを読み込んで Factory を登録するときに §5.2 の 1〜5 を行い、満たさなければ **Factory の登録をエラーにする**(プラグインの読み込みのエラーと同じ扱い)。Container を作るたびに、型の既定を写してファイルの大きさと更新時刻を見直し(§5.3)、`option.model.max_bytes`(§5.4)を当て直す。超えていれば Container の作成をエラーにする(プラグインは `option` を読む前に読み込むため)。
+- **API からの作成**: ブローカー越しの `container/create` で作った Container にも型の既定が付く。パスを決めたのはプラグインを書いた人と、そのプラグインを conf で読ませた人で、遠くの利用者が任意のパスを指すことにはならないので §5.5 の理由に当たらない。§5.5 の「API の manifest に `model` があればエラー」はそのまま。
+- **Container の manifest**: 作った Container の `ContainerManifest.model` には型の既定を入れない(プラグインからの相対パスのまま残さない)。モデル情報は §7 のとおり profile の `model` に載る。
+- **Factory の profile**: Factory の `profile_full` の `container_factory.model` に manifest に書いたままの値を載せる(無ければ `null`)。
+- **言語ごと**: core は Factory の manifest の JSON を読むだけなので、manifest に `model` を載せられればどの言語でも使える。この Step で書き方を用意したのは Rust(`#[juiz_container]`・`#[juiz_component_container]` の `model = {...}`)と Python(`@juiz_container(model=...)`・`@juiz_component_container(model=...)`。辞書か、`path` だけなら文字列)。C++(cppjuiz の `ContainerManifest`)と Haskell(hsjuiz の `ContainerManifest`)の書き方は別 issue。
+- Rust のマクロの attr は負の数(`z = -0.02`)も書ける(Step 8 で attr の読み取りを直した)。
+- **.juizapp**: プラグインの横に置いたモデルのファイルは、パッケージのディレクトリに入っていれば pack に入る(§10)。pack はプラグインを読み込まないので、型の既定のモデルは pack の検査(§10)の対象にしない。足りなければ `juiz run` のプラグインの読み込みでエラーになる。
 
 ## 6. API
 
@@ -415,7 +446,6 @@ Step 4 で決めたこと(#384):
 - core でのメッシュの読み込み・変換・当たり判定。
 - 複数ファイルのモデル(外部参照の .gltf、SDF の `<mesh>`)の配信。
 - API からのモデルの指定・実行中の差し替え・動く形(点群など)。Step 10 #389。
-- 型(Factory)の既定のモデル(プラグインの manifest に `model` を書く)。Step 8 #387。
 - URDF・複数 link の SDF の取り込み(`juiz import urdf|sdf`、link → Container、joint → Transform、`package://`・`model://` の解決)。Step 9 #388。
 - 位置の押し出し配信。
 - 1 Container に複数のモデル(見た目用・当たり判定用など、§2 の 2)。
@@ -440,3 +470,4 @@ Step 4 で決めたこと(#384):
 | 5 サンプル | #385 | Transformations のサンプル(map → odom → 台車 → 雲台 → カメラ)にモデルを足す。モデルは単純な形をスクリプトで作った .glb / .stl と手書きの .sdf |
 | 6 公式サイト | site#65 | ガイド container-model |
 | 7 リリース | #386 | |
+| 8 Factory の既定のモデル | #387 | §5.6 |

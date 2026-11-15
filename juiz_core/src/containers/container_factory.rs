@@ -14,6 +14,11 @@ pub trait ContainerFactory: JuizObject + 'static {
     ) -> JuizResult<ContainerPtr>;
 
     fn destroy_container(&mut self, c: ContainerPtr) -> JuizResult<ContainerProfile>;
+
+    /// 型の既定のモデル (プラグインの manifest の `model`、docs/spec/container-model.md §5.6)
+    fn default_model(&self) -> Option<juiz_sdk::manifests::ModelManifest> {
+        None
+    }
 }
 
 //pub type ContainerFactoryPtr = Arc<Mutex<dyn ContainerFactory>>;

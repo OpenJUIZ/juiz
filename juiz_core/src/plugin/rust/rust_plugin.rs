@@ -70,6 +70,11 @@ impl std::fmt::Debug for RustPlugin {
 }
 
 impl RustPlugin {
+    /// プラグインのファイルのパス
+    pub fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+
     pub fn load(path: PathBuf) -> JuizResult<RustPlugin> {
         Self::load_with_abi(path, RustPluginAbi::Auto)
     }
