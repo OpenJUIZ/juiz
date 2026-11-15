@@ -716,6 +716,29 @@ fn connection_profile_conversions() -> JuizResult<()> {
     Ok(())
 }
 
+/// `process/try_connect_to` の応答は `ConnectionManifest` から `ConnectionProfile` に変えた(#507)。
+/// ブローカーは serde で直列化するので、2 つの型の JSON が同じで、互いに読めることを確かめる
+/// (古い juiz の応答を新しい側が読める、新しい juiz の応答を古い側が読める)。
+#[test]
+fn connection_manifest_and_profile_serialize_alike() -> JuizResult<()> {
+    let m = ConnectionManifest::new(ConnectionType::Pull, pid("a"), "arg".to_owned(), pid("b"));
+    let p: ConnectionProfile = m.clone().into();
+    let mv = serde_json::to_value(&m)?;
+    let pv = serde_json::to_value(&p)?;
+    assert_eq!(mv, pv);
+
+    let p_from_old: ConnectionProfile = serde_json::from_value(mv)?;
+    assert_eq!(p_from_old.connection_type, ConnectionType::Pull);
+    assert_eq!(p_from_old.source_process_id, pid("a"));
+    assert_eq!(p_from_old.destination_process_id, pid("b"));
+    assert_eq!(p_from_old.arg_name, "arg");
+
+    let m_from_new: ConnectionManifest = serde_json::from_value(pv)?;
+    assert_eq!(m_from_new.arg_name, "arg");
+    assert_eq!(m_from_new.destination_process_id, pid("b"));
+    Ok(())
+}
+
 #[test]
 fn object_core_and_class_names() -> JuizResult<()> {
     let classes = [

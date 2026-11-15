@@ -535,7 +535,7 @@ impl ProcessBrokerProxy for CRUDBrokerProxyHolder {
     fn process_try_connect_to(
         &mut self,
         connection_manifest: &ConnectionManifest,
-    ) -> Result<juiz_sdk::prelude::ConnectionManifest, juiz_sdk::anyhow::Error> {
+    ) -> Result<ConnectionProfile, juiz_sdk::anyhow::Error> {
         log::trace!("process_try_connect_to({connection_manifest})が呼ばれました");
         let v: JuizResult<Value> = self
             .broker

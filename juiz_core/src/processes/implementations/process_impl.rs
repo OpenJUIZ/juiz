@@ -412,7 +412,7 @@ impl Process for ProcessImpl {
         &mut self,
         destination: ProcessPtr,
         connection_manifest: &ConnectionManifest,
-    ) -> JuizResult<ConnectionManifest> {
+    ) -> JuizResult<ConnectionProfile> {
         log::trace!(
             "【呼出】ProcessImpl(id={:}).try_connect_to(destination=Process())",
             self.identifier()
@@ -426,7 +426,7 @@ impl Process for ProcessImpl {
             "【完了】ProcessImpl(id={:}).try_connect_to(destination=Process())",
             self.identifier()
         );
-        Ok(connection_manifest.clone())
+        Ok(connection_manifest.clone().into())
     }
 
     fn source_connections(&self) -> JuizResult<Vec<&Box<dyn SourceConnection>>> {

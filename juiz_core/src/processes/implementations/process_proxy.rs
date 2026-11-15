@@ -157,7 +157,7 @@ impl Process for ProcessProxy {
         &mut self,
         _destination: ProcessPtr,
         manifest: &ConnectionManifest,
-    ) -> JuizResult<ConnectionManifest> {
+    ) -> JuizResult<ConnectionProfile> {
         log::trace!("【呼出】ProcessProxy::try_connect_to({manifest})");
         juiz_write(&self.broker_proxy)?
             .process_try_connect_to(&manifest)
