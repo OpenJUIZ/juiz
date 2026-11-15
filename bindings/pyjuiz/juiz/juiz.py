@@ -16,21 +16,21 @@ class ArgumentManifest:
         return ArgumentManifest(type_name=type_name, name=name, default=default_value, description=description, schema=schema)
 
 @dataclass
-class PrimitiveProfile: 
+class PrimitiveManifest: 
     type_name: str
     default_value: str
     enum_type: str = 'Primitive'
     
 
-StructProfile = ForwardRef('StructProfile')
+StructManifest = ForwardRef('StructManifest')
 @dataclass
-class StructProfile: 
+class StructManifest: 
     type_name: str
-    members: Dict[str, Union[PrimitiveProfile, StructProfile]]
+    members: Dict[str, Union[PrimitiveManifest, StructManifest]]
     enum_type: str = 'Struct'
     
 @dataclass
-class OutputProfile: 
+class OutputManifest: 
     type_name: str
     default_value: str
     
@@ -45,7 +45,7 @@ class ProcessManifest:
     language: str = "python"
     name: Optional[str] = None
     container_name: Optional[str] = None
-    outputs: Optional[PrimitiveProfile] = None
+    outputs: Optional[PrimitiveManifest] = None
     container_type: Optional[str] = None
     # 戻り値の型参照 (juiz-idl が生成した型を返すときだけ、仕様 §6)
     output_schema: Optional[dict] = None
@@ -124,7 +124,7 @@ class ProcessManifest:
     def set_output_schema(self, schema: dict, type_name: str):
         """戻り値の型参照と、古いクライアント向けの outputs"""
         self.output_schema = schema
-        self.outputs = PrimitiveProfile(type_name=type_name, default_value='')
+        self.outputs = PrimitiveManifest(type_name=type_name, default_value='')
         return self
         
     def into_value(self):
@@ -241,3 +241,27 @@ class ComponentManifest:
     def add_process(self, p: ProcessManifest):
         self.processes.append(p)
         return self
+
+# 古い名前 (0.2 系のあいだ残す。消すのは 0.3.0 以降、仕様 docs/spec/manifest-profile.md §7、#506)。
+# 使われたときに新しい名前を返し、名前ごとに初めの 1 回だけ DeprecationWarning を出す。
+_DEPRECATED_NAMES = {
+    'PrimitiveProfile': 'PrimitiveManifest',
+    'StructProfile': 'StructManifest',
+    'OutputProfile': 'OutputManifest',
+}
+_warned_deprecated_names = set()
+
+
+def _deprecated_name(name):
+    new_name = _DEPRECATED_NAMES[name]
+    if name not in _warned_deprecated_names:
+        _warned_deprecated_names.add(name)
+        import warnings
+        warnings.warn(f"juiz.{name} is deprecated; use juiz.{new_name}", DeprecationWarning, stacklevel=3)
+    return globals()[new_name]
+
+
+def __getattr__(name):
+    if name in _DEPRECATED_NAMES:
+        return _deprecated_name(name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

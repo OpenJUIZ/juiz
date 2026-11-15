@@ -3,7 +3,7 @@ use super::{
     topic_manifest::TopicManifest,
 };
 use crate::{
-    manifests::{Composition, OutputProfile, PrimitiveProfile},
+    manifests::{Composition, OutputManifest, PrimitiveManifest},
     prelude::*,
     process_identifier::ProcessIdentifier,
     topic_identifier::resolve_topic_name,
@@ -12,9 +12,9 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fmt::Display};
 
-fn default_output_profile() -> Option<OutputProfile> {
+fn default_output_manifest() -> Option<OutputManifest> {
     None
-} //OutputProfile::Primitive(PrimitiveProfile{type_name: "int".to_owned(), default_value: Some("0".to_owned())}) }
+} //OutputManifest::Primitive(PrimitiveManifest{type_name: "int".to_owned(), default_value: Some("0".to_owned())}) }
 fn default_description() -> Description {
     Description {
         text: "".to_owned(),
@@ -65,8 +65,8 @@ pub struct ProcessManifest {
     #[serde(default)]
     pub container_type: Option<String>,
     /// 戻り値の型の古い書き方 (pyjuiz が埋める)。互換のために残す。新しいコードは `output_schema` を使う
-    #[serde(default = "default_output_profile")]
-    pub outputs: Option<OutputProfile>,
+    #[serde(default = "default_output_manifest")]
+    pub outputs: Option<OutputManifest>,
     /// 戻り値の型参照 (型付きの Process だけ、仕様 docs/spec/datatype.md §6、issue #190)。型なしなら JSON には出さない
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_schema: Option<TypeSchema>,
@@ -190,7 +190,7 @@ impl ProcessManifest {
             container_name: None,
             container_type: None,
             language: "rust".to_owned(),
-            outputs: None, // OutputProfile::default()
+            outputs: None, // OutputManifest::default()
             output_schema: None,
             composition: None,
             trace: false,
@@ -481,11 +481,11 @@ impl ProcessManifest {
         }
     }
 
-    pub fn outputs(&self) -> Option<OutputProfile> {
+    pub fn outputs(&self) -> Option<OutputManifest> {
         self.outputs.clone()
     }
 
-    pub fn set_outputs(mut self, outputs: Option<OutputProfile>) -> Self {
+    pub fn set_outputs(mut self, outputs: Option<OutputManifest>) -> Self {
         self.outputs = outputs;
         self
     }
@@ -495,7 +495,7 @@ impl ProcessManifest {
         if let Some(schema) = output_schema.as_ref() {
             let data_type = schema.validate().map_err(type_error)?;
             if self.outputs.is_none() {
-                self.outputs = Some(OutputProfile::Primitive(PrimitiveProfile {
+                self.outputs = Some(OutputManifest::Primitive(PrimitiveManifest {
                     type_name: data_type.argument_type()?.as_str().to_owned(),
                     default_value: None,
                 }));

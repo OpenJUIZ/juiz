@@ -1,6 +1,6 @@
 use super::{ArgumentProfile, TopicManifest};
 use crate::{
-    manifests::OutputProfile,
+    manifests::OutputManifest,
     prelude::*,
     process_identifier::ProcessIdentifier,
 };
@@ -352,11 +352,11 @@ impl ProcessProfile {
         }
     }
 
-    pub fn outputs(&self) -> Option<OutputProfile> {
+    pub fn outputs(&self) -> Option<OutputManifest> {
         self.manifest.outputs.clone()
     }
 
-    pub fn set_outputs(mut self, outputs: Option<OutputProfile>) -> Self {
+    pub fn set_outputs(mut self, outputs: Option<OutputManifest>) -> Self {
         self.manifest.outputs = outputs;
         self
     }

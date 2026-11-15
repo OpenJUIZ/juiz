@@ -118,3 +118,15 @@ juiz のコード・API・文書では「manifest」と「profile」が混ざっ
 **実行中のオブジェクトが持つ値。** `ProcessImpl` はインスタンスの `ProcessManifest` を持ち、`profile()` で問い合わせのたびに manifest と Inlet の今の値から `ProcessProfile` を作る。`ContainerImpl` も `ContainerManifest` を持ち、`profile()` で作る(CompositeContainer のスロットと Anchor の `{kind, rate}` は `set_profile_slots`・`set_profile_anchor` で持たせる)。呼び出し前の検査・既定値の補い・Composite の子の検査・型検査・`process/openapi_spec` は Manifest を受ける。
 
 **別名。** `check_manifest_before_call`・`fill_default_arguments` の引数の型と `ContainerImpl::profile_mut` は SDK の公開名だが、使っているのが juiz_core だけ(サンプル 4 言語・pyjuiz・バインディングでは使っていない)なので別名を残さない。`ProcessProfile::build_instance_manifest`・`ContainerProfile::build_instance_manifest` は §6 のとおり消した(`ProcessManifest::build_instance_manifest` 等を使う)。
+
+### 8.2 Step 2(#506)
+
+**Rust の SDK。** `juiz_sdk::manifests` の `OutputProfile` / `PrimitiveProfile` / `StructProfile` を `OutputManifest` / `PrimitiveManifest` / `StructManifest` に変え、ファイルも `output_manifest.rs` にした。`ProcessManifest::outputs`・`set_outputs`・`ProcessProfile::outputs`・`set_outputs` も新しい型を使う。古い名前は `#[deprecated(since = "0.2.11")] pub type` で残し、`juiz_sdk::manifests` から今までどおり `use` できる(enum の別名なので `OutputProfile::Primitive(PrimitiveProfile { … })` もそのまま書ける)。
+
+**pyjuiz。** `juiz.PrimitiveProfile` / `StructProfile` / `OutputProfile` を `PrimitiveManifest` / `StructManifest` / `OutputManifest` に変えた。古い名前はモジュールの `__getattr__` で新しいクラスを返し、名前ごとに初めて使われたときに `DeprecationWarning` を出す(`juiz.PrimitiveProfile`・`juiz.juiz.PrimitiveProfile`・`from juiz import PrimitiveProfile` のどれでも使える。`from juiz import *` には入らない)。`_returns_profile` は `_` で始まるので別名なしで `_returns_manifest` にした。
+
+**変わらないもの。** JSON(`outputs` の `{"enum_type": …, "type_name": …, "default_value": …}`)は変わらない。serde のタグ `enum_type` の値は `Struct` / `Primitive` のまま。
+
+**変わるもの。** `OutputManifest` の `Display` は `OutputManifest(int=0)` のように新しい名前を出す(今までは `OutputProfile(int=0)`)。ログとテストのための表示で、API の応答には使っていない。
+
+**公開の後に直す所(§7 の 5)。** サンプル 4 言語・公式サイトで古い名前を使っている所は無い(2026-11-15 に確かめた)ので、直す所は無い。

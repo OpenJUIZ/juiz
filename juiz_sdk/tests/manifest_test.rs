@@ -2,7 +2,7 @@
 
 use juiz_sdk::connection_identifier::ConnectionIdentifier;
 use juiz_sdk::connections::ConnectionProfile;
-use juiz_sdk::manifests::{ArgumentProfile, OutputProfile, PrimitiveProfile, StructProfile};
+use juiz_sdk::manifests::{ArgumentProfile, OutputManifest, PrimitiveManifest, StructManifest};
 use juiz_sdk::prelude::*;
 use juiz_sdk::process_identifier::ProcessIdentifier;
 use std::collections::HashMap;
@@ -138,36 +138,63 @@ fn topic_manifest_and_profile() -> JuizResult<()> {
 }
 
 #[test]
-fn output_profile_variants() -> JuizResult<()> {
-    let d = OutputProfile::default();
+fn output_manifest_variants() -> JuizResult<()> {
+    let d = OutputManifest::default();
     assert!(d.is_primitive());
     assert!(!d.is_struct());
     assert!(d.as_struct().is_none());
     assert_eq!(d.as_primitive().unwrap().type_name, "int");
-    assert_eq!(format!("{}", d), "OutputProfile(int=0)");
+    assert_eq!(format!("{}", d), "OutputManifest(int=0)");
 
     let mut members = HashMap::new();
     members.insert(
         "x".to_owned(),
-        OutputProfile::Primitive(PrimitiveProfile {
+        OutputManifest::Primitive(PrimitiveManifest {
             type_name: "float".to_owned(),
             default_value: None,
         }),
     );
-    let s = OutputProfile::Struct(StructProfile {
+    let s = OutputManifest::Struct(StructManifest {
         type_name: "Point".to_owned(),
         members,
     });
     assert!(s.is_struct());
     assert!(s.as_primitive().is_none());
     assert_eq!(s.as_struct().unwrap().type_name, "Point");
-    assert_eq!(format!("{}", s), "OutputProfile(struct Point {x::float})");
+    assert_eq!(format!("{}", s), "OutputManifest(struct Point {x::float})");
 
     // serde のタグ付き表現で往復できる
     let v = serde_json::to_value(&s)?;
     assert_eq!(v["enum_type"], jvalue!("Struct"));
-    let back: OutputProfile = serde_json::from_value(v)?;
+    let back: OutputManifest = serde_json::from_value(v)?;
     assert!(back.is_struct());
+    Ok(())
+}
+
+/// 古い名前 (OutputProfile 等) は 0.2 系のあいだ別名として使える (#506、仕様 manifest-profile.md §7)。
+/// JSON の形は新しい名前と同じ。
+#[test]
+#[allow(deprecated)]
+fn output_profile_aliases_still_work() -> JuizResult<()> {
+    use juiz_sdk::manifests::{OutputProfile, PrimitiveProfile, StructProfile};
+    let p: OutputProfile = OutputProfile::Primitive(PrimitiveProfile {
+        type_name: "Int".to_owned(),
+        default_value: Some("".to_owned()),
+    });
+    let m: OutputManifest = p.clone();
+    assert_eq!(
+        serde_json::to_value(&p)?,
+        jvalue!({"enum_type": "Primitive", "type_name": "Int", "default_value": ""})
+    );
+    assert_eq!(serde_json::to_value(&p)?, serde_json::to_value(&m)?);
+    let s: StructProfile = StructManifest {
+        type_name: "Point".to_owned(),
+        members: HashMap::new(),
+    };
+    assert_eq!(
+        serde_json::to_value(OutputProfile::Struct(s))?,
+        jvalue!({"enum_type": "Struct", "type_name": "Point", "members": {}})
+    );
     Ok(())
 }
 
@@ -187,7 +214,7 @@ fn sample_process_manifest() -> ProcessManifest {
         .add_image_arg("g", "image")
         .publishes("out_topic")
         .subscribes("a", "in_topic")
-        .set_outputs(Some(OutputProfile::default()))
+        .set_outputs(Some(OutputManifest::default()))
 }
 
 #[test]
@@ -241,7 +268,7 @@ fn process_manifest_build_instance_manifest_overrides_defaults() -> JuizResult<(
         .use_memo(true)
         .add_int_arg("a", "first", 1)
         .add_int_arg("b", "second", 2)
-        .set_outputs(Some(OutputProfile::default()));
+        .set_outputs(Some(OutputManifest::default()));
     // インスタンス側は名前と一部の引数のデフォルト値だけ指定する
     let partial = ProcessManifest::new("ignored")
         .name("adder1")
@@ -325,7 +352,7 @@ fn process_profile_from_manifest() -> JuizResult<()> {
     );
     let s = format!("{}", p);
     assert!(s.starts_with("ProcessProfile(adder0::adder"));
-    assert!(s.contains("outputs=OutputProfile(int=0)"));
+    assert!(s.contains("outputs=OutputManifest(int=0)"));
 
     // 名前が無いマニフェストはプロファイルにできない
     assert!(ProcessProfile::try_from(ProcessManifest::new("t")).is_err());
@@ -361,7 +388,7 @@ fn process_profile_builder_and_instance_manifest() -> JuizResult<()> {
     let p = p
         .container_type(None)
         .container_name(None)
-        .set_outputs(Some(OutputProfile::default()));
+        .set_outputs(Some(OutputManifest::default()));
     assert_eq!(p.identifier().class_name, "process");
     assert!(p.outputs().is_some());
 

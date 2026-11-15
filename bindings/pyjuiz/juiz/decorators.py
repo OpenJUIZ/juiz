@@ -185,32 +185,32 @@ def _add_arg_manifest(manifest, function_name, param):
     return None
 
 
-def _returns_profile(returns):
-    """ 戻り値の型注釈から (出力のプロファイル、dataclassかどうかのフラグ) を返す。"""
+def _returns_manifest(returns):
+    """ 戻り値の型注釈から (出力の manifest、dataclassかどうかのフラグ) を返す。"""
     if returns is None or returns is type(None):
-        # -> None (JIDL の void、juiz pkg create --idl の雛形、issue #468)。出力のプロファイルは載せない
+        # -> None (JIDL の void、juiz pkg create --idl の雛形、issue #468)。出力の manifestは載せない
         return (None, False)
     if returns == int:
-        return (PrimitiveProfile(type_name='Int', default_value=''), False)
+        return (PrimitiveManifest(type_name='Int', default_value=''), False)
     elif returns == float:
-        return (PrimitiveProfile(type_name='Float', default_value=''), False)
+        return (PrimitiveManifest(type_name='Float', default_value=''), False)
     elif returns == bool:
-        return (PrimitiveProfile(type_name='Bool', default_value=''), False)
+        return (PrimitiveManifest(type_name='Bool', default_value=''), False)
     elif returns == str:
-        return (PrimitiveProfile(type_name='String', default_value=''), False)
+        return (PrimitiveManifest(type_name='String', default_value=''), False)
     elif returns == dict:
-        return (PrimitiveProfile(type_name='Object', default_value=''), False)
+        return (PrimitiveManifest(type_name='Object', default_value=''), False)
     elif returns == list:
-        return (PrimitiveProfile(type_name='Array', default_value=''), False)
+        return (PrimitiveManifest(type_name='Array', default_value=''), False)
     elif returns == Image:
-        return (PrimitiveProfile(type_name='Array', default_value=''), False)
+        return (PrimitiveManifest(type_name='Array', default_value=''), False)
     elif dataclasses.is_dataclass(returns):
         try:
             sample_obj = dataclasses.asdict(returns())
         except:
             raise PyJuizProcessReturnsCannotCreateDeafultError(returns_type=returns)
         if isinstance(sample_obj, dict):
-            return (PrimitiveProfile(type_name='Object', default_value=''), True)
+            return (PrimitiveManifest(type_name='Object', default_value=''), True)
         raise PyJuizProcessReturnsUnknownTypeError(returns_type=returns)
     else:
         raise PyJuizProcessReturnsUnknownTypeError(returns_type=returns)
@@ -226,7 +226,7 @@ def _set_returns(manifest, function_name, signature):
     if datatype.is_juiz_type(returns):
         manifest.set_output_schema(datatype.type_schema(returns), _typed_type_name(returns))
         return False, returns
-    manifest.outputs, is_dataclass = _returns_profile(returns)
+    manifest.outputs, is_dataclass = _returns_manifest(returns)
     return is_dataclass, None
 
 

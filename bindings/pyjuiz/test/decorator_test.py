@@ -44,3 +44,25 @@ try:
 except PyJuizMissingTypeAnnotationError as e:
     print('expected error:', e)
     assert e.arg_name is None
+
+# 戻り値の宣言の型は PrimitiveManifest (#506)。古い名前 PrimitiveProfile 等も 0.2 系のあいだ使え、
+# 名前ごとに初めの 1 回だけ DeprecationWarning が出る
+import warnings
+import juiz as _juiz_pkg
+import juiz.juiz as _juiz_mod
+assert increment_process.manifest()['outputs'] == {'type_name': 'Int', 'default_value': '', 'enum_type': 'Primitive'}
+with warnings.catch_warnings(record=True) as caught:
+    warnings.simplefilter('always')
+    assert _juiz_pkg.PrimitiveProfile is PrimitiveManifest
+    assert _juiz_pkg.PrimitiveProfile is PrimitiveManifest
+    assert _juiz_mod.StructProfile is StructManifest
+    assert _juiz_pkg.OutputProfile is OutputManifest
+deprecations = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+assert len(deprecations) == 3, [str(w.message) for w in deprecations]
+assert 'PrimitiveManifest' in str(deprecations[0].message)
+try:
+    _juiz_pkg.NoSuchName
+    raise AssertionError('知らない名前でも AttributeError になりませんでした')
+except AttributeError:
+    pass
+print('deprecated aliases ok')
