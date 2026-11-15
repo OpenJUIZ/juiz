@@ -31,6 +31,8 @@ module Juiz.Manifest
   , useMemo
   , readonly
   , containerType
+  , model
+  , modelPath
   , addArg
   , addBoolArg
   , addIntArg
@@ -94,6 +96,9 @@ data ContainerManifest = ContainerManifest
   , cmFactory :: !Text
   -- | Container を作る関数の引数 (設定ファイルの containers に書いた値)
   , cmArguments :: ![ArgumentManifest]
+  -- | 型の既定の 3D モデル (docs/spec/container-model.md §5.6)。conf の model: と同じ形のオブジェクト。
+  -- 'Nothing' なら manifest に載せない
+  , cmModel :: !(Maybe Value)
   }
   deriving (Eq, Show)
 
@@ -161,6 +166,7 @@ containerManifest typeName = ContainerManifest
   , cmLanguage = "haskell"
   , cmFactory = "container_factory"
   , cmArguments = []
+  , cmModel = Nothing
   }
 
 -- | ContainerProcess のマニフェストを作る。型名 → 結びつける Container の型名
@@ -197,6 +203,24 @@ factory = setFactory
 -- | 結びつける Container の型名 (juiz の container_type)
 containerType :: Text -> ProcessManifest -> ProcessManifest
 containerType c m = m { pmContainerType = Just c }
+
+-- | 型の既定の 3D モデル (docs/spec/container-model.md §5.6)。conf の model: と同じ形のオブジェクトで書く。
+-- path はプラグインのファイル (libxxx.so など) のあるディレクトリからの相対。
+-- conf のインスタンスに model: があればそちらを丸ごと使い、model: null ならモデル無しで作る。
+-- 'JString' は path だけを書いたものとして扱い、'JNull' は既定のモデルを外す。
+--
+-- > containerManifest "pantilt_hs"
+-- >   & model (object ["path" .= ("models/pantilt.glb" :: Text), "scale" .= (0.001 :: Double)])
+model :: Value -> ContainerManifest -> ContainerManifest
+model JNull m = m { cmModel = Nothing }
+model (JString p) m = m { cmModel = Just (object ["path" .= p]) }
+model v m = m { cmModel = Just v }
+
+-- | 型の既定の 3D モデルを path だけで書く ('model' の短い形)。
+--
+-- > containerManifest "pantilt_hs" & modelPath "models/pantilt.glb"
+modelPath :: Text -> ContainerManifest -> ContainerManifest
+modelPath p = model (JString p)
 
 -- | 同じ引数で呼ばれたときに前の結果を使い回すか (juiz の use_memo)
 useMemo :: Bool -> ProcessManifest -> ProcessManifest
@@ -288,7 +312,7 @@ containerManifestToValue :: ContainerManifest -> Value
 containerManifestToValue = containerWithProcessesToValue []
 
 containerWithProcessesToValue :: [ProcessManifest] -> ContainerManifest -> Value
-containerWithProcessesToValue ps m = object
+containerWithProcessesToValue ps m = object $
   [ "type_name" .= cmTypeName m
   , "language" .= cmLanguage m
   , "description" .= cmDescription m
@@ -296,6 +320,7 @@ containerWithProcessesToValue ps m = object
   , "arguments" .= map argumentToValue (cmArguments m)
   , "processes" .= map manifestToValue ps
   ]
+  ++ maybe [] (\v -> ["model" .= v]) (cmModel m)
 
 -- | juiz に渡す形 (C++ の ComponentManifest::into_value と同じ項目)。
 -- ContainerProcess の Container が Component に無い、または型名が重なっていれば Left (説明)

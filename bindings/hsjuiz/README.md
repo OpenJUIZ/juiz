@@ -189,6 +189,14 @@ juizContainerProcess 'increment 'manifest
 - Container を作る関数の結果(`IO s` または `s`)が状態です。書き換える値は `IORef` などに入れてください
   (`Juiz` から `IORef` / `newIORef` / `readIORef` / `writeIORef` / `modifyIORef'` / `atomicModifyIORef'` も使えます)。
   juiz は同じ Container の ContainerProcess を同時には呼びません。
+- `model` で型の既定の 3D モデルを書けます(conf のインスタンスに `model:` が無いときに使われます。docs/spec/container-model.md §5.6)。
+  値は conf の `model:` と同じ形で、パスはプラグインのファイルのあるディレクトリからの相対です。
+  path だけなら `modelPath "models/pantilt.glb"`。
+
+  ```haskell
+  manifest = containerManifest "pantilt_hs"
+    & model (object ["path" .= JString "models/pantilt.glb", "scale" .= JFloat 0.001])
+  ```
 - `containerProcessManifest "型名" "Container の型名"` で ContainerProcess のマニフェストを作ります。
   引数は第 1 引数(状態)の後に続く引数の順です。
 - 状態は `StablePtr` に包んで juiz に渡します。Container を削除すると解放され、GC に回収されます。

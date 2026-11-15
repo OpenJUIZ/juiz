@@ -247,6 +247,23 @@ public:
     return *this;
   }
 
+  // 型の既定の 3D モデル (docs/spec/container-model.md §5.6)。conf の model: と同じ形のオブジェクト、
+  // または path だけの文字列。path はプラグインのファイル (libxxx.so など) のあるディレクトリからの相対。
+  // conf のインスタンスに model: があればそちらを丸ごと使い、model: null ならモデル無しで作る。
+  //
+  //   ContainerManifest("pantilt").model({{"path", "models/pantilt.glb"}, {"scale", 0.001}})
+  //   ContainerManifest("pantilt").model("models/pantilt.glb")
+  ContainerManifest model(const juiz::Value& m) {
+    if (m.isStringValue()) {
+      model_ = juiz::Value(std::map<std::string, juiz::Value>{{"path", m}});
+    } else if (m.isNull()) {
+      model_.reset();
+    } else {
+      model_ = m;
+    }
+    return *this;
+  }
+
 public:
   std::string type_name_;
   std::string language_;
@@ -257,6 +274,8 @@ public:
   std::optional<std::string> parent_type_name_;
   std::optional<std::string> parent_name_;
   std::optional<std::string> name_;
+  // 型の既定のモデル (§5.6)。無ければ manifest に載せない
+  std::optional<juiz::Value> model_;
 
   juiz::Value into_value() const {
     
@@ -277,6 +296,9 @@ public:
     };
     if (name_) {
         v["name"] = juiz::Value{name_.value()};
+    }
+    if (model_) {
+        v["model"] = model_.value();
     }
 
     return v;

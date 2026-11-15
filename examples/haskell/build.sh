@@ -69,7 +69,7 @@ fi
 
 for name in increment_process_hs decrement_process_hs value_types_process_hs \
     example_container_hs example_container_hs_increment example_container_hs_get \
-    mismatched_container_process_hs example_component_hs broken_component_hs \
+    mismatched_container_process_hs model_container_hs example_component_hs broken_component_hs \
     typed_component_hs broken_typed_process_hs image_component_hs pose_component_hs; do
     lib=$(find dist-newstyle -name "$prefix$name.$ext" -type f | head -n 1)
     if [[ -z "$lib" ]]; then

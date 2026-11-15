@@ -2,6 +2,8 @@
 //!
 //! テスト用のプラグイン model_container (juiz_sdk/test_packages) をワークスペースの cargo build で
 //! 作っておく必要がある。プラグインを一時ディレクトリに写し、その横に models/ を置く。
+//! C++ と Haskell (issue #509) は examples/cpp の model_container_cpp と examples/haskell の
+//! model_container_hs (scripts/test.sh が ../target にビルドする) を使う。
 
 use std::path::PathBuf;
 
@@ -238,4 +240,95 @@ def py_model_container(initial_value: int = 0):
             Ok(())
         })
         .expect("Error in System::run_and_do()"))
+}
+
+/// ../target にできた C++ / Haskell の例のプラグイン (scripts/test.sh がビルドする) を plugin/ に写す。
+/// 無ければ None
+fn copy_example_plugin(dir: &TempDir, name: &str) -> Option<()> {
+    let file = format!(
+        "{}{name}{}",
+        std::env::consts::DLL_PREFIX,
+        std::env::consts::DLL_SUFFIX
+    );
+    let src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../target")
+        .join(&file);
+    if !src.exists() {
+        return None;
+    }
+    std::fs::copy(&src, dir.0.join("plugin").join(&file)).unwrap();
+    Some(())
+}
+
+/// C++ (cppjuiz の `ContainerManifest::model`) と Haskell (hsjuiz の `model`) で書いた既定のモデル (issue #509)。
+/// どちらもテスト用プラグインの manifest に Rust の model_container と同じ値を書いている
+fn check_example_plugin_default_model(name: &str, language: &str) -> JuizResult<()> {
+    let dir = TempDir::new(&format!("container_model_default_{name}"));
+    if copy_example_plugin(&dir, name).is_none() {
+        // C++ の例は scripts/test.sh が必ずビルドする。Haskell の例は GHC が無ければビルドを飛ばすので、
+        // テストも飛ばす (CI は JUIZ_REQUIRE_HASKELL=1 で飛ばさない。haskell_container_test.rs と同じ)
+        let required = language != "haskell"
+            || std::env::var("JUIZ_REQUIRE_HASKELL").map_or(false, |v| v == "1");
+        if required {
+            panic!("{name} がビルドされていません。scripts/test.sh を実行してください");
+        }
+        eprintln!("skip: {name} がビルドされていません。GHC と cabal を入れて scripts/test.sh を実行してください。");
+        return Ok(());
+    }
+    let stl = binary_stl(4);
+    dir.write(&format!("plugin/models/{name}.stl"), &stl);
+    let glb = glb_bytes(64);
+    dir.write("models/own.glb", &glb);
+    let conf = jvalue!({
+        "name": format!("container_model_default_{name}_test"),
+        "option": no_http(),
+        "plugins": {
+            "container_factories": {
+                name: { "language": language, "path": "plugin" }
+            }
+        },
+        "containers": [
+            { "type_name": name, "name": "c0" },
+            { "type_name": name, "name": "c1", "model": { "path": "models/own.glb" } },
+            { "type_name": name, "name": "c2", "model": null },
+        ],
+    });
+    Ok(System::new(conf)?
+        .set_working_dir(&dir.0)
+        .setup()?
+        .run_and_do_once(|system| {
+            let i0 = info(system, "c0")?;
+            assert_eq!(i0["format"], "stl", "{i0}");
+            assert_eq!(i0["sha256"], sha256_hex(&stl));
+            assert_eq!(i0["file_name"], format!("{name}.stl"));
+            assert_eq!(i0["scale"], 0.001);
+            assert_eq!(i0["color"], "#336699");
+            assert_eq!(i0["origin"]["translation"]["z"], -0.02, "{i0}");
+            let i1 = info(system, "c1")?;
+            assert_eq!(i1["sha256"], sha256_hex(&glb), "{i1}");
+            assert_eq!(i1["scale"], 1.0);
+            assert!(info(system, "c2")?.is_null());
+
+            let m = ContainerManifest::new(name).name("api0");
+            system
+                .core_broker()
+                .lock_mut()?
+                .container_create(&m, CapsuleMap::new())?;
+            let ia = info(system, "api0")?;
+            assert_eq!(ia["sha256"], sha256_hex(&stl), "{ia}");
+            Ok(())
+        })
+        .expect("Error in System::run_and_do()"))
+}
+
+#[test]
+fn container_model_default_of_cpp_factory() -> JuizResult<()> {
+    crate::common::logger::init();
+    check_example_plugin_default_model("model_container_cpp", "c++")
+}
+
+#[test]
+fn container_model_default_of_haskell_factory() -> JuizResult<()> {
+    crate::common::logger::init();
+    check_example_plugin_default_model("model_container_hs", "haskell")
 }
