@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # juiz のテストを手元と CI で同じ手順で実行するスクリプト。
 #
-# プラグインを読み込むテスト(system_test や *_broker_api_test など)は、次の前提が揃っていないと失敗する。
+# プラグインを読み込むテスト(core::system や brokers::*_api など)は、次の前提が揃っていないと失敗する。
 #   1. Rust の例: ワークスペースの cargo build で ../target/debug にできる。
 #      C ABI のテスト用に、違う rustc でビルドしたことにした例を ../target/fake-rustc/debug に作る
 #   2. C++ の例:  examples/cpp の cmake ビルドで ../target にできる(1 の juiz_sdk にリンクする)
@@ -13,7 +13,7 @@
 # 使い方:
 #   scripts/test.sh                      # すべてのテスト
 #   scripts/test.sh -p juiz_core         # cargo test に渡す引数
-#   scripts/test.sh -p juiz_core -- system_test   # -- 以降はテストバイナリに渡す
+#   scripts/test.sh -p juiz_core -- core::system   # -- 以降はテストバイナリに渡す
 #   scripts/test.sh --prepare-only       # 準備だけ行う(cargo llvm-cov などで別にテストを走らせるとき)
 #
 # 環境変数:

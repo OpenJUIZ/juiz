@@ -1,7 +1,7 @@
 //! qmp ブローカー経由で型の登録所を引けること (issue #193)
 //!
 //! System 自身の qmp ブローカーに qmp の BrokerProxy で繋ぎ、type/list・type/schema を呼ぶ。
-//! HTTP は juiz_core の type_check_test。仕様は docs/spec/datatype.md の §19。
+//! HTTP は juiz_core の datatype::type_check。仕様は docs/spec/datatype.md の §19。
 
 mod common;
 

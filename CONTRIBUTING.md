@@ -139,7 +139,7 @@ HTTP ブローカーの 8000 番ポートはホストに転送されるので、
 
 テストの置き場所・名前・実行のしかたの決まりです(issue #518 の整理で決めたもの)。
 
-いまのテストはまだこの決まりにそろっていません。置き場所と名前は issue #521〜#525 で順に移します(下の「移行中の扱い」)。新しく書くテストの関数名は今から決まりに合わせてください。
+いまのテストはまだこの決まりにそろっていません。置き場所と名前は issue #521〜#525 で順に移します(juiz_core の integration は #521 で済み)(下の「移行中の扱い」)。新しく書くテストの関数名は今から決まりに合わせてください。
 
 ### テストを実行する
 
@@ -149,13 +149,13 @@ HTTP ブローカーの 8000 番ポートはホストに転送されるので、
 scripts/test.sh                              # すべてのテスト
 scripts/test.sh -p juiz_core                 # cargo test に渡す引数
 scripts/test.sh -p juiz_core -- p_apply      # -- 以降はテストバイナリに渡す(テスト名の絞り込みなど)
-scripts/test.sh -p juiz_core --test integration -- system_test   # juiz_core の統合テストをモジュール名で絞り込む
+scripts/test.sh -p juiz_core --test integration -- core::system   # juiz_core の統合テストをモジュール名で絞り込む
 scripts/test.sh --prepare-only               # 準備だけ行う
 ```
 
 必要なものは Rust、CMake と C++ コンパイラ、Python 3 と pyjuiz の依存パッケージ(`python3 -m pip install pyyaml httpx pillow numpy`)です。足りないものがあれば、スクリプトがその旨と入れ方を表示して止まります。
-GHC と cabal は任意で、無ければ Haskell の例のビルドとテスト(`haskell_plugin_test`)を飛ばします(CI では `JUIZ_REQUIRE_HASKELL=1` にして飛ばしません)。`juiz pkg create -b haskell` の雛形を作ってパッケージにするテスト(`pkg_cli_test`)は、Linux では patchelf も使い、無ければ飛ばします。
-`cargo test` だけを実行すると、例のプラグインを読み込むテスト(`system_test` や `*_broker_api_test` など)は失敗します。そのときのエラーには、見つからなかったプラグインのパスや足りない Python モジュールと、必要な準備が表示されます。
+GHC と cabal は任意で、無ければ Haskell の例のビルドとテスト(`plugins::haskell::process`)を飛ばします(CI では `JUIZ_REQUIRE_HASKELL=1` にして飛ばしません)。`juiz pkg create -b haskell` の雛形を作ってパッケージにするテスト(`pkg_cli_test`)は、Linux では patchelf も使い、無ければ飛ばします。
+`cargo test` だけを実行すると、例のプラグインを読み込むテスト(`core::system` や `brokers::*_api` など)は失敗します。そのときのエラーには、見つからなかったプラグインのパスや足りない Python モジュールと、必要な準備が表示されます。
 
 テストは `--test-threads=1` で 1 件ずつ走らせます。統合テストや CLI のテストが固定のポート(8000 番台)を使うため、並列にするとポートがぶつかって落ちます。
 
@@ -213,7 +213,7 @@ juiz_core/tests/integration/
 
 ### 絞り込み
 
-テストはモジュールパスで絞り込みます。ディレクトリを機能で分けているので、機能や言語の単位で走らせられます(下の例は #521 で integration を分けた後の形)。
+テストはモジュールパスで絞り込みます。ディレクトリを機能で分けているので、機能や言語の単位で走らせられます。
 
 ```terminal
 scripts/test.sh -p juiz_core --test integration -- transformations::          # Transformations の統合テストすべて
@@ -245,8 +245,8 @@ scripts/test.sh -p juiz_app --test cli -- --skip slow::                       # 
 
 | issue | 内容 |
 |---|---|
-| #521 | `juiz_core/tests/integration` を機能ごとのディレクトリに分け、名前を決まりにそろえる。ベンチを `bench/` へ |
-| #522 | ブローカー共通のスイート(6 通りの `*_broker_api_test` と qmp・Zenoh の写しをまとめる) |
+| #521 | `juiz_core/tests/integration` を機能ごとのディレクトリに分け、名前を決まりにそろえる。ベンチを `bench/` へ(済み) |
+| #522 | ブローカー共通のスイート(juiz_core の `brokers::{core,local,http,ipc}_api`、qmp・Zenoh の `*_broker_api_test` と、ほぼ同じ写しの qmp・Zenoh の tests をまとめる) |
 | #523 | `juiz_app`・qmp・Zenoh・`juiz_sdk` のテストをクレートごとに 1 本のバイナリへ |
 | #524 | slow の印と、Python 3.10 のジョブで走らせるテストの絞り込み |
 | #525 | pyjuiz のテストを自動で集める形に |
@@ -257,9 +257,9 @@ scripts/test.sh -p juiz_app --test cli -- --skip slow::                       # 
 
 ```terminal
 # 別プロセスへの画像の受け渡し(720p / 1080p / 4K、HTTP と同じプロセス内の比較、issue #230)
-cargo test --release -p juiz_core --test integration -- image_transfer_bench --ignored --nocapture --test-threads=1
+cargo test --release -p juiz_core --test integration -- bench::image_transfer --ignored --nocapture --test-threads=1
 # Composite と接続の比較(Python の段は scripts/test.sh と同じ準備が要る、issue #169)
-PYTHONPATH=bindings/pyjuiz cargo test --release -p juiz_core --test integration -- composite_bench --ignored --nocapture --test-threads=1
+PYTHONPATH=bindings/pyjuiz cargo test --release -p juiz_core --test integration -- bench::composite --ignored --nocapture --test-threads=1
 ```
 
 Zenoh ブローカーのベンチは juiz_core に置かず(Zenoh を juiz_core のテストでビルドしないため)、`juiz_zenoh_broker` のテストにあります。
@@ -268,7 +268,7 @@ Zenoh ブローカーのベンチは juiz_core に置かず(Zenoh を juiz_core 
 cargo test --release -p juiz_zenoh_broker --test zenoh_bench_test -- --ignored --nocapture --test-threads=1
 ```
 
-`image_transfer_bench` は、テストバイナリ自身を別プロセスの juiz として起動し(HTTP はポート 8050、qmp は 8051、IPC は名前 image_transfer_bench)、そこへ HTTP・IPC・qmp で画像を渡します。プラグインは使わないので、事前の準備は要りません。
+`bench::image_transfer` は、テストバイナリ自身を別プロセスの juiz として起動し(HTTP はポート 8050、qmp は 8051、IPC は名前 image_transfer_bench)、そこへ HTTP・IPC・qmp で画像を渡します。プラグインは使わないので、事前の準備は要りません。
 
 ## リリース
 

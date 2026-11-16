@@ -80,7 +80,7 @@
     {
       "id": "testFilter",
       "type": "promptString",
-      "description": "実行するテストの絞り込み(例: system_test。空ならすべて)",
+      "description": "実行するテストの絞り込み(例: core::system。空ならすべて)",
       "default": ""
     }
   ]

@@ -4,7 +4,7 @@
 //! `system/profile` の `core_store` の Process・Container・ContainerProcess の profile (qmp で届いた JSON のまま) と、
 //! `*/profile` を qmp の BrokerProxy で型に読み、もう一度 JSON にしたものを、
 //! Profile の型を作り替える前 (main d758bd9) の結果を写した golden/qmp_profile_json.json と比べる。
-//! HTTP は juiz_core の profile_json_test。
+//! HTTP は juiz_core の core::profile_json。
 //!
 //! golden を作り直すときは、`JUIZ_PROFILE_JSON_DUMP=<出力先>` を付けてこのテストを実行する。
 

@@ -1,7 +1,7 @@
 # 大きなデータの受け渡し(生バイトのフレームと共有メモリ)仕様
 
 - 状態: 確定(大きなデータ Step 2、issue #232、2026-10-28)
-- 親 issue: #229。計画と経緯はプロジェクトの計画書 ipc-broker-review.md(2026-10-28 確定)にある。基準の数字は #230 のベンチ(`juiz_core/tests/integration/image_transfer_bench.rs`)
+- 親 issue: #229。計画と経緯はプロジェクトの計画書 ipc-broker-review.md(2026-10-28 確定)にある。基準の数字は #230 のベンチ(`juiz_core/tests/integration/bench/image_transfer.rs`)
 - 関連: IPC ブローカーの仕様 [ipc-broker.md](ipc-broker.md)、データ型の仕様 [datatype.md](datatype.md) §3.3・§4、遅延評価の仕様 [lazy-evaluation.md](lazy-evaluation.md)
 - この文書は #233(IPC の作り直しと A)、#234(qmp に A)、#235(共有メモリ B)、#236(pyjuiz の IPC クライアント)の実装の基準になる。実装で仕様を変えるときは、同じ PR でこの文書を直す
 - 「しなければならない」「エラーにする」は必須の規則、「してよい」は任意を表す
@@ -430,7 +430,7 @@ C++ / Haskell のプラグインが画像(`Capsule::Image`)を引数で受け取
 
 ### 10.4 テストと手元の数字
 
-- `juiz_core/tests/integration/plugin_image_test.rs`: C++(`examples/cpp/component/cpp_image_component`)と Haskell(`examples/haskell/src/ImageComponent.hs`)で、10 形式の引数と戻り値、`BGR8` で返した画像が `RGB8` になること、画像の後ろに続く引数、ContainerProcess、C++ ↔ Haskell の接続(Composite)を、同じプロセスの中と IPC ブローカー越し(720p を含む)で確かめる。OpenCV があれば `cpp_image_opencv_component` で `to_mat` / `from_mat` の往復(ROI を含む)も確かめる(無ければ飛ばす)。
+- `juiz_core/tests/integration/plugins/image.rs`: C++(`examples/cpp/component/cpp_image_component`)と Haskell(`examples/haskell/src/ImageComponent.hs`)で、10 形式の引数と戻り値、`BGR8` で返した画像が `RGB8` になること、画像の後ろに続く引数、ContainerProcess、C++ ↔ Haskell の接続(Composite)を、同じプロセスの中と IPC ブローカー越し(720p を含む)で確かめる。OpenCV があれば `cpp_image_opencv_component` で `to_mat` / `from_mat` の往復(ROI を含む)も確かめる(無ければ飛ばす)。
 - `juiz_sdk/src/value/image_converter.rs` の単体テスト: 余白のある `BGR8`、16 bit のバイト順、不正な画像。
 
 ## 11. 受け手の内訳と、安い対策(#270)
@@ -449,7 +449,7 @@ C(§9)に手を付ける前に、B の受け手で 4K に約 19ms かかる内�
 | `receive_page_faults` | コピーの間に起きたページフォールト(minor)の数。Linux だけ(`getrusage(RUSAGE_THREAD)`)、ほかの OS は 0 |
 | `receive_push_ns` | 受け手の Topic への push。subscribe した Process の実行を含む |
 
-`image_transfer_bench` は、この差から 1 フレームあたりの平均を出す(「Topic B の受け手の内訳」の表)。
+`bench::image_transfer` は、この差から 1 フレームあたりの平均を出す(「Topic B の受け手の内訳」の表)。
 
 ### 11.2 受け手の領域の使い回し
 
@@ -478,9 +478,9 @@ C(§9)に手を付ける前に、B の受け手で 4K に約 19ms かかる内�
 
 - **Rust → PIL。** 以前は呼ぶたびに、使わない BMP への書き出し、変換用の Python コードのコンパイル、`PyBytes` への複製をしてから、モードを `'RGB'` に決め打ちして `Image.frombytes` していた。グレースケールや RGBA は `not enough image data` などで落ちていた(テストで確認)。今は変換用のコードを 1 度だけコンパイルし(`PyOnceLock`)、画素を複製せずに読み取り専用の `memoryview` で見せて `frombytes` する。モードは `l8`→`L`、`la8`→`LA`、`rgb8`→`RGB`、`rgba8`→`RGBA`、`l16`→`I;16`。PIL に無い形式は 8 ビットにする(`la16`→`LA`、アルファ付き→`RGBA`、ほか→`RGB`)。
 - **PIL → Rust。** 以前は毎回 PNG に圧縮して展開していた。今は `L`・`LA`・`RGB`・`RGBA`・`I;16` を `tobytes()` のバイト列のまま受け取る。ほかのモード(`P`・`1`・`F` など)は今までどおり PNG を通す。
-- テストは `tests/integration/python_image_test.rs`(形式ごとのモードと画素、行って戻って同じになること)。
+- テストは `tests/integration/plugins/python/image.rs`(形式ごとのモードと画素、行って戻って同じになること)。
 
-数字(`python_image_test` のベンチ、RGB、5 回中の最短、ms。Rust の Process が返す画像を Python の Process に渡す Composite で測り、Rust の Process だけの時間を引いたもの):
+数字(`plugins::python::image` のベンチ、RGB、5 回中の最短、ms。Rust の Process が返す画像を Python の Process に渡す Composite で測り、Rust の Process だけの時間を引いたもの):
 
 | | 直す前: Python へ渡す | 直す前: Python から受け取る | 直した後: 渡す | 直した後: 受け取る |
 |---|---|---|---|---|

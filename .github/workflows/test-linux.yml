@@ -41,7 +41,7 @@ env:
 
 jobs:
   # Rust のビルドとテスト(juiz_core / juiz_app / brokers など)
-  # system_test は ../target/debug にビルド済みの例(Rust/C++)を読み込むため、
+  # core::system は ../target/debug にビルド済みの例(Rust/C++)を読み込むため、
   # scripts/test.sh でテストの前に cargo build と C++ 例のビルドを済ませる。
   # 埋め込む Python は対応範囲の下限と最新の 2 版で確かめる(issue #100)。
   # setup-python の python3 が PATH の先頭に来るので、PYO3_PYTHON の python3 はその版になる。

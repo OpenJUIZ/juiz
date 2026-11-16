@@ -367,7 +367,7 @@ int64_t (*container_call)(void* handle, const juiz_frame_in* args, const juiz_fr
 
 - ホストは自分が読める ABI の版の集合を持つ。最初は `{1}`。
 - 読み込むとき、`<symbol>_cabi` の表の `abi_version` が集合に無ければ `RustPluginAbiVersionError` にする。rustc・juiz_sdk の版は比べず、`info` の `build_info` をログ(debug)に出す。
-- `juiz_rust_abi_version() -> u32`(`#[no_mangle] extern "C"`、juiz_sdk の `juiz_sdk::cabi`)は、そのプラグインが作る表の版を返す。ホストの読み込みには使わず(表の `abi_version` を見る)、道具(将来の `juiz plugin info` など)と試験のために置く。cdylib から依存クレートの `#[no_mangle]` の関数が外に見えることは Step 1 で確かめた(Linux の `nm -D` と、juiz_core の統合テスト `rust_cabi_entry_test` で libloading から引けること。macOS・Windows も同じテストが CI で確かめる。macOS は test-macos.yml の「Test (Rust C ABI, …)」で、main への push のときに動く、#343)。
+- `juiz_rust_abi_version() -> u32`(`#[no_mangle] extern "C"`、juiz_sdk の `juiz_sdk::cabi`)は、そのプラグインが作る表の版を返す。ホストの読み込みには使わず(表の `abi_version` を見る)、道具(将来の `juiz plugin info` など)と試験のために置く。cdylib から依存クレートの `#[no_mangle]` の関数が外に見えることは Step 1 で確かめた(Linux の `nm -D` と、juiz_core の統合テスト `plugins::rust::cabi_entry` で libloading から引けること。macOS・Windows も同じテストが CI で確かめる。macOS は test-macos.yml の「Test (Rust C ABI, …)」で、main への push のときに動く、#343)。
 
 ### 9.3 ファイルの中の印
 
@@ -426,7 +426,7 @@ typedef struct juiz_rust_native {
 - グルーは、受け取った Native の `vtable` が自分の表(同じプラグインの static)と同じことを確かめる。違えば `JUIZ_RUST_FRAME_ERROR`(`native <番号> was not made by this plugin`)にし、`owned = 1` のものはその表の `destroy` で解放する。ホストの照合が正しければ起きない。
 - Process・コンテナの作成・コンテナプロセスの 3 つの入口で同じ。
 
-これで今の L2 の性質(Composite で移しても encode しない、接続では clone 1 回、別のプラグインへは辞書)を C ABI でも保つ。`rust_native_test` は C ABI と Rust ABI(`abi: rust`)の両方で同じことを確かめ、表の `encode` を呼んだ回数(`juiz_core::rust_cabi_native_encode_count()`、試験用)で、Composite と接続で encode が起きないことも確かめる。
+これで今の L2 の性質(Composite で移しても encode しない、接続では clone 1 回、別のプラグインへは辞書)を C ABI でも保つ。`datatype::rust_native` は C ABI と Rust ABI(`abi: rust`)の両方で同じことを確かめ、表の `encode` を呼んだ回数(`juiz_core::rust_cabi_native_encode_count()`、試験用)で、Composite と接続で encode が起きないことも確かめる。
 
 ## 11. 移行(決めごと A)
 
@@ -472,8 +472,8 @@ juiz_core の feature はビルド情報に入れない。代わりに、プラ�
 |---|---|---|
 | 0 仕様書 | #328 | 全体、app-package.md §4.1・§4.3・§6.3・§9・§12・§12.1 |
 | 1 SDK のグルーとマクロ | #329 | §3〜§5・§6.1・§6.2・§7・§8.1・§8.2・§9.2・§9.3。フレームを juiz_sdk に移す。グルーの単体テスト(フレームの往復、panic がコードになる、manifest の panic) |
-| 2 ホストの読み込み | #330 | §3.2・§6.3・§8・§9.2・§11。`_cabi` の検出、Rust ABI へのフォールバック、コンテナの型タグの照合、エラー。`-V` だけ偽の版を返す rustc でビルドしたプラグインが読めて呼べることを確かめるテスト。実装は juiz_core の `plugin/rust/cabi_host.rs`。偽の rustc は `juiz_sdk/test_packages/fake_rustc`、`scripts/test.sh` が `target/fake-rustc` にプラグインを作り、統合テスト `rust_cabi_load_test` が読む。conf の `abi: rust`(§11)を追加 |
-| 3 Native | #331 | §10。グルーの Native の表・`{"native": <番号>}`、ホストの `RustCabiNative` と引数の受け渡し。`rust_native_test` を C ABI と Rust ABI の両方で通す。`rust_cabi_entry_test` と `typed_process_test` で入口を直接呼んで、ハンドルの受け渡しと所有権を確かめる。試験用のホスト `juiz_sdk::cabi::host` に Native の受け渡しを足した |
+| 2 ホストの読み込み | #330 | §3.2・§6.3・§8・§9.2・§11。`_cabi` の検出、Rust ABI へのフォールバック、コンテナの型タグの照合、エラー。`-V` だけ偽の版を返す rustc でビルドしたプラグインが読めて呼べることを確かめるテスト。実装は juiz_core の `plugin/rust/cabi_host.rs`。偽の rustc は `juiz_sdk/test_packages/fake_rustc`、`scripts/test.sh` が `target/fake-rustc` にプラグインを作り、統合テスト `plugins::rust::cabi_load` が読む。conf の `abi: rust`(§11)を追加 |
+| 3 Native | #331 | §10。グルーの Native の表・`{"native": <番号>}`、ホストの `RustCabiNative` と引数の受け渡し。`datatype::rust_native` を C ABI と Rust ABI の両方で通す。`plugins::rust::cabi_entry` と `typed_process_test` で入口を直接呼んで、ハンドルの受け渡しと所有権を確かめる。試験用のホスト `juiz_sdk::cabi::host` に Native の受け渡しを足した |
 | 4 .juizapp | #332 | app-package.md §4.1・§4.3・§6.3・§9・§12.1 |
 | 5 ベンチ・サンプル・サイト・リリース | #333 | 呼び出しのオーバーヘッドと 720p・4K 画像の数字(large-data.md §1.1 の「同じプロセス内の call」と比べる)、examples_rust、サイトの文 |
 | 6 大きな画像を速くする | #339 | §5.3・§5.5・§16。領域の 0 埋めの省略と、プラグイン側・ホスト側の画像の領域の使い回し。ベンチは測るものごとに子のプロセスで測る形にした |
@@ -491,7 +491,7 @@ juiz_core の feature はビルド情報に入れない。代わりに、プラ�
 
 ## 16. 呼び出しの時間(Step 5 #333)
 
-`juiz_core/tests/integration/rust_abi_bench.rs`(`#[ignore]`、release で実行)で、同じプラグインを conf の `abi` だけ変えて CoreBroker の `process_call` の 1 回あたりの時間を測った。small は `increment_process` に整数、720p・4K は `image_echo_proc`(画像をそのまま返す)に RGB の画像を渡す。クラウドの Xeon 4 コア、5 回中の最短。
+`juiz_core/tests/integration/bench/rust_abi.rs`(`#[ignore]`、release で実行)で、同じプラグインを conf の `abi` だけ変えて CoreBroker の `process_call` の 1 回あたりの時間を測った。small は `increment_process` に整数、720p・4K は `image_echo_proc`(画像をそのまま返す)に RGB の画像を渡す。クラウドの Xeon 4 コア、5 回中の最短。
 
 | | C ABI | Rust ABI | 差 | 画像の複製 1 回 |
 |---|---|---|---|---|

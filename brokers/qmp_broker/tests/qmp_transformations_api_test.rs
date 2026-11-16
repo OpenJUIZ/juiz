@@ -2,7 +2,7 @@
 //!
 //! System 自身の qmp ブローカーに qmp の BrokerProxy で繋ぎ、Anchor の作成・Transform の作成・
 //! ContainerPose の読み書き・木・Pose 通知の登録を確かめる。数値は docs/spec/transformations.md §3.5 の例。
-//! HTTP とローカルブローカーは juiz_core の transformations_api_test。
+//! HTTP とローカルブローカーは juiz_core の transformations::api。
 
 mod common;
 

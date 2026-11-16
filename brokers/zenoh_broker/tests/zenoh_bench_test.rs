@@ -1,6 +1,6 @@
 //! 別プロセスへの画像の受け渡しを zenoh ブローカーで測るベンチ (docs/spec/zenoh-broker.md §10)
 //!
-//! juiz_core の image_transfer_bench (HTTP・IPC・qmp) と同じ大きさ (720p・4K の RGB) で、
+//! juiz_core の bench::image_transfer (HTTP・IPC・qmp) と同じ大きさ (720p・4K の RGB) で、
 //! (1) call の戻り値で画像を受け取る、(2) 画像を引数で送る、(3) Topic の push で画像を送る
 //! (受け手の Process の実行が終わって応答が返るまで) の時間を測る。
 //! 別プロセスの juiz は、このテストバイナリ自身を `zenoh_bench_serve` だけ実行するように起動して作る。
@@ -29,7 +29,7 @@ const SIZES: [(u32, u32, &str); 2] = [(1280, 720, "720p"), (3840, 2160, "4K")];
 const WARMUP: usize = 2;
 const ROUNDS: usize = 5;
 
-/// 1 回の時間の平均を ROUNDS 回測って一番短いもの (image_transfer_bench と同じ測り方)
+/// 1 回の時間の平均を ROUNDS 回測って一番短いもの (juiz_core の bench::image_transfer と同じ測り方)
 fn time_per_call(width: u32, mut f: impl FnMut() -> JuizResult<()>) -> JuizResult<Duration> {
     let n: usize = if width >= 3840 { 5 } else { 20 };
     for _ in 0..WARMUP {

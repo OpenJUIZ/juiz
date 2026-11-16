@@ -359,7 +359,7 @@ Step 1(#368)で決めた SDK の形(`juiz_sdk::transformations`):
 - Container を削除して消えた Transform についても、残った終点に Pose 通知を出す(§8.1 の削除と同じ)。値を計算できない(共通 Anchor がなくなった)通知は出さない(DEBUG ログ)。
 - Pose 通知の受け手が、書き込みをしている ContainerProcess と同じ Container の ContainerProcess だと、その Container の書き込みロックを待って止まる。この版では検出しないので、そういう登録はしないこと。
 - core の関数(API・CLI は Step 3): `Transformations::create_transforms`(conf と `transform/create`、まとめて作り 1 つでも不備があれば何も作らない)・`update_transform`・`destroy_transform`・`transform_list`・`transform_profile`・`update_anchor`・`anchor_list`・`tree`・`pose_by_name`・`set_pose_by_name`・`pose_listener_list`・`pose_listener_profile`・`destroy_pose_listener`、`CoreWorker::create_pose_listener`。
-- 1000 ノードの木(各ノードが子を 10 個持つ、StaticAnchor)の 1 回の更新(release、`tests/integration/transformations_bench.rs`): 根の直下の Transform を変えたとき(全ノードを計算し直す)約 0.95 ms、何も変わっていないとき(全部飛ばす)約 0.48 ms。1000 本の Transform をまとめて作る(検査と最初の更新を含む)のは約 235 ms。
+- 1000 ノードの木(各ノードが子を 10 個持つ、StaticAnchor)の 1 回の更新(release、`tests/integration/bench/transformations.rs`): 根の直下の Transform を変えたとき(全ノードを計算し直す)約 0.95 ms、何も変わっていないとき(全部飛ばす)約 0.48 ms。1000 本の Transform をまとめて作る(検査と最初の更新を含む)のは約 235 ms。
 
 ## 10. 後始末
 
@@ -525,7 +525,7 @@ Step 5(#372)で決めたこと:
 - 古い組み合わせ: C++・Haskell は libjuiz_sdk の版がホストと同じでなければ読み込まれない(#136)ので、口を知らない libjuiz_sdk との
   組み合わせは起きない。古いプラグイン(関数を呼ばない)はそのまま動く。Rust の C ABI プラグインは、古いグルーは `pose_port` を無視し
   (読み書きは今まで通り `TransformationsNotAttachedError`)、新しいグルーは古いホスト(`pose_port` なし)で同じエラーになる。
-- 全言語のテストで §3.5 の値を確かめた: `juiz_core/tests/integration/{cpp,haskell,rust}_transformations_test.rs`
+- 全言語のテストで §3.5 の値を確かめた: `juiz_core/tests/integration/transformations/{cpp,haskell,rust}.rs`
   (例は examples/cpp/component/cpp_pose_component、examples/haskell の pose_component_hs、
   juiz_sdk/test_packages/pose_part_component。Rust は C ABI と Rust ABI の両方)。
 
