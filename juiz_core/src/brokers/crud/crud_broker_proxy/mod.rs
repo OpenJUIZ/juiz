@@ -85,7 +85,8 @@ pub struct CRUDBrokerProxyHolder {
 /// 応答のカプセルから値をそのまま取り出す。
 ///
 /// capsule_to_value は値を `{"__value__": ..., "__option__": ...}` で包むので、
-/// プロファイルなどの型にデシリアライズする値にはこちらを使う (issue #19)
+/// プロファイルなどの型にデシリアライズする値にはこちらを使う (issue #19)。
+/// Value を返す API もすべてこちらを使い、どのブローカーでも core と同じく包まずに返す (issue #532)
 fn capsule_value(capsule: CapsulePtr) -> JuizResult<Value> {
     capsule.extract_value()
 }
@@ -653,7 +654,7 @@ impl ProcessBrokerProxy for CRUDBrokerProxyHolder {
 
 impl SystemBrokerProxy for CRUDBrokerProxyHolder {
     fn system_profile(&self) -> JuizResult<Value> {
-        capsule_to_value(self.modify_profile(self.read_profile(
+        capsule_value(self.modify_profile(self.read_profile(
             "system",
             HashMap::new(),
         )?)?)
@@ -667,7 +668,7 @@ impl SystemBrokerProxy for CRUDBrokerProxyHolder {
     }
 
     fn system_filesystem_list(&self, path_buf: std::path::PathBuf) -> JuizResult<Value> {
-        capsule_to_value(self.read_profile(
+        capsule_value(self.read_profile(
             "system",
             HashMap::from([("path".to_owned(), path_buf.to_str().unwrap().to_owned())]),
         )?)
@@ -676,7 +677,7 @@ impl SystemBrokerProxy for CRUDBrokerProxyHolder {
     fn system_add_subsystem(&mut self, profile: Value) -> JuizResult<Value> {
         let mut cp = CapsuleMap::new();
         cp.insert("profile".to_owned(), profile.into());
-        capsule_to_value(
+        capsule_value(
             self.broker
                 .update("system", "add_subsystem", cp, HashMap::new())?,
         )
@@ -692,7 +693,7 @@ impl SystemBrokerProxy for CRUDBrokerProxyHolder {
         log::trace!("CRUDBroker::system_add_mastersystem(profile='{profile:}') called");
         let mut cp = CapsuleMap::new();
         cp.insert("profile".to_owned(), profile.into());
-        capsule_to_value(
+        capsule_value(
             self.broker
                 .update("system", "add_mastersystem", cp, HashMap::new())?,
         )
@@ -701,7 +702,7 @@ impl SystemBrokerProxy for CRUDBrokerProxyHolder {
     fn system_remove_subsystem(&mut self, uuid: Uuid) -> JuizResult<Value> {
         let mut cp = CapsuleMap::new();
         cp.insert("uuid".to_owned(), jvalue!(uuid.to_string()).into());
-        capsule_to_value(
+        capsule_value(
             self.broker
                 .update("system", "remove_subsystem", cp, HashMap::new())?,
         )
@@ -717,7 +718,7 @@ impl SystemBrokerProxy for CRUDBrokerProxyHolder {
             "language".to_owned(),
             CapsulePtr::from(Value::from(language)),
         );
-        capsule_to_value(
+        capsule_value(
             self.broker
                 .update("system", "load_process", cp, HashMap::new())?,
         )
@@ -733,7 +734,7 @@ impl SystemBrokerProxy for CRUDBrokerProxyHolder {
             "language".to_owned(),
             CapsulePtr::from(Value::from(language)),
         );
-        capsule_to_value(
+        capsule_value(
             self.broker
                 .update("system", "load_container", cp, HashMap::new())?,
         )
@@ -753,7 +754,7 @@ impl SystemBrokerProxy for CRUDBrokerProxyHolder {
             "language".to_owned(),
             CapsulePtr::from(Value::from(language)),
         );
-        capsule_to_value(self.broker.update(
+        capsule_value(self.broker.update(
             "system",
             "load_container_process",
             cp,
@@ -824,14 +825,14 @@ impl ExecutionContextBrokerProxy for CRUDBrokerProxyHolder {
     }
 
     fn ec_profile(&self, id: &Identifier) -> JuizResult<Value> {
-        capsule_to_value(self.modify_profile(self.read_profile(
+        capsule_value(self.modify_profile(self.read_profile(
             "execution_context",
             param(&[("identifier", id)]),
         )?)?)
     }
 
     fn ec_get_state(&self, id: &Identifier) -> JuizResult<Value> {
-        capsule_to_value(self.broker.read(
+        capsule_value(self.broker.read(
             "execution_context",
             "get_state",
             param(&[("identifier", id)]),
@@ -839,7 +840,7 @@ impl ExecutionContextBrokerProxy for CRUDBrokerProxyHolder {
     }
 
     fn ec_start(&mut self, id: &Identifier) -> JuizResult<Value> {
-        capsule_to_value(self.broker.update(
+        capsule_value(self.broker.update(
             "execution_context",
             "start",
             CapsuleMap::new(),
@@ -848,7 +849,7 @@ impl ExecutionContextBrokerProxy for CRUDBrokerProxyHolder {
     }
 
     fn ec_stop(&mut self, id: &Identifier) -> JuizResult<Value> {
-        capsule_to_value(self.broker.update(
+        capsule_value(self.broker.update(
             "execution_context",
             "stop",
             CapsuleMap::new(),
@@ -857,7 +858,7 @@ impl ExecutionContextBrokerProxy for CRUDBrokerProxyHolder {
     }
 
     fn ec_create(&mut self, manifest: &Value) -> JuizResult<Value> {
-        capsule_to_value(self.broker.create(
+        capsule_value(self.broker.create(
             "execution_context",
             "create",
             jvalue!({"__manifest__": manifest}),
@@ -866,7 +867,7 @@ impl ExecutionContextBrokerProxy for CRUDBrokerProxyHolder {
     }
 
     fn ec_destroy(&mut self, identifier: &Identifier) -> JuizResult<Value> {
-        capsule_to_value(self.broker.delete(
+        capsule_value(self.broker.delete(
             "execution_context",
             "destroy",
             param(&[("identifier", identifier)]),

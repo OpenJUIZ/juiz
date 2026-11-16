@@ -71,8 +71,9 @@ fn check_ec_proxy(system: &mut System) -> JuizResult<()> {
             format!("localhost:{PORT}").as_str(),
             false,
         )?;
+        // どのブローカーでも包まずに返す (issue #532)
         let v = juiz_borrow(&proxy)?.ec_get_state(&id)?;
-        Ok(v["__value__"].clone())
+        Ok(v)
     };
     let wait_for = |system: &mut System, expected: &str| -> JuizResult<bool> {
         for _ in 0..200 {

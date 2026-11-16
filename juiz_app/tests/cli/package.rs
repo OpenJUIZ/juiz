@@ -347,11 +347,7 @@ fn ipc_profile(name: &str) -> Option<juiz_sdk::serde_json::Value> {
             .lock()?
             .worker()
             .broker_proxy("ipc", name, true)?;
-        // BrokerProxy は値を {"__value__": …} で包んで返す
-        out = juiz_borrow(&bp)?
-            .system_profile()
-            .ok()
-            .map(|p| p.get("__value__").cloned().unwrap_or(p));
+        out = juiz_borrow(&bp)?.system_profile().ok();
         Ok(())
     });
     out
@@ -373,8 +369,7 @@ fn ipc_model_info(name: &str, container: &str) -> juiz_sdk::serde_json::Value {
             .lock()?
             .worker()
             .broker_proxy("ipc", name, true)?;
-        let v = juiz_borrow(&bp)?.container_model_info(container)?;
-        out = Some(v.get("__value__").cloned().unwrap_or(v));
+        out = Some(juiz_borrow(&bp)?.container_model_info(container)?);
         Ok(())
     });
     out.expect("container_model_info")

@@ -39,6 +39,8 @@ pub fn is_function_not_found(e: &juiz_sdk::anyhow::Error) -> bool {
     format!("{e:#}").contains("CRUDBroker can not detect function (")
 }
 
+/// System の API。Value を返すものは、どのブローカーでも core と同じく
+/// `{"__value__": ..., "__option__": ...}` で包まずに中身を返す (issue #532)
 pub trait SystemBrokerProxy {
     /// Systemのプロファイルを取得する
     ///
@@ -295,6 +297,8 @@ pub trait ContainerProcessBrokerProxy {
     fn container_process_openapi_spec(&self, id: &ProcessIdentifier) -> JuizResult<Value>;
 }
 
+/// EC の API。Value を返すものは、どのブローカーでも core と同じく
+/// `{"__value__": ..., "__option__": ...}` で包まずに中身を返す (issue #532)
 pub trait ExecutionContextBrokerProxy {
     fn ec_create(&mut self, manifest: &Value) -> JuizResult<Value>;
 

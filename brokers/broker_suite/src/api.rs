@@ -36,10 +36,13 @@ pub fn check_all(bp: &mut dyn BrokerProxy, fx: &Fixture, expect: &Expect) -> Jui
 
 /// System とブローカーの情報が読める。解析できない識別子はエラーになり、その後も呼べる
 pub fn check_system(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
-    assert!(bp.system_profile()?.is_object());
+    // Value を返す API は包まずに返す (issue #532)
+    let profile = not_wrapped(bp.system_profile()?);
+    assert!(profile.is_object());
+    assert!(profile.get("core_store").is_some(), "{profile:?}");
     // サブシステム登録では UUID を文字列として読むので、包まずに返すこと
     assert!(bp.system_uuid()?.as_str().is_some());
-    bp.system_filesystem_list(std::path::PathBuf::from("."))?;
+    not_wrapped(bp.system_filesystem_list(std::path::PathBuf::from("."))?);
 
     // 応答をそのまま型に読み込めること (issue #19, #36)。
     // ブローカーの識別子は .../broker/{name}::{type_name} の形 (issue #35)
@@ -221,7 +224,7 @@ pub fn check_containers(bp: &mut dyn BrokerProxy, fx: &Fixture) -> JuizResult<()
 }
 
 fn ec_ids(bp: &mut dyn BrokerProxy) -> JuizResult<Vec<String>> {
-    Ok(unwrap_value(bp.ec_list(false)?)
+    Ok(not_wrapped(bp.ec_list(false)?)
         .as_array()
         .expect("ec_list is not an array")
         .iter()
@@ -234,7 +237,7 @@ fn ec_ids(bp: &mut dyn BrokerProxy) -> JuizResult<Vec<String>> {
 }
 
 fn ec_state(bp: &mut dyn BrokerProxy, id: &Identifier) -> JuizResult<Value> {
-    Ok(unwrap_value(bp.ec_get_state(id)?))
+    Ok(not_wrapped(bp.ec_get_state(id)?))
 }
 
 /// EC の状態はスレッド側で切り替わるので、しばらく待つ
@@ -253,14 +256,14 @@ pub fn check_ec(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
         .find(|id| id.contains(TIMER_EC))
         .expect("timer0 not listed")
         .clone();
-    assert_eq!(unwrap_value(bp.ec_profile(&id)?)["name"], jvalue!(TIMER_EC));
+    assert_eq!(not_wrapped(bp.ec_profile(&id)?)["name"], jvalue!(TIMER_EC));
     assert_eq!(ec_state(bp, &id)?, jvalue!("STOPPED"));
-    bp.ec_start(&id)?;
+    not_wrapped(bp.ec_start(&id)?);
     assert!(wait_ec_state(bp, &id, "STARTED")?, "{id} did not start");
-    bp.ec_stop(&id)?;
+    not_wrapped(bp.ec_stop(&id)?);
     assert!(wait_ec_state(bp, &id, "STOPPED")?, "{id} did not stop");
 
-    let created = unwrap_value(
+    let created = not_wrapped(
         bp.ec_create(&jvalue!({"type_name": "TimerEC", "name": "timer1", "rate": 100.0}))?,
     );
     assert_eq!(created["name"], jvalue!("timer1"));
@@ -280,7 +283,7 @@ pub fn check_ec(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     bp.ec_start(&timer1)?;
     assert!(wait_ec_state(bp, &timer1, "STARTED")?);
     assert_eq!(
-        unwrap_value(bp.ec_destroy(&timer1)?)["name"],
+        not_wrapped(bp.ec_destroy(&timer1)?)["name"],
         jvalue!("timer1")
     );
     assert_eq!(ec_ids(bp)?.len(), n);
@@ -296,11 +299,11 @@ pub fn check_topics(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     let uuid = Some(uuid::Uuid::new_v4());
     // ローカルにサブスクライバもパブリッシャもいないので購読・配信は要求されない
     assert_eq!(
-        unwrap_value(bp.topic_request_subscribe(topic, uuid)?),
+        not_wrapped(bp.topic_request_subscribe(topic, uuid)?),
         jvalue!({"subscribe": false})
     );
     assert_eq!(
-        unwrap_value(bp.topic_request_publish(topic, uuid)?),
+        not_wrapped(bp.topic_request_publish(topic, uuid)?),
         jvalue!({"publish": false})
     );
     // 存在しないトピックには push できない
