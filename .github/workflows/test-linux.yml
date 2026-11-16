@@ -185,7 +185,7 @@ jobs:
           key: zenoh-python${{ steps.setup-python.outputs.python-version }}
           save-if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') }}
 
-      # juiz(feature zenoh-broker)と例のプラグインのビルド、juiz_zenoh_broker と juiz_app の zenoh_cli_test(手元と同じスクリプト)
+      # juiz(feature zenoh-broker)と例のプラグインのビルド、juiz_zenoh_broker と juiz_app の cli テストの zenoh::(手元と同じスクリプト)
       # Zenoh は共有メモリの pool 全体を mlock する。ランナーの一般ユーザーの RLIMIT_MEMLOCK (8 MiB) では
       # pool (既定 64 MiB) を作れず TCP に戻るので、共有メモリの経路も確かめるために上限を外す (§11.3)
       - name: Build & test

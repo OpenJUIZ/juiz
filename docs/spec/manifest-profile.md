@@ -113,7 +113,7 @@ juiz のコード・API・文書では「manifest」と「profile」が混ざっ
 1. `ProcessProfile` の状態(引数の今の値)は JSON では `arguments` の各要素の `value` に入るので、`#[serde(flatten)]` だけでは書けない。Manifest を JSON にしてから各引数に `value` を差し込む直列化を手で書いた。読むときは `value` を抜き出して `argument_values` に入れ、残りを Manifest として読む(`value: null` は値なしとして扱う。今までの `Option<Value>` と同じ)。
 2. `ContainerProfile` の `processes` と `model` は、Manifest にも同じ名前の項目(conf に書いた ContainerProcess の宣言、3D モデルの宣言)がある。JSON には状態の方(今ある ContainerProcess の profile、読み直したモデル情報)を出す。読むときは状態の項目を抜き出し、Manifest の `processes` には読んだ ContainerProcess の manifest を入れる。Rust では構造体のフィールドが `Deref` より先に見えるので、`profile.processes`・`profile.model` は状態、Manifest の宣言は `profile.manifest.processes` で読む。
 3. **Manifest にあって今の profile の JSON に無い項目は出さない**(§3 の 4)。Process の `trace`、Container の `broker_type_name`・`broker_name`・`rate`。出すかどうかは別の issue で決める。
-4. JSON が変わらないことは、HTTP は juiz_core の `core::profile_json`、qmp は juiz_qmp_broker の `qmp_profile_json_test` で確かめる。どちらも Step 1 の前(main d758bd9)の応答を写した golden の JSON と、キーと値が全部同じであることを見る。
+4. JSON が変わらないことは、HTTP は juiz_core の `core::profile_json`、qmp は juiz_qmp_broker の `profile_json` で確かめる。どちらも Step 1 の前(main d758bd9)の応答を写した golden の JSON と、キーと値が全部同じであることを見る。
 
 **実行中のオブジェクトが持つ値。** `ProcessImpl` はインスタンスの `ProcessManifest` を持ち、`profile()` で問い合わせのたびに manifest と Inlet の今の値から `ProcessProfile` を作る。`ContainerImpl` も `ContainerManifest` を持ち、`profile()` で作る(CompositeContainer のスロットと Anchor の `{kind, rate}` は `set_profile_slots`・`set_profile_anchor` で持たせる)。呼び出し前の検査・既定値の補い・Composite の子の検査・型検査・`process/openapi_spec` は Manifest を受ける。
 
@@ -145,7 +145,7 @@ juiz のコード・API・文書では「manifest」と「profile」が混ざっ
 
 ### 8.4 Step 4(#508)
 
-**API。** 11 種類(process・container・container_process・any_process・connection・execution_context・broker・system・composite・transform・pose_listener)の READ の関数を `profile` にし、`profile_full` は同じ関数を指す別名にした。別名は CRUDBroker の READ の表を作るとき(`add_profile_full_aliases`)に足すので、HTTP・qmp・IPC・Zenoh・メッセンジャー系のどれでも同じに受ける。応答の JSON は変わらない(golden の core::profile_json・qmp_profile_json_test が `*/profile` で通る)。
+**API。** 11 種類(process・container・container_process・any_process・connection・execution_context・broker・system・composite・transform・pose_listener)の READ の関数を `profile` にし、`profile_full` は同じ関数を指す別名にした。別名は CRUDBroker の READ の表を作るとき(`add_profile_full_aliases`)に足すので、HTTP・qmp・IPC・Zenoh・メッセンジャー系のどれでも同じに受ける。応答の JSON は変わらない(golden の core::profile_json・qmp の profile_json が `*/profile` で通る)。
 
 **OpenAPI。** 定義は `/api/<class>/profile` に書き、`/api-docs/openapi.json` を返すときに `/api/<class>/profile_full` へ写して `deprecated: true` を付ける(`add_profile_full_paths`)。応答の型などは写す前に足すので、2 つは同じ。
 

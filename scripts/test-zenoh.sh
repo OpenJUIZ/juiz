@@ -8,7 +8,7 @@
 #   2. プラグイン libzenoh_broker を ../target/debug に作る。-p juiz_zenoh_broker だけでビルドするので juiz_core は
 #      feature なしになり、既定の feature の juiz にそれを読ませるテストが #450 の確かめを兼ねる
 #   3. cargo test -p juiz_zenoh_broker
-#   4. juiz_app の zenoh_cli_test (組み込みの Zenoh をプラグインなしで使う)
+#   4. juiz_app の cli テストのうち zenoh:: (組み込みの Zenoh をプラグインなしで使う)
 #
 # 使い方:
 #   scripts/test-zenoh.sh             # すべて
@@ -34,4 +34,4 @@ step "juiz_zenoh_broker のテスト"
 cargo test "$@" -p juiz_zenoh_broker -- --test-threads=1
 
 step "juiz_app の feature zenoh-broker のテスト"
-cargo test "$@" -p juiz_app --features zenoh-broker --test zenoh_cli_test -- --test-threads=1
+cargo test "$@" -p juiz_app --features zenoh-broker --test cli -- --test-threads=1 zenoh::

@@ -139,7 +139,7 @@ HTTP ブローカーの 8000 番ポートはホストに転送されるので、
 
 テストの置き場所・名前・実行のしかたの決まりです(issue #518 の整理で決めたもの)。
 
-いまのテストはまだこの決まりにそろっていません。置き場所と名前は issue #521〜#525 で順に移します(juiz_core の integration は #521 で済み)(下の「移行中の扱い」)。新しく書くテストの関数名は今から決まりに合わせてください。
+いまのテストはまだこの決まりにそろっていません。置き場所と名前は issue #521〜#525 で順に移します(juiz_core の integration は #521、テストバイナリの集約は #523 で済み)(下の「移行中の扱い」)。新しく書くテストの関数名は今から決まりに合わせてください。
 
 ### テストを実行する
 
@@ -154,7 +154,7 @@ scripts/test.sh --prepare-only               # 準備だけ行う
 ```
 
 必要なものは Rust、CMake と C++ コンパイラ、Python 3 と pyjuiz の依存パッケージ(`python3 -m pip install pyyaml httpx pillow numpy`)です。足りないものがあれば、スクリプトがその旨と入れ方を表示して止まります。
-GHC と cabal は任意で、無ければ Haskell の例のビルドとテスト(`plugins::haskell::process`)を飛ばします(CI では `JUIZ_REQUIRE_HASKELL=1` にして飛ばしません)。`juiz pkg create -b haskell` の雛形を作ってパッケージにするテスト(`pkg_cli_test`)は、Linux では patchelf も使い、無ければ飛ばします。
+GHC と cabal は任意で、無ければ Haskell の例のビルドとテスト(`plugins::haskell::process`)を飛ばします(CI では `JUIZ_REQUIRE_HASKELL=1` にして飛ばしません)。`juiz pkg create -b haskell` の雛形を作ってパッケージにするテスト(juiz_app の `cli` の `pkg::`)は、Linux では patchelf も使い、無ければ飛ばします。
 `cargo test` だけを実行すると、例のプラグインを読み込むテスト(`core::system` や `brokers::*_api` など)は失敗します。そのときのエラーには、見つからなかったプラグインのパスや足りない Python モジュールと、必要な準備が表示されます。
 
 テストは `--test-threads=1` で 1 件ずつ走らせます。統合テストや CLI のテストが固定のポート(8000 番台)を使うため、並列にするとポートがぶつかって落ちます。
@@ -177,7 +177,7 @@ Rust 以外のテスト:
 | integration | System を起動し、プラグインを読む | `juiz_core/tests/integration/<機能>/`。言語ごとの違いは機能の下に置く。言語の読み込みそのもの(ABI・例外・値の受け渡し)は `plugins/<言語>/` |
 | broker | どのブローカーでも同じになるべき確認を、各ブローカーで走らせる | ブローカー共通のスイート `brokers/broker_suite`(下の「ブローカー共通のスイート」)+ ブローカーごとの追加分 |
 | cli | `juiz` コマンドを子プロセスで動かす | `juiz_app/tests/cli/` |
-| slow | テストの中で外のビルド(cargo・cmake・cabal)を呼ぶ。`pkg_cli_test` など | 置き場所はカテゴリ本来の場所のまま、モジュールパスに `slow` を含めて `-- --skip slow::` で外せるようにする(詳細は #524) |
+| slow | テストの中で外のビルド(cargo・cmake・cabal)を呼ぶ。juiz_app の `cli` の `pkg::` など | 置き場所はカテゴリ本来の場所のまま、モジュールパスに `slow` を含めて `-- --skip slow::` で外せるようにする(詳細は #524) |
 | bench | 計測。ふだんは走らせない | 置いてある tests の下の `bench/`。`#[ignore]` を付け、release で手動実行する(下の「ベンチマークを実行する」) |
 
 integration の分け方は**機能が先、言語は下**です。何が壊れたかを機能で探すことが多いためです。
@@ -198,7 +198,17 @@ juiz_core/tests/integration/
     image_transfer.rs  composite.rs ...
 ```
 
-1 クレート 1 バイナリ: `tests/` 直下のファイルは 1 本ずつ別のテストバイナリになり、それぞれがクレートと依存を丸ごとリンクします(juiz_app や qmp では 1 本 100MB を超える)。テストは `tests/<まとまり>/main.rs`(juiz_core なら `tests/integration/main.rs`)から `mod` で読み、`tests/` 直下にはファイルを足さないでください。テストで使う conf やプラグインのソース、golden ファイルは `tests/` の下の別ディレクトリ(`confs/`、`python/`、`golden/` など)に置きます。
+1 クレート 1 バイナリ: `tests/` 直下のファイルは 1 本ずつ別のテストバイナリになり、それぞれがクレートと依存を丸ごとリンクします(juiz_app や qmp では 1 本 100MB を超える)。テストは `tests/<まとまり>/main.rs`(juiz_core なら `tests/integration/main.rs`)から `mod` で読み、`tests/` 直下にはファイルを足さないでください。いまのまとまりは次のとおりです。
+
+| クレート | バイナリ(`--test`) | 置き場所 |
+|---|---|---|
+| juiz_core | `integration` | `juiz_core/tests/integration/` |
+| juiz_app | `cli` | `juiz_app/tests/cli/`。feature python-entry のテストだけは埋め込み Python を使うので別の `python_entry_test` |
+| juiz_sdk | `api` | `juiz_sdk/tests/api/` |
+| juiz_qmp_broker | `broker` | `brokers/qmp_broker/tests/broker/`(ベンチは `bench/`) |
+| juiz_zenoh_broker | `broker` | `brokers/zenoh_broker/tests/broker/`(ベンチは `bench/`) |
+
+ブローカーの組み込みの登録(`qmp_broker::register` など)や `#[global_allocator]`、`#[no_mangle]` の関数は 1 つのバイナリの中のすべてのテストに効きます。足すときは、同じバイナリのほかのテストに影響しないかを確かめてください。テストで使う conf やプラグインのソース、golden ファイルは `tests/` の下の別ディレクトリ(`confs/`、`python/`、`golden/` など)に置きます。
 
 ### ブローカー共通のスイート
 
@@ -234,7 +244,8 @@ juiz_core/tests/integration/
 scripts/test.sh -p juiz_core --test integration -- transformations::          # Transformations の統合テストすべて
 scripts/test.sh -p juiz_core --test integration -- transformations::python    # その Python の分だけ
 scripts/test.sh -p juiz_core --test integration -- plugins::haskell::         # Haskell の読み込み
-scripts/test.sh -p juiz_app --test cli -- --skip slow::                       # 遅いものを外す(#523・#524 の後)
+scripts/test.sh -p juiz_app --test cli -- package::                           # juiz コマンドの .juizapp の分だけ
+scripts/test.sh -p juiz_app --test cli -- --skip slow::                       # 遅いものを外す(#524 の後)
 ```
 
 ### テストを書くときの決まり
@@ -262,7 +273,7 @@ scripts/test.sh -p juiz_app --test cli -- --skip slow::                       # 
 |---|---|
 | #521 | `juiz_core/tests/integration` を機能ごとのディレクトリに分け、名前を決まりにそろえる。ベンチを `bench/` へ(済み) |
 | #522 | ブローカー共通のスイート(juiz_core の `brokers::{core,local,http,ipc}_api`、qmp・Zenoh の `*_broker_api_test` と、ほぼ同じ写しの qmp・Zenoh の tests をまとめる)(済み) |
-| #523 | `juiz_app`・qmp・Zenoh・`juiz_sdk` のテストをクレートごとに 1 本のバイナリへ |
+| #523 | `juiz_app`・qmp・Zenoh・`juiz_sdk` のテストをクレートごとに 1 本のバイナリへ(済み) |
 | #524 | slow の印と、Python 3.10 のジョブで走らせるテストの絞り込み |
 | #525 | pyjuiz のテストを自動で集める形に |
 
@@ -280,7 +291,7 @@ PYTHONPATH=bindings/pyjuiz cargo test --release -p juiz_core --test integration 
 Zenoh ブローカーのベンチは juiz_core に置かず(Zenoh を juiz_core のテストでビルドしないため)、`juiz_zenoh_broker` のテストにあります。
 
 ```terminal
-cargo test --release -p juiz_zenoh_broker --test zenoh_bench_test -- --ignored --nocapture --test-threads=1
+cargo test --release -p juiz_zenoh_broker --test broker -- bench:: --ignored --nocapture --test-threads=1
 ```
 
 `bench::image_transfer` は、テストバイナリ自身を別プロセスの juiz として起動し(HTTP はポート 8050、qmp は 8051、IPC は名前 image_transfer_bench)、そこへ HTTP・IPC・qmp で画像を渡します。プラグインは使わないので、事前の準備は要りません。

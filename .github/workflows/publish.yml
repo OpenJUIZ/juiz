@@ -79,14 +79,14 @@ jobs:
       - name: Build (default workspace members)
         run: cargo build --verbose
 
-      # Rust のプラグインの C ABI のテスト (plugins::rust::cabi_load、package_cli_test) が読む、
+      # Rust のプラグインの C ABI のテスト (plugins::rust::cabi_load、juiz_app の cli::package) が読む、
       # 違う rustc でビルドしたことにしたプラグイン。scripts/test.sh と同じ手順 (issue #330・#333)
       - name: Build plugins with a fake rustc (target/fake-rustc)
         run: |
           RUSTC="$PWD/target/debug/fake_rustc" cargo build --verbose --target-dir target/fake-rustc \
             -p increment_process -p example_container -p example_container_increment
 
-      # ブローカーのプラグインを juiz_core の feature が違うホストで読むテスト (broker_plugin_features_cli_test、
+      # ブローカーのプラグインを juiz_core の feature が違うホストで読むテスト (juiz_app の cli::broker_plugin_features、
       # issue #450) が読む、feature なしの juiz_core で作った qmp のプラグイン。scripts/test.sh と同じ手順
       - name: Build the qmp broker plugin alone (target/qmp-plugin-alone)
         run: cargo build --verbose --target-dir target/qmp-plugin-alone -p juiz_qmp_broker
