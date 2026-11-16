@@ -713,7 +713,7 @@ fn bench_image_transfer() -> JuizResult<()> {
             let mut topic_delivered = [Duration::ZERO; 2];
             let mut topic_b_receive = ReceiveBreakdown::default();
             let remote_shm_stats = || -> JuizResult<Value> {
-                let profile = juiz_borrow(&ipc)?.system_profile_full()?;
+                let profile = juiz_borrow(&ipc)?.system_profile()?;
                 Ok(find_shm_stats(&profile, TOPIC_B).unwrap_or(Value::Null))
             };
             for (i, source) in topic_sources.iter().enumerate() {

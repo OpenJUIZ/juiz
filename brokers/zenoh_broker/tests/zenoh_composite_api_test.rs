@@ -1,6 +1,6 @@
 //! zenoh ブローカー経由で実行中に Composite を定義できること (issue #171)
 //!
-//! System 自身の zenoh ブローカーに zenoh の BrokerProxy で繋ぎ、composite/create・list・profile_full・destroy と
+//! System 自身の zenoh ブローカーに zenoh の BrokerProxy で繋ぎ、composite/create・list・profile・destroy と
 //! composite_container/create を呼ぶ。HTTP は juiz_core の composite_api_test。仕様は docs/spec/composition.md の §9。
 
 mod common;
@@ -39,7 +39,7 @@ fn zenoh_composite_api() -> JuizResult<()> {
         assert!(m.composition.is_some());
         assert_eq!(bp.composite_list()?, vec!["inc_twice"]);
         assert_eq!(
-            bp.composite_profile_full("inc_twice")?.type_name,
+            bp.composite_profile("inc_twice")?.type_name,
             "inc_twice"
         );
 

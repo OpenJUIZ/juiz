@@ -1,7 +1,7 @@
 //! qmp ブローカー経由で Container の 3D モデルを取り出せること (issue #381、docs/spec/container-model.md §6.3)
 //!
 //! System 自身の qmp ブローカーに qmp の BrokerProxy で繋ぎ、`container/model_info`・`container/model`
-//! (`{info, data: <base64>}`)・`container/profile_full` の `model` を確かめる。
+//! (`{info, data: <base64>}`)・`container/profile` の `model` を確かめる。
 //! HTTP とローカルブローカーは juiz_core の container_model_test。
 //!
 //! 50 MB の .glb を HTTP (生のバイト列) と qmp (base64 の JSON) で取り出すベンチは `container_model_bench`
@@ -90,7 +90,7 @@ fn qmp_container_model() -> JuizResult<()> {
             let id = ContainerIdentifier::try_from(
                 "core://core/container/pantilt0::static_anchor".to_owned(),
             )?;
-            assert_eq!(bp.container_profile_full(&id)?.model, Some(info));
+            assert_eq!(bp.container_profile(&id)?.model, Some(info));
             Ok(())
         })
 }

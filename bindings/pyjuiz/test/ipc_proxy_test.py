@@ -42,7 +42,7 @@ def check_container(name):
 def check_system(name):
     system = connect(f"ipc://{name}")
     assert isinstance(system.crud, IpcProxy)
-    profile = system.profile_full()
+    profile = system.profile()
     assert isinstance(profile, dict) and profile, profile
     names = sorted(p.name() for p in system.processes())
     for n in ["inc0", "inc1", "make0", "echo0", "vecho0", "fail0"]:
@@ -149,7 +149,7 @@ def check_errors(name):
     except ValueError:
         pass
     try:
-        SystemProxy(IpcProxy("no_such_juiz_server")).profile_full()
+        SystemProxy(IpcProxy("no_such_juiz_server")).profile()
         raise AssertionError("connecting to a missing server must fail")
     except IpcError as e:
         assert "no_such_juiz_server" in str(e), str(e)
@@ -158,10 +158,10 @@ def check_errors(name):
 def check_reconnect(name):
     proxy = IpcProxy(name)
     system = SystemProxy(proxy)
-    assert system.profile_full()
+    assert system.profile()
     # 接続を閉じても次の要求で繋ぎ直す
     proxy.close()
-    assert system.profile_full()
+    assert system.profile()
     with IpcProxy(name) as p:
         assert p.read("system", "uuid")
 

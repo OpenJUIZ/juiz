@@ -3,7 +3,7 @@
 //! - `transform/create` の終点が別 System の Container なら、終点の System の `transform/create` に回す。
 //!   始点は自分の core の ID、`source_system` に自分の UUID を付ける。受けた System は、その UUID の
 //!   System (マスターシステム・サブシステム) へのブローカーで始点を書き換えて作る (§19.2 の 5)。
-//! - `transform/profile_full`・`update`・`destroy` も、ID の終点が別 System なら回す (§19.2 の 7)。
+//! - `transform/profile`・`update`・`destroy` も、ID の終点が別 System なら回す (§19.2 の 7)。
 //! - `container/pose`・`set_pose` の `identifier` が別 System の Container なら、その System に回し、
 //!   基準は `reference_system` (自分の UUID) で相手の写しから探してもらう (§19.8)。
 //!

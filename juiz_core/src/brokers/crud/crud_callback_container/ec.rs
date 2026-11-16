@@ -16,14 +16,14 @@ pub(crate) fn create_create_callbacks() -> CallbackContainerType {
 
 pub(crate) fn create_read_callbacks() -> CallbackContainerType {
     let mut ec_cbs = CallbackContainerType::new();
-    ec_cbs.insert("profile_full", |cb, args| {
-        log::debug!("[READ  ] ec/profile_full called");
+    ec_cbs.insert("profile", |cb, args| {
+        log::debug!("[READ  ] ec/profile called");
         let id = args.get_param("identifier").ok_or_else(|| {
             anyhow!(JuizError::CRUDBrokerCanNotParameterFunctionError {
                 key_name: "identifier".to_owned()
             })
         })?;
-        Ok(value_to_capsule(cb.lock()?.ec_profile_full(id)?))
+        Ok(value_to_capsule(cb.lock()?.ec_profile(id)?))
     });
     ec_cbs.insert("list", |cb, args| {
         log::debug!("[READ  ] ec/list called");

@@ -63,7 +63,7 @@ def main():
     assert len(st["entries"]) == 1 and st["changed"], st
     same = s1.pose_state("map")
     assert same["version"] == st["version"], same
-    children = s1map.profile_full(update=True).get("remote_children")
+    children = s1map.profile(update=True).get("remote_children")
     assert children and children[0]["destinations"] == ["core://core/container/odom::example_container"], children
 
     # S1 から作る: 終点が S2 の Container なので S2 にできる。S1 には何も残らない

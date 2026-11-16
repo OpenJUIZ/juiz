@@ -540,9 +540,9 @@ impl ContainerModels {
         Ok(Some(m.info()))
     }
 
-    /// system/profile_full の一覧に載せるモデル情報 (§7)。取り出せないとき (ファイルが消えたなど) は
+    /// system/profile の一覧に載せるモデル情報 (§7)。取り出せないとき (ファイルが消えたなど) は
     /// 一覧全体をエラーにせず `None` にする。一覧は管理画面が数秒ごとに取るので、WARN は出さない
-    /// (`container/profile_full`・`container/model_info` を呼べば WARN とエラーが出る)
+    /// (`container/profile`・`container/model_info` を呼べば WARN とエラーが出る)
     pub fn info_for_listing(&self, container_id: &str) -> Option<Value> {
         match self.lock().and_then(|mut inner| {
             let max = inner.max_bytes;

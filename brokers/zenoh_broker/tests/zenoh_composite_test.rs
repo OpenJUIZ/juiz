@@ -66,7 +66,7 @@ fn zenoh_composite_profile() -> JuizResult<()> {
         let t0: ProcessIdentifier =
             format!("zenoh://{broker_name}/process/t0::inc_twice").try_into()?;
         let composition = bp
-            .process_profile_full(&t0)?
+            .process_profile(&t0)?
             .manifest
             .composition
             .expect("composition");
@@ -78,7 +78,7 @@ fn zenoh_composite_profile() -> JuizResult<()> {
         let a0: ProcessIdentifier =
             format!("zenoh://{broker_name}/container_process/a0::add_twice:cc0").try_into()?;
         let composition = bp
-            .container_process_profile_full(&a0)?
+            .container_process_profile(&a0)?
             .manifest
             .composition
             .expect("composition");
@@ -90,7 +90,7 @@ fn zenoh_composite_profile() -> JuizResult<()> {
 
         let cc0: ContainerIdentifier =
             format!("zenoh://{broker_name}/container/cc0::composite_container").try_into()?;
-        let slots = bp.container_profile_full(&cc0)?.slots.expect("slots");
+        let slots = bp.container_profile(&cc0)?.slots.expect("slots");
         assert_eq!(
             slots.get("c").map(String::as_str),
             Some("core://core/container/c0::example_container")
@@ -98,7 +98,7 @@ fn zenoh_composite_profile() -> JuizResult<()> {
         // 普通の Container には slots を出さない
         let c0: ContainerIdentifier =
             format!("zenoh://{broker_name}/container/c0::example_container").try_into()?;
-        assert!(bp.container_profile_full(&c0)?.slots.is_none());
+        assert!(bp.container_profile(&c0)?.slots.is_none());
         Ok(())
     })
 }

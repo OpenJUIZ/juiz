@@ -39,7 +39,7 @@ pub fn create_dummy() {}
 #[allow(unused)]
 #[utoipa::path(
     get,
-    path = "/api/connection/profile_full",
+    path = "/api/connection/profile",
     params(
         IdentifierQuery
     ),

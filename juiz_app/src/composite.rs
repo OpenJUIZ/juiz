@@ -71,7 +71,7 @@ pub(crate) fn on_composite(
                 CompositeSubCommands::Create { file } => on_composite_create(&mut *proxy, &file),
                 CompositeSubCommands::List { long } => on_composite_list(&*proxy, long),
                 CompositeSubCommands::Info { type_name } => {
-                    let m = proxy.composite_profile_full(&type_name)?;
+                    let m = proxy.composite_profile(&type_name)?;
                     println!("{}", serde_json::to_string_pretty(&m)?);
                     print_composite(&m);
                     Ok(())
@@ -174,7 +174,7 @@ fn on_composite_list(proxy: &dyn BrokerProxy, long: bool) -> JuizResult<()> {
         return Ok(());
     }
     for name in names.iter() {
-        match proxy.composite_profile_full(name) {
+        match proxy.composite_profile(name) {
             Ok(m) => {
                 println!("{name}  {}", kind(&m));
                 print_composite(&m);

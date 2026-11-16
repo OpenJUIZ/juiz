@@ -59,7 +59,7 @@ pub(super) struct ReplicaAnchor {
     pub children: BTreeSet<String>,
 }
 
-/// Container の PoseState を取りに来ている別 System (`container/profile_full` の `remote_children`、§19.10)
+/// Container の PoseState を取りに来ている別 System (`container/profile` の `remote_children`、§19.10)
 pub(super) struct Subscriber {
     destinations: Vec<String>,
     last_access: Instant,
@@ -157,7 +157,7 @@ impl RemoteSource {
         Duration::from_secs_f64(1.0 / self.rate)
     }
 
-    /// `transform/profile_full` の `remote` (§19.10)
+    /// `transform/profile` の `remote` (§19.10)
     pub fn profile(&self, params: &RemoteParams) -> Value {
         jvalue!({
             "system": self.remote_system,
@@ -895,7 +895,7 @@ impl Inner {
         );
     }
 
-    /// `container/profile_full` の `remote_children` (§19.10)。最後に来てから timeout を過ぎたものは消す
+    /// `container/profile` の `remote_children` (§19.10)。最後に来てから timeout を過ぎたものは消す
     fn remote_children(&mut self, id: &str) -> Option<Value> {
         let subs = self.subscribers.get_mut(id)?;
         subs.retain(|_, s| s.last_access.elapsed().as_secs_f64() < s.timeout);

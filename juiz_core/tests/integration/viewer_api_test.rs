@@ -71,10 +71,10 @@ impl Api {
         Ok(res.json()?)
     }
 
-    fn profile_full(&self, class_name: &str, identifier: &str) -> JuizResult<Value> {
+    fn profile(&self, class_name: &str, identifier: &str) -> JuizResult<Value> {
         let res = self
             .client
-            .get(Self::url(&format!("{class_name}/profile_full")))
+            .get(Self::url(&format!("{class_name}/profile")))
             .query(&[("identifier", identifier)])
             .send()?;
         assert!(
@@ -97,20 +97,20 @@ fn names(v: &Value) -> Vec<String> {
     names
 }
 
-/// profile_full に identifier と class_name が入り、そのまま profile_full に渡せる
+/// profile に identifier と class_name が入り、そのまま profile に渡せる
 fn check_profile_identifiers(api: &Api) -> JuizResult<()> {
     let id = "core://core/process/sub0::increment_process";
-    let p = api.profile_full("process", id)?;
+    let p = api.profile("process", id)?;
     assert_eq!(p["identifier"], jvalue!(id));
     assert_eq!(p["class_name"], jvalue!("process"));
 
     let id = "core://core/container_process/c0get::example_container_get:c0";
-    let p = api.profile_full("container_process", id)?;
+    let p = api.profile("container_process", id)?;
     assert_eq!(p["identifier"], jvalue!(id));
     assert_eq!(p["class_name"], jvalue!("container_process"));
 
     let id = "core://core/container/c0::example_container";
-    let c = api.profile_full("container", id)?;
+    let c = api.profile("container", id)?;
     assert_eq!(c["identifier"], jvalue!(id));
     assert_eq!(c["class_name"], jvalue!("container"));
     // Container の processes に、属する ContainerProcess が入る
@@ -118,13 +118,13 @@ fn check_profile_identifiers(api: &Api) -> JuizResult<()> {
     for p in c["processes"].as_array().unwrap() {
         let pid = p["identifier"].as_str().unwrap();
         assert_eq!(
-            api.profile_full("container_process", pid)?["name"],
+            api.profile("container_process", pid)?["name"],
             p["name"]
         );
     }
 
-    // system/profile_full の中身にも入る
-    let sys = api.get("system/profile_full")?;
+    // system/profile の中身にも入る
+    let sys = api.get("system/profile")?;
     let store = &sys["core_store"];
     for key in ["processes", "container_processes", "containers", "topics"] {
         for p in store[key].as_array().unwrap() {
@@ -142,9 +142,9 @@ fn check_profile_identifiers(api: &Api) -> JuizResult<()> {
 /// 引数の今の値 (拘束値) が value に出る。値が無ければ value は無い
 fn check_argument_values(api: &Api) -> JuizResult<()> {
     let arg = |p: &Value| p["arguments"][0].clone();
-    let sub = api.profile_full("process", "core://core/process/sub0::increment_process")?;
+    let sub = api.profile("process", "core://core/process/sub0::increment_process")?;
     assert_eq!(arg(&sub)["value"], jvalue!(5), "conf の p_apply");
-    let pub0 = api.profile_full("process", "core://core/process/pub0::increment_process")?;
+    let pub0 = api.profile("process", "core://core/process/pub0::increment_process")?;
     assert!(arg(&pub0).get("value").is_none(), "{pub0}");
 
     let id = "core://core/container_process/c0inc::example_container_increment:c0";
@@ -156,7 +156,7 @@ fn check_argument_values(api: &Api) -> JuizResult<()> {
         .send()?;
     assert!(res.status().is_success(), "{:?}", res.text());
     assert_eq!(
-        arg(&api.profile_full("container_process", id)?)["value"],
+        arg(&api.profile("container_process", id)?)["value"],
         jvalue!(7)
     );
     Ok(())
@@ -182,28 +182,28 @@ fn check_list_broker_names(api: &Api) -> JuizResult<()> {
             );
         }
     }
-    // any_process/profile_full は Process と ContainerProcess のどちらも引ける
+    // any_process/profile は Process と ContainerProcess のどちらも引ける
     let id = format!("http://localhost:{PORT}/container_process/c0get::example_container_get:c0");
     assert_eq!(
-        api.profile_full("any_process", &id)?["name"],
+        api.profile("any_process", &id)?["name"],
         jvalue!("c0get")
     );
     let id = format!("http://localhost:{PORT}/process/pub0::increment_process");
     assert_eq!(
-        api.profile_full("any_process", &id)?["name"],
+        api.profile("any_process", &id)?["name"],
         jvalue!("pub0")
     );
     Ok(())
 }
 
-/// 話題との接続も含めて、connection/list の識別子はすべて connection/profile_full で引ける (issue #121)
+/// 話題との接続も含めて、connection/list の識別子はすべて connection/profile で引ける (issue #121)
 fn check_topic_connections(api: &Api) -> JuizResult<()> {
     let ids = api.get("connection/list")?;
     let ids = ids.as_array().unwrap();
     assert_eq!(ids.len(), 2, "{ids:?}");
     let mut arg_names = vec![];
     for id in ids {
-        let c = api.profile_full("connection", id.as_str().unwrap())?;
+        let c = api.profile("connection", id.as_str().unwrap())?;
         arg_names.push(c["arg_name"].as_str().unwrap().to_owned());
     }
     arg_names.sort();

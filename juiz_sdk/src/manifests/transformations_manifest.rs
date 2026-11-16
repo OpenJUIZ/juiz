@@ -138,7 +138,7 @@ impl AnchorManifest {
             .map(|r| std::time::Duration::from_secs_f64(1.0 / r))
     }
 
-    /// `list --long`・`profile_full` に足す `anchor` の値 `{"kind": "periodic" | "static", "rate": <Hz>}` (§4.1)
+    /// `list --long`・`profile` に足す `anchor` の値 `{"kind": "periodic" | "static", "rate": <Hz>}` (§4.1)
     pub fn to_profile_value(&self) -> Value {
         match self.rate {
             Some(rate) => jvalue!({"kind": self.kind.as_str(), "rate": rate}),

@@ -36,7 +36,7 @@ fn http_proxy(system: &System) -> JuizResult<Arc<RwLock<dyn BrokerProxy>>> {
 }
 
 fn check_system(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
-    let profile = bp.system_profile_full_recursive()?;
+    let profile = bp.system_profile_recursive()?;
     assert!(profile.is_object(), "{profile:?}");
     // recursive のときは各 System の接続も入る
     assert!(profile["connections"].is_array(), "{profile:?}");
@@ -130,7 +130,7 @@ fn check_remote_error(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
         "core://core/process/missing0::increment_process".try_into()?;
     let started = std::time::Instant::now();
     let err = bp
-        .process_profile_full(&missing)
+        .process_profile(&missing)
         .expect_err("profile of missing process must fail");
     assert!(
         started.elapsed() < std::time::Duration::from_secs(1),
@@ -145,7 +145,7 @@ fn check_remote_error(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
         }) => {
             assert_eq!(
                 (class_name.as_str(), function_name.as_str()),
-                ("process", "profile_full")
+                ("process", "profile")
             );
             assert!(message.contains("missing0"), "{message}");
         }
@@ -201,7 +201,7 @@ fn check_composite(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     assert_eq!(bp.composite_create(&inc_twice)?.type_name, "inc_twice");
     assert_eq!(bp.composite_list()?, vec!["inc_twice"]);
     assert_eq!(
-        bp.composite_profile_full("inc_twice")?
+        bp.composite_profile("inc_twice")?
             .composition
             .expect("composition")
             .body
@@ -237,7 +237,7 @@ fn check_composite(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     assert!(int_of(bp.container_process_call(&chain0, args("arg1", 1))) > 0);
     let mut names = vec![];
     for id in bp.container_list(false, None)? {
-        names.push(bp.container_profile_full(&id)?.instance_name().to_owned());
+        names.push(bp.container_profile(&id)?.instance_name().to_owned());
     }
     assert!(names.iter().any(|n| n == "cc0"), "{names:?}");
     Ok(())

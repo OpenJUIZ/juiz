@@ -1,7 +1,7 @@
 //! 実行中に Composite を定義する API (issue #171)
 //!
 //! - `composite/create` (ボディ `{"__manifest__": <Composite の定義>}`)、`composite/list`、
-//!   `composite/profile_full?identifier=<型名>`、`composite/destroy?identifier=<型名>`
+//!   `composite/profile?identifier=<型名>`、`composite/destroy?identifier=<型名>`
 //! - `composite_container/create` (ボディ `{"__manifest__": <composite_containers: の 1 件>}`)。
 //!   CompositeContainer の削除と一覧は container/destroy・container/list
 use crate::brokers::CompositeBrokerProxy;
@@ -45,7 +45,7 @@ pub(crate) fn create_container_create_callbacks() -> CallbackContainerType {
         let profile = cb
             .lock_mut()?
             .composite_container_create(&manifest_arg(&args)?)?;
-        // container/profile_full と同じく identifier と class_name を添える
+        // container/profile と同じく identifier と class_name を添える
         Ok(container_profile_value(&profile)?.into())
     });
     cbs
@@ -57,11 +57,11 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
         log::debug!("[READ  ] composite/list called");
         Ok(serde_json::to_value(cb.lock()?.composite_list()?)?.into())
     });
-    cbs.insert("profile_full", |cb, args| {
-        log::debug!("[READ  ] composite/profile_full called");
+    cbs.insert("profile", |cb, args| {
+        log::debug!("[READ  ] composite/profile called");
         let manifest = cb
             .lock()?
-            .composite_profile_full(&type_name_param(&args)?)?;
+            .composite_profile(&type_name_param(&args)?)?;
         Ok(serde_json::to_value(manifest)?.into())
     });
     cbs

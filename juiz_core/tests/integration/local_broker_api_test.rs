@@ -13,7 +13,7 @@ use juiz_core::prelude::*;
 const PORT: i64 = 8013;
 
 fn check_system(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
-    assert!(bp.system_profile_full()?.is_object());
+    assert!(bp.system_profile()?.is_object());
     // サブシステム登録では UUID を文字列として読むので、包まずに返すこと
     assert!(bp.system_uuid()?.as_str().is_some());
     bp.system_filesystem_list(std::path::PathBuf::from("."))?;
@@ -26,7 +26,7 @@ fn check_lists_and_profiles(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     assert_eq!(ids.len(), 3, "{ids:?}");
     for (name, type_name) in PROCESSES {
         let id = find_process(&ids, name);
-        let profile = bp.process_profile_full(id)?;
+        let profile = bp.process_profile(id)?;
         assert_eq!(
             (profile.instance_name(), profile.type_name.as_str()),
             (name, type_name)
@@ -37,12 +37,12 @@ fn check_lists_and_profiles(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     assert_eq!(ids.len(), 6, "{ids:?}");
     for (_container_name, add_name, _arg_name, get_name) in CONTAINERS {
         assert_eq!(
-            bp.container_process_profile_full(find_process(&ids, add_name))?
+            bp.container_process_profile(find_process(&ids, add_name))?
                 .instance_name(),
             add_name
         );
         assert_eq!(
-            bp.container_process_profile_full(find_process(&ids, get_name))?
+            bp.container_process_profile(find_process(&ids, get_name))?
                 .instance_name(),
             get_name
         );
@@ -50,7 +50,7 @@ fn check_lists_and_profiles(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
 
     let mut names = vec![];
     for id in bp.container_list(false, None)? {
-        names.push(bp.container_profile_full(&id)?.instance_name().to_owned());
+        names.push(bp.container_profile(&id)?.instance_name().to_owned());
     }
     names.sort();
     assert_eq!(names, vec!["c0", "cppc0", "pyc0"]);
@@ -63,7 +63,7 @@ fn check_lists_and_profiles(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
         "{broker_ids:?}"
     );
     for id in broker_ids.iter() {
-        let profile = bp.broker_profile_full(id)?;
+        let profile = bp.broker_profile(id)?;
         assert_eq!(
             profile.name,
             IdentifierStruct::try_from(id.clone())?.object_name
@@ -99,7 +99,7 @@ fn check_ec(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
         .find(|id| id.contains("timer0"))
         .expect("timer0 not listed");
     assert_eq!(
-        bp.ec_profile_full(&id)?["__value__"]["name"],
+        bp.ec_profile(&id)?["__value__"]["name"],
         jvalue!("timer0")
     );
     assert_eq!(bp.ec_get_state(&id)?["__value__"], jvalue!("STOPPED"));
@@ -114,7 +114,7 @@ fn check_connections(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     assert_eq!(bp.connection_create(&cm)?.arg_name, "arg1");
     let cons = bp.connection_list(false)?;
     assert_eq!(cons.len(), 1, "{cons:?}");
-    assert_eq!(bp.connection_profile_full(&cons[0])?.arg_name, "arg1");
+    assert_eq!(bp.connection_profile(&cons[0])?.arg_name, "arg1");
     assert_eq!(bp.connection_destroy(&cons[0])?.arg_name, "arg1");
     assert!(bp.connection_list(false)?.is_empty());
     Ok(())

@@ -41,7 +41,7 @@ fn bound_targets(bind: Value) -> JuizResult<Vec<String>> {
     System::new(manifest(bind))?
         .setup()?
         .run_and_do_once(|system| {
-            let prof = system.core_broker().lock()?.ec_profile_full(
+            let prof = system.core_broker().lock()?.ec_profile(
                 &"core://core/execution_context/robot1/ec0::main_loop_ec".to_owned(),
             )?;
             targets = get_array(&prof["targets"])?

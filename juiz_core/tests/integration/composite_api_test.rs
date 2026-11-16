@@ -1,6 +1,6 @@
 //! 実行中に Composite を定義する API (issue #171) のテスト
 //!
-//! HTTP の BrokerProxy から composite/create・list・profile_full・destroy と composite_container/create を呼び、
+//! HTTP の BrokerProxy から composite/create・list・profile・destroy と composite_container/create を呼び、
 //! 作った Composite でインスタンスを作って動かす。分かりやすいエラーを返すこと、消せないものを消さないことも確かめる。
 //! qmp は brokers/qmp_broker/tests/qmp_composite_api_test.rs。
 //!
@@ -102,7 +102,7 @@ fn check_create_and_use(system: &mut System, bp: &mut dyn BrokerProxy) -> JuizRe
 
     bp.composite_create(&inc_four())?;
     assert_eq!(bp.composite_list()?, vec!["inc_four", "inc_twice"]);
-    let profile = bp.composite_profile_full("inc_four")?;
+    let profile = bp.composite_profile("inc_four")?;
     assert_eq!(
         profile.composition.expect("composition").body.process,
         "inc_twice"
@@ -163,7 +163,7 @@ fn check_destroy(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     assert!(e.contains("not a Composite"), "{e}");
     let e = error_text(bp.composite_destroy("no_such_composite"));
     assert!(e.contains("no_such_composite"), "{e}");
-    let e = error_text(bp.composite_profile_full("increment_process"));
+    let e = error_text(bp.composite_profile("increment_process"));
     assert!(e.contains("not a Composite"), "{e}");
 
     bp.process_destroy(&"core://core/process/i0::inc_twice".try_into()?)?;

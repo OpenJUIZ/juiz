@@ -402,7 +402,7 @@ function PoseView({ pose, stale }: { pose: Pose; stale: boolean }) {
 
 /* ---------- Transform ---------- */
 
-/** Transform の値。木に入っていれば木の値、入っていなければ transform/profile_full で取る */
+/** Transform の値。木に入っていれば木の値、入っていなければ transform/profile で取る */
 function TransformEdgeValue({ edge, model, serverUrl }: { edge: TransformEdge; model: Model; serverUrl: string }) {
   const inTree = edge.destinationKey
     ? model.transformations?.nodesByKey.get(edge.destinationKey)?.find((n) => n.parent?.identifier === edge.source)
@@ -412,7 +412,7 @@ function TransformEdgeValue({ edge, model, serverUrl }: { edge: TransformEdge; m
   useEffect(() => {
     if (inTree) return;
     const ac = new AbortController();
-    new JuizClient(serverUrl).transformProfileFull(edge.identifier, ac.signal).then(
+    new JuizClient(serverUrl).transformProfile(edge.identifier, ac.signal).then(
       (p) => setFetched({ model, result: p.transform }),
       (err: unknown) => {
         if (err instanceof DOMException && err.name === "AbortError") return;

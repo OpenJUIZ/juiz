@@ -13,7 +13,7 @@ fn args(name: &str, v: i64) -> CapsuleMap {
 }
 
 fn check_system(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
-    let profile = bp.system_profile_full()?;
+    let profile = bp.system_profile()?;
     assert_eq!(obj_get_str(&profile, "name")?, "core");
     assert!(profile.get("core_store").is_some());
     assert!(bp.system_uuid()?.as_str().is_some());
@@ -32,11 +32,11 @@ fn check_system(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     let brokers = bp.broker_list(false)?;
     assert_eq!(brokers.len(), 2, "{brokers:?}");
     for b in brokers.iter() {
-        let p = bp.broker_profile_full(b)?;
+        let p = bp.broker_profile(b)?;
         assert!(!p.name.is_empty());
     }
     assert!(bp
-        .broker_profile_full(&"core://core/broker/none::none".to_owned())
+        .broker_profile(&"core://core/broker/none::none".to_owned())
         .is_err());
     Ok(())
 }
@@ -44,7 +44,7 @@ fn check_system(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
 /// arg1 の拘束値 (profile の value)
 fn bound_arg1(bp: &mut dyn BrokerProxy, id: &ProcessIdentifier) -> JuizResult<Option<Value>> {
     Ok(bp
-        .any_process_profile_full(id)?
+        .any_process_profile(id)?
         .argument_values
         .get("arg1")
         .cloned())
@@ -54,12 +54,12 @@ fn check_processes(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     let ids = bp.process_list(false, None)?;
     for (name, type_name) in PROCESSES {
         let id = find_process(&ids, name);
-        let profile = bp.process_profile_full(id)?;
+        let profile = bp.process_profile(id)?;
         assert_eq!(
             (profile.instance_name(), profile.type_name.as_str()),
             (name, type_name)
         );
-        assert_eq!(bp.any_process_profile_full(id)?.instance_name(), name);
+        assert_eq!(bp.any_process_profile(id)?.instance_name(), name);
 
         assert_eq!(int_of(bp.process_call(id, args("arg1", 10))), 11, "{name}");
         assert_eq!(
@@ -98,7 +98,7 @@ fn check_processes(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     }
 
     let unknown: ProcessIdentifier = "core://core/process/none::increment_process".try_into()?;
-    assert!(bp.process_profile_full(&unknown).is_err());
+    assert!(bp.process_profile(&unknown).is_err());
     assert!(bp.process_call(&unknown, args("arg1", 1)).is_err());
     assert!(bp.process_execute(&unknown).is_err());
     Ok(())
@@ -109,8 +109,8 @@ fn check_containers(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     for (container_name, add_name, arg_name, get_name) in CONTAINERS {
         let add = find_process(&ids, add_name);
         let get = find_process(&ids, get_name);
-        assert_eq!(bp.container_process_profile_full(add)?.instance_name(), add_name);
-        assert_eq!(bp.any_process_profile_full(get)?.instance_name(), get_name);
+        assert_eq!(bp.container_process_profile(add)?.instance_name(), add_name);
+        assert_eq!(bp.any_process_profile(get)?.instance_name(), get_name);
 
         let before = int_of(bp.container_process_call(get, CapsuleMap::new()));
         assert_eq!(
@@ -154,7 +154,7 @@ fn check_containers(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
 
     let mut names = vec![];
     for id in bp.container_list(false, None)? {
-        let profile = bp.container_profile_full(&id)?;
+        let profile = bp.container_profile(&id)?;
         // 識別子は <name>::<type_name> の順に並ぶ (issue #15)
         assert_eq!(
             id.to_string(),
@@ -184,7 +184,7 @@ fn wait_ec_state(bp: &mut dyn BrokerProxy, id: &Identifier, state: &str) -> Juiz
 fn check_ec(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     let ecs = bp.ec_list(false)?;
     let id = ecs.as_array().unwrap()[0].as_str().unwrap().to_owned();
-    let profile = bp.ec_profile_full(&id)?;
+    let profile = bp.ec_profile(&id)?;
     assert_eq!(obj_get_str(&profile, "name")?, "timer0");
     assert_eq!(bp.ec_get_state(&id)?, jvalue!("STOPPED"));
     bp.ec_start(&id)?;
@@ -236,7 +236,7 @@ fn check_create_connect_destroy(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     let con: ConnectionIdentifier = bp.connection_create(&cm)?.into();
     let cons = bp.connection_list(false)?;
     assert_eq!(cons.len(), 1);
-    assert_eq!(bp.connection_profile_full(&con)?.arg_name, "arg1");
+    assert_eq!(bp.connection_profile(&con)?.arg_name, "arg1");
 
     // inc_new を実行すると inc0 の出力を pull して使う
     let src_out = int_of(bp.process_execute(&src));
@@ -245,7 +245,7 @@ fn check_create_connect_destroy(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     // コネクションを削除すると、inc_new は pull せずに引数の既定値を使う (issue #34)
     assert_eq!(bp.connection_destroy(&con)?.arg_name, "arg1");
     assert!(bp.connection_list(false)?.is_empty());
-    assert!(bp.connection_profile_full(&con).is_err());
+    assert!(bp.connection_profile(&con).is_err());
     assert!(bp.connection_destroy(&con).is_err());
     bp.process_p_apply(&dst, "arg1", jvalue!(100).into())?;
     assert_eq!(int_of(bp.process_execute(&dst)), 101);
@@ -263,7 +263,7 @@ fn check_create_connect_destroy(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     assert_eq!(cprofile.instance_name(), "c_new");
     let cid = cprofile.identifier();
     assert_eq!(bp.container_list(false, None)?.len(), 4);
-    assert_eq!(bp.container_profile_full(&cid)?.instance_name(), "c_new");
+    assert_eq!(bp.container_profile(&cid)?.instance_name(), "c_new");
     let pprofile = bp.container_process_create(
         &cid,
         &ProcessManifest::new("example_container_get").name("c_new_get"),
@@ -303,7 +303,7 @@ fn check_create_connect_destroy(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     assert_eq!(destroyed.instance_name(), "c_new");
     assert_eq!(bp.container_list(false, None)?.len(), 3);
     assert_eq!(bp.container_process_list(false, None)?.len(), 6);
-    assert!(bp.container_profile_full(&cid).is_err());
+    assert!(bp.container_profile(&cid).is_err());
     Ok(())
 }
 

@@ -7,7 +7,7 @@ use axum::{extract::Query, Json};
 #[allow(unused)]
 #[utoipa::path(
     get,
-    path = "/api/container_process/profile_full",
+    path = "/api/container_process/profile",
     params(
         IdentifierQuery
     ),

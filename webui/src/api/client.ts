@@ -21,12 +21,31 @@ type QueryOf<P extends GetPath> = paths[P]["get"] extends {
 
 export class JuizApiError extends Error {
   readonly status: number | undefined;
+  /** エラーの応答の本文(読めたとき) */
+  readonly body: string | undefined;
 
-  constructor(message: string, status?: number) {
+  constructor(message: string, status?: number, body?: string) {
     super(message);
     this.name = "JuizApiError";
     this.status = status;
+    this.body = body;
   }
+}
+
+/** profile を読める API の種類 */
+type ProfileClass = "system" | "connection" | "transform";
+
+/** `<class>/profile` を持たない古い juiz と分かった接続先(baseUrl)。以後は `<class>/profile_full` を呼ぶ */
+const legacyProfileServers = new Set<string>();
+
+/**
+ * 相手の juiz にその API が無いというエラーか。新しい juiz は 404 を、
+ * 古い juiz は 500 と「CRUDBroker can not detect function」の文を返す(manifest-profile.md §7 の 4)
+ */
+function isFunctionNotFound(e: unknown): boolean {
+  if (!(e instanceof JuizApiError)) return false;
+  if (e.status === 404) return true;
+  return e.status === 500 && (e.body ?? "").includes("CRUDBroker can not detect function (");
 }
 
 /**
@@ -56,9 +75,30 @@ export class JuizClient {
       throw new JuizApiError(`接続できません: ${(e as Error).message}`);
     }
     if (!res.ok) {
-      throw new JuizApiError(`${path} が ${res.status} を返しました`, res.status);
+      const body = await res.text().catch(() => undefined);
+      throw new JuizApiError(`${path} が ${res.status} を返しました`, res.status, body);
     }
     return res.json();
+  }
+
+  /**
+   * `<className>/profile` を読む。相手が古い juiz で `profile` が無ければ `profile_full` を呼び直す
+   * (docs/spec/manifest-profile.md §7 の 4)。古いと分かった相手には、以後はじめから `profile_full` を呼ぶ
+   */
+  async getProfile(
+    className: ProfileClass,
+    query: Record<string, string> | undefined,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    if (!legacyProfileServers.has(this.baseUrl)) {
+      try {
+        return await this.get(`/api/${className}/profile`, query as never, signal);
+      } catch (e) {
+        if (!isFunctionNotFound(e)) throw e;
+        legacyProfileServers.add(this.baseUrl);
+      }
+    }
+    return this.get(`/api/${className}/profile_full`, query as never, signal);
   }
 
   /**
@@ -101,9 +141,9 @@ export class JuizClient {
   }
 
   /** recursive なら副系の中身と各系の接続も入れてもらう(#116) */
-  async systemProfileFull(recursive: boolean, signal?: AbortSignal): Promise<SystemProfile> {
+  async systemProfile(recursive: boolean, signal?: AbortSignal): Promise<SystemProfile> {
     const query = recursive ? { recursive: "true" } : undefined;
-    return (await this.get("/api/system/profile_full", query, signal)) as SystemProfile;
+    return (await this.getProfile("system", query, signal)) as SystemProfile;
   }
 
   /** 接続の識別子の一覧 */
@@ -111,8 +151,8 @@ export class JuizClient {
     return (await this.get("/api/connection/list", undefined, signal)) as string[];
   }
 
-  async connectionProfileFull(identifier: string, signal?: AbortSignal): Promise<ConnectionProfile> {
-    return (await this.get("/api/connection/profile_full", { identifier }, signal)) as ConnectionProfile;
+  async connectionProfile(identifier: string, signal?: AbortSignal): Promise<ConnectionProfile> {
+    return (await this.getProfile("connection", { identifier }, signal)) as ConnectionProfile;
   }
 
   /* ---------- Transformations(#370、#373) ---------- */
@@ -127,8 +167,8 @@ export class JuizClient {
     return (await this.get("/api/anchor/list", undefined, signal)) as string[];
   }
 
-  async transformProfileFull(identifier: string, signal?: AbortSignal): Promise<TransformProfile> {
-    return (await this.get("/api/transform/profile_full", { identifier }, signal)) as TransformProfile;
+  async transformProfile(identifier: string, signal?: AbortSignal): Promise<TransformProfile> {
+    return (await this.getProfile("transform", { identifier }, signal)) as TransformProfile;
   }
 
   /** Anchor を根とする木。各ノードに Anchor から見た位置姿勢と、親からの Transform の値が入る */

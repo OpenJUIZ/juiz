@@ -30,7 +30,7 @@ def proc_exec_handler(option):
 def proc_prof_handler(option):
     s = _get_system(option)
     p = s.process(option.identifier)
-    print(p.profile_full())
+    print(p.profile())
     
 def setup_process_parser(proc_parser):
     proc_subparsers = proc_parser.add_subparsers()
@@ -55,7 +55,7 @@ def cont_list_handler(option):
 def cont_prof_handler(option):
     s = _get_system(option)
     c = s.container(option.identifier)
-    print(c.profile_full())
+    print(c.profile())
     
 def setup_container_parser(cont_parser):
     cont_subparsers = cont_parser.add_subparsers()

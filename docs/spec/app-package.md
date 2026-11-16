@@ -408,7 +408,7 @@ juiz packages
   - `--ipc` で別の名前を指定したらエラーにする(`a base package always uses its package name as the IPC name`)。
   - conf の `brokers` にすでに同じ名前の ipc ブローカーがあれば、足さない。
 - `base.http_port` があれば、`option.http_broker.start: true` と `port: <http_port>` にする。`--http` を付けなくても HTTP ブローカーが立つ。
-- system の profile(`system/profile_full`)に次を載せる。アプリはこれで相手を確かめる。
+- system の profile(`system/profile`)に次を載せる。アプリはこれで相手を確かめる。
 
 ```json
 "package": { "name": "robot_base", "version": "1.2.0", "kind": "base" }

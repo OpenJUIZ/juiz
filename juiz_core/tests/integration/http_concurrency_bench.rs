@@ -261,7 +261,7 @@ fn http_concurrency_bench() -> JuizResult<()> {
 
         // h2c で本当に HTTP/2 で応答しているかを確かめる
         let version = rt.block_on(async {
-            h2.get(format!("http://127.0.0.1:{PORT}/api/system/profile_full"))
+            h2.get(format!("http://127.0.0.1:{PORT}/api/system/profile"))
                 .send()
                 .await
                 .map(|r| r.version())

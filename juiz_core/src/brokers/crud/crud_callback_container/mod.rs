@@ -171,7 +171,19 @@ pub(crate) fn read_callback_container() -> ClassCallbackContainerType {
         transformations::pose_listener_read_callbacks(),
     );
 
+    add_profile_full_aliases(&mut read_cb_container);
     read_cb_container
+}
+
+/// `*/profile` の古い名前 `*/profile_full` を同じ関数で受ける (docs/spec/manifest-profile.md §7 の 3)。
+///
+/// 古い版の juiz・pyjuiz・管理画面が `*/profile_full` を呼ぶので、消す issue で決めるまで残す。
+pub(crate) fn add_profile_full_aliases(container: &mut ClassCallbackContainerType) {
+    for cbs in container.values_mut() {
+        if let Some(cb) = cbs.get("profile").copied() {
+            cbs.insert("profile_full", cb);
+        }
+    }
 }
 
 pub(crate) fn update_callback_container() -> ClassCallbackContainerType {

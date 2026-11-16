@@ -68,7 +68,7 @@ fn main() -> JuizResult<()> {
                 .broker_proxy(&jvalue!({"type_name":"local"}))?
                 .read()
                 .unwrap()
-                .system_profile_full()?;
+                .system_profile()?;
             println!("System: {:#}", v);
 
             let id =

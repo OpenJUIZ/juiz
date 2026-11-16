@@ -186,10 +186,10 @@ scripts/subset-fonts.sh <ZenOldMincho-Regular.ttf と ZenOldMincho-Black.ttf を
 |---|---|
 | `src/api/client.ts` | juiz の HTTP API を呼ぶクライアント |
 | `src/api/openapi.json`, `openapi.gen.ts` | juiz の OpenAPI 定義と、そこから生成した型(パスと引数) |
-| `src/api/types.ts` | `profile_full` の中身の型。OpenAPI に schema が無いので画面側で書く |
+| `src/api/types.ts` | `*/profile` の中身の型。OpenAPI に schema が無いので画面側で書く |
 | `src/avro.ts` | 型参照の Avro のスキーマを入力フォーム用の形に読む |
 | `src/model.ts` | 取得した profile を画面用の形に組み直す。要素の鍵と、要素どうしの関係(接続の両端、実行文脈の対象など)を解く |
-| `src/useSystemModel.ts` | `system/profile_full?recursive=true`(副系の中身と各系の接続つき)を取得し、自動更新する。古い juiz なら接続を一つずつ取る。続けて Transformations(`transform/list` と Anchor ごとの `transformations/tree`)を取る |
+| `src/useSystemModel.ts` | `system/profile?recursive=true`(副系の中身と各系の接続つき)を取得し、自動更新する。古い juiz なら接続を一つずつ取る。続けて Transformations(`transform/list` と Anchor ごとの `transformations/tree`)を取る |
 | `src/labels.ts`, `src/marks.ts` | 値の表示用の言葉(実行中・押込など)と、種類ごとのマーク |
 | `src/terms.ts` | 画面の用語。漢字を正とし、英語名を小さく並記する |
 | `src/settings.ts` | 設定と localStorage への保存 |

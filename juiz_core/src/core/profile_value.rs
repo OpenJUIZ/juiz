@@ -2,7 +2,7 @@
 //!
 //! ProcessProfile / ContainerProfile は識別子を持たないので、そのまま返すと
 //! list 側の識別子と突き合わせないと同じ要素だと分からない。
-//! 画面などから辿りやすいように、profile_full の応答に `identifier` と `class_name` を加える。
+//! 画面などから辿りやすいように、profile の応答に `identifier` と `class_name` を加える。
 
 use juiz_sdk::manifests::{ContainerProfile, ProcessProfile};
 

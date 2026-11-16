@@ -51,7 +51,7 @@ fn main_loop_ec_as_plugin_does_not_conflict_with_builtin() -> JuizResult<()> {
             let prof = system
                 .core_broker()
                 .lock()?
-                .ec_profile_full(&EC_ID.to_owned())?;
+                .ec_profile(&EC_ID.to_owned())?;
             assert_eq!(get_array(&prof["targets"])?.len(), 1, "{prof:?}");
             Ok(())
         })?;
@@ -70,7 +70,7 @@ fn main_loop_ec_builtin_is_used_without_plugin() -> JuizResult<()> {
             let prof = system
                 .core_broker()
                 .lock()?
-                .ec_profile_full(&EC_ID.to_owned())?;
+                .ec_profile(&EC_ID.to_owned())?;
             assert_eq!(get_array(&prof["targets"])?.len(), 1, "{prof:?}");
             Ok(())
         })?;

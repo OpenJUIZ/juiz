@@ -213,14 +213,14 @@ pub(crate) fn on_transform(
                     return Ok(());
                 }
                 for id in ids.iter() {
-                    let p = proxy.transform_profile_full(id)?;
+                    let p = proxy.transform_profile(id)?;
                     println!("{}", transform_line(&p));
                 }
                 Ok(())
             }
             TransformSubCommands::Info { target } => {
                 let id = find_transform(proxy, &target)?;
-                let p = proxy.transform_profile_full(&id)?;
+                let p = proxy.transform_profile(&id)?;
                 println!("{}", serde_json::to_string_pretty(&p)?);
                 Ok(())
             }
@@ -408,7 +408,7 @@ fn find_transform(proxy: &dyn BrokerProxy, target: &[String]) -> JuizResult<Stri
         [source, destination] => {
             let mut found = Vec::new();
             for id in proxy.transform_list()? {
-                let p = proxy.transform_profile_full(&id)?;
+                let p = proxy.transform_profile(&id)?;
                 if matches_container(source, p["source"].as_str().unwrap_or_default())
                     && matches_container(destination, p["destination"].as_str().unwrap_or_default())
                 {

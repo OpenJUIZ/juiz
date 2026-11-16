@@ -34,7 +34,7 @@ pub fn list_dummy() {}
 #[allow(unused)]
 #[utoipa::path(
     get,
-    path = "/api/composite/profile_full",
+    path = "/api/composite/profile",
     params(
         IdentifierQuery
     ),

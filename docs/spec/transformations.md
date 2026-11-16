@@ -108,7 +108,7 @@ pose_C(C)     = 単位
 - 利用者の状態は持たない。持つのは更新方式と(Periodic なら)周期だけ。
 - この版では Anchor に ContainerProcess を付けられない(conf の `processes:` を書くとエラー)。
 - 作成・削除は Container と同じ(conf の `containers:`、API の `container/create`・`container/destroy`)。
-- `list --long`・`profile_full` では普通の Container と同じ形に、`anchor: {"kind": "periodic" | "static", "rate": <Hz>}` を足す。
+- `list --long`・`profile` では普通の Container と同じ形に、`anchor: {"kind": "periodic" | "static", "rate": <Hz>}` を足す。
 
 ### 4.2 Anchor を別の Anchor の子にする
 
@@ -538,7 +538,7 @@ Step 5(#372)で決めたこと:
 | read | `container/pose` | `identifier`、`reference` | `PoseStamped` |
 | update | `container/set_pose` | `identifier`、`reference`、`pose`(`Pose`) | `PoseStamped`(書いた後の値) |
 | read | `transform/list` | (なし) | Transform の ID の配列 |
-| read | `transform/profile_full` | `identifier` | `{identifier, source, destination, transform: Transform, stamp, writers?}`(`writers` は §7.5 の ID の配列、空なら出さない) |
+| read | `transform/profile` | `identifier` | `{identifier, source, destination, transform: Transform, stamp, writers?}`(`writers` は §7.5 の ID の配列、空なら出さない) |
 | create | `transform/create` | `source`、`destination`、`translation`、`rotation`、`writers`(省略可、§7.5) | profile |
 | update | `transform/update` | `identifier`、`translation`、`rotation`(省いたものは今のまま) | profile |
 | delete | `transform/destroy` | `identifier` | profile |
@@ -562,7 +562,7 @@ Step 3(#370)で決めたこと:
   | `container/pose` | READ(GET) | `identifier`、`reference` | |
   | `container/set_pose` | UPDATE(PATCH) | `identifier` | `reference`、`pose` |
   | `transform/list`・`anchor/list`・`pose_listener/list` | READ | | |
-  | `transform/profile_full`・`pose_listener/profile_full` | READ | `identifier` | |
+  | `transform/profile`・`pose_listener/profile` | READ | `identifier` | |
   | `transform/create` | CREATE(POST) | | `source`、`destination`、`translation`、`rotation`(`{"__manifest__": {...}}` に包んでもよい) |
   | `transform/update` | UPDATE | `identifier` | `translation`、`rotation`(省いたものは今のまま) |
   | `transform/destroy`・`pose_listener/destroy` | DELETE | `identifier` | |
@@ -570,7 +570,7 @@ Step 3(#370)で決めたこと:
   | `transformations/tree` | READ | `anchor` | |
   | `pose_listener/create` | CREATE | | §8.3 の項目(`__manifest__` に包んでもよい) |
 
-- 表にない `anchor/list`(Anchor の ID の配列)と `pose_listener/profile_full`(`{identifier, container, process, arg, reference, on_update, initial}`)も足した。
+- 表にない `anchor/list`(Anchor の ID の配列)と `pose_listener/profile`(`{identifier, container, process, arg, reference, on_update, initial}`)も足した。
 - `reference`・`anchor` のクエリに HTTP の ID(`http://<host>:<port>/container/...`)を渡すと、`identifier` と同じく自分を指すものは core の ID に直す。
 - ボディの `pose`・`translation`・`rotation` は `juiz_std.geometry` の `Pose`・`Vector3`・`Quaternion` で検査し、合わなければエラー(データ型の検査と同じ規則)。
 - `juiz_std.geometry` の `Pose`・`PoseStamped`・`Transform`・`TransformStamped`(と中の型)は、型の登録所(`type/list`、使う側の名前 `transformations`)と OpenAPI の `components.schemas` にいつも載る。OpenAPI の Transformations の API の応答・ボディはこれらを参照する。そのため `juiz_core` は `juiz_std_types` に依存する。
@@ -622,7 +622,7 @@ Step 6(#373)で決めたこと:
 - 画面は自動更新のたびに `transform/list` と、Anchor の容器(profile に `anchor` があるもの)ごとの `transformations/tree?anchor=<ID>` を取る。`transform/list` が無い古い juiz では Transformations を出さない。対象は最上位の系だけ(システムをまたぐ Transform は対象外なので、副系の容器には出さない)。
 - ツリー: Anchor の容器に「基点」の印。系の下の分類「変換木」に、Anchor ごとの木を入れ子で出す。Anchor が別の Anchor の子なら、親の木の途中にも、自分を根とする木にも出る。
 - 性質欄(容器): Anchor なら種類(周期更新 / 静的)・周期と木(各ノードに Anchor から見た位置)。どの容器にも「位置姿勢」(基準を選ぶ。候補はその容器が入っている木の容器、既定は容器が子として入っている木の Anchor)と「変換」(親から来る・子へ出る Transform と値)。
-- 値は位置 (x, y, z)、四元数 (x, y, z, w)、回転角(ロール・ピッチ・ヨー [度]、z → y → x の順の回転)を小数点以下 3 桁で出す。基準が木の Anchor なら木の値をそのまま使い、それ以外は `container/pose` で取る。木に入っていない Transform の値は `transform/profile_full` で取る。
+- 値は位置 (x, y, z)、四元数 (x, y, z, w)、回転角(ロール・ピッチ・ヨー [度]、z → y → x の順の回転)を小数点以下 3 桁で出す。基準が木の Anchor なら木の値をそのまま使い、それ以外は `container/pose` で取る。木に入っていない Transform の値は `transform/profile` で取る。
 - 用語(#111 の漢字を正とする表記): Transformations = 変換木、Anchor = 基点、Transform = 変換、ContainerPose = 位置姿勢、基準 Container = 基準。
 
 ## 14. readonly ContainerProcess
@@ -750,7 +750,7 @@ Step 0(#413)で足した節。親 issue #376。「(Step n で決める)」と書
 4. Transform の ID は今と同じ `transform://<source の ID>|<destination の ID>`。source はブローカー付きの ID のまま入る。
 5. **親の System で作ろうとしたとき**(conf の `transforms:` や `transform/create` で、始点が自分の Container で終点が別 System の Container): 終点の System の `transform/create` に回して作る。引数の `source` は自分の core の ID、`source_system` に自分の System の UUID を付ける。回された System は、`source_system` の UUID を自分がつないでいる System(マスターシステム・サブシステム)から探し、その BrokerProxy で source を書き換えて作る。こちらには何も残さない。戻り値は相手の profile。
 6. 回せないとき(終点の System につながっていない、相手が `source_system` を知らない)、両端とも別 System のときは `CrossSystemTransformError`。
-7. `transform/update`・`transform/destroy`・`transform/profile_full` も、ID の終点が別 System なら終点の System に回す。
+7. `transform/update`・`transform/destroy`・`transform/profile` も、ID の終点が別 System なら終点の System に回す。
 8. conf で回す Transform は、conf の `subsystems:` / マスターシステムとのつなぎが済んだ後に作る。失敗は §11 の conf の読み込みエラーと同じ扱い。
 
 ### 19.3 写しの Anchor と木
@@ -885,12 +885,12 @@ API(§13.1 への追加。細かい形は Step 2、#415 で決める):
 |---|---|---|
 | read | `container/pose_state` | 新しい API(§19.4) |
 | create | `transform/create` | 引数 `rate`・`timeout`・`source_system`。終点が別 System なら回す(§19.2) |
-| read | `transform/profile_full` | またぐ Transform に `remote: {system, rate, timeout, state, last_success}` を足す。`state` は `ok`(取れている)/ `stale`(失敗中、`timeout` 前)/ `lost`(写しを消した) |
+| read | `transform/profile` | またぐ Transform に `remote: {system, rate, timeout, state, last_success}` を足す。`state` は `ok`(取れている)/ `stale`(失敗中、`timeout` 前)/ `lost`(写しを消した) |
 | read | `container/pose` / update `container/set_pose` | 引数 `reference_system`。`identifier` が別 System なら回す(§19.8) |
 | read | `anchor/list` | 写しの Anchor の ID も入れる |
 | read | `transformations/tree` | `anchor` に写しの Anchor・写しの始点を指定できる |
 | update | `anchor/update` | 写しの Anchor を指定したら、その写しの始点すべての取り込みをその場で 1 回行う(明示要求、§4.4 の 3 と同じ位置づけ) |
-| read | `container/profile_full` | 写しを取りに来ている System があれば `remote_children: [{system, destinations, last_access}]`。最後の `container/pose_state` から、そのとき渡された `timeout`(なければ 3.0 秒)を過ぎたら消す |
+| read | `container/profile` | 写しを取りに来ている System があれば `remote_children: [{system, destinations, last_access}]`。最後の `container/pose_state` から、そのとき渡された `timeout`(なければ 3.0 秒)を過ぎたら消す |
 
 CLI(§13.2 への追加): `juiz transform create` に `--rate`・`--timeout`、`juiz transform list --long` でまたぐ Transform に `(remote: ok | stale | lost)`、`juiz container pose-state <id>`。名前は Step 2 で決める。
 
@@ -912,7 +912,7 @@ CLI(§13.2 への追加): `juiz transform create` に `--rate`・`--timeout`、`
 
 core(`juiz_core::transformations`)の実装で決めたこと。
 
-- **取り込みの辺**: 写しの Anchor B' → 写しの始点 P' は、登録所の中だけの Transform(値は取り込んだ pose_B(P))として持つ。`transform/list` に出さず、`transform/update`・`transform/destroy`・`transform/profile_full` には `TransformNotFoundError`。P' = B'(P 自身が Anchor)のときは辺を置かず、P' がそのまま木の根になる。
+- **取り込みの辺**: 写しの Anchor B' → 写しの始点 P' は、登録所の中だけの Transform(値は取り込んだ pose_B(P))として持つ。`transform/list` に出さず、`transform/update`・`transform/destroy`・`transform/profile` には `TransformNotFoundError`。P' = B'(P 自身が Anchor)のときは辺を置かず、P' がそのまま木の根になる。
 - **写しの Anchor の更新**: StaticAnchor と同じ扱い(§4.4 の 2)。取り込んだ値が変わったときに加えて、S2 の中で B' の木の Transform を書き換えたとき(`set_pose`・`transform/update`)も更新する。
 - **時刻**: B' の直下の P' の値の stamp は取り込んだ項目の stamp、その先は親の値の stamp をそのまま運ぶ(§19.3 の「木の stamp は取り込んだ値の stamp」)。
 - **取り込みの呼び出し**: 写しの始点ごとのスレッドが、1 回ごとに呼び出し用の短いスレッドを立てて `container/pose_state` を呼び、`timeout` 秒待って返らなければ失敗として扱う(返らない呼び出しは待たずに捨てる)。前の呼び出しが返るか見切るまでは次を呼ばない。System の終了は呼び出しの最中でも待たない。
@@ -922,16 +922,16 @@ core(`juiz_core::transformations`)の実装で決めたこと。
 - **名前の解決**: Transform の端点(作成)は自分の System の Container だけから解決する。写しに当たる名前・ID を端点に書くと `CrossSystemTransformError`(始点はブローカー付きの ID で書く)。終点が別 System の Container のときも、Step 2 で回すようにするまでは `CrossSystemTransformError`。
 - **rate / timeout**: 正の有限の数でなければ `TransformManifestInvalidError`。またぐ Transform でない Transform に書くと WARN を出して使わない。
 - **API**: `container/pose_state` の core の処理と、CRUD・メッセンジャー系の BrokerProxy・コールバック(param `identifier`・`since`・`system`)は Step 1 で足した。HTTP の経路と OpenAPI、CLI、pyjuiz、`subscriber`・`destination`・`timeout` の引数と `remote_children`、`reference_system` と別 System の Container の `pose` / `set_pose` の回し方(§19.8)、`transform/create` の終点の System への転送(§19.2 の 5・7)は Step 2(#415)。
-- `transform/profile_full` の `remote: {system, rate, timeout, state, last_success}` は Step 1 で足した(`rate`・`timeout` はその Transform に書いた値、`system` は 1 回目が届くまで `null`)。
+- `transform/profile` の `remote: {system, rate, timeout, state, last_success}` は Step 1 で足した(`rate`・`timeout` はその Transform に書いた値、`system` は 1 回目が届くまで `null`)。
 
 ### 19.13 Step 2(#415)で決めたこと
 
 API・CLI・pyjuiz で決めたこと。
 
 - **`container/pose_state` の param**: HTTP は `GET /api/container/pose_state?identifier=…&since=…&system=…&subscriber=…&destination=…&timeout=…`。`destination` は**複数なら `,` でつなぐ**(繰り返しにしない。HTTP のクエリの読み取りが 1 つの名前に 1 つの値のため。メッセンジャー系も同じ形)。取り込みのスレッドは毎回 `subscriber`(自分の UUID)・`destination`(その写しの始点を始点にする Transform の終点の ID)・`timeout` を付ける。
-- **`remote_children`**: `container/profile_full` に `[{system, destinations, last_access}]`(`last_access` は `juiz_std.common.Time`)。`subscriber` の付いた `container/pose_state` だけを覚え、そのとき渡された `timeout`(なければ 3.0 秒)の間に次が来なければ消す(読み出しのときに消す)。Container を消せば一緒に消える。CLI の `container list --long` は `remote child: <UUID> -> <終点>, …` の行を出す。
+- **`remote_children`**: `container/profile` に `[{system, destinations, last_access}]`(`last_access` は `juiz_std.common.Time`)。`subscriber` の付いた `container/pose_state` だけを覚え、そのとき渡された `timeout`(なければ 3.0 秒)の間に次が来なければ消す(読み出しのときに消す)。Container を消せば一緒に消える。CLI の `container list --long` は `remote child: <UUID> -> <終点>, …` の行を出す。
 - **`transform/create` の転送**(§19.2 の 5): `TransformManifest` に `source_system`(省略可)を足した。転送する側は、始点を自分の core の ID に、終点を相手での core の ID に直し、`source_system` に自分の UUID を入れて終点の System の BrokerProxy で `transform/create` を呼ぶ。受けた側は、マスターシステム・サブシステムの中からその UUID の System を探し、その BrokerProxy の(種類, 名前)で始点を書き換えて作る(`127.0.0.1:8000` につないでいれば `http://127.0.0.1:8000/container/map::static_anchor`)。戻り値は相手の profile(ID は相手の System での形)。
-- **`transform/profile_full`・`update`・`destroy` の転送**(§19.2 の 7): 親の System では Transform を `transform://<自分の core の ID>|<相手のブローカー付きの ID>` で指す。この ID の終点が別 System なら、`transform://<自分の core の ID>|<相手での core の ID>` と param `source_system`(自分の UUID)を付けて回す。受けた側は始点を作成と同じ規則で書き換えてから探す。
+- **`transform/profile`・`update`・`destroy` の転送**(§19.2 の 7): 親の System では Transform を `transform://<自分の core の ID>|<相手のブローカー付きの ID>` で指す。この ID の終点が別 System なら、`transform://<自分の core の ID>|<相手での core の ID>` と param `source_system`(自分の UUID)を付けて回す。受けた側は始点を作成と同じ規則で書き換えてから探す。
 - **回せないとき**: BrokerProxy が作れない・相手に届かない(juiz のエラーでない)ときは `CrossSystemTransformError`。相手が juiz のエラー(木の規則を破る、`source_system` を知らないなど)を返したときは、そのエラーに「どの System で起きたか」を足して返す。
 - **`container/pose`・`set_pose` の回し方**(§19.8): param `reference_system` を足した。自分の System の Container・写しに当たる名前や ID は自分で計算する(§19.5 の「自分が優先」)。当たらない `identifier` がブローカー付きの ID なら、その System に回す。答えの `header.frame_id` は自分の System での基準の名前(§5.4)に直す。当たらない `reference` がブローカー付きの ID で `identifier` が自分の Container なら、R の System に `pose(R, C)` を頼んで逆にし、`frame_id` は R のブローカー付きの ID。`set_pose` のこの形は `CrossSystemTransformError`。
 - **HTTP の BrokerProxy**: `container/pose`・`container/set_pose` の `identifier` は core の ID に書き換えずに送る(別 System の Container を指せるように)。サーバーは自分を指す ID を今どおり core の ID に直す(`localize_identifier`)。
@@ -945,8 +945,8 @@ API・CLI・pyjuiz で決めたこと。
 
 管理画面(§13.3)で決めたこと。
 
-- **取得**: 自動更新のたびに、§13.3 の取得に加えて `anchor/list` を取り、最上位の系の容器でない ID(写しの Anchor)ごとに `transformations/tree` を取る。始点が最上位の系の容器でない Transform(またぐ Transform)ごとに `transform/profile_full` を取り、`remote` を使う。
-- **`system/profile_full` の `remote_children`**: 管理画面が容器ごとに `container/profile_full` を呼ばずに済むように、`system/profile_full` の `core_store.containers` の各容器にも `remote_children`(§19.13 と同じ形、いなければ項目なし)を入れる。`recursive=true` の副系の中身にも入る。
+- **取得**: 自動更新のたびに、§13.3 の取得に加えて `anchor/list` を取り、最上位の系の容器でない ID(写しの Anchor)ごとに `transformations/tree` を取る。始点が最上位の系の容器でない Transform(またぐ Transform)ごとに `transform/profile` を取り、`remote` を使う。
+- **`system/profile` の `remote_children`**: 管理画面が容器ごとに `container/profile` を呼ばずに済むように、`system/profile` の `core_store.containers` の各容器にも `remote_children`(§19.13 と同じ形、いなければ項目なし)を入れる。`recursive=true` の副系の中身にも入る。
 - **変換木(ツリー)**: 写しの Anchor の木は自分の系の Anchor の木の後に並べる。写しの Anchor・写しの始点の行は破線の印と「写し」の印を付け、名前は ID の名前の部分(`map`)、ツールチップに ID と取り込んだ仲介。写しの始点の行には、そこから出るまたぐ Transform の取り込みの状態(`ok` = 良好、`stale` = 途絶中、`lost` = 切断。複数なら悪い方)を出す。写しの行は容器ではないので選べない。
 - **容器の行**: 別 System から来る Transform の取り込みが `ok` でない容器に状態の印(`lost` で写しが消えると変換木から外れるため)。`remote_children` がある容器に「別系の子」の印(ツールチップに系と終点)。副系の容器にも出す。
 - **性質欄**: またぐ Transform の「親」に写しの名前と仲介、取り込みの状態・相手の系(表示中の系に UUID が見つかればその系へのリンク、なければ仲介と UUID)・最後に取れた時刻・周期・timeout。`remote_children` がある容器に「別系の子」の節(系・子の容器・最後に来た時刻。子が表示中の副系の容器ならリンク)。位置姿勢の基準の候補に写しの Anchor が入る(名前に「写し」と仲介)。

@@ -88,7 +88,7 @@ fn haskell_processes_can_be_loaded_and_called() -> JuizResult<()> {
             }
 
             // マニフェストは Haskell 側で組み立てたもの (Process のプロファイルの language は今は C++ と同じく "rust" になる)
-            let profile = cb.process_profile_full(&inc)?;
+            let profile = cb.process_profile(&inc)?;
             assert_eq!(profile.type_name, "increment_process_hs");
             assert_eq!(profile.arguments[0].name, "arg1");
 
@@ -125,7 +125,7 @@ fn haskell_process_converts_value_types() -> JuizResult<()> {
             let id = find(&cb, "types0")?;
 
             // マニフェストは hsjuiz の ProcessManifest ビルダーで組み立てたもの。引数は足した順
-            let profile = cb.process_profile_full(&id)?;
+            let profile = cb.process_profile(&id)?;
             let names: Vec<_> = profile.arguments.iter().map(|a| a.name.as_str()).collect();
             assert_eq!(names, ["flag", "count", "ratio", "name", "items", "extra"]);
             assert_eq!(profile.description.as_str(), "Echoes its arguments as an object.");

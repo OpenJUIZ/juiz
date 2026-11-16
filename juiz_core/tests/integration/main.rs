@@ -64,6 +64,7 @@ mod namespace_broker_test;
 mod namespace_test;
 mod process_factory_test;
 mod process_test;
+mod profile_alias_test;
 mod profile_json_test;
 #[cfg(feature = "ipc-broker")]
 mod plugin_image_test;

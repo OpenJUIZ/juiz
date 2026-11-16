@@ -16,7 +16,7 @@ pub(crate) fn create_create_callbacks() -> CallbackContainerType {
         crate::models::reject_model_from_api(&manifest_value)?;
         let manifest: ContainerManifest = serde_json::from_value(manifest_value)?;
         let profile: ContainerProfile = cb.lock_mut()?.container_create(&manifest, args)?;
-        // container/profile_full と同じく identifier と class_name を添える (issue #370)
+        // container/profile と同じく identifier と class_name を添える (issue #370)
         Ok(container_profile_value(&profile)?.into())
     });
     container_callbacks
@@ -32,8 +32,8 @@ fn identifier_param(args: &CapsuleMap) -> JuizResult<String> {
 
 pub(crate) fn create_read_callbacks() -> CallbackContainerType {
     let mut cont_cbs = CallbackContainerType::new();
-    cont_cbs.insert("profile_full", |cb, args| {
-        log::debug!("[READ  ] container/profile_full called");
+    cont_cbs.insert("profile", |cb, args| {
+        log::debug!("[READ  ] container/profile called");
         let container_id: ContainerIdentifier = args
             .get_param("identifier")
             .ok_or_else(|| {
@@ -43,7 +43,7 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
             })?
             .clone()
             .try_into()?;
-        let profile: ContainerProfile = cb.lock()?.container_profile_full(&container_id)?;
+        let profile: ContainerProfile = cb.lock()?.container_profile(&container_id)?;
         Ok(container_profile_value(&profile)?.into())
     });
     // 3D モデル (docs/spec/container-model.md §6)。identifier は ID か名前

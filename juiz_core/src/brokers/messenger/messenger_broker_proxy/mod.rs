@@ -1,6 +1,9 @@
 use anyhow::Context;
 use std::{
-    sync::{Arc, RwLock},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, RwLock,
+    },
     time::Duration,
 };
 
@@ -35,6 +38,8 @@ fn capsule_value(capsule: CapsulePtr) -> JuizResult<Value> {
 pub struct MessengerBrokerProxy {
     core: ObjectCore,
     messenger: Box<dyn MessengerBrokerProxyCore>,
+    /// 相手が `*/profile` を持たない古い juiz と分かったら true。以後は `*/profile_full` を呼ぶ
+    legacy_profile: AtomicBool,
 }
 
 pub trait MessengerBrokerProxyCore: Send + Sync {
@@ -59,6 +64,7 @@ impl MessengerBrokerProxy {
                 object_name,
             ),
             messenger,
+            legacy_profile: AtomicBool::new(false),
         })))
     }
 
@@ -162,15 +168,7 @@ impl MessengerBrokerProxy {
     }
 
     pub fn read(&self, class_name: &str, function_name: &str) -> JuizResult<CapsulePtr> {
-        self.send_recv_and(
-            "READ",
-            class_name,
-            function_name,
-            CapsuleMap::new(),
-            &[],
-            //|value| Ok(obj_get(&value, "return")?.clone()))
-            |value| Ok(value),
-        )
+        self.read_with_param(class_name, function_name, &[])
     }
 
     pub fn read_by_id(
@@ -179,32 +177,44 @@ impl MessengerBrokerProxy {
         function_name: &str,
         id: &Identifier,
     ) -> JuizResult<CapsulePtr> {
-        self.send_recv_and(
-            "READ",
+        self.read_with_param(
             class_name,
             function_name,
-            CapsuleMap::new(),
             &[("identifier".to_owned(), id.clone())],
-            //|value| Ok(obj_get(&value, "return")?.clone()))
-            |value| Ok(value),
         )
     }
 
+    /// READ を送る。`profile` は、相手が古い juiz で無ければ `profile_full` を呼び直す
+    /// (docs/spec/manifest-profile.md §7 の 4)。古いと分かった相手には、以後はじめから `profile_full` を呼ぶ
     pub fn read_with_param(
         &self,
         class_name: &str,
         function_name: &str,
         param: &[(String, String)],
     ) -> JuizResult<CapsulePtr> {
-        self.send_recv_and(
-            "READ",
-            class_name,
-            function_name,
-            CapsuleMap::new(),
-            param,
-            //|value| Ok(obj_get(&value, "return")?.clone()))
-            |value| Ok(value),
-        )
+        let read = |function_name: &str| {
+            self.send_recv_and(
+                "READ",
+                class_name,
+                function_name,
+                CapsuleMap::new(),
+                param,
+                |value| Ok(value),
+            )
+        };
+        if function_name != "profile" {
+            return read(function_name);
+        }
+        if !self.legacy_profile.load(Ordering::Relaxed) {
+            match read("profile") {
+                Err(e) if crate::brokers::broker_proxy::is_function_not_found(&e) => {
+                    log::debug!("{class_name}/profile is not found. Falling back to {class_name}/profile_full");
+                    self.legacy_profile.store(true, Ordering::Relaxed);
+                }
+                r => return r,
+            }
+        }
+        read("profile_full")
     }
 
     pub fn update_by_id(
@@ -292,14 +302,14 @@ impl JuizObjectCoreHolder for MessengerBrokerProxy {
 impl JuizObject for MessengerBrokerProxy {}
 
 impl SystemBrokerProxy for MessengerBrokerProxy {
-    fn system_profile_full(&self) -> JuizResult<Value> {
-        capsule_to_value(self.read("system", "profile_full")?)
+    fn system_profile(&self) -> JuizResult<Value> {
+        capsule_to_value(self.read("system", "profile")?)
     }
 
-    fn system_profile_full_recursive(&self) -> JuizResult<Value> {
+    fn system_profile_recursive(&self) -> JuizResult<Value> {
         capsule_value(self.read_with_param(
             "system",
-            "profile_full",
+            "profile",
             &[("recursive".to_owned(), "true".to_owned())],
         )?)
     }
@@ -417,10 +427,10 @@ impl ProcessBrokerProxy for MessengerBrokerProxy {
         self.update_by_id("process", "execute", CapsuleMap::new(), &id.to_string())
     }
 
-    fn process_profile_full(&self, id: &ProcessIdentifier) -> JuizResult<ProcessProfile> {
+    fn process_profile(&self, id: &ProcessIdentifier) -> JuizResult<ProcessProfile> {
         Ok(serde_json::from_value(capsule_value(self.read_by_id(
             "process",
-            "profile_full",
+            "profile",
             &id.to_string(),
         )?)?)?)
     }
@@ -571,8 +581,8 @@ impl ContainerBrokerProxy for MessengerBrokerProxy {
         )?)?)?)
     }
 
-    fn container_profile_full(&self, id: &ContainerIdentifier) -> JuizResult<ContainerProfile> {
-        let capsule = self.read_by_id("container", "profile_full", &id.to_string())?;
+    fn container_profile(&self, id: &ContainerIdentifier) -> JuizResult<ContainerProfile> {
+        let capsule = self.read_by_id("container", "profile", &id.to_string())?;
         Ok(serde_json::from_value(capsule_value(capsule)?)?)
     }
 
@@ -609,13 +619,13 @@ impl ContainerBrokerProxy for MessengerBrokerProxy {
 }
 
 impl ContainerProcessBrokerProxy for MessengerBrokerProxy {
-    fn container_process_profile_full(
+    fn container_process_profile(
         &self,
         id: &ProcessIdentifier,
     ) -> Result<ProcessProfile, juiz_sdk::anyhow::Error> {
         let value = capsule_value(self.read_by_id(
             "container_process",
-            "profile_full",
+            "profile",
             &id.to_string(),
         )?)?;
         Ok(serde_json::from_value(value)?)
@@ -720,8 +730,8 @@ impl ContainerProcessBrokerProxy for MessengerBrokerProxy {
 }
 
 impl ExecutionContextBrokerProxy for MessengerBrokerProxy {
-    fn ec_profile_full(&self, id: &Identifier) -> JuizResult<Value> {
-        capsule_to_value(self.read_by_id("execution_context", "profile_full", id)?)
+    fn ec_profile(&self, id: &Identifier) -> JuizResult<Value> {
+        capsule_to_value(self.read_by_id("execution_context", "profile", id)?)
     }
 
     fn ec_list(&self, recursive: bool) -> JuizResult<Value> {
@@ -780,8 +790,8 @@ impl BrokerBrokerProxy for MessengerBrokerProxy {
             .collect::<JuizResult<Vec<String>>>()
     }
 
-    fn broker_profile_full(&self, id: &Identifier) -> JuizResult<BrokerProfile> {
-        capsule_value(self.read_by_id("broker", "profile_full", id)?)?.try_into()
+    fn broker_profile(&self, id: &Identifier) -> JuizResult<BrokerProfile> {
+        capsule_value(self.read_by_id("broker", "profile", id)?)?.try_into()
     }
 }
 
@@ -872,12 +882,12 @@ impl ConnectionBrokerProxy for MessengerBrokerProxy {
             .collect()
     }
 
-    fn connection_profile_full(&self, id: &ConnectionIdentifier) -> JuizResult<ConnectionProfile> {
+    fn connection_profile(&self, id: &ConnectionIdentifier) -> JuizResult<ConnectionProfile> {
         // 識別子は Display の形ではなく文字列形式 (connection://...) で送る
         let id_str: String = id.clone().into();
         Ok(serde_json::from_value(capsule_value(self.read_by_id(
             "connection",
-            "profile_full",
+            "profile",
             &id_str,
         )?)?)?)
     }
@@ -929,10 +939,10 @@ impl CompositeBrokerProxy for MessengerBrokerProxy {
         )?)?)
     }
 
-    fn composite_profile_full(&self, type_name: &str) -> JuizResult<ProcessManifest> {
+    fn composite_profile(&self, type_name: &str) -> JuizResult<ProcessManifest> {
         Ok(serde_json::from_value(capsule_value(self.read_by_id(
             "composite",
-            "profile_full",
+            "profile",
             &type_name.to_owned(),
         )?)?)?)
     }
@@ -1043,14 +1053,14 @@ impl TransformationsBrokerProxy for MessengerBrokerProxy {
         )?)?)
     }
 
-    fn transform_profile_full_from_system(
+    fn transform_profile_from_system(
         &self,
         identifier: &str,
         source_system: Option<&str>,
     ) -> JuizResult<Value> {
         capsule_value(self.read_with_param(
             "transform",
-            "profile_full",
+            "profile",
             &system_params(identifier, "source_system", source_system),
         )?)
     }
@@ -1133,8 +1143,8 @@ impl TransformationsBrokerProxy for MessengerBrokerProxy {
         )?)?)
     }
 
-    fn pose_listener_profile_full(&self, identifier: &str) -> JuizResult<Value> {
-        capsule_value(self.read_by_id("pose_listener", "profile_full", &identifier.to_owned())?)
+    fn pose_listener_profile(&self, identifier: &str) -> JuizResult<Value> {
+        capsule_value(self.read_by_id("pose_listener", "profile", &identifier.to_owned())?)
     }
 
     fn pose_listener_create(
@@ -1165,6 +1175,6 @@ impl BrokerProxy for MessengerBrokerProxy {
     }
 
     //fn profile_full(&self) -> crate::JuizResult<crate::Value> {
-    //    self.send_recv_and("profile_full", jvalue!({}), |value| Ok(obj_get(&value, "return")?.clone()))
+    //    self.send_recv_and("profile", jvalue!({}), |value| Ok(obj_get(&value, "return")?.clone()))
     //}
 }

@@ -162,9 +162,9 @@ fn haskell_container_keeps_state() -> JuizResult<()> {
             assert_eq!(call(&cb, &get0, CapsuleMap::new())?, jvalue!(-2));
 
             // マニフェストは Haskell 側で組み立てたもの
-            let profile = cb.container_profile_full(&container_id(&cb, "c0")?)?;
+            let profile = cb.container_profile(&container_id(&cb, "c0")?)?;
             assert_eq!(profile.type_name, "example_container_hs");
-            let p = cb.container_process_profile_full(&inc0)?;
+            let p = cb.container_process_profile(&inc0)?;
             assert_eq!(p.type_name, "example_container_hs_increment");
             assert_eq!(p.arguments[0].name, "arg0");
             assert_eq!(p.description.as_str(), "Adds arg0 to the value of the container.");

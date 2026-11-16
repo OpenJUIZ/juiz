@@ -2,7 +2,7 @@ import type { TypeSchemaRef } from "../avro.ts";
 
 export type { TypeSchemaRef };
 
-// profile_full の中身は OpenAPI で schema 化されていないので、画面側で型を定義する。
+// profile の中身は OpenAPI で schema 化されていないので、画面側で型を定義する。
 // juiz v0.0.18 の応答を見て必要な項目だけ書いている。足りない項目は使うときに足す。
 
 /** 説明。{ text } の形と文字列の形がある */
@@ -198,7 +198,7 @@ export interface TransformationsTreeNode {
 /** System をまたぐ Transform の取り込みの状態(transformations.md §19.10) */
 export type RemoteState = "ok" | "stale" | "lost";
 
-/** transform/profile_full の remote。始点が別の系の Transform にだけ付く */
+/** transform/profile の remote。始点が別の系の Transform にだけ付く */
 export interface TransformRemote {
   /** 始点を持つ系の UUID。1 回目が届くまでは null */
   system: string | null;
@@ -209,7 +209,7 @@ export interface TransformRemote {
   last_success?: Time | null;
 }
 
-/** GET /api/transform/profile_full */
+/** GET /api/transform/profile */
 export interface TransformProfile {
   identifier: string;
   source: string;
@@ -231,7 +231,7 @@ export type BrokerProfile = ObjectProfile;
 /** 話題。中身は type_name が "topic" の処理の profile */
 export type TopicProfile = ProcessProfile;
 
-/** system/profile_full の core_store */
+/** system/profile の core_store */
 export interface CoreStore {
   processes: ProcessProfile[];
   containers: ContainerProfile[];
@@ -243,7 +243,7 @@ export interface CoreStore {
 }
 
 /**
- * GET /api/system/profile_full
+ * GET /api/system/profile
  *
  * recursive=true を付けると、subsystems に副系の profile が同じ形で再帰的に入り、
  * 各系が持つ接続が connections に入る(#116)。
@@ -264,7 +264,7 @@ export interface SystemProfile extends ObjectProfile {
   error?: string;
 }
 
-/** GET /api/connection/profile_full */
+/** GET /api/connection/profile */
 export interface ConnectionProfile {
   identifier?: string;
   arg_name: string;

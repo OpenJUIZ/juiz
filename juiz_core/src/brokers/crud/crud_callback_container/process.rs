@@ -23,8 +23,8 @@ pub(crate) fn create_create_callbacks() -> CallbackContainerType {
 
 pub(crate) fn create_read_callbacks() -> CallbackContainerType {
     let mut proc_cbs = CallbackContainerType::new();
-    proc_cbs.insert("profile_full", |cb, args| {
-        log::debug!("[READ  ] process/profile_full called");
+    proc_cbs.insert("profile", |cb, args| {
+        log::debug!("[READ  ] process/profile called");
         let process_id: ProcessIdentifier = args
             .get_param("identifier")
             .ok_or_else(|| {
@@ -34,7 +34,7 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
             })?
             .clone()
             .try_into()?;
-        let profile: ProcessProfile = cb.lock()?.process_profile_full(&process_id)?;
+        let profile: ProcessProfile = cb.lock()?.process_profile(&process_id)?;
         Ok(process_profile_value(&profile)?.into())
     });
     proc_cbs.insert("is_in_charge", |cb, args| {

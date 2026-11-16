@@ -17,7 +17,7 @@ const juiz = {
     }
 
     async profile_full() {
-        const url = "/api/container_process/profile_full?identifier=" + this.id;
+        const url = "/api/container_process/profile?identifier=" + this.id;
         const response = await fetch(url, {
             "Content-Type": "application/json"
         });
@@ -91,7 +91,7 @@ const juiz = {
     }
 
     async profile_full() {
-        const url = "/api/container/profile_full?identifier=" + this.id;
+        const url = "/api/container/profile?identifier=" + this.id;
         const response = await fetch(url, {
             "Content-Type": "application/json"
         });
@@ -115,7 +115,7 @@ const juiz = {
     }
 
     async profile_full() {
-        const url = "/api/process/profile_full?identifier=" + this.id;
+        const url = "/api/process/profile?identifier=" + this.id;
         const response = await fetch(url, {
             "Content-Type": "application/json"
         });
@@ -212,7 +212,7 @@ const juiz = {
     }
 
     async profile_full() {
-        const url = "/api/system/profile_full";
+        const url = "/api/system/profile";
         const response = await fetch(url, {
             "Content-Type": "application/json"
         });

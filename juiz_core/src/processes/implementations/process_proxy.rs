@@ -54,7 +54,7 @@ impl ProcessProxy {
 //     fn profile_full(&self) -> JuizResult<Value> {
 //         let id = self.identifier();
 //         log::trace!("ProcessProxy({id})::profile_full() called");
-//         juiz_lock(&self.broker_proxy)?.any_process_profile_full(self.identifier())
+//         juiz_lock(&self.broker_proxy)?.any_process_profile(self.identifier())
 //     }
 // }
 
@@ -92,7 +92,7 @@ impl Process for ProcessProxy {
     }
 
     fn profile(&self) -> JuizResult<ProcessProfile> {
-        juiz_borrow(&self.broker_proxy)?.any_process_profile_full(&self.identifier())
+        juiz_borrow(&self.broker_proxy)?.any_process_profile(&self.identifier())
     }
 
     fn invoke<'b>(&self) -> JuizResult<ResponsePtr> {
