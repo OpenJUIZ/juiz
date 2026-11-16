@@ -35,17 +35,16 @@ pub fn assert_no_options(c: JuizResult<CapsulePtr>) -> CapsulePtr {
     c
 }
 
-/// Value を返す EC の API は、CRUD の BrokerProxy では `{"__value__": ..., "__option__": ...}` で包まれて返ることがある。
-/// 包まれていれば中身を、そうでなければそのまま返す
-pub fn unwrap_value(v: Value) -> Value {
-    match v {
-        Value::Object(mut map)
-            if map.contains_key("__value__") && map.keys().all(|k| k.starts_with("__")) =>
-        {
-            map.remove("__value__").unwrap()
-        }
-        v => v,
+/// Value を返す BrokerProxy の API は、どのブローカーでも core と同じく `{"__value__": ..., "__option__": ...}` で
+/// 包まずに返す (issue #532)。包まれていないことを確かめて、そのまま返す
+pub fn not_wrapped(v: Value) -> Value {
+    if let Value::Object(map) = &v {
+        assert!(
+            !map.contains_key("__value__") && !map.contains_key("__option__"),
+            "value should not be wrapped: {v:?}"
+        );
     }
+    v
 }
 
 /// 名前だけを変えた識別子 (存在しない Process を指すのに使う)

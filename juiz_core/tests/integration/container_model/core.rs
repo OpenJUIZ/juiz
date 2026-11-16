@@ -157,8 +157,6 @@ fn check_proxy(bp: &dyn BrokerProxy, kind: &str) -> JuizResult<()> {
 
     // system/profile の containers にも載る (#384、管理画面の 3D 表示が使う)
     let sys = bp.system_profile()?;
-    // BrokerProxy によっては {"__value__": …} に包まれて返る
-    let sys = sys.get("__value__").cloned().unwrap_or(sys);
     let model_of = |name: &str| -> Value {
         sys["core_store"]["containers"]
             .as_array()

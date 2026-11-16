@@ -86,7 +86,7 @@ fn check_container_processes(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
 
 fn check_ec_start_stop(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     let ecs = bp.ec_list(false)?;
-    let id = ecs["__value__"]
+    let id = ecs
         .as_array()
         .unwrap()
         .iter()
@@ -95,7 +95,7 @@ fn check_ec_start_stop(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
         .expect("timer0 not listed");
     let wait_for = |bp: &mut dyn BrokerProxy, expected: &str| -> JuizResult<bool> {
         for _ in 0..200 {
-            if bp.ec_get_state(&id)?["__value__"] == jvalue!(expected) {
+            if bp.ec_get_state(&id)? == jvalue!(expected) {
                 return Ok(true);
             }
             std::thread::sleep(std::time::Duration::from_millis(10));
@@ -259,21 +259,21 @@ fn rust_plugin_path(name: &str) -> String {
 }
 
 fn check_load_plugins(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
-    // EC の API と同じく、Value を返す読み込みの API も __value__ で包んだまま返す
+    // Value を返す読み込みの API も、core と同じく __value__ で包まずに返す (issue #532)
     let p = bp.system_load_process("rust".to_owned(), rust_plugin_path("talker"))?;
-    assert_eq!(p["__value__"]["type_name"], jvalue!("talker"), "{p:?}");
+    assert_eq!(p["type_name"], jvalue!("talker"), "{p:?}");
     let p = bp.system_load_process(
         "python".to_owned(),
         "tests/python/py_bench_identity.py".to_owned(),
     )?;
     assert_eq!(
-        p["__value__"]["type_name"],
+        p["type_name"],
         jvalue!("py_bench_identity"),
         "{p:?}"
     );
     let c = bp.system_load_container("python".to_owned(), "tests/python/py_counter.py".to_owned());
     // 同じ型名の Factory は二重に登録できない
-    assert!(c.is_err() || c?["__value__"]["type_name"] == jvalue!("py_counter"));
+    assert!(c.is_err() || c?["type_name"] == jvalue!("py_counter"));
     let m = bp.system_load_component(
         "rust".to_owned(),
         rust_plugin_path("native_pose_component"),

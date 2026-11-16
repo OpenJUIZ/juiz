@@ -80,10 +80,8 @@ fn qmp_profile_json_is_unchanged() -> JuizResult<()> {
             .broker_proxy("qmp", broker_name.as_str(), true)?;
         let bp = juiz_borrow(&proxy)?;
         let system_profile = bp.system_profile()?;
-        // qmp では応答が {"__value__", "__option__"} に包まれて届く
-        let store = &system_profile
-            .get("__value__")
-            .unwrap_or(&system_profile)["core_store"];
+        // どのブローカーでも包まずに返す (issue #532)
+        let store = &system_profile["core_store"];
         let inc1: ProcessIdentifier = "core://core/process/inc1::increment_process".try_into()?;
         let c0inc: ProcessIdentifier =
             "core://core/container_process/c0inc::example_container_increment:c0".try_into()?;

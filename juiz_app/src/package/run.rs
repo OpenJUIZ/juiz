@@ -235,11 +235,6 @@ fn subsystem_check(
         let profile = juiz_borrow(&bp)?
             .system_profile()
             .map_err(|_| not_reached())?;
-        // http・ipc などの BrokerProxy は値を {"__value__": …} で包んで返す
-        let profile = match profile.get("__value__") {
-            Some(v) => v.clone(),
-            None => profile,
-        };
         depends::check_profile(&app, dep, &profile)?;
         Ok(())
     })
