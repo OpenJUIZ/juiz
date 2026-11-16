@@ -189,7 +189,7 @@ fn component_module_execute() {
 #[cfg(windows)]
 #[test]
 fn cpp_plugin_finds_juiz_sdk_dll_next_to_it() {
-    use common::plugin_dir;
+    use crate::common::plugin_dir;
     use std::process::Command;
 
     let dir = temp_dir("module_cli_dll_search");
