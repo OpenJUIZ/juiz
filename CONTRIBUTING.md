@@ -116,6 +116,31 @@ cargo test -p juiz_opencv    # カメラや画面を使わない処理(画像の
 
 CI では `.github/workflows/test-linux.yml` の `opencv` ジョブ(Ubuntu)で同じことを実行しています。
 
+### VS Code + Dev Containers で開発する
+
+`.devcontainer/` に、CI と同じ環境(Ubuntu 24.04、Rust stable、CMake、Clang、Python 3 と pyjuiz の依存パッケージ)のコンテナ設定があります。
+Docker と VS Code の Dev Containers 拡張機能を入れた状態でリポジトリを開き、コマンドパレットから「Dev Containers: Reopen in Container」を選ぶとコンテナ内で開発できます。
+`PYO3_PYTHON` と `PYTHONPATH` は設定済みなので、コンテナ内のターミナルで CI と同じ手順でビルドとテストができます。
+
+```terminal
+scripts/test.sh
+```
+
+HTTP ブローカーの 8000 番ポートはホストに転送されるので、ホストのブラウザから http://localhost:8000/docs を開けます。
+
+`.vscode/` には、コンテナの内外どちらでも使える VS Code の設定があります。
+
+- `extensions.json`: 推奨拡張機能(rust-analyzer、CodeLLDB など。devcontainer と同じもの)
+- `settings.json`: 保存時の clippy チェック、rust-analyzer のビルド先の分離(`target/rust-analyzer`)など
+- `tasks.json`: CI と同じ手順のビルド・テスト(「Tasks: Run Build Task」「Tasks: Run Test Task」)
+- `launch.json`: CodeLLDB で `juiz` コマンドや juiz_core の単体テスト・統合テストをデバッグ実行する設定
+
+## テスト
+
+テストの置き場所・名前・実行のしかたの決まりです(issue #518 の整理で決めたもの)。
+
+いまのテストはまだこの決まりにそろっていません。置き場所と名前は issue #521〜#525 で順に移します(下の「移行中の扱い」)。新しく書くテストの関数名は今から決まりに合わせてください。
+
 ### テストを実行する
 
 `scripts/test.sh` が、テストの前提になる準備(ワークスペースの `cargo build`、C++ の例の cmake ビルド、Haskell の例の cabal ビルド、Python の例が使うパッケージの確認と `PYTHONPATH=bindings/pyjuiz` の設定)を済ませてから `cargo test -- --test-threads=1` を実行します。CI(`.github/workflows/test-linux.yml` など)も同じスクリプトを使います。
@@ -128,11 +153,103 @@ scripts/test.sh -p juiz_core --test integration -- system_test   # juiz_core の
 scripts/test.sh --prepare-only               # 準備だけ行う
 ```
 
-juiz_core の統合テストは、リンクの時間を減らすため `juiz_core/tests/integration/` の下にまとめて 1 本のバイナリ(`--test integration`)にしています。新しいテストはこのディレクトリにファイルを置き、`main.rs` に `mod` を足してください。ログは `env_logger::try_init()` ではなく `common::logger::init()` で設定します。
-
 必要なものは Rust、CMake と C++ コンパイラ、Python 3 と pyjuiz の依存パッケージ(`python3 -m pip install pyyaml httpx pillow numpy`)です。足りないものがあれば、スクリプトがその旨と入れ方を表示して止まります。
 GHC と cabal は任意で、無ければ Haskell の例のビルドとテスト(`haskell_plugin_test`)を飛ばします(CI では `JUIZ_REQUIRE_HASKELL=1` にして飛ばしません)。`juiz pkg create -b haskell` の雛形を作ってパッケージにするテスト(`pkg_cli_test`)は、Linux では patchelf も使い、無ければ飛ばします。
 `cargo test` だけを実行すると、例のプラグインを読み込むテスト(`system_test` や `*_broker_api_test` など)は失敗します。そのときのエラーには、見つからなかったプラグインのパスや足りない Python モジュールと、必要な準備が表示されます。
+
+テストは `--test-threads=1` で 1 件ずつ走らせます。統合テストや CLI のテストが固定のポート(8000 番台)を使うため、並列にするとポートがぶつかって落ちます。
+
+Rust 以外のテスト:
+
+| 対象 | 置き場所 | 実行 |
+|---|---|---|
+| pyjuiz | `bindings/pyjuiz/test/*_test.py` | `cd bindings/pyjuiz && python test/<名前>_test.py`。CI は `python.yml` が 1 本ずつ名指しで走らせるので、足したら `python.yml` にも足す(自動で集める形には #525 で変える)。juiz の System が要るものは Rust の統合テスト(`pyjuiz_*`)から起動する |
+| 管理画面 | `webui/tests/*.test.ts` | `cd webui && npm test`(`node --test`)。CI は `webui.yml` |
+
+### カテゴリと置き場所
+
+テストは「何を確かめるか」で次のカテゴリに分け、カテゴリごとに置き場所を決めます。迷ったら、そのテストが何を起動するか(何も起動しない / System を起動する / juiz コマンドを起動する / 外のビルドを呼ぶ)で選んでください。
+
+| カテゴリ | 中身 | 置き場所 |
+|---|---|---|
+| unit | 1 つのモジュールの中だけを確かめる。プラグインもネットワークも使わない | 各クレートの `src/` 内の `#[cfg(test)] mod tests` |
+| api | 1 つのクレートの公開 API を外から確かめる。プラグインは使わない | `<クレート>/tests/`。クレートごとに 1 本のバイナリにまとめる(下の「1 クレート 1 バイナリ」) |
+| integration | System を起動し、プラグインを読む | `juiz_core/tests/integration/<機能>/`。言語ごとの違いは機能の下に置く。言語の読み込みそのもの(ABI・例外・値の受け渡し)は `plugins/<言語>/` |
+| broker | どのブローカーでも同じになるべき確認を、各ブローカーで走らせる | ブローカー共通のスイート + ブローカーごとの追加分(形は #522 で決める) |
+| cli | `juiz` コマンドを子プロセスで動かす | `juiz_app/tests/cli/` |
+| slow | テストの中で外のビルド(cargo・cmake・cabal)を呼ぶ。`pkg_cli_test` など | 置き場所はカテゴリ本来の場所のまま、モジュールパスに `slow` を含めて `-- --skip slow::` で外せるようにする(詳細は #524) |
+| bench | 計測。ふだんは走らせない | 置いてある tests の下の `bench/`。`#[ignore]` を付け、release で手動実行する(下の「ベンチマークを実行する」) |
+
+integration の分け方は**機能が先、言語は下**です。何が壊れたかを機能で探すことが多いためです。
+
+```text
+juiz_core/tests/integration/
+  main.rs                 # mod を並べるだけ
+  common/                 # 共通の部品(logger、System の起動など)
+  transformations/
+    mod.rs
+    core.rs               # 言語によらない部分
+    rust.rs  python.rs  cpp.rs  haskell.rs
+    cross_system.rs
+  composition/ ...
+  plugins/                # 言語の読み込みそのもの
+    cpp/  haskell/  python/  rust/
+  bench/
+    image_transfer.rs  composite.rs ...
+```
+
+1 クレート 1 バイナリ: `tests/` 直下のファイルは 1 本ずつ別のテストバイナリになり、それぞれがクレートと依存を丸ごとリンクします(juiz_app や qmp では 1 本 100MB を超える)。テストは `tests/<まとまり>/main.rs`(juiz_core なら `tests/integration/main.rs`)から `mod` で読み、`tests/` 直下にはファイルを足さないでください。テストで使う conf やプラグインのソース、golden ファイルは `tests/` の下の別ディレクトリ(`confs/`、`python/`、`golden/` など)に置きます。
+
+### 名前
+
+- **ファイル名・モジュール名**は機能名だけにします。`_test` は付けません(ディレクトリがテストであることと分類を表します)。例: `transformations/cross_system.rs`。
+- ただし `literals`・`names`・`errors` のように、それだけでは何のことか分からない名前は避けます(`idl_literals`、`namespace_names` などにする)。
+- **テスト関数名**は「何をすると・どうなる」を英語の文で書きます。`test_` 接頭辞、`_test` 接尾辞は付けません。
+  - 良い例: `call_with_omitted_argument_uses_default`、`connect_rejects_mismatched_types`、`remove_subsystem_drops_topic_forwarding`
+  - 避ける例: `test_call`、`call_test`、`test1`
+- 関数名がモジュールパスと合わさって読めれば十分です。`transformations::cross_system::lookup_follows_remote_parent` のように、モジュールで言えていることを関数名で繰り返す必要はありません。
+- **補助関数**(`#[test]` の付かない関数)はテスト関数と見分けやすい動詞で始めます(`start_system`、`check_profile`、`make_conf` など)。複数のファイルで使うものは `common/` に置きます。
+- Python と TypeScript のテストは、それぞれの道具が集める名前(`*_test.py`、`*.test.ts`)に従います。中の関数名は Rust と同じく「何がどうなる」で書きます。
+
+### 絞り込み
+
+テストはモジュールパスで絞り込みます。ディレクトリを機能で分けているので、機能や言語の単位で走らせられます(下の例は #521 で integration を分けた後の形)。
+
+```terminal
+scripts/test.sh -p juiz_core --test integration -- transformations::          # Transformations の統合テストすべて
+scripts/test.sh -p juiz_core --test integration -- transformations::python    # その Python の分だけ
+scripts/test.sh -p juiz_core --test integration -- plugins::haskell::         # Haskell の読み込み
+scripts/test.sh -p juiz_app --test cli -- --skip slow::                       # 遅いものを外す(#523・#524 の後)
+```
+
+### テストを書くときの決まり
+
+- **logger**: 1 本のバイナリで全テストが走るので、`env_logger::try_init()` ではなく `common::logger::init()` を使います。
+- **ポート**: 固定のポートを使うときは、ほかのテストが使っていない番号を選びます(`grep -rn "80[0-9][0-9]" */tests brokers/*/tests` などで確かめる)。同じポートを使うテストが同じバイナリにあると、前のテストが閉じ切る前に次が始まって落ちることがあります。
+- **前提が無いとき**: 任意の道具(GHC・cabal・patchelf など)が無いときは、テストの中で理由を表示して早めに戻ります(`scripts/test.sh` が CI で必須にしているものは除く)。黙って通さず、何を飛ばしたかを出力に残してください。
+- **既定でスキップしない**: 失敗するからといって `#[ignore]` を付けたりテストを消したりしません。`#[ignore]` は bench と、手で条件を用意するテスト(理由を `#[ignore = "..."]` に書く)だけに使います。
+- **何を確かめるか**: 1 つのテスト関数では 1 つの振る舞いを確かめます。同じ準備で複数の振る舞いを確かめたいときは、準備を補助関数にして関数を分けます。
+
+### 消す・まとめるとき
+
+重なっているテストを消すときは次に従います。
+
+- 同じ経路を同じ入力で確かめているものは、新しい方を残します。
+- ブローカーの違いだけのものはブローカー共通のスイートに寄せ、ブローカー固有の確認(qmp の切断、Zenoh の共有メモリなど)だけ個別に残します。
+- 消すテストは、PR の本文に「どのテストに含まれるか」を 1 件ずつ書きます。
+- カバレッジ(行)が下がらないことを確かめます(`cargo llvm-cov`、CI では `coverage.yml` を手動で実行できます)。
+
+### 移行中の扱い
+
+置き場所と名前は次の順にそろえます。それぞれが終わるまでは、そのテストは今の場所に足してかまいません(関数名だけは上の決まりに合わせる)。
+
+| issue | 内容 |
+|---|---|
+| #521 | `juiz_core/tests/integration` を機能ごとのディレクトリに分け、名前を決まりにそろえる。ベンチを `bench/` へ |
+| #522 | ブローカー共通のスイート(6 通りの `*_broker_api_test` と qmp・Zenoh の写しをまとめる) |
+| #523 | `juiz_app`・qmp・Zenoh・`juiz_sdk` のテストをクレートごとに 1 本のバイナリへ |
+| #524 | slow の印と、Python 3.10 のジョブで走らせるテストの絞り込み |
+| #525 | pyjuiz のテストを自動で集める形に |
 
 ### ベンチマークを実行する
 
@@ -152,25 +269,6 @@ cargo test --release -p juiz_zenoh_broker --test zenoh_bench_test -- --ignored -
 ```
 
 `image_transfer_bench` は、テストバイナリ自身を別プロセスの juiz として起動し(HTTP はポート 8050、qmp は 8051、IPC は名前 image_transfer_bench)、そこへ HTTP・IPC・qmp で画像を渡します。プラグインは使わないので、事前の準備は要りません。
-
-### VS Code + Dev Containers で開発する
-
-`.devcontainer/` に、CI と同じ環境(Ubuntu 24.04、Rust stable、CMake、Clang、Python 3 と pyjuiz の依存パッケージ)のコンテナ設定があります。
-Docker と VS Code の Dev Containers 拡張機能を入れた状態でリポジトリを開き、コマンドパレットから「Dev Containers: Reopen in Container」を選ぶとコンテナ内で開発できます。
-`PYO3_PYTHON` と `PYTHONPATH` は設定済みなので、コンテナ内のターミナルで CI と同じ手順でビルドとテストができます。
-
-```terminal
-scripts/test.sh
-```
-
-HTTP ブローカーの 8000 番ポートはホストに転送されるので、ホストのブラウザから http://localhost:8000/docs を開けます。
-
-`.vscode/` には、コンテナの内外どちらでも使える VS Code の設定があります。
-
-- `extensions.json`: 推奨拡張機能(rust-analyzer、CodeLLDB など。devcontainer と同じもの)
-- `settings.json`: 保存時の clippy チェック、rust-analyzer のビルド先の分離(`target/rust-analyzer`)など
-- `tasks.json`: CI と同じ手順のビルド・テスト(「Tasks: Run Build Task」「Tasks: Run Test Task」)
-- `launch.json`: CodeLLDB で `juiz` コマンドや juiz_core の単体テスト・統合テストをデバッグ実行する設定
 
 ## リリース
 
