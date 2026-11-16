@@ -3,6 +3,7 @@
 - 状態: 確定(.juizapp Step 1、issue #283、2026-10-30)
 - 親 issue: #282。検討の経緯と比較はプロジェクトの計画書 app-package-plan.md と検討資料(2026-10-30 決定)にある
 - 関連: IPC ブローカー [ipc-broker.md](ipc-broker.md)(基礎パッケージの IPC 名)、データ型 [datatype.md](datatype.md)(接続時の型の指紋)、Rust プラグインの C ABI [rust-plugin-abi.md](rust-plugin-abi.md)(§4.1・§4.3・§6.3・§9・§12 の Rust の扱い、#328 で直した)
+- 起動時の確認と対話・ポートが使用中のとき・関連付け(§15〜§17)は #390 の Step 0(#391、2026-11-17)で足した。計画はプロジェクトの計画書 juizapp-usability-plan.md(2026-11-02 確定)
 - この文書は #284〜#288 の実装の基準になる。実装で仕様を変えるときは、同じ PR でこの文書を直す
 - 「しなければならない」「エラーにする」は必須の規則、「してよい」は任意を表す
 
@@ -15,7 +16,7 @@ Process などのプラグインと conf をまとめた 1 つのファイルを
 - juiz 本体は入れない。受け取る側に juiz(cargo の `juiz` か pip の `juiz-cli`)が入っている前提にする。
 - ロボットの基礎部分を「基礎パッケージ」(`kind: base`)として常駐させ、別のアプリ(`kind: app`)が別プロセスからそれにつなぐ形を扱う。
 
-扱わないもの(§13 で後回しにしたもの)は、署名、juiz を同梱した単体版、conf の include による同一プロセス方式、基礎の自動起動、ネーミングサービス。
+扱わないもの(§13 で後回しにしたもの)は、署名、juiz を同梱した単体版、conf の include による同一プロセス方式、基礎を対話なしで起動すること、ネーミングサービス。
 
 ### 1.1 用語
 
@@ -424,6 +425,8 @@ juiz packages
 2. アプリの conf の `subsystems` のうち、`package: <名前>` を持つもの
 3. 既定: `{type_name: ipc, name: <名前>}`(`ipc://<名前>`)
 
+#390 で、1 と 2 の間に「§15.6 で覚えたつなぎ先」が入る。
+
 ```yaml
 # アプリの conf で別の機械の基礎を使う例
 subsystems:
@@ -476,7 +479,7 @@ transforms:
 | 版が範囲外 | `my_patrol needs robot_base >=1.2, <2, but robot_base 2.0.1 is running at ipc://robot_base.` |
 
 - 「インストールされているか」は `--depend` や conf で別の機械を指していても見る(案内の文を変えるためだけ)。
-- 基礎を自動では起動しない(§13)。
+- 基礎を対話なしでは起動しない(§13)。対話できるときは、止める前に §15.4 の選択(基礎を起動する・つなぎ先を選び直す)を出す(#390)。
 
 ## 11. zip の安全規則
 
@@ -543,7 +546,7 @@ format 1 では行わない。足すときは format を上げるか、format 1 
 | 署名 | SHA-256 の照合だけ。改ざんは防がない(壊れと入れ忘れを見つける) | `juizapp.yaml.sig`(minisign か Sigstore)と、信頼する鍵の登録 `juiz trust add`。パスは予約済み(§3) |
 | juiz を同梱した単体版 | 入れない | `bin/<target>/juiz` を入れる。パスは予約済み(§3) |
 | conf の include(基礎とアプリを同じプロセスで動かす) | 行わない。基礎は別プロセス | conf に include を足し、依存先の conf をその場所相対で取り込む |
-| 基礎の自動起動 | しない。§10.3 で `juiz run <名前>` を案内 | `juiz run` に起動の選択肢を足す |
+| 基礎の自動起動 | 対話なしではしない。§10.3 で `juiz run <名前>` を案内し、対話できるときは §15.4 の選択から起動できる(#390) | 対話なしで起動する既定動作 |
 | ネーミングサービス | IPC 名 = パッケージ名、http は固定ポート | 名前から接続先を引く仕組み(#289)。§10.2 の既定のつなぎ先をそれに置き換える |
 | キャッシュの掃除 | しない | `juiz cache clean` など |
 | 依存先の自動取得 | しない | パッケージの置き場(レジストリ)ができてから |
@@ -563,3 +566,265 @@ format 1 では行わない。足すときは format を上げるか、format 1 
 | Rust プラグインの C ABI(#291 の Step 4) | #332 | §4.1 の `rust.abi`・`rust.rustc`、§4.3、§6.3 の 6、§9 の段 6・10、§12.1(#328 で直し、#332 で実装) |
 | 段 6〜8 を展開の前に行う | #325 | §9 |
 | Container のモデルの検査(ContainerModel Step 3) | #383 | §6.3 の 9 |
+| .juizapp 使い勝手 Step 0 仕様書 | #391 | §15、§16、§17 |
+| 〃 Step 1 ブローカーの `port_fallback`・`adopt_master` と bind エラー | #392 | §16 |
+| 〃 Step 2 対話の部品とポート・IPC 名の事前確認 | #393 | §15.1〜§15.3 |
+| 〃 Step 3 親につながらないときの選択とつなぎ先の記憶 | #394 | §15.4〜§15.7 |
+| 〃 Step 4 Windows の関連付けとコンソール窓 | #395 | §17(Windows、§17.2、§17.3) |
+| 〃 Step 5 macOS・Linux の関連付けと SIGHUP | #396 | §17(macOS・Linux) |
+
+## 15. 起動時の確認と対話(#390)
+
+.juizapp を受け取った人が、ポートの衝突や基礎が無いことで止まったときに、その場で選び直せるようにする。決めごとは計画書 juizapp-usability-plan.md(2026-11-02 確定)による。実装は §15.1〜§15.3 が #393、§15.4〜§15.6 が #394。ブローカー側の設定は §16(#392)。
+
+### 15.1 対話できるとき
+
+`juiz run` は、次をすべて満たすときだけ利用者に選択を出す(以下「対話できる」)。
+
+- 標準入力と標準エラーが両方とも端末である(Rust の `std::io::IsTerminal`)。
+- `--yes` も `--no-prompt` も付いていない。
+
+選択は標準エラーに番号つきで出し、標準入力から 1 行読む(OS のダイアログは使わない。ダブルクリックで起動したときもコンソール窓が開くので、そこで選べる。§17.3)。
+
+```
+port 8080 is in use by another juiz (talker_listener 0.1.0).
+  1) start on port 8081 (free)
+  2) enter a port number
+  3) quit
+choose [1]:
+```
+
+- 空行は角括弧の既定(推奨)を選んだことにする。範囲外・数でない入力は、同じ選択をもう一度出す。
+- 標準入力が閉じた(EOF)・Ctrl+C のときは「やめる」と同じ(終了コード 1)。
+- 選択肢の文は英語で出す(ログ・エラーの文と同じ)。
+- `--yes` は「各選択の既定(推奨)を選ぶ」、`--no-prompt` は「対話できないときと同じ扱い」。違いは §15.2・§15.4 の表の「対話できないとき」と既定が違う所だけに出る。両方付けたら `--no-prompt` に従う。
+- `juiz -f` には対話を足さない(conf を直接動かす人は §16 の設定で決める)。
+
+### 15.2 ポートと IPC 名の事前確認
+
+`juiz run` は `System::setup` の前(§9 の段 9 の後)に、立てるブローカーの待ち受けを試しに取ってすぐ放し、使用中かを確かめる。
+
+- 対象: HTTP ブローカー(立てるとき、§7.1)のポート、qmp ブローカー(conf にあるとき)のポート、`kind: base` の IPC 名(§10.1)。アプリの IPC 名(`<アプリ名>-<プロセス ID>`)は衝突しないので見ない。
+- 使用中なら相手を調べる(§16.3 の「相手が juiz か」)。juiz なら `system/profile` の `package` も読む。
+- 基礎の IPC 名が使用中なら、相手を問わず `robot_base is already running at ipc://robot_base.` と出して終了する(終了コード 1。二重起動しない)。
+
+ポートが使用中のときの扱い:
+
+| 相手 | アプリ(`kind: app`) | 基礎(`kind: base`) |
+|---|---|---|
+| 同じパッケージの juiz(`package.name` が同じ) | 「`<name> is already running at http://127.0.0.1:<port>/`」→ 1) 空いている `<n>` でもう 1 つ起動 / 2) 動いている方の管理画面をブラウザで開いて終了 / 3) やめる | 「`<name> is already running`」で終了(二重起動しない) |
+| 別の juiz | 1) 空いている `<n>` で起動 / 2) 番号を入力 / 3) やめる | 1) 空いている `<n>` で起動 / 2) やめる |
+| juiz 以外 | 別の juiz と同じ | 別の juiz と同じ |
+| 対話できないとき | 空いている番号で起動し、§16.4 の警告を出す(`port_fallback: error` か `--no-port-fallback` ならエラー) | エラー(`port 8100 for robot_base is in use by …. Free the port, or start it with --http-port <n>.`) |
+
+- 「空いている `<n>`」は元の番号から +1 ずつ試して最初に取れた番号(上限は元の番号 + 100、無ければその選択肢を出さない)。
+- 基礎の番号を変えるときは `note: apps that connect to robot_base over http look for port 8100 and will not find it.` を添える(§10.2 の http のつなぎ先は `base.http_port` で探すため)。
+- アプリで、相手が juiz で §16.2 の `adopt_master` が有効なら、1) の文に `(join it as its subsystem)` を添え、選んだら相手を conf の `mastersystem` に足して起動する(§16 の「相手を親とみなす」と同じ結果を、事前確認で決める)。
+- 選んだ番号は今回だけ使い、覚えない。固定したいときは conf の `option.http_broker.port` か `--http-port <n>` を使う。
+- 番号を選び直した結果、§16 の取り直しは起きない(事前確認で取れた番号を conf に入れて起動するため)。事前確認の後に誰かが取った場合は §16 の規則で扱う。
+- qmp のポートも同じ表で扱う(選択肢の文の `port` を `qmp port` にする)。
+
+### 15.3 `juiz run` に足すオプション
+
+| オプション | 意味 |
+|---|---|
+| `--http-port <n>` | HTTP ブローカーのポートを `<n>` にする(conf の `option.http_broker.port` より優先)。HTTP ブローカーを立てるかは変えない(§7.1)。`kind: base` で `base.http_port` と違う番号を渡すと §15.2 の `note:` を出す |
+| `--yes` / `-y` | 選択を出さず、各選択の既定を選ぶ(§15.1) |
+| `--no-prompt` | 選択を出さず、対話できないときの扱いにする(§15.1) |
+| `--no-port-fallback` / `--no-adopt-master` | §16.2 |
+| `--forget-depends` | §15.6 の覚えたつなぎ先を、このアプリの分だけ消してから起動する |
+| `--launched` | 関連付けから起動された印(§17.3)。利用者が打つものではない |
+
+起動できたら、立てたブローカーのつなぎ先を標準エラーに 1 行ずつ出す(例 `HTTP broker: http://127.0.0.1:8081/ (web UI: /ui)`、`IPC broker: ipc://robot_base`)。実際の番号は `system/profile` のブローカーの名前でも分かる。
+
+### 15.4 親(基礎)につながらないとき
+
+§10.2 の確認(`subsystem_check`)で、つなげないとき(§10.3 の表の上 2 行)、対話できるなら次を出す。つながったが相手が違う・版が合わないとき(表の下 3 行)も、理由の文を出した後に同じ選択を出す。
+
+```
+my_patrol depends on robot_base >=1.2, <2, but it is not running at ipc://robot_base.
+  1) start robot_base 1.3.0 now                 ← 範囲に合う版がインストール済みのときだけ
+  2) choose a running robot_base                ← §15.5 で見つかったときだけ
+  3) enter where robot_base is (ex., http://192.168.0.10:8100)
+  4) retry
+  5) quit
+choose [1]:
+```
+
+- 既定は、出ている選択肢のうち一番上のもの。
+- 1) は `juiz run robot_base@<版>` を **別プロセス・別窓** で起動する(§15.7)。つながるまで最大 10 秒、0.5 秒おきに試し、つながったら続ける。つながらなければ `robot_base did not start in 10 s.` と出して同じ選択に戻る。アプリを止めても基礎は止めない。
+- 2) は見つかったものを `1) robot_base 1.3.0 at ipc://robot_base2` の形で並べ、選ばせる。
+- 3) は `--depend` と同じ書式の URL を受け、§10.2 と同じくつなぎ直して §10.3 の確認を通す。失敗したら理由を出して同じ選択に戻る。
+- 2) 3) でつながったら、§15.6 に覚える。
+- 依存が複数あれば、1 つずつ順に聞く。
+- 対話できないときは §10.3 のエラーで止まる(文は変えない)。`--yes` のときも同じ(基礎を対話なしで起動する既定は持たない、§13)。
+- `--depend <名前>=…` を渡した依存も、つながらなければ同じ選択を出す。覚えるのは 2) 3) で選んだときだけ。
+
+### 15.5 動いている基礎を探す(この機械の中だけ)
+
+- IPC の待ち受けを列挙する。Unix は ipc-broker.md §2.2 のソケットの置き場所にあるソケットのファイル、Windows は `\\.\pipe\` の下の `juiz-` で始まる名前付きパイプ。
+- 見つかった名前それぞれに `system/profile` を問い合わせ(1 つ 1 秒まで)、`package.kind` が `base`、`package.name` が依存の名前と一致し、版が範囲に入るものを候補にする。
+- HTTP・qmp で動いている基礎は探さない。他の機械を探すのはネーミングサービス(#289)の仕事にする。
+
+### 15.6 選んだつなぎ先を覚える
+
+- §15.4 の 2) 3) でつながった先を `<データ>/depends.yaml`(`<データ>` は §8.1)に書く。
+
+```yaml
+# <データ>/depends.yaml  (juiz run が書く。手で直してもよい)
+my_patrol:                 # アプリのパッケージ名
+  robot_base: http://192.168.0.10:8100
+```
+
+- §10.2 のつなぎ先の順を次にする: 1. `--depend` → **2. 覚えた先** → 3. conf の `subsystems[].package` → 4. `ipc://<名前>`。
+- 覚えた先を使ったときは `using robot_base at http://192.168.0.10:8100 (remembered; --forget-depends to reset)` と標準エラーに出す。
+- 覚えた先につながらなければ、§15.4 の選択を出す(対話できなければ §10.3 のエラーに、上の文を添える)。
+- `--forget-depends` はそのアプリの項目を消す。ファイルが壊れていたら警告を出して無いものとして扱う。
+- 書くのはアプリ名ごと。同じ基礎に依存する別のアプリには効かない。
+
+### 15.7 基礎を別窓で起動する
+
+§15.4 の 1) で基礎を起動するとき、子プロセスとして待たない(アプリが止まっても残す)。
+
+| OS | 方法 |
+|---|---|
+| Windows | `CREATE_NEW_CONSOLE` で `"<juiz>" run --launched robot_base@<版>` を起動する |
+| macOS | `osascript` で Terminal に `"<juiz>" run --launched robot_base@<版>` を打たせる |
+| Linux | `$TERMINAL`、`x-terminal-emulator`、`gnome-terminal`、`konsole`、`xterm` の順で見つかったものの `-e` で起動する。表示が無い(`DISPLAY`・`WAYLAND_DISPLAY` が無い)か見つからなければ、端末から切り離して起動し、出力を `<キャッシュ>/logs/robot_base.log` に書き、そのパスを出す |
+
+- `<juiz>` は §17.2 の「juiz の実行ファイル」と同じ求め方をする。
+- 起動した基礎には `--launched` を付ける(エラーで止まったら窓が残って読める、§17.3)。
+
+## 16. ブローカーのポートが使用中のとき(#390)
+
+HTTP ブローカーは、待ち受けるポートが使用中なら +1 して取り直し、相手が juiz ならその子(subsystem)になる(相手を `mastersystem` とする)動作を前から持っている。これを既定として残し(2026-11-02 決定)、それぞれを禁止できるようにする。実装は #392。
+
+### 16.1 conf
+
+```yaml
+option:
+  http_broker:
+    port: 8080
+    port_fallback: next     # next(既定)| error
+    adopt_master: true      # true(既定)| false
+brokers:
+  - type_name: qmp
+    port: 3000
+    port_fallback: next     # qmp も同じ 2 つを持つ
+    adopt_master: true
+```
+
+| 設定 | 値 | 意味 |
+|---|---|---|
+| `port_fallback` | `next`(既定) | 使用中なら +1 ずつ、元の番号 + 100 まで取り直す |
+| | `error` | 使用中なら起動を止める(§16.4 のエラー) |
+| `adopt_master` | `true`(既定) | 使用中の相手が juiz なら、その System を `mastersystem` とする |
+| | `false` | 相手が juiz でも親とみなさない(番号の取り直しだけ) |
+
+- 知らない値はエラー(`port_fallback must be 'next' or 'error', but '…'`)。
+- conf に `mastersystem` を書いていれば、`adopt_master` によらずそちらを使う(相手を親にしない)。
+- `adopt_master` は `port_fallback: next` のときだけ意味を持つ(`error` なら相手につながる前に止まる)。
+
+### 16.2 コマンドの引数
+
+`juiz -f` と `juiz run` の両方に足す。conf より優先する。
+
+| 引数 | 効き目 |
+|---|---|
+| `--no-port-fallback` | すべてのブローカーを `port_fallback: error` にする |
+| `--no-adopt-master` | すべてのブローカーを `adopt_master: false` にする |
+
+`juiz run` の既定(conf にも引数にも無いとき)は次のとおり。
+
+- `kind: base`: `adopt_master: false`(基礎がよその juiz の子になることはない)。`port_fallback` は §15.2 の事前確認で決まる。
+- `kind: app` で §10.2 によって依存の subsystem を 1 つ以上足したとき: `adopt_master: false`。依存先の基礎がつなぎ返して `mastersystem` になるので、たまたまポートにいた juiz も親にすると親が 2 つになるため(#391 で決めた)。conf に `adopt_master: true` と書けばそれに従う。
+- それ以外の `kind: app`: §16.1 の既定のまま。
+
+### 16.3 相手が juiz か
+
+ポートが使用中のとき、相手が juiz かを次で確かめる。
+
+- HTTP: `GET http://127.0.0.1:<port>/api/system/profile` を 1 秒のタイムアウトで呼び、200 で JSON のオブジェクトが返り、`system_store.uuid` を持てば juiz とみなす。
+- qmp: そのポートへ qmp の BrokerProxy でつなぎ、`system/profile` を同じ規則で確かめる(1 秒)。
+- それ以外(つながらない、タイムアウト、形が違う)は juiz 以外とみなす。juiz 以外は親にしない(`port_fallback: next` なら番号を取り直すだけ)。
+- 今の `check_server_is_juiz` は常に真を返す仮実装で、無関係なサーバーを親とみなしてしまう。#392 でこの規則に置き換える。
+
+### 16.4 利用者への表示とエラー
+
+ログ(`log::info` など)は既定で見えないので、次は標準エラーに直接出す。
+
+| 場合 | 文 |
+|---|---|
+| 番号を取り直した | `warning: port 8080 is in use; the HTTP broker uses 8081` |
+| 相手を親とみなした | `joined the juiz at 127.0.0.1:8080 as its subsystem` |
+| `port_fallback: error` で使用中 | エラー `port 8080 for the HTTP broker is in use (by a juiz / by another program). Use another port, or remove port_fallback: error / --no-port-fallback.` |
+| 上限まで空きが無い | エラー `no free port for the HTTP broker in 8080..8180` |
+| 使用中以外の bind の失敗(権限、アドレスが無いなど) | エラー `cannot start the HTTP broker on 0.0.0.0:80: <OS の理由>` |
+
+- 使用中以外の bind の失敗を黙って捨てない。今は log に出すだけで、`start_brokers` の待ちが `TimeoutError` になり原因が見えない。ブローカーの起動の失敗として `start_brokers` のエラーに理由を載せる。
+- qmp も同じ文(`HTTP broker` を `qmp broker` にする)。
+
+## 17. ファイルの関連付けとダブルクリック起動(#390)
+
+`.juizapp` をダブルクリックで起動できるようにする。インストーラは作らず、`pip install juiz-cli`(か `cargo install juiz_app`)の後に利用者が 1 回だけ `juiz associate` を打つ。実装は Windows が #395、macOS・Linux が #396。
+
+### 17.1 コマンド
+
+```
+juiz associate            # 今の juiz を .juizapp に関連付ける(この利用者だけ)
+juiz associate --remove   # 外す
+```
+
+- 管理者権限は要らない(利用者ごとの場所にだけ書く)。
+- 既に別の juiz が関連付けられていたら、上書きする前に `.juizapp was associated with <前のパス>; now <今のパス>` と出す。同じなら何もせず成功。
+- venv の中で打つと、その venv の juiz が登録される(その venv の Python とパッケージで動く)。
+- `--remove` は、関連付けが今の juiz を指していなくても、§17.4 で書いたものを消す。無ければ何もせず成功。
+- ダブルクリックの動作は `juiz run`。インストールは右クリック(Windows・Linux)のメニューに置く。
+
+### 17.2 juiz の実行ファイル
+
+関連付けに書く「juiz の実行ファイル」は次で求める。
+
+- `cargo install` の juiz: `std::env::current_exe()`。
+- pip の `juiz-cli`: Windows の `Scripts\juiz.exe` は pip のランチャで、Rust 側の `current_exe()` は python.exe を指す。そのため Python の入口(`juiz_cli:main`)が `sys.argv[0]` から求めたランチャの絶対パスを環境変数 `JUIZ_LAUNCHER` で Rust 側に渡し、あればそれを使う。macOS・Linux も同じ(`bin/juiz` のスクリプト)。
+
+### 17.3 `--launched`
+
+関連付けから起動したことを示す印。`juiz run` と `juiz install` に付ける。付いたときだけ次をする(どの OS も同じ)。
+
+- 起動時に `juiz - <name> <version>` を窓のタイトルにする(Windows は `SetConsoleTitleW`、他は端末のエスケープ `ESC ] 0 ; … BEL`)。
+- 起動時に `Close this window or press Ctrl+C to stop.` と 1 行出す。
+- **エラーで終わったときは `Press Enter to close.` と出して待つ**(エラーの文が窓ごと一瞬で消えないように)。正常終了・Ctrl+C での停止では待たない。標準入力が端末でなければ待たない。
+- §15.1 の対話は、`--launched` でも普通に出す。
+
+### 17.4 OS ごとに書くもの
+
+**Windows**(HKCU、#395)
+
+```
+HKCU\Software\Classes\.juizapp                       (既定) = JUIZ.App
+HKCU\Software\Classes\JUIZ.App                       (既定) = JUIZ application
+HKCU\Software\Classes\JUIZ.App\DefaultIcon           (既定) = <アイコン>
+HKCU\Software\Classes\JUIZ.App\shell\open\command    (既定) = "<juiz>" run --launched "%1"
+HKCU\Software\Classes\JUIZ.App\shell\install         (既定) = Install with juiz
+HKCU\Software\Classes\JUIZ.App\shell\install\command (既定) = "<juiz>" install --launched "%1"
+```
+
+- 書いた後に `SHChangeNotify(SHCNE_ASSOCCHANGED)` でエクスプローラーに知らせる。
+- `<アイコン>` は `<データ>/juizapp.ico` に書き出したもの(pip のランチャにはアイコンを埋められないため)。用意できるまでは `DefaultIcon` を書かなくてよい。
+- コンソール窓の × で閉じたとき(`CTRL_CLOSE_EVENT`)は、`SetConsoleCtrlHandler` のハンドラで停止を始め、後始末(相手の System から外れる処理など、#303)が終わるまで最大 5 秒ハンドラから戻らない(戻ると OS がすぐプロセスを止めるため)。
+
+**Linux**(freedesktop、#396)
+
+- `~/.local/share/mime/packages/juiz-juizapp.xml`: `*.juizapp` → `application/x-juizapp`。
+- `~/.local/share/applications/juiz.desktop`: `Exec="<juiz>" run --launched %f`、`Terminal=true`、`MimeType=application/x-juizapp;`、アクション `install`(`Exec="<juiz>" install --launched %f`)。
+- `update-mime-database`・`update-desktop-database`・`xdg-mime default juiz.desktop application/x-juizapp` を呼ぶ。コマンドが無ければ警告を出して続ける(端末エミュレータが開くかはデスクトップ環境に任せる)。
+
+**macOS**(#396)
+
+- ファイルは argv ではなく Apple Event で渡されるので、`~/Applications/JUIZ Launcher.app` を作る。`osacompile` で AppleScript のアプレットとして作り、`on open` で Terminal に `"<juiz>" run --launched <パス>` を打たせる。
+- アプレットの Info.plist に `CFBundleDocumentTypes`(拡張子 `juizapp`、役割 Viewer)を足し、`lsregister -f` で登録する。
+- 自分の機械で作ったアプレットには隔離属性が付かないので、Gatekeeper には止められない。
+- インストールのメニューは作らない(Finder の右クリックに足すにはサービスが要るため)。
+
+**SIGHUP**: Windows 以外では、端末を閉じたとき(SIGHUP)も止まる合図に足す(`System::wait_for_signal`、#307 と同じ後始末)。
