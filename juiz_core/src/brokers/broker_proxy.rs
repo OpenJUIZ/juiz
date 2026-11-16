@@ -139,7 +139,7 @@ pub trait ProcessBrokerProxy {
     fn process_try_connect_to(
         &mut self,
         manifest: &ConnectionManifest,
-    ) -> JuizResult<ConnectionManifest>;
+    ) -> JuizResult<ConnectionProfile>;
 
     fn process_notify_connected_from(
         &mut self,

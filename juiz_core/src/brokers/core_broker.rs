@@ -1002,7 +1002,7 @@ impl ProcessBrokerProxy for CoreBroker {
     fn process_try_connect_to(
         &mut self,
         connection_manifest_ref: &ConnectionManifest,
-    ) -> JuizResult<ConnectionManifest> {
+    ) -> JuizResult<ConnectionProfile> {
         log::trace!(
             "【呼出】process_try_connect_to({})",
             connection_manifest_ref

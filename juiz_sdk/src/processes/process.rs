@@ -69,7 +69,7 @@ pub trait Process: Send + Sync + mopa::Any + std::fmt::Debug + 'static {
         &mut self,
         target: ProcessPtr,
         connection_manifest: &ConnectionManifest,
-    ) -> JuizResult<ConnectionManifest>;
+    ) -> JuizResult<ConnectionProfile>;
 
     fn source_connections(&self) -> JuizResult<Vec<&Box<dyn SourceConnection>>>;
 

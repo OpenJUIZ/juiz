@@ -130,3 +130,15 @@ juiz のコード・API・文書では「manifest」と「profile」が混ざっ
 **変わるもの。** `OutputManifest` の `Display` は `OutputManifest(int=0)` のように新しい名前を出す(今までは `OutputProfile(int=0)`)。ログとテストのための表示で、API の応答には使っていない。
 
 **公開の後に直す所(§7 の 5)。** サンプル 4 言語・公式サイトで古い名前を使っている所は無い(2026-11-15 に確かめた)ので、直す所は無い。
+
+### 8.3 Step 3(#507)
+
+**Rust の SDK。** `Process::try_connect_to` の戻り値を `ConnectionManifest` から `ConnectionProfile` に変え、`notify_connected_from` とそろえた。どちらも、できた接続の `ConnectionProfile` を返す。`BrokerProxy`(`ProcessBrokerProxy`)の `process_try_connect_to` も同じく `ConnectionProfile` を返す。引数は今までどおり `&ConnectionManifest`(これから作る接続の宣言)。
+
+**直した実装。** `Process` を実装しているのは `ProcessImpl`(ContainerProcess・Composite もこれを使う)・`ProcessProxy`・juiz_sdk のテスト用の `DummyProcess` だけ。`ProcessBrokerProxy` は `CoreBroker`・`CRUDBrokerProxyHolder`(HTTP・qmp・IPC・Zenoh)・`MessengerBrokerProxy`。
+
+**別名は置かない。** トレイトの関数の戻り値なので別名にできない。名前は変わらず、外から呼ぶ側は `ConnectionProfile` を受け取るように直すだけでよい。juiz の外(サンプル 4 言語・teleop_twist・公式サイト)に `try_connect_to` を呼ぶ所・`Process` を実装する所は無い(2026-11-15 に確かめた)。
+
+**変わらないもの。** ブローカー API `process/try_connect_to` の応答の JSON。2 つの型は serde で同じキー(`connection_type`・`source_process_id`・`destination_process_id`・`arg_name`)に直列化されるので、古い juiz の応答を新しい側が、新しい juiz の応答を古い側がそのまま読める(juiz_sdk の `connection_manifest_and_profile_serialize_alike` で確かめる)。`connection/create`・`connection/destroy`・`connection/profile_full` は前から `ConnectionProfile` を返していて、変えていない。
+
+**公開の後に直す所(§7 の 5)。** 無い。

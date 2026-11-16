@@ -77,7 +77,7 @@ impl Process for DummyProcess {
         &mut self,
         _target: ProcessPtr,
         _m: &ConnectionManifest,
-    ) -> JuizResult<ConnectionManifest> {
+    ) -> JuizResult<ConnectionProfile> {
         unimplemented!()
     }
     fn source_connections(&self) -> JuizResult<Vec<&Box<dyn SourceConnection>>> {

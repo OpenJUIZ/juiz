@@ -457,7 +457,7 @@ impl ProcessBrokerProxy for MessengerBrokerProxy {
     fn process_try_connect_to(
         &mut self,
         connection_manifest: &ConnectionManifest,
-    ) -> JuizResult<ConnectionManifest> {
+    ) -> JuizResult<ConnectionProfile> {
         //    fn process_try_connect_to(&mut self, source_process_id: &ProcessIdentifier, arg_name: &str, destination_process_id: &ProcessIdentifier, connection_type: String, connection_id: Option<String>) -> JuizResult<Value> {
         // let connection_manifest = ConnectionManifest::new(
         //     connection_type.as_str().into(),
