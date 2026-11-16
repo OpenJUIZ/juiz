@@ -177,7 +177,7 @@ Rust 以外のテスト:
 | integration | System を起動し、プラグインを読む | `juiz_core/tests/integration/<機能>/`。言語ごとの違いは機能の下に置く。言語の読み込みそのもの(ABI・例外・値の受け渡し)は `plugins/<言語>/` |
 | broker | どのブローカーでも同じになるべき確認を、各ブローカーで走らせる | ブローカー共通のスイート `brokers/broker_suite`(下の「ブローカー共通のスイート」)+ ブローカーごとの追加分 |
 | cli | `juiz` コマンドを子プロセスで動かす | `juiz_app/tests/cli/` |
-| slow | テストの中で外のビルド(cargo・cmake・cabal)を呼ぶ。juiz_app の `cli` の `pkg::` など | 置き場所はカテゴリ本来の場所のまま、モジュールパスに `slow` を含めて `-- --skip slow::` で外せるようにする(詳細は #524) |
+| slow | テストの中で外のビルド(cargo・cmake・cabal)を呼ぶ。いまは juiz_app の `cli` の `pkg::slow::`(雛形を Rust・C++・Haskell でビルドする 6 件) | 置き場所はカテゴリ本来の場所のまま、そのファイルの中の `mod slow` に入れる(モジュールパスに `slow::` が入る)。`-- --skip slow::` で外せる |
 | bench | 計測。ふだんは走らせない | 置いてある tests の下の `bench/`。`#[ignore]` を付け、release で手動実行する(下の「ベンチマークを実行する」) |
 
 integration の分け方は**機能が先、言語は下**です。何が壊れたかを機能で探すことが多いためです。
@@ -232,6 +232,7 @@ juiz_core/tests/integration/
 - **テスト関数名**は「何をすると・どうなる」を英語の文で書きます。`test_` 接頭辞、`_test` 接尾辞は付けません。
   - 良い例: `call_with_omitted_argument_uses_default`、`connect_rejects_mismatched_types`、`remove_subsystem_drops_topic_forwarding`
   - 避ける例: `test_call`、`call_test`、`test1`
+- **Python を使うテスト**(埋め込み Python で Python の Process・Container を読むもの、pyjuiz を動かすもの)は、モジュールパスか関数名に `python` か `pyjuiz` を入れます(例: `plugins::python::`、`pyjuiz::`、`core_broker_api_with_rust_python_cpp_plugins`)。CI の Python 3.10 のジョブは、この名前で選んだテストだけを走らせます(下の「CI のジョブ」)。
 - 関数名がモジュールパスと合わさって読めれば十分です。`transformations::cross_system::lookup_follows_remote_parent` のように、モジュールで言えていることを関数名で繰り返す必要はありません。
 - **補助関数**(`#[test]` の付かない関数)はテスト関数と見分けやすい動詞で始めます(`start_system`、`check_profile`、`make_conf` など)。複数のファイルで使うものは `common/` に置きます。
 - Python と TypeScript のテストは、それぞれの道具が集める名前(`*_test.py`、`*.test.ts`)に従います。中の関数名は Rust と同じく「何がどうなる」で書きます。
@@ -245,8 +246,22 @@ scripts/test.sh -p juiz_core --test integration -- transformations::          # 
 scripts/test.sh -p juiz_core --test integration -- transformations::python    # その Python の分だけ
 scripts/test.sh -p juiz_core --test integration -- plugins::haskell::         # Haskell の読み込み
 scripts/test.sh -p juiz_app --test cli -- package::                           # juiz コマンドの .juizapp の分だけ
-scripts/test.sh -p juiz_app --test cli -- --skip slow::                       # 遅いものを外す(#524 の後)
+scripts/test.sh -p juiz_app --test cli -- --skip slow::                       # 外のビルドを呼ぶ遅いものを外す
+scripts/test.sh -- --skip slow::                                              # 全体から遅いものを外す
+scripts/test.sh -p juiz_core -p juiz_app --tests -- python pyjuiz             # Python を使うものだけ(CI の Python 3.10 と同じ)
 ```
+
+### CI のジョブ
+
+`test-linux.yml` の rust ジョブは、埋め込む Python の下限(3.10)と最新(3.14)の 2 版で走ります。版で結果が変わり得るのは埋め込み Python に関わるテストだけなので、全テスト(slow と Haskell を含む)を走らせるのは 3.14 だけにし、3.10 では名前に `python` か `pyjuiz` を含むテストと python-entry のテストだけを走らせます(#524)。
+
+Python を使うのに名前に `python` も `pyjuiz` も入っていないテストは、3.10 で確かめられません。足したテストが Python を使うか分からないときは、Python を起動できない状態で走らせて確かめられます(Python を使うテストは `Fatal Python error` で落ちる)。
+
+```terminal
+PYTHONHOME=/nonexistent cargo test -p juiz_core --test integration -- --exact <テストのパス> --test-threads=1
+```
+
+macOS・Windows(`test-macos.yml`・`test-windows.yml`)は 1 版で、それぞれ決まったテストを走らせます。
 
 ### テストを書くときの決まり
 
@@ -274,7 +289,7 @@ scripts/test.sh -p juiz_app --test cli -- --skip slow::                       # 
 | #521 | `juiz_core/tests/integration` を機能ごとのディレクトリに分け、名前を決まりにそろえる。ベンチを `bench/` へ(済み) |
 | #522 | ブローカー共通のスイート(juiz_core の `brokers::{core,local,http,ipc}_api`、qmp・Zenoh の `*_broker_api_test` と、ほぼ同じ写しの qmp・Zenoh の tests をまとめる)(済み) |
 | #523 | `juiz_app`・qmp・Zenoh・`juiz_sdk` のテストをクレートごとに 1 本のバイナリへ(済み) |
-| #524 | slow の印と、Python 3.10 のジョブで走らせるテストの絞り込み |
+| #524 | slow の印と、Python 3.10 のジョブで走らせるテストの絞り込み(済み) |
 | #525 | pyjuiz のテストを自動で集める形に |
 
 ### ベンチマークを実行する

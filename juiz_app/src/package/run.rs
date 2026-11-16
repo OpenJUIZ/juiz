@@ -878,9 +878,10 @@ pub(crate) mod tests {
         e
     }
 
-    /// マニフェストだけで決まる段(6〜8)で止まるときは、キャッシュに何も展開しない(#325)
+    /// マニフェストだけで決まる段(6〜8)で止まるときは、キャッシュに何も展開しない(#325)。
+    /// 段 6: rustc が合わない
     #[test]
-    fn manifest_stages_fail_before_extract() {
+    fn rustc_mismatch_fails_before_extract() {
         let conf: &[(&str, &[u8])] = &[("app.conf", b"name: a\n")];
         // 段 6: rustc が合わない
         let d = tmp("pre_rustc");
@@ -903,9 +904,13 @@ pub(crate) mod tests {
         assert!(!called.get());
         assert!(!d.join("cache/apps").exists());
         let _ = std::fs::remove_dir_all(&d);
+    }
 
-        // 段 7・8: juiz run は check_python を展開の前に呼ぶ。入っていない依存なら止まる
-        // (Python 無しのビルドでは段 7 で止まる)
+    /// 段 7・8: juiz run は check_python を展開の前に呼ぶ。入っていない依存なら止まる
+    /// (Python 無しのビルドでは段 7 で止まる)。埋め込み Python を使う
+    #[test]
+    fn missing_python_requires_fail_before_extract() {
+        let conf: &[(&str, &[u8])] = &[("app.conf", b"name: a\n")];
         let d = tmp("pre_python");
         let pkg = d.join("p.juizapp");
         write_pkg(

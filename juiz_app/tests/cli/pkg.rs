@@ -291,12 +291,6 @@ fn check_package(pkg: &Path, lang: &str) {
     }
 }
 
-#[cfg(unix)]
-#[test]
-fn pkg_create_rust_component_builds_runs_and_packs() {
-    create_build_run_pack("rust", "pkg_rust_robot", 8078, true, &[]);
-}
-
 /// --idl の雛形 (§6.5): juiz_std と別ファイルの record を使う宣言から型付きの関数を作り、
 /// 本体を書き換え (`bodies` に (雛形のソース, 元の行, 書き換えた行) を並べる)、`juiz pkg add` で型を足してから、
 /// ビルド→起動→call→型の確認→pack→juiz run を通す
@@ -394,29 +388,6 @@ record Goal { juiz_std.geometry.Pose2D pose; double tolerance = 0.5; }
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-#[cfg(unix)]
-#[test]
-fn pkg_create_rust_idl_builds_runs_and_packs() {
-    idl_build_run_pack(
-        "rust",
-        "pkg_rust_idl",
-        8082,
-        true,
-        &[],
-        "src/lib.rs",
-        &[
-            (
-                "    let _ = (goal, from_pose);\n    todo!(\"write the body of pkg_idl_remaining\")",
-                "    Ok(goal.pose.theta - from_pose.theta + goal.tolerance)",
-            ),
-            (
-                "    let _ = (container, step);\n    todo!(\"write the body of pkg_idl_double\")",
-                "    let _ = container;\n    Ok(step * 2)",
-            ),
-        ],
-    );
-}
-
 /// Python の --idl (issue #468): 型のパッケージは app/python/ に作ってあり、juiz_std は pyjuiz のもの
 #[cfg(all(unix, feature = "embed-python"))]
 #[test]
@@ -484,15 +455,6 @@ fn sdk_from_workspace(dir: &Path) -> PathBuf {
     sdk
 }
 
-#[cfg(unix)]
-#[test]
-fn pkg_create_cpp_component_builds_runs_and_packs() {
-    let dir = temp_dir("pkg_cli_cpp_sdk");
-    let sdk = sdk_from_workspace(&dir);
-    create_build_run_pack("cpp", "pkg_cpp_robot", 8077, true, &["--juiz-sdk-dir", path_str(&sdk)]);
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
 /// GHC・cabal (Linux では patchelf も) が無ければ飛ばす。JUIZ_REQUIRE_HASKELL=1 なら飛ばさずに落とす (scripts/test.sh と同じ)
 fn haskell_tools_missing() -> Option<String> {
     let has = |cmd: &str| {
@@ -516,75 +478,119 @@ fn haskell_tools_missing() -> Option<String> {
     Some(msg)
 }
 
-/// Haskell (§6.4、issue #459): C++ と同じく配布と同じ形の libjuiz_sdk を --juiz-sdk-dir で指し、
-/// hsjuiz は --juiz-source の bindings/hsjuiz を使う。pack は bundle-plugin-deps.sh で GHC のライブラリごと集める
-#[cfg(unix)]
-#[test]
-fn pkg_create_haskell_component_builds_runs_and_packs() {
-    if let Some(reason) = haskell_tools_missing() {
-        eprintln!("skip: {reason}");
-        return;
-    }
-    let dir = temp_dir("pkg_cli_haskell_sdk");
-    let sdk = sdk_from_workspace(&dir);
-    create_build_run_pack("haskell", "pkg_hs_robot", 8076, true, &["--juiz-sdk-dir", path_str(&sdk)]);
-    let _ = std::fs::remove_dir_all(&dir);
-}
+/// 雛形を cargo・cmake・cabal でビルドするテスト。1 件 10〜50 秒かかるので、`--skip slow::` で外せるようにまとめる
+/// (CONTRIBUTING.md の「カテゴリと置き場所」の slow)
+mod slow {
+    use super::*;
 
-/// C++ の --idl (issue #468): CMake の juiz_generate_types が `juiz idl -g cpp` で juiz_idl.h を作る
-#[cfg(unix)]
-#[test]
-fn pkg_create_cpp_idl_builds_runs_and_packs() {
-    let dir = temp_dir("pkg_cli_cpp_idl_sdk");
-    let sdk = sdk_from_workspace(&dir);
-    idl_build_run_pack(
-        "cpp",
-        "pkg_cpp_idl",
-        8084,
-        true,
-        &["--juiz-sdk-dir", path_str(&sdk)],
-        "src/pkg_cpp_idl.cpp",
-        &[
-            (
-                "    (void)goal;\n    (void)from_pose;\n    throw std::runtime_error(\"write the body of pkg_idl_remaining\");",
-                "    return goal.pose.theta - from_pose.theta + goal.tolerance;",
-            ),
-            (
-                "    (void)step;\n    throw std::runtime_error(\"write the body of pkg_idl_double\");",
-                "    return step * 2;",
-            ),
-        ],
-    );
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-/// Haskell の --idl (issue #468): scripts/dev.sh が `juiz idl -g haskell` で gen/ に型のモジュールを作る
-#[cfg(unix)]
-#[test]
-fn pkg_create_haskell_idl_builds_runs_and_packs() {
-    if let Some(reason) = haskell_tools_missing() {
-        eprintln!("skip: {reason}");
-        return;
+    #[cfg(unix)]
+    #[test]
+    fn pkg_create_rust_component_builds_runs_and_packs() {
+        create_build_run_pack("rust", "pkg_rust_robot", 8078, true, &[]);
     }
-    let dir = temp_dir("pkg_cli_haskell_idl_sdk");
-    let sdk = sdk_from_workspace(&dir);
-    idl_build_run_pack(
-        "haskell",
-        "pkg_hs_idl",
-        8085,
-        true,
-        &["--juiz-sdk-dir", path_str(&sdk)],
-        "src/PkgHsIdl.hs",
-        &[
-            (
-                "pkg_idl_remaining_process _goal _from_pose = error \"write the body of pkg_idl_remaining\"",
-                "pkg_idl_remaining_process goal fromPose =\n  Juiz_std.Geometry.pose2DTheta (Pkg_idl.Common.goalPose goal)\n    - Juiz_std.Geometry.pose2DTheta fromPose + Pkg_idl.Common.goalTolerance goal",
-            ),
-            (
-                "pkg_idl_double_process _container _step = error \"write the body of pkg_idl_double\"",
-                "pkg_idl_double_process _container step = pure (step * 2)",
-            ),
-        ],
-    );
-    let _ = std::fs::remove_dir_all(&dir);
+
+    #[cfg(unix)]
+    #[test]
+    fn pkg_create_rust_idl_builds_runs_and_packs() {
+        idl_build_run_pack(
+            "rust",
+            "pkg_rust_idl",
+            8082,
+            true,
+            &[],
+            "src/lib.rs",
+            &[
+                (
+                    "    let _ = (goal, from_pose);\n    todo!(\"write the body of pkg_idl_remaining\")",
+                    "    Ok(goal.pose.theta - from_pose.theta + goal.tolerance)",
+                ),
+                (
+                    "    let _ = (container, step);\n    todo!(\"write the body of pkg_idl_double\")",
+                    "    let _ = container;\n    Ok(step * 2)",
+                ),
+            ],
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pkg_create_cpp_component_builds_runs_and_packs() {
+        let dir = temp_dir("pkg_cli_cpp_sdk");
+        let sdk = sdk_from_workspace(&dir);
+        create_build_run_pack("cpp", "pkg_cpp_robot", 8077, true, &["--juiz-sdk-dir", path_str(&sdk)]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Haskell (§6.4、issue #459): C++ と同じく配布と同じ形の libjuiz_sdk を --juiz-sdk-dir で指し、
+    /// hsjuiz は --juiz-source の bindings/hsjuiz を使う。pack は bundle-plugin-deps.sh で GHC のライブラリごと集める
+    #[cfg(unix)]
+    #[test]
+    fn pkg_create_haskell_component_builds_runs_and_packs() {
+        if let Some(reason) = haskell_tools_missing() {
+            eprintln!("skip: {reason}");
+            return;
+        }
+        let dir = temp_dir("pkg_cli_haskell_sdk");
+        let sdk = sdk_from_workspace(&dir);
+        create_build_run_pack("haskell", "pkg_hs_robot", 8076, true, &["--juiz-sdk-dir", path_str(&sdk)]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// C++ の --idl (issue #468): CMake の juiz_generate_types が `juiz idl -g cpp` で juiz_idl.h を作る
+    #[cfg(unix)]
+    #[test]
+    fn pkg_create_cpp_idl_builds_runs_and_packs() {
+        let dir = temp_dir("pkg_cli_cpp_idl_sdk");
+        let sdk = sdk_from_workspace(&dir);
+        idl_build_run_pack(
+            "cpp",
+            "pkg_cpp_idl",
+            8084,
+            true,
+            &["--juiz-sdk-dir", path_str(&sdk)],
+            "src/pkg_cpp_idl.cpp",
+            &[
+                (
+                    "    (void)goal;\n    (void)from_pose;\n    throw std::runtime_error(\"write the body of pkg_idl_remaining\");",
+                    "    return goal.pose.theta - from_pose.theta + goal.tolerance;",
+                ),
+                (
+                    "    (void)step;\n    throw std::runtime_error(\"write the body of pkg_idl_double\");",
+                    "    return step * 2;",
+                ),
+            ],
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Haskell の --idl (issue #468): scripts/dev.sh が `juiz idl -g haskell` で gen/ に型のモジュールを作る
+    #[cfg(unix)]
+    #[test]
+    fn pkg_create_haskell_idl_builds_runs_and_packs() {
+        if let Some(reason) = haskell_tools_missing() {
+            eprintln!("skip: {reason}");
+            return;
+        }
+        let dir = temp_dir("pkg_cli_haskell_idl_sdk");
+        let sdk = sdk_from_workspace(&dir);
+        idl_build_run_pack(
+            "haskell",
+            "pkg_hs_idl",
+            8085,
+            true,
+            &["--juiz-sdk-dir", path_str(&sdk)],
+            "src/PkgHsIdl.hs",
+            &[
+                (
+                    "pkg_idl_remaining_process _goal _from_pose = error \"write the body of pkg_idl_remaining\"",
+                    "pkg_idl_remaining_process goal fromPose =\n  Juiz_std.Geometry.pose2DTheta (Pkg_idl.Common.goalPose goal)\n    - Juiz_std.Geometry.pose2DTheta fromPose + Pkg_idl.Common.goalTolerance goal",
+                ),
+                (
+                    "pkg_idl_double_process _container _step = error \"write the body of pkg_idl_double\"",
+                    "pkg_idl_double_process _container step = pure (step * 2)",
+                ),
+            ],
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
