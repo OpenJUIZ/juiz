@@ -310,7 +310,7 @@ fn check_add_mastersystem(c: &Client, system: &System) -> JuizResult<()> {
 }
 
 #[test]
-fn http_router_image_multipart_and_errors() -> JuizResult<()> {
+fn http_router_image_multipart_and_errors_with_python_processes() -> JuizResult<()> {
     crate::common::logger::init();
     System::new(system_manifest())?
         .setup()?

@@ -352,7 +352,7 @@ fn check_process_proxy(bp: Arc<RwLock<dyn BrokerProxy>>) -> JuizResult<()> {
 }
 
 #[test]
-fn messenger_broker_proxy_api() -> JuizResult<()> {
+fn messenger_broker_proxy_api_with_rust_and_python_plugins() -> JuizResult<()> {
     crate::common::logger::init();
     System::new(system_manifest("messenger_broker_proxy_test", PORT))?
         .setup()?

@@ -45,6 +45,10 @@ jobs:
   # scripts/test.sh でテストの前に cargo build と C++ 例のビルドを済ませる。
   # 埋め込む Python は対応範囲の下限と最新の 2 版で確かめる(issue #100)。
   # setup-python の python3 が PATH の先頭に来るので、PYO3_PYTHON の python3 はその版になる。
+  # 全テストを走らせるのは最新の版(scope: all)だけ。下限の版(scope: python)では、版で結果が変わり得る
+  # 埋め込み Python に関わるテスト(名前に python・pyjuiz を含むもの、python-entry)だけを走らせる(#524)。
+  # 外のビルドを呼ぶ遅いテスト(slow::)と Haskell は scope: all でだけ走る。
+  # ジョブ名は必須チェックの名前になっているかもしれないので変えない
   rust:
     name: Rust build & test (Python ${{ matrix.python }})
     if: ${{ !github.event.pull_request.draft }}
@@ -52,7 +56,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.10", "3.14"]
+        include:
+          - python: "3.10"
+            scope: python
+          - python: "3.14"
+            scope: all
     steps:
       - uses: actions/checkout@v4
 
@@ -86,10 +94,12 @@ jobs:
       # ghcup での GHC のインストールに Linux で約 2 分、macOS で約 4 分かかるので、入れた GHC をキャッシュする。
       # GHC の置き場所は ghcup と同じく ${GHCUP_INSTALL_BASE_PREFIX:-$HOME}/.ghcup/ghc/<版>
       - name: Locate ghcup directory
+        if: matrix.scope == 'all'
         id: ghcup
         shell: bash
         run: echo "dir=${GHCUP_INSTALL_BASE_PREFIX:-$HOME}/.ghcup" >> "$GITHUB_OUTPUT"
       - name: Restore GHC
+        if: matrix.scope == 'all'
         id: ghc-cache
         uses: actions/cache/restore@v4
         with:
@@ -97,6 +107,7 @@ jobs:
           key: ghc-${{ env.GHC_VERSION }}-${{ runner.os }}-${{ runner.arch }}
       # キャッシュに GHC があれば、haskell-actions/setup はインストールを飛ばして ghcup set だけする
       - uses: haskell-actions/setup@v2
+        if: matrix.scope == 'all'
         with:
           ghc-version: ${{ env.GHC_VERSION }}
           cabal-version: ${{ env.CABAL_VERSION }}
@@ -106,7 +117,8 @@ jobs:
       # PR の枝に保存したキャッシュは他の枝から読めないので、main と release/* でだけ保存する(#520)
       - name: Save GHC
         if: >-
-          steps.ghc-cache.outputs.cache-hit != 'true'
+          matrix.scope == 'all'
+          && steps.ghc-cache.outputs.cache-hit != 'true'
           && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/'))
         uses: actions/cache/save@v4
         with:
@@ -123,10 +135,19 @@ jobs:
       # 例(Rust/C++)のビルド、Python パッケージの確認、PYTHONPATH の設定を済ませてから
       # cargo test -- --test-threads=1 を実行する(手元と同じスクリプト)
       - name: Build & test
+        if: matrix.scope == 'all'
         env:
           # GHC が入っているので、Haskell の例とテストを飛ばさない
           JUIZ_REQUIRE_HASKELL: "1"
         run: scripts/test.sh --verbose
+
+      # 埋め込み Python に関わるテストだけ(テスト名に python か pyjuiz を含むもの)。
+      # juiz_core の統合テストと unit テスト、juiz_app の cli(juiz コマンドが埋め込み Python で Python の Process を動かす)。
+      # Python を使うテストの名前には python か pyjuiz を入れる決まり(CONTRIBUTING.md の「名前」)。
+      # --tests で doctest を外す(Python に関わる doctest は無い)
+      - name: Build & test (Python tests only)
+        if: matrix.scope == 'python'
+        run: scripts/test.sh --verbose -p juiz_core -p juiz_app --tests -- python pyjuiz
 
       # Python から juiz を起動する入口(feature python-entry)のテスト
       - name: Test python-entry
