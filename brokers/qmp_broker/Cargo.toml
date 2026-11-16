@@ -31,6 +31,8 @@ tracing = { version = "0.1.10", default-features = false, features = ["std"] }
 tracing-futures = { version = "0.2.0", default-features = false, features = ["std-future"] }
 
 [dev-dependencies]
+# どのブローカーでも成り立つ確認 (tests/ の中身、issue #522)。版を書かない path だけの dev-dependency は公開のときに外される
+juiz_broker_suite = { path = "../broker_suite" }
 uuid = { workspace = true }
 # モデルのベンチ (tests/qmp_container_model_test.rs) で HTTP の生のバイト列と比べるため
 reqwest = { workspace = true }

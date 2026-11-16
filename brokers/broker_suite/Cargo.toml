@@ -1,0 +1,17 @@
+[package]
+name = "juiz_broker_suite"
+version = "0.0.0"
+edition = "2021"
+description = "Tests shared by all JUIZ brokers (core, local, HTTP, IPC, qmp, Zenoh). Not published."
+license.workspace = true
+publish = false
+
+# どのブローカーでも成り立つ確認をまとめたテスト用のクレート (issue #522)。
+# juiz_core・juiz_qmp_broker・juiz_zenoh_broker の dev-dependencies から版を書かない path で使う
+# (crates.io に公開するときには外される)。
+
+[dependencies]
+juiz_core = { workspace = true }
+juiz_sdk = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }

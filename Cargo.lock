@@ -2037,6 +2037,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "juiz_broker_suite"
+version = "0.0.0"
+dependencies = [
+ "juiz_core",
+ "juiz_sdk",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "juiz_core"
 version = "0.2.10"
 dependencies = [
@@ -2045,6 +2055,7 @@ dependencies = [
  "futures",
  "home",
  "interprocess",
+ "juiz_broker_suite",
  "juiz_qmp_broker",
  "juiz_sdk",
  "juiz_std_types",
@@ -2127,6 +2138,7 @@ dependencies = [
 name = "juiz_qmp_broker"
 version = "0.2.10"
 dependencies = [
+ "juiz_broker_suite",
  "juiz_core",
  "juiz_sdk",
  "quinn",
@@ -2200,6 +2212,7 @@ dependencies = [
 name = "juiz_zenoh_broker"
 version = "0.2.10"
 dependencies = [
+ "juiz_broker_suite",
  "juiz_core",
  "juiz_sdk",
  "libc",

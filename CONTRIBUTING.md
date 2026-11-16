@@ -175,7 +175,7 @@ Rust 以外のテスト:
 | unit | 1 つのモジュールの中だけを確かめる。プラグインもネットワークも使わない | 各クレートの `src/` 内の `#[cfg(test)] mod tests` |
 | api | 1 つのクレートの公開 API を外から確かめる。プラグインは使わない | `<クレート>/tests/`。クレートごとに 1 本のバイナリにまとめる(下の「1 クレート 1 バイナリ」) |
 | integration | System を起動し、プラグインを読む | `juiz_core/tests/integration/<機能>/`。言語ごとの違いは機能の下に置く。言語の読み込みそのもの(ABI・例外・値の受け渡し)は `plugins/<言語>/` |
-| broker | どのブローカーでも同じになるべき確認を、各ブローカーで走らせる | ブローカー共通のスイート + ブローカーごとの追加分(形は #522 で決める) |
+| broker | どのブローカーでも同じになるべき確認を、各ブローカーで走らせる | ブローカー共通のスイート `brokers/broker_suite`(下の「ブローカー共通のスイート」)+ ブローカーごとの追加分 |
 | cli | `juiz` コマンドを子プロセスで動かす | `juiz_app/tests/cli/` |
 | slow | テストの中で外のビルド(cargo・cmake・cabal)を呼ぶ。`pkg_cli_test` など | 置き場所はカテゴリ本来の場所のまま、モジュールパスに `slow` を含めて `-- --skip slow::` で外せるようにする(詳細は #524) |
 | bench | 計測。ふだんは走らせない | 置いてある tests の下の `bench/`。`#[ignore]` を付け、release で手動実行する(下の「ベンチマークを実行する」) |
@@ -199,6 +199,21 @@ juiz_core/tests/integration/
 ```
 
 1 クレート 1 バイナリ: `tests/` 直下のファイルは 1 本ずつ別のテストバイナリになり、それぞれがクレートと依存を丸ごとリンクします(juiz_app や qmp では 1 本 100MB を超える)。テストは `tests/<まとまり>/main.rs`(juiz_core なら `tests/integration/main.rs`)から `mod` で読み、`tests/` 直下にはファイルを足さないでください。テストで使う conf やプラグインのソース、golden ファイルは `tests/` の下の別ディレクトリ(`confs/`、`python/`、`golden/` など)に置きます。
+
+### ブローカー共通のスイート
+
+どのブローカーでも同じになるべき確認は、公開しないクレート `brokers/broker_suite`(`juiz_broker_suite`)に置き、各ブローカーのテストから呼びます。juiz_core・juiz_qmp_broker・juiz_zenoh_broker は版を書かない path の dev-dependency で使います(crates.io に公開するときには外されます)。
+
+| モジュール | 中身 | 走らせるブローカー |
+|---|---|---|
+| `api` | BrokerProxy の API を一通り呼ぶ確認(`check_all` と個々の `check_*`)。相手の System の中身は `Fixture` で渡す | core・local・HTTP・IPC(`juiz_core/tests/integration/brokers/*_api.rs`)、qmp・Zenoh |
+| `data` | 画像・数の配列・Topic の push をフレームで送る確認と、そのための Process | IPC・qmp・Zenoh |
+| `remote` | 別の System のブローカーに繋ぐテストの本体(API・組み込み・ネームスペース・Composite・型・Transformations・モデル)。ブローカーの違いは `RemoteBroker`(型名・プラグイン名・ポートのずらし・組み込みの登録)で渡す | qmp・Zenoh(各 `tests/*_test.rs` は `#[test]` から呼ぶだけ) |
+| `fixture` / `support` | Rust の例だけを読んだ System の設定(`RUST_ONLY`)と、小さな部品(`int_of`・`find_process` など) | |
+
+- ブローカーを足すときは、`api::check_all` と(フレームで送るなら)`data` の確認を走らせるテストを書き、そのブローカーだけの確認(HTTP の自分宛ての識別子、qmp の切断、Zenoh の共有メモリ、IPC のソケットの片付けなど)はそのブローカーのテストに置きます。
+- ブローカーによって応答の形が違うもの(EC の値が `__value__` で包まれるかどうかなど)は、スイートの側で両方を受け付けます(`support::unwrap_value`)。違いをそろえるのは別の issue で扱います。
+- 確認を足すときは、すべてのブローカーで通ることを確かめます(Zenoh は `scripts/test-zenoh.sh`、CI では `test-linux.yml` の zenoh ジョブ)。
 
 ### 名前
 
@@ -246,7 +261,7 @@ scripts/test.sh -p juiz_app --test cli -- --skip slow::                       # 
 | issue | 内容 |
 |---|---|
 | #521 | `juiz_core/tests/integration` を機能ごとのディレクトリに分け、名前を決まりにそろえる。ベンチを `bench/` へ(済み) |
-| #522 | ブローカー共通のスイート(juiz_core の `brokers::{core,local,http,ipc}_api`、qmp・Zenoh の `*_broker_api_test` と、ほぼ同じ写しの qmp・Zenoh の tests をまとめる) |
+| #522 | ブローカー共通のスイート(juiz_core の `brokers::{core,local,http,ipc}_api`、qmp・Zenoh の `*_broker_api_test` と、ほぼ同じ写しの qmp・Zenoh の tests をまとめる)(済み) |
 | #523 | `juiz_app`・qmp・Zenoh・`juiz_sdk` のテストをクレートごとに 1 本のバイナリへ |
 | #524 | slow の印と、Python 3.10 のジョブで走らせるテストの絞り込み |
 | #525 | pyjuiz のテストを自動で集める形に |
