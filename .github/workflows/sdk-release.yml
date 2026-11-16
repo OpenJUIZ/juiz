@@ -88,9 +88,12 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # タグや PR の枝に保存したキャッシュは他の枝から読めず、Actions のキャッシュの上限(10GB)を埋めるだけなので
+      # 保存しない(#520)。main のキャッシュは読める
       - uses: Swatinem/rust-cache@v2
         with:
           key: sdk-${{ matrix.target }}
+          save-if: false
 
       - name: Build libjuiz_sdk
         run: cargo build --release -p juiz_sdk
