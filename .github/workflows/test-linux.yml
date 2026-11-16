@@ -90,6 +90,13 @@ jobs:
           key: python${{ steps.setup-python.outputs.python-version }}
           save-if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') }}
 
+      # 一時的な確認 (#524): main のキャッシュに target/pkg-test が入っているか
+      - name: Show cached pkg-test (temporary)
+        run: |
+          du -sh target target/* 2>/dev/null || true
+          ls target/pkg-test/debug/deps 2>/dev/null | wc -l || true
+          ls target/pkg-test/debug/.fingerprint 2>/dev/null | head -50 || true
+
       # Haskell の例(examples/haskell)のビルドに使う GHC と cabal を入れる。
       # ghcup での GHC のインストールに Linux で約 2 分、macOS で約 4 分かかるので、入れた GHC をキャッシュする。
       # GHC の置き場所は ghcup と同じく ${GHCUP_INSTALL_BASE_PREFIX:-$HOME}/.ghcup/ghc/<版>
