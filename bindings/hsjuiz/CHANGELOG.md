@@ -3,6 +3,10 @@
 hsjuiz の版は juiz(crates.io の juiz_app、PyPI の pyjuiz / juiz-cli)と同じ番号にそろえています。
 使う libjuiz_sdk も同じ版にしてください。
 
+## 0.2.11
+
+- hsjuiz の API は 0.2.10 から変えていない(juiz 本体の Manifest / Profile の名前の整理 #503 などの公開に版をそろえた)。
+
 ## 0.2.10
 
 - `model` / `modelPath` で Container の型の既定の 3D モデルを書けるようにした(`ContainerManifest` に `cmModel` を足した、#509)。
