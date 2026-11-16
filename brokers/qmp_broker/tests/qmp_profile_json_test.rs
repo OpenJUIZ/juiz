@@ -1,8 +1,8 @@
 //! qmp ブローカー経由の profile の JSON が変わらないことを確かめるテスト
 //! (issue #505、docs/spec/manifest-profile.md §3 の 4)
 //!
-//! `system/profile_full` の `core_store` の Process・Container・ContainerProcess の profile (qmp で届いた JSON のまま) と、
-//! `*/profile_full` を qmp の BrokerProxy で型に読み、もう一度 JSON にしたものを、
+//! `system/profile` の `core_store` の Process・Container・ContainerProcess の profile (qmp で届いた JSON のまま) と、
+//! `*/profile` を qmp の BrokerProxy で型に読み、もう一度 JSON にしたものを、
 //! Profile の型を作り替える前 (main d758bd9) の結果を写した golden/qmp_profile_json.json と比べる。
 //! HTTP は juiz_core の profile_json_test。
 //!
@@ -81,7 +81,7 @@ fn qmp_profile_json_is_unchanged() -> JuizResult<()> {
             .worker()
             .broker_proxy("qmp", broker_name.as_str(), true)?;
         let bp = juiz_borrow(&proxy)?;
-        let system_profile = bp.system_profile_full()?;
+        let system_profile = bp.system_profile()?;
         // qmp では応答が {"__value__", "__option__"} に包まれて届く
         let store = &system_profile
             .get("__value__")
@@ -98,10 +98,10 @@ fn qmp_profile_json_is_unchanged() -> JuizResult<()> {
                 "containers": sorted_by_name(&store["containers"]),
             },
             "typed": {
-                "process": serde_json::to_value(bp.process_profile_full(&inc1)?)?,
-                "container_process": serde_json::to_value(bp.container_process_profile_full(&c0inc)?)?,
-                "container": normalize(serde_json::to_value(bp.container_profile_full(&c0)?)?),
-                "anchor": serde_json::to_value(bp.container_profile_full(&world)?)?,
+                "process": serde_json::to_value(bp.process_profile(&inc1)?)?,
+                "container_process": serde_json::to_value(bp.container_process_profile(&c0inc)?)?,
+                "container": normalize(serde_json::to_value(bp.container_profile(&c0)?)?),
+                "anchor": serde_json::to_value(bp.container_profile(&world)?)?,
             },
         });
         if let Ok(out) = std::env::var("JUIZ_PROFILE_JSON_DUMP") {

@@ -123,7 +123,7 @@ fn composite_process_from_conf() -> JuizResult<()> {
             );
 
             // profile に composition が出る
-            let prof = system.core_broker().lock()?.process_profile_full(&t0)?;
+            let prof = system.core_broker().lock()?.process_profile(&t0)?;
             let prof = serde_json::to_value(prof)?;
             assert_eq!(
                 prof["composition"]["body"]["process"],
@@ -241,7 +241,7 @@ fn composite_container_from_conf() -> JuizResult<()> {
                 .expect("cc0 not found");
             assert_eq!(cc0.namespace, "robot1");
             let prof =
-                serde_json::to_value(system.core_broker().lock()?.container_profile_full(&cc0)?)?;
+                serde_json::to_value(system.core_broker().lock()?.container_profile(&cc0)?)?;
             assert_eq!(
                 prof["slots"]["a"],
                 jvalue!("core://core/container/robot1/c0::example_container")

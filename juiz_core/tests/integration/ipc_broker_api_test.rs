@@ -190,7 +190,7 @@ fn ipc_proxy(system: &System, name: &str) -> JuizResult<std::sync::Arc<std::sync
 
 /// IPC 経由で得た識別子は、アクセスした IPC ブローカーを指す
 fn check_processes(bp: &mut dyn BrokerProxy, ipc_name: &str) -> JuizResult<()> {
-    assert!(bp.system_profile_full()?.is_object());
+    assert!(bp.system_profile()?.is_object());
     assert!(bp.system_uuid()?.as_str().is_some());
     let ids = bp.process_list(false, None)?;
     assert!(ids.len() >= 2, "{ids:?}");
@@ -202,7 +202,7 @@ fn check_processes(bp: &mut dyn BrokerProxy, ipc_name: &str) -> JuizResult<()> {
     let inc0 = find_process(&ids, "inc0");
     assert_eq!(int_of(bp.process_call(inc0, args("arg1", 10))), 11);
     assert_eq!(int_of(bp.any_process_call(inc0, args("arg1", 20))), 21);
-    assert_eq!(bp.process_profile_full(inc0)?.instance_name(), "inc0");
+    assert_eq!(bp.process_profile(inc0)?.instance_name(), "inc0");
     bp.process_p_apply(inc0, "arg1", jvalue!(1).into())?;
     assert_eq!(int_of(bp.process_execute(inc0)), 2);
     // call_partial は省いた引数を拘束値で補う (issue #83)
@@ -231,7 +231,7 @@ fn check_containers(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     assert_eq!(int_of(bp.any_process_call(get, CapsuleMap::new())), before + 4);
     let containers = bp.container_list(false, None)?;
     assert_eq!(containers.len(), 1);
-    assert_eq!(bp.container_profile_full(&containers[0])?.instance_name(), "c0");
+    assert_eq!(bp.container_profile(&containers[0])?.instance_name(), "c0");
     Ok(())
 }
 

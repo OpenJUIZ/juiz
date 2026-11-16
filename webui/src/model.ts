@@ -163,7 +163,7 @@ export interface PoseTree {
   root: PoseNode;
 }
 
-/** Transform(親 → 子の有向の接続)。値は transform/profile_full で取る */
+/** Transform(親 → 子の有向の接続)。値は transform/profile で取る */
 export interface TransformEdge {
   identifier: string;
   source: string;
@@ -669,7 +669,7 @@ function linkConnections(index: SystemIndex[], elements: Map<string, Element>): 
 }
 
 /**
- * system/profile_full と接続の profile から画面用の形を作る。
+ * system/profile と接続の profile から画面用の形を作る。
  * url は取得に使った接続先(画面と同じ場所なら location.origin)。
  * connections を渡さなければ、profile の connections(recursive=true で取ったもの)を使う。
  */

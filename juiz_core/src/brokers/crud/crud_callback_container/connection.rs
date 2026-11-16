@@ -25,8 +25,8 @@ pub(crate) fn create_create_callbacks() -> CallbackContainerType {
 
 pub(crate) fn create_read_callbacks() -> CallbackContainerType {
     let mut con_cbs = CallbackContainerType::new();
-    con_cbs.insert("profile_full", |cb, args| {
-        log::debug!("[READ  ] connection/profile_full called");
+    con_cbs.insert("profile", |cb, args| {
+        log::debug!("[READ  ] connection/profile called");
         let id: ConnectionIdentifier = args
             .get_param("identifier")
             .ok_or_else(|| {
@@ -36,7 +36,7 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
             })?
             .clone()
             .try_into()?;
-        let profile: ConnectionProfile = cb.lock()?.connection_profile_full(&id)?;
+        let profile: ConnectionProfile = cb.lock()?.connection_profile(&id)?;
         Ok(serde_json::to_value(profile)?.into())
     });
     con_cbs.insert("list", |cb, args| {

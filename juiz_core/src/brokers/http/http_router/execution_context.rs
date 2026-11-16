@@ -39,7 +39,7 @@ pub fn stop_dummy(_query: Query<IdentifierQuery>, Json(_body): Json<Value>) {}
 #[allow(unused)]
 #[utoipa::path(
     get,
-    path = "/api/execution_context/profile_full",
+    path = "/api/execution_context/profile",
     params(
         IdentifierQuery
     ),

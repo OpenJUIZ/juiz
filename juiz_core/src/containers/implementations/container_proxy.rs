@@ -55,7 +55,7 @@ impl ContainerProxy {
 //     fn profile_full(&self) -> JuizResult<Value> {
 //         let id = self.identifier();
 //         log::trace!("ContainerProxy({id})::profile_full() called");
-//         juiz_lock(&self.broker_proxy)?.container_profile_full(&self.identifier())
+//         juiz_lock(&self.broker_proxy)?.container_profile(&self.identifier())
 //     }
 // }
 
@@ -101,6 +101,6 @@ impl Container for ContainerProxy {
     /// 相手のブローカーから profile を取る (`juiz container list --long` / `info` で使う、issue #170)
     fn profile(&self) -> JuizResult<juiz_sdk::manifests::ContainerProfile> {
         log::trace!("ContainerProxy({})::profile() called", self.identifier);
-        juiz_borrow(&self.broker_proxy)?.container_profile_full(&self.identifier)
+        juiz_borrow(&self.broker_proxy)?.container_profile(&self.identifier)
     }
 }

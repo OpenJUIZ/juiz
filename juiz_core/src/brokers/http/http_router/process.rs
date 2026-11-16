@@ -19,7 +19,7 @@ pub fn create_dummy(_query: Query<IdentifierQuery>, Json(_body): Json<Value>) {}
 #[allow(unused)]
 #[utoipa::path(
     get,
-    path = "/api/process/profile_full",
+    path = "/api/process/profile",
     params(
         IdentifierQuery
     ),

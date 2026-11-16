@@ -170,7 +170,7 @@ pub fn model_dummy(_query: Query<ModelQuery>) {}
 
 const CONTAINER_MODEL_INFO: &str = "juiz_std.model.ContainerModelInfo";
 
-/// OpenAPI 定義の `container/model_info` と `container/profile_full` の `model` に
+/// OpenAPI 定義の `container/model_info` と `container/profile` の `model` に
 /// `juiz_std.model.ContainerModelInfo` を参照させる (§8)。`components.schemas` に型が無ければ何もしない
 pub fn add_container_model_schemas(api: &mut Value) {
     // container/model は生のバイト列 (§6.2)
@@ -197,7 +197,7 @@ pub fn add_container_model_schemas(api: &mut Value) {
     if let Some(r) = api.pointer_mut("/paths/~1api~1container~1model_info/get/responses/200") {
         r["content"] = jvalue!({ "application/json": { "schema": info.clone() } });
     }
-    if let Some(r) = api.pointer_mut("/paths/~1api~1container~1profile_full/get/responses/200") {
+    if let Some(r) = api.pointer_mut("/paths/~1api~1container~1profile/get/responses/200") {
         r["content"] = jvalue!({ "application/json": { "schema": {
             "type": "object",
             "properties": { "model": info },
@@ -208,7 +208,7 @@ pub fn add_container_model_schemas(api: &mut Value) {
 #[allow(unused)]
 #[utoipa::path(
     get,
-    path = "/api/container/profile_full",
+    path = "/api/container/profile",
     params(
         IdentifierQuery
     ),

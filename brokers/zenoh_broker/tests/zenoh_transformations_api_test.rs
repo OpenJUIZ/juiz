@@ -105,7 +105,7 @@ fn zenoh_transformations_api() -> JuizResult<()> {
         let l = bp.pose_listener_create(&PoseListenerManifest::new("camera0", "rec0"))?;
         let lid = l["identifier"].as_str().unwrap().to_owned();
         assert_eq!(bp.pose_listener_list()?, vec![lid.clone()]);
-        assert_eq!(bp.pose_listener_profile_full(&lid)?["arg"], jvalue!("pose"));
+        assert_eq!(bp.pose_listener_profile(&lid)?["arg"], jvalue!("pose"));
         bp.pose_listener_destroy(&lid)?;
         assert!(bp.pose_listener_list()?.is_empty());
 

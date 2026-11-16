@@ -350,7 +350,7 @@ fn ipc_profile(name: &str) -> Option<juiz_sdk::serde_json::Value> {
             .broker_proxy("ipc", name, true)?;
         // BrokerProxy は値を {"__value__": …} で包んで返す
         out = juiz_borrow(&bp)?
-            .system_profile_full()
+            .system_profile()
             .ok()
             .map(|p| p.get("__value__").cloned().unwrap_or(p));
         Ok(())
@@ -817,7 +817,7 @@ fn pack_and_run_container_model() {
         "--no-http",
     ]);
     let mut d = Daemon::spawn_command(cmd, dir.join("run.log"));
-    // system/profile_full にモデル情報は載らないので、container/model_info で確かめる
+    // system/profile にモデル情報は載らないので、container/model_info で確かめる
     wait_profile(&name, |p| {
         p["core_store"]["containers"]
             .as_array()

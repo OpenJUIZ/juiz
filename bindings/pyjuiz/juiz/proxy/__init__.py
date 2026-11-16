@@ -2,6 +2,7 @@ import base64
 import re
 import threading
 import urllib.parse
+import warnings
 import httpx
 import json, io
 from PIL import Image
@@ -29,10 +30,38 @@ error_code_and_ex={
     500: InternalServerError,
 }
 
+# 古い名前 profile_full() を使ったときの DeprecationWarning は、名前ごとに初めの 1 回だけ出す
+# (docs/spec/manifest-profile.md §7 の 1)
+_warned_deprecated_names = set()
+
+
+def _warn_deprecated(old_name, new_name):
+    if old_name not in _warned_deprecated_names:
+        _warned_deprecated_names.add(old_name)
+        warnings.warn(f"{old_name} is deprecated; use {new_name}", DeprecationWarning, stacklevel=3)
+
+
+def _is_function_not_found(e):
+    """相手のブローカーにその関数が無いというエラーか。新しい juiz は 404、古い juiz は 500 と同じエラーの文を返す"""
+    return isinstance(e, NotFoundError) or 'CRUDBroker can not detect function (' in str(e)
+
+
 class CRUDProxy():
     
     def __init__(self):
         pass
+
+    def read_profile(self, class_name, param_dict={}):
+        """<class_name>/profile を読む。相手が古い juiz で profile が無ければ profile_full を呼び直す
+        (docs/spec/manifest-profile.md §7 の 4)。古いと分かった相手には、以後はじめから profile_full を呼ぶ"""
+        if not getattr(self, '_legacy_profile', False):
+            try:
+                return self.read(class_name, 'profile', param_dict)
+            except Exception as e:
+                if not _is_function_not_found(e):
+                    raise
+                self._legacy_profile = True
+        return self.read(class_name, 'profile_full', param_dict)
     
     def _url(self, class_name, function_name, param_dict: dict=None):
         if param_dict is None:
@@ -293,8 +322,14 @@ class SystemProxy():
         self._container_processes = None
         pass
 
+    def profile(self, update=False):
+        """System の profile (API の system/profile)"""
+        return self.crud.read_profile('system')
+
     def profile_full(self, update=False):
-        return self.crud.read('system', 'profile_full')
+        """古い名前。profile() を使う"""
+        _warn_deprecated('SystemProxy.profile_full', 'SystemProxy.profile')
+        return self.profile(update)
 
     def create_process(self, type_name, name, use_memo=True):
         return self.crud.create('process', 'create', {'__manifest__': {
@@ -318,7 +353,7 @@ class SystemProxy():
 
     def composite(self, type_name: str):
         """Composite の Factory の manifest (式の木は 'composition')"""
-        return self.crud.read('composite', 'profile_full', {'identifier': type_name})
+        return self.crud.read_profile('composite', {'identifier': type_name})
 
     def destroy_composite(self, type_name: str):
         """Composite の Factory の登録を外す。インスタンスや、子として使う Composite があればエラー"""
@@ -397,7 +432,7 @@ class SystemProxy():
 
     def transform(self, identifier: str):
         """Transform の profile {identifier, source, destination, transform, stamp}"""
-        return self.crud.read('transform', 'profile_full', {'identifier': identifier})
+        return self.crud.read_profile('transform', {'identifier': identifier})
 
     def create_transform(self, source: str, destination: str, translation=None, rotation=None,
                          rate: float = None, timeout: float = None, writers=None):
@@ -455,7 +490,7 @@ class SystemProxy():
 
     def pose_listener(self, identifier: str):
         """Pose 通知の profile {identifier, container, process, arg, reference, on_update, initial}"""
-        return self.crud.read('pose_listener', 'profile_full', {'identifier': identifier})
+        return self.crud.read_profile('pose_listener', {'identifier': identifier})
 
     def create_pose_listener(self, container: str, process: str, arg: str = None,
                              reference: str = None, on_update: bool = False,
@@ -615,10 +650,16 @@ class ObjectProxy(object):
         self._namespace = None
         self._type_name = None
         
-    def profile_full(self, update=False):
+    def profile(self, update=False):
+        """このオブジェクトの profile (API の <class>/profile)。一度読んだら覚えておき、update=True で読み直す"""
         if self._profile is None or update:
-            self._profile = self.system.crud.read(self._cn, 'profile_full', {'identifier': self._id})
+            self._profile = self.system.crud.read_profile(self._cn, {'identifier': self._id})
         return self._profile
+
+    def profile_full(self, update=False):
+        """古い名前。profile() を使う"""
+        _warn_deprecated('profile_full', 'profile')
+        return self.profile(update)
 
     def identifier(self, update=False):
         return self._id
@@ -706,7 +747,7 @@ class ProcessProxy(ObjectProxy):
         return p
     
     def call(self, *args, **kwargs):
-        prof = self.profile_full()
+        prof = self.profile()
         if len(args) == 1:
             arg_prof = prof['arguments']
             body = {
@@ -731,7 +772,7 @@ class ProcessProxy(ObjectProxy):
     def call_partial(self, body=None, **kwargs):
         """一部の引数だけを名前で渡して呼び出す。渡さなかった引数は p_apply・push 済みの値
         (無ければ既定値) を使う。p_apply 済みの値は書き換えず、結果は下流へ流れない (issue #83)"""
-        return _call_partial(self, body, kwargs, self.profile_full())
+        return _call_partial(self, body, kwargs, self.profile())
 
     def execute(self):
         return self.system.crud.update(self._cn, 'execute', {}, {'identifier': self._id})
@@ -807,7 +848,7 @@ class ContainerProxy(ObjectProxy):
         return self.system.model(self.identifier())
 
     def processes(self):
-        # Container の profile_full の processes は空のことがあるので、
+        # Container の profile の processes は空のことがあるので、
         # container_process/list からこの Container に属するものを選ぶ
         # ContainerProcess は所属 Container と同じネームスペースに置かれる
         ps = self.system.crud.read('container_process', 'list')
@@ -844,7 +885,7 @@ class ContainerProcessProxy(ObjectProxy):
         return f'ContainerProcess("{self.identifier()}")'
 
     def call(self, *args, **kwargs):
-        prof = self.profile_full()
+        prof = self.profile()
         if len(args) == 1:
             arg_prof = prof['arguments']
             body = {
@@ -863,7 +904,7 @@ class ContainerProcessProxy(ObjectProxy):
             for k, v in kwargs.items():
                 body[k] = _to_value(v)
             #body = kwargs
-        return self.system.crud.update(self._cn, 'call', body, {'identifier': self._id}, profile=self.profile_full())
+        return self.system.crud.update(self._cn, 'call', body, {'identifier': self._id}, profile=self.profile())
 
     def __call__(self, *args, **kwargs):
         return self.call(*args, **kwargs)
@@ -871,7 +912,7 @@ class ContainerProcessProxy(ObjectProxy):
     def call_partial(self, body=None, **kwargs):
         """一部の引数だけを名前で渡して呼び出す。渡さなかった引数は p_apply・push 済みの値
         (無ければ既定値) を使う。p_apply 済みの値は書き換えず、結果は下流へ流れない (issue #83)"""
-        return _call_partial(self, body, kwargs, self.profile_full())
+        return _call_partial(self, body, kwargs, self.profile())
     
     def execute(self):
         return self.system.crud.update(self._cn, 'execute', {}, {'identifier': self._id}, profile=self._profile)

@@ -33,7 +33,7 @@ fn subsystem_manifest() -> Value {
 }
 
 fn subsystems(master: &System) -> JuizResult<Vec<Value>> {
-    let profile = master.core_broker().lock()?.system_profile_full()?;
+    let profile = master.core_broker().lock()?.system_profile()?;
     Ok(profile["subsystems"]
         .as_array()
         .expect("subsystems must be array")
@@ -215,10 +215,10 @@ fn test_stopped_subscriber_subsystem_is_dropped_from_topic() -> JuizResult<()> {
         })
 }
 
-/// 再帰的な system/profile_full で、サブシステムの中身と、経由する BrokerProxy が分かる (issue #116)
+/// 再帰的な system/profile で、サブシステムの中身と、経由する BrokerProxy が分かる (issue #116)
 #[cfg(test)]
 #[test]
-fn test_recursive_profile_full_has_subsystem_contents() -> JuizResult<()> {
+fn test_recursive_profile_has_subsystem_contents() -> JuizResult<()> {
     crate::common::logger::init();
     System::new(system_manifest())?
         .setup()?
@@ -233,7 +233,7 @@ fn test_recursive_profile_full_has_subsystem_contents() -> JuizResult<()> {
                     let profile = master
                         .core_broker()
                         .lock()?
-                        .system_profile_full_recursive()?;
+                        .system_profile_recursive()?;
                     assert!(profile["connections"].is_array(), "{profile}");
                     let ss = profile["subsystems"]
                         .as_array()
@@ -316,7 +316,7 @@ fn test_namespaced_topic_over_subsystem() -> JuizResult<()> {
 
 /// マスターシステムの一覧。複数持てるので配列 (issue #478)
 fn mastersystems(system: &System) -> JuizResult<Vec<Value>> {
-    let profile = system.core_broker().lock()?.system_profile_full()?;
+    let profile = system.core_broker().lock()?.system_profile()?;
     Ok(profile["mastersystem"]
         .as_array()
         .expect("mastersystem must be array")

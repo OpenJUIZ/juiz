@@ -24,7 +24,7 @@ use axum::{extract::Query, Json};
 // #[allow(unused)]
 // #[utoipa::path(
 //     get,
-//     path = "/api/process/profile_full",
+//     path = "/api/process/profile",
 //     params(
 //         IdentifierQuery
 //     ),

@@ -110,6 +110,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/any_process/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    identifier?: string | null;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description System */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/any_process/profile_full": {
         parameters: {
             query?: never;
@@ -117,6 +152,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** @deprecated */
         get: {
             parameters: {
                 query?: {
@@ -178,6 +214,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/broker/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    identifier?: string | null;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description System */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/broker/profile_full": {
         parameters: {
             query?: never;
@@ -185,6 +256,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** @deprecated */
         get: {
             parameters: {
                 query?: {
@@ -319,6 +391,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/composite/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    identifier?: string | null;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Factory の manifest */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/composite/profile_full": {
         parameters: {
             query?: never;
@@ -326,6 +433,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** @deprecated */
         get: {
             parameters: {
                 query?: {
@@ -462,6 +570,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/connection/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    identifier?: string | null;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description System */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/connection/profile_full": {
         parameters: {
             query?: never;
@@ -469,6 +612,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** @deprecated */
         get: {
             parameters: {
                 query?: {
@@ -760,6 +904,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/container/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    identifier?: string | null;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Container */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            model?: components["schemas"]["juiz_std.model.ContainerModelInfo"] | null;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/container/profile_full": {
         parameters: {
             query?: never;
@@ -767,6 +950,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** @deprecated */
         get: {
             parameters: {
                 query?: {
@@ -1111,6 +1295,41 @@ export interface paths {
         };
         trace?: never;
     };
+    "/api/container_process/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    identifier?: string | null;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description System */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/container_process/profile_full": {
         parameters: {
             query?: never;
@@ -1118,6 +1337,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** @deprecated */
         get: {
             parameters: {
                 query?: {
@@ -1217,6 +1437,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/execution_context/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    identifier?: string | null;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description System */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/execution_context/profile_full": {
         parameters: {
             query?: never;
@@ -1224,6 +1479,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** @deprecated */
         get: {
             parameters: {
                 query?: {
@@ -1436,6 +1692,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/pose_listener/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    identifier?: string | null;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {identifier, container, process, arg, reference, on_update, initial} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/pose_listener/profile_full": {
         parameters: {
             query?: never;
@@ -1443,6 +1734,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** @deprecated */
         get: {
             parameters: {
                 query?: {
@@ -1771,6 +2063,41 @@ export interface paths {
         };
         trace?: never;
     };
+    "/api/process/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    identifier?: string | null;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description System */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/process/profile_full": {
         parameters: {
             query?: never;
@@ -1778,6 +2105,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** @deprecated */
         get: {
             parameters: {
                 query?: {
@@ -1941,6 +2269,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/system/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    recursive?: string | null;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description System. recursive=true ならサブシステムの中身と各 System の接続 (connections) も入れる */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/system/profile_full": {
         parameters: {
             query?: never;
@@ -1948,6 +2311,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** @deprecated */
         get: {
             parameters: {
                 query?: {
@@ -2322,6 +2686,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/transform/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Transform の ID (transform://<始点>|<終点>) */
+                    identifier?: string | null;
+                    /** @description 別 System から回されたとき、始点の System の UUID (§19.2 の 7) */
+                    source_system?: string | null;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description {identifier, source, destination, transform, stamp, remote?} */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            destination?: string;
+                            identifier?: string;
+                            /** @description System をまたぐ Transform の取り込みの様子 (§19.10) */
+                            remote?: {
+                                last_success?: components["schemas"]["juiz_std.common.Time"];
+                                rate?: number;
+                                /** @enum {string} */
+                                state?: "ok" | "stale" | "lost";
+                                system?: string | null;
+                                timeout?: number;
+                            };
+                            source?: string;
+                            stamp?: components["schemas"]["juiz_std.common.Time"];
+                            transform?: components["schemas"]["juiz_std.geometry.Transform"];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/transform/profile_full": {
         parameters: {
             query?: never;
@@ -2329,6 +2748,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** @deprecated */
         get: {
             parameters: {
                 query?: {

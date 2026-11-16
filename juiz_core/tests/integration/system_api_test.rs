@@ -3,7 +3,7 @@
 //! CLI (juiz_app) が使う System の API を、HTTP で繋いだ 2 つの System で確かめる。
 //! - add_subsystem_by_id / add_systemproxy_by_id でもう一方の System を登録する
 //! - process_list などの recursive = true でサブシステムの中身も数える
-//! - start_http_broker、has_broker_factory、create_broker_proxy、profile_full
+//! - start_http_broker、has_broker_factory、create_broker_proxy、profile_full (JuizObject)
 //! - run_and_do は SIGINT / SIGTERM(Windows では SIGBREAK も)を受けるまで spin し続け、受けたら止まる
 //!
 //! プラグイン (increment_process、example_container とその ContainerProcess、timer_ec) は ../target/debug から読む。
@@ -159,7 +159,7 @@ fn system_manifest_subsystems_and_mastersystem() -> JuizResult<()> {
                 .start_http_broker(true)
                 .setup()?
                 .run_and_do_once(|child| {
-                    let profile = child.core_broker().lock()?.system_profile_full()?;
+                    let profile = child.core_broker().lock()?.system_profile()?;
                     assert_eq!(profile["mastersystem"].as_array().map(Vec::len), Some(1), "{profile:?}");
                     Ok(())
                 })

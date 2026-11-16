@@ -6,7 +6,7 @@ use axum::extract::Query;
 #[allow(unused)]
 #[utoipa::path(
     get,
-    path = "/api/broker/profile_full",
+    path = "/api/broker/profile",
     params(
         IdentifierQuery
     ),

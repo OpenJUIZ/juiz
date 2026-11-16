@@ -45,7 +45,7 @@ async function fetchTransformations(
     anchorKey: a.key,
     anchorIdentifier: a.identifier,
   }));
-  // 写しの Anchor は anchor/list にだけ出る(容器ではないので system/profile_full には無い)
+  // 写しの Anchor は anchor/list にだけ出る(容器ではないので system/profile には無い)
   const anchorIds = await client.anchorList(signal).catch((e: unknown) => {
     if (e instanceof DOMException && e.name === "AbortError") throw e;
     return [] as string[];
@@ -53,14 +53,14 @@ async function fetchTransformations(
   for (const id of anchorIds) {
     if (!isLocalContainer(model, id)) anchors.push({ anchorKey: null, anchorIdentifier: id });
   }
-  // 始点が自分の系の容器でない Transform は、System をまたぐ Transform(状態を transform/profile_full で取る)
+  // 始点が自分の系の容器でない Transform は、System をまたぐ Transform(状態を transform/profile で取る)
   const crossing = transforms.filter((id) => {
     const ends = parseTransformIdentifier(id);
     return !!ends && !isLocalContainer(model, ends[0]);
   });
   const [trees, profiles] = await Promise.all([
     Promise.allSettled(anchors.map((a) => client.transformationsTree(a.anchorIdentifier, signal))),
-    Promise.allSettled(crossing.map((id) => client.transformProfileFull(id, signal))),
+    Promise.allSettled(crossing.map((id) => client.transformProfile(id, signal))),
   ]);
   if (signal.aborted) throw new DOMException("aborted", "AbortError");
   const remotes = new Map<string, TransformRemote>();
@@ -89,7 +89,7 @@ interface Fetched {
 }
 
 /**
- * system/profile_full(副系の中身つき)を取得して画面用の形にする。
+ * system/profile(副系の中身つき)を取得して画面用の形にする。
  * intervalMs が null なら手動更新だけ。
  */
 export function useSystemModel(serverUrl: string, intervalMs: number | null): SystemModelState {
@@ -102,19 +102,19 @@ export function useSystemModel(serverUrl: string, intervalMs: number | null): Sy
     abortRef.current = ac;
     const client = new JuizClient(serverUrl);
     client
-      .systemProfileFull(true, ac.signal)
+      .systemProfile(true, ac.signal)
       .then(async (profile) => {
         const url = client.baseUrl || window.location.origin;
         // recursive=true に対応した juiz なら、副系の中身と各系の接続が profile に入っている(#116)
         if (profile.connections) return buildModel(profile, url);
         // 古い juiz では接続が入っていないので、最上位の系の分だけ一つずつ取る。
-        // 話題への発行・購読も接続として返るが、発行側は profile_full が 500 になるうえ、
+        // 話題への発行・購読も接続として返るが、発行側は profile が 500 になるうえ、
         // 処理の publishes / subscribes で分かるので取らない。
         const ids = await client.connectionList(ac.signal);
         const results = await Promise.allSettled(
           ids
             .filter((id) => !isTopicConnection(id))
-            .map((id) => client.connectionProfileFull(id, ac.signal).then((c) => ({ ...c, identifier: id }))),
+            .map((id) => client.connectionProfile(id, ac.signal).then((c) => ({ ...c, identifier: id }))),
         );
         if (ac.signal.aborted) throw new DOMException("aborted", "AbortError");
         const connections = results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));

@@ -196,7 +196,9 @@ pub fn json_output_wrap_create(result: JuizResult<CapsulePtr>) -> Response {
 pub fn error_status(e: &juiz_sdk::anyhow::Error, creating: bool) -> StatusCode {
     match e.chain().find_map(|c| c.downcast_ref::<JuizError>()) {
         Some(JuizError::ContainerModelFileNotFoundError { .. })
-        | Some(JuizError::ContainerHasNoModelError { .. }) => StatusCode::NOT_FOUND,
+        | Some(JuizError::ContainerHasNoModelError { .. })
+        // 無い関数 (古い名前で呼ばれたときの判定に使う、manifest-profile.md §7 の 4)
+        | Some(JuizError::CRUDBrokerCanNotFindFunctionError { .. }) => StatusCode::NOT_FOUND,
         Some(JuizError::ContainerModelInvalidError { .. }) if creating => StatusCode::BAD_REQUEST,
         _ => StatusCode::INTERNAL_SERVER_ERROR,
     }
@@ -450,7 +452,7 @@ pub fn app_new(
         axum::routing::get(move || {
             let api = api.clone();
             let crud = crud.clone();
-            async move { axum::Json(openapi_with_types(api, &crud)) }
+            async move { axum::Json(add_profile_full_paths(openapi_with_types(api, &crud))) }
         }),
     );
     let mut r = r.nest("/api/", any::object_router(crud_broker.clone()));
@@ -478,6 +480,35 @@ pub fn app_new(
 /// `components.schemas` に足し、`process/call`・`container_process/call` の本体のスキーマを
 /// Factory ごとの引数のスキーマの `oneOf` にする (Swagger UI で Factory を選んで例を出せる)。
 /// 足せないときは静的な定義のまま返す。
+/// `/api/<class>/profile` を、古い名前 `/api/<class>/profile_full` にも写す。写しには `deprecated: true` を付ける
+/// (docs/spec/manifest-profile.md §7 の 3)。応答の型などは `profile` に書き足した後のものをそのまま写す
+pub fn add_profile_full_paths(mut api: Value) -> Value {
+    let Some(paths) = api.get_mut("paths").and_then(|p| p.as_object_mut()) else {
+        return api;
+    };
+    let aliases: Vec<(String, Value)> = paths
+        .iter()
+        .filter_map(|(path, item)| {
+            let old = path.strip_suffix("/profile")?.to_owned() + "/profile_full";
+            let mut item = item.clone();
+            for op in item.as_object_mut()?.values_mut() {
+                if let Some(op) = op.as_object_mut() {
+                    op.insert("deprecated".to_owned(), Value::Bool(true));
+                    if let Some(id) = op.get("operationId").and_then(|v| v.as_str()) {
+                        let id = format!("{id}_full");
+                        op.insert("operationId".to_owned(), Value::String(id));
+                    }
+                }
+            }
+            Some((old, item))
+        })
+        .collect();
+    for (path, item) in aliases {
+        paths.insert(path, item);
+    }
+    api
+}
+
 pub fn openapi_with_types(mut api: Value, crud_broker: &Arc<Mutex<CRUDBroker>>) -> Value {
     let components = match juiz_lock(crud_broker).and_then(|c| c.openapi_components()) {
         Ok(c) => c,

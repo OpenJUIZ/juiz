@@ -1,6 +1,9 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, RwLock},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, RwLock,
+    },
 };
 
 use juiz_sdk::{
@@ -75,6 +78,8 @@ pub trait CRUDBrokerProxy: Send + Sync {
 pub struct CRUDBrokerProxyHolder {
     core: ObjectCore,
     broker: Box<dyn CRUDBrokerProxy>,
+    /// 相手が `*/profile` を持たない古い juiz と分かったら true。以後は `*/profile_full` を呼ぶ
+    legacy_profile: AtomicBool,
 }
 
 /// 応答のカプセルから値をそのまま取り出す。
@@ -102,6 +107,25 @@ fn topic_param(param_map: &[(&str, &str)]) -> HashMap<String, String> {
 }
 
 impl CRUDBrokerProxyHolder {
+    /// `<class_name>/profile` を読む。相手が古い juiz で `profile` が無ければ `profile_full` を呼び直す
+    /// (docs/spec/manifest-profile.md §7 の 4)。古いと分かった相手には、以後はじめから `profile_full` を呼ぶ
+    fn read_profile(
+        &self,
+        class_name: &str,
+        param: HashMap<String, String>,
+    ) -> JuizResult<CapsulePtr> {
+        if !self.legacy_profile.load(Ordering::Relaxed) {
+            match self.broker.read(class_name, "profile", param.clone()) {
+                Err(e) if crate::brokers::broker_proxy::is_function_not_found(&e) => {
+                    log::debug!("{class_name}/profile is not found. Falling back to {class_name}/profile_full");
+                    self.legacy_profile.store(true, Ordering::Relaxed);
+                }
+                r => return r,
+            }
+        }
+        self.broker.read(class_name, "profile_full", param)
+    }
+
     pub fn new(
         impl_class_name: &'static str,
         type_name: &str,
@@ -115,6 +139,7 @@ impl CRUDBrokerProxyHolder {
                 name,
             ),
             broker: broker_proxy,
+            legacy_profile: AtomicBool::new(false),
         })))
     }
 
@@ -215,14 +240,13 @@ impl JuizObject for CRUDBrokerProxyHolder {
 }
 
 impl ContainerProcessBrokerProxy for CRUDBrokerProxyHolder {
-    fn container_process_profile_full(&self, id: &ProcessIdentifier) -> JuizResult<ProcessProfile> {
-        log::trace!("【呼出】container_process_profile_full({id})");
-        let result = capsule_value(self.modify_profile(self.broker.read(
+    fn container_process_profile(&self, id: &ProcessIdentifier) -> JuizResult<ProcessProfile> {
+        log::trace!("【呼出】container_process_profile({id})");
+        let result = capsule_value(self.modify_profile(self.read_profile(
             "container_process",
-            "profile_full",
             param(&[("identifier", Into::<String>::into(id.clone()).as_str())]),
         )?)?);
-        log::trace!("CRUDBrokerProxy.container_process_profile_full({id}) = {result:?}");
+        log::trace!("CRUDBrokerProxy.container_process_profile({id}) = {result:?}");
         Ok(serde_json::from_value(result?)?)
     }
 
@@ -377,10 +401,9 @@ impl ContainerBrokerProxy for CRUDBrokerProxyHolder {
         )?)
     }
 
-    fn container_profile_full(&self, id: &ContainerIdentifier) -> JuizResult<ContainerProfile> {
-        let value = capsule_value(self.modify_profile(self.broker.read(
+    fn container_profile(&self, id: &ContainerIdentifier) -> JuizResult<ContainerProfile> {
+        let value = capsule_value(self.modify_profile(self.read_profile(
             "container",
-            "profile_full",
             param(&[("identifier", id.to_string().as_str())]),
         )?)?)?;
         Ok(serde_json::from_value(value)?)
@@ -443,15 +466,14 @@ impl ContainerBrokerProxy for CRUDBrokerProxyHolder {
 }
 
 impl ProcessBrokerProxy for CRUDBrokerProxyHolder {
-    fn process_profile_full(&self, id: &ProcessIdentifier) -> JuizResult<ProcessProfile> {
-        log::info!("CRUDBrokerProxy.process_profile_full({id}) called");
+    fn process_profile(&self, id: &ProcessIdentifier) -> JuizResult<ProcessProfile> {
+        log::info!("CRUDBrokerProxy.process_profile({id}) called");
         let id_str: String = id.clone().into();
-        let result_value = capsule_value(self.modify_profile(self.broker.read(
+        let result_value = capsule_value(self.modify_profile(self.read_profile(
             "process",
-            "profile_full",
             param(&[("identifier", id_str.as_str())]),
         )?)?)?;
-        log::trace!("CRUDBrokerProxy.process_profile_full({id}) = {result_value:?}");
+        log::trace!("CRUDBrokerProxy.process_profile({id}) = {result_value:?}");
         Ok(serde_json::from_value(result_value)?)
     }
 
@@ -630,26 +652,23 @@ impl ProcessBrokerProxy for CRUDBrokerProxyHolder {
 }
 
 impl SystemBrokerProxy for CRUDBrokerProxyHolder {
-    fn system_profile_full(&self) -> JuizResult<Value> {
-        capsule_to_value(self.modify_profile(self.broker.read(
+    fn system_profile(&self) -> JuizResult<Value> {
+        capsule_to_value(self.modify_profile(self.read_profile(
             "system",
-            "profile_full",
             HashMap::new(),
         )?)?)
     }
 
-    fn system_profile_full_recursive(&self) -> JuizResult<Value> {
-        capsule_value(self.modify_profile(self.broker.read(
+    fn system_profile_recursive(&self) -> JuizResult<Value> {
+        capsule_value(self.modify_profile(self.read_profile(
             "system",
-            "profile_full",
             HashMap::from([("recursive".to_owned(), "true".to_owned())]),
         )?)?)
     }
 
     fn system_filesystem_list(&self, path_buf: std::path::PathBuf) -> JuizResult<Value> {
-        capsule_to_value(self.broker.read(
+        capsule_to_value(self.read_profile(
             "system",
-            "profile_full",
             HashMap::from([("path".to_owned(), path_buf.to_str().unwrap().to_owned())]),
         )?)
     }
@@ -777,10 +796,9 @@ impl BrokerBrokerProxy for CRUDBrokerProxyHolder {
         Ok(serde_json::from_value(self._convert_identifier_names(&v)?)?)
     }
 
-    fn broker_profile_full(&self, id: &Identifier) -> JuizResult<BrokerProfile> {
-        capsule_value(self.modify_profile(self.broker.read(
+    fn broker_profile(&self, id: &Identifier) -> JuizResult<BrokerProfile> {
+        capsule_value(self.modify_profile(self.read_profile(
             "broker",
-            "profile_full",
             param(&[("identifier", id)]),
         )?)?)?
         .try_into()
@@ -805,10 +823,9 @@ impl ExecutionContextBrokerProxy for CRUDBrokerProxyHolder {
             .collect::<JuizResult<Value>>()
     }
 
-    fn ec_profile_full(&self, id: &Identifier) -> JuizResult<Value> {
-        capsule_to_value(self.modify_profile(self.broker.read(
+    fn ec_profile(&self, id: &Identifier) -> JuizResult<Value> {
+        capsule_to_value(self.modify_profile(self.read_profile(
             "execution_context",
-            "profile_full",
             param(&[("identifier", id)]),
         )?)?)
     }
@@ -1010,10 +1027,9 @@ impl ConnectionBrokerProxy for CRUDBrokerProxyHolder {
         // Ok(connection_list_value)
     }
 
-    fn connection_profile_full(&self, id: &ConnectionIdentifier) -> JuizResult<ConnectionProfile> {
-        Ok(serde_json::from_value(capsule_value(self.broker.read(
+    fn connection_profile(&self, id: &ConnectionIdentifier) -> JuizResult<ConnectionProfile> {
+        Ok(serde_json::from_value(capsule_value(self.read_profile(
             "connection",
-            "profile_full",
             param(&[("identifier", Into::<String>::into(id.clone()).as_str())]),
         )?)?)?)
     }
@@ -1070,10 +1086,9 @@ impl CompositeBrokerProxy for CRUDBrokerProxyHolder {
         Ok(serde_json::from_value(v)?)
     }
 
-    fn composite_profile_full(&self, type_name: &str) -> JuizResult<ProcessManifest> {
-        let v = capsule_value(self.broker.read(
+    fn composite_profile(&self, type_name: &str) -> JuizResult<ProcessManifest> {
+        let v = capsule_value(self.read_profile(
             "composite",
-            "profile_full",
             param(&[("identifier", type_name)]),
         )?)?;
         Ok(serde_json::from_value(v)?)
@@ -1180,14 +1195,13 @@ impl TransformationsBrokerProxy for CRUDBrokerProxyHolder {
         Ok(serde_json::from_value(v)?)
     }
 
-    fn transform_profile_full_from_system(
+    fn transform_profile_from_system(
         &self,
         identifier: &str,
         source_system: Option<&str>,
     ) -> JuizResult<Value> {
-        capsule_value(self.broker.read(
+        capsule_value(self.read_profile(
             "transform",
-            "profile_full",
             param(&system_pairs(identifier, "source_system", source_system)),
         )?)
     }
@@ -1262,10 +1276,9 @@ impl TransformationsBrokerProxy for CRUDBrokerProxyHolder {
         Ok(serde_json::from_value(v)?)
     }
 
-    fn pose_listener_profile_full(&self, identifier: &str) -> JuizResult<Value> {
-        capsule_value(self.broker.read(
+    fn pose_listener_profile(&self, identifier: &str) -> JuizResult<Value> {
+        capsule_value(self.read_profile(
             "pose_listener",
-            "profile_full",
             param(&[("identifier", identifier)]),
         )?)
     }

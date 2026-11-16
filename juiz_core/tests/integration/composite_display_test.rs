@@ -117,14 +117,14 @@ fn http_get(path: &str, identifier: Option<&str>) -> JuizResult<Value> {
 /// 管理画面が読む HTTP の JSON に composition と slots が出る
 fn check_http_json() -> JuizResult<()> {
     let p = http_get(
-        "process/profile_full",
+        "process/profile",
         Some("core://core/process/traced0::inc_twice"),
     )?;
     assert_eq!(p["composition"]["body"], inc_twice_body(), "{p}");
     assert_eq!(p["composition"]["containers"], jvalue!({}), "{p}");
 
     let cp = http_get(
-        "container_process/profile_full",
+        "container_process/profile",
         Some("core://core/container_process/chain0::add_chain:cc0"),
     )?;
     let composition = &cp["composition"];
@@ -146,16 +146,16 @@ fn check_http_json() -> JuizResult<()> {
     );
 
     let cc = http_get(
-        "container/profile_full",
+        "container/profile",
         Some("core://core/container/cc0::composite_container"),
     )?;
     assert_eq!(cc["slots"], jvalue!({ "a": CA, "b": CB }), "{cc}");
     // 普通の Container と Process には出さない
-    let ca = http_get("container/profile_full", Some(CA))?;
+    let ca = http_get("container/profile", Some(CA))?;
     assert!(ca.get("slots").is_none(), "{ca}");
 
-    // 管理画面は system/profile_full?recursive=true の core_store から読む
-    let sys = http_get("system/profile_full?recursive=true", None)?;
+    // 管理画面は system/profile?recursive=true の core_store から読む
+    let sys = http_get("system/profile?recursive=true", None)?;
     let store = &sys["core_store"];
     let find = |list: &str, name: &str| -> Value {
         store[list]
@@ -189,7 +189,7 @@ fn check_http_broker_proxy(system: &mut System) -> JuizResult<()> {
     let bp = juiz_borrow(&proxy)?;
     let traced0: ProcessIdentifier =
         format!("http://{host}/process/traced0::inc_twice").try_into()?;
-    let profile = bp.process_profile_full(&traced0)?;
+    let profile = bp.process_profile(&traced0)?;
     assert_eq!(
         serde_json::to_value(profile.manifest.composition.expect("composition"))?["body"],
         inc_twice_body()
@@ -197,14 +197,14 @@ fn check_http_broker_proxy(system: &mut System) -> JuizResult<()> {
 
     let chain0: ProcessIdentifier =
         format!("http://{host}/container_process/chain0::add_chain:cc0").try_into()?;
-    let profile = bp.container_process_profile_full(&chain0)?;
+    let profile = bp.container_process_profile(&chain0)?;
     let composition = profile.manifest.composition.expect("composition");
     assert_eq!(composition.containers.len(), 2);
     assert_eq!(composition.body.container.as_deref(), Some("b"));
 
     let cc0: ContainerIdentifier =
         format!("http://{host}/container/cc0::composite_container").try_into()?;
-    let slots = bp.container_profile_full(&cc0)?.slots.expect("slots");
+    let slots = bp.container_profile(&cc0)?.slots.expect("slots");
     assert_eq!(slots.get("a").map(String::as_str), Some(CA));
     assert_eq!(slots.get("b").map(String::as_str), Some(CB));
     Ok(())

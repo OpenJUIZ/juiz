@@ -7,14 +7,14 @@ use super::CallbackContainerType;
 pub(crate) fn create_read_callbacks() -> CallbackContainerType {
     //
     let mut broker_cbs = CallbackContainerType::new();
-    broker_cbs.insert("profile_full", |cb, args| {
-        log::debug!("[READ  ] broker/profile_full called");
+    broker_cbs.insert("profile", |cb, args| {
+        log::debug!("[READ  ] broker/profile called");
         let id = args.get_param("identifier").ok_or_else(|| {
             anyhow!(JuizError::CRUDBrokerCanNotParameterFunctionError {
                 key_name: "identifier".to_owned()
             })
         })?;
-        Ok(value_to_capsule(cb.lock()?.broker_profile_full(id)?.into()))
+        Ok(value_to_capsule(cb.lock()?.broker_profile(id)?.into()))
     });
     broker_cbs.insert("list", |cb, args| {
         log::debug!("[READ  ] broker/list called");

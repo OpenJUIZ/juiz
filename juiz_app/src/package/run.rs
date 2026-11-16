@@ -233,7 +233,7 @@ fn subsystem_check(
             .create_broker_proxy(sub.clone())
             .map_err(|_| not_reached())?;
         let profile = juiz_borrow(&bp)?
-            .system_profile_full()
+            .system_profile()
             .map_err(|_| not_reached())?;
         // http・ipc などの BrokerProxy は値を {"__value__": …} で包んで返す
         let profile = match profile.get("__value__") {

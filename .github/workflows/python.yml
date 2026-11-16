@@ -55,6 +55,10 @@ jobs:
         working-directory: bindings/pyjuiz
         run: python test/datatype_test.py
 
+      - name: Run pyjuiz profile alias test
+        working-directory: bindings/pyjuiz
+        run: python test/profile_alias_test.py
+
       - name: Run pyjuiz IPC frame test
         working-directory: bindings/pyjuiz
         run: python test/ipc_frame_test.py

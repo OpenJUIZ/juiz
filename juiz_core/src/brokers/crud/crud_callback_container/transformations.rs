@@ -6,7 +6,7 @@
 //! | `container/pose_state` (READ) | param `identifier`・`since`・`system`・`subscriber`・`destination` (`,` 区切り)・`timeout` (§19.4) | `{identifier, system, version, changed, entries}` |
 //! | `container/set_pose` (UPDATE) | param `identifier`・`reference_system`、ボディ `reference`・`pose` | `PoseStamped` |
 //! | `transform/list` (READ) | | ID の配列 |
-//! | `transform/profile_full` (READ) | param `identifier`・`source_system` (§19.2 の 7) | profile |
+//! | `transform/profile` (READ) | param `identifier`・`source_system` (§19.2 の 7) | profile |
 //! | `transform/create` (CREATE) | ボディ `source`・`destination`・`translation`・`rotation`・`rate`・`timeout`・`source_system` (`__manifest__` に包んでもよい) | profile |
 //! | `transform/update` (UPDATE) | param `identifier`・`source_system`、ボディ `translation`・`rotation` (省けば今のまま) | profile |
 //! | `transform/destroy` (DELETE) | param `identifier`・`source_system` | profile |
@@ -14,7 +14,7 @@
 //! | `anchor/update` (UPDATE) | param `identifier` | `{identifier, stamp}` |
 //! | `transformations/tree` (READ) | param `anchor` (`identifier` でもよい) | 木 |
 //! | `pose_listener/list` (READ) | | ID の配列 |
-//! | `pose_listener/profile_full` (READ) | param `identifier` | profile |
+//! | `pose_listener/profile` (READ) | param `identifier` | profile |
 //! | `pose_listener/create` (CREATE) | ボディ `container`・`process`・`arg`・`reference`・`on_update`・`initial` (`__manifest__` に包んでもよい) | profile |
 //! | `pose_listener/destroy` (DELETE) | param `identifier` | profile |
 //!
@@ -208,11 +208,11 @@ pub(crate) fn transform_read_callbacks() -> CallbackContainerType {
         log::debug!("[READ  ] transform/list called");
         Ok(serde_json::to_value(cb.lock()?.transform_list()?)?.into())
     });
-    cbs.insert("profile_full", |cb, args| {
-        log::debug!("[READ  ] transform/profile_full called");
+    cbs.insert("profile", |cb, args| {
+        log::debug!("[READ  ] transform/profile called");
         Ok(cb
             .lock()?
-            .transform_profile_full_from_system(
+            .transform_profile_from_system(
                 &param(&args, "identifier")?,
                 string_arg(&args, "source_system")?.as_deref(),
             )?
@@ -316,11 +316,11 @@ pub(crate) fn pose_listener_read_callbacks() -> CallbackContainerType {
         log::debug!("[READ  ] pose_listener/list called");
         Ok(serde_json::to_value(cb.lock()?.pose_listener_list()?)?.into())
     });
-    cbs.insert("profile_full", |cb, args| {
-        log::debug!("[READ  ] pose_listener/profile_full called");
+    cbs.insert("profile", |cb, args| {
+        log::debug!("[READ  ] pose_listener/profile called");
         Ok(cb
             .lock()?
-            .pose_listener_profile_full(&param(&args, "identifier")?)?
+            .pose_listener_profile(&param(&args, "identifier")?)?
             .into())
     });
     cbs

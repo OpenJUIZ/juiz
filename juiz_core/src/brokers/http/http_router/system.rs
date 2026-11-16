@@ -7,7 +7,7 @@ use axum::{extract::Query, response::IntoResponse, Json};
 #[allow(unused)]
 #[utoipa::path(
     get,
-    path = "/api/system/profile_full",
+    path = "/api/system/profile",
     params(
         RecursiveQuery
     ),

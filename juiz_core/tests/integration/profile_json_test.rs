@@ -2,7 +2,7 @@
 //!
 //! Profile の型を「Manifest + 実行時の状態」に作り替えても、API の応答の JSON は
 //! 他の版の juiz・pyjuiz・管理画面とつながるために今のまま保たなければならない。
-//! HTTP の `*/profile_full` と `system/profile_full` の `core_store` の応答を、
+//! HTTP の `*/profile` と `system/profile` の `core_store` の応答を、
 //! 作り替える前 (main d758bd9) の応答を写した golden/profile_json.json と比べる。
 //! qmp は juiz_qmp_broker の qmp_profile_json_test で同じことを確かめる。
 //!
@@ -75,21 +75,21 @@ fn normalize_container(mut c: Value) -> Value {
 }
 
 fn collect(client: &reqwest::blocking::Client) -> JuizResult<Value> {
-    let system = get(client, "system/profile_full", None)?;
+    let system = get(client, "system/profile", None)?;
     let store = &system["core_store"];
     Ok(jvalue!({
-        "process": get(client, "process/profile_full", Some("core://core/process/sub0::increment_process"))?,
+        "process": get(client, "process/profile", Some("core://core/process/sub0::increment_process"))?,
         "container_process": get(
             client,
-            "container_process/profile_full",
+            "container_process/profile",
             Some("core://core/container_process/c0inc::example_container_increment:c0"),
         )?,
         "container": normalize_container(get(
             client,
-            "container/profile_full",
+            "container/profile",
             Some("core://core/container/c0::example_container"),
         )?),
-        "anchor": get(client, "container/profile_full", Some("core://core/container/world::static_anchor"))?,
+        "anchor": get(client, "container/profile", Some("core://core/container/world::static_anchor"))?,
         "core_store": {
             "processes": sorted_by_name(&store["processes"]),
             "container_processes": sorted_by_name(&store["container_processes"]),

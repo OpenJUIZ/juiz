@@ -11,8 +11,8 @@ use crate::core::process_profile_value;
 
 pub(crate) fn create_read_callbacks() -> CallbackContainerType {
     let mut any_cbs = CallbackContainerType::new();
-    any_cbs.insert("profile_full", |cb, args| {
-        log::debug!("[READ  ] any_process/profile_full called");
+    any_cbs.insert("profile", |cb, args| {
+        log::debug!("[READ  ] any_process/profile called");
         let id: ProcessIdentifier = args
             .get_param("identifier")
             .ok_or_else(|| {
@@ -22,7 +22,7 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
             })?
             .clone()
             .try_into()?;
-        let profile: ProcessProfile = cb.lock()?.any_process_profile_full(&id)?;
+        let profile: ProcessProfile = cb.lock()?.any_process_profile(&id)?;
         Ok(process_profile_value(&profile)?.into())
     });
     any_cbs.insert("list", |cb, args| {

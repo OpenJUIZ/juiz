@@ -148,7 +148,7 @@ impl CoreStore {
         Ok(jvalue!(self.broker_factories_manifests))
     }
 
-    pub fn broker_profile_full(&self, id: &Identifier) -> JuizResult<BrokerProfile> {
+    pub fn broker_profile(&self, id: &Identifier) -> JuizResult<BrokerProfile> {
         for b in &self.brokers_manifests {
             let bi: Identifier = b.clone().into();
             if bi == *id {
@@ -193,7 +193,7 @@ impl CoreStore {
     }
 
     pub fn processes_profile_full(&self) -> JuizResult<Vec<Value>> {
-        log::trace!("process_profile_full() called");
+        log::trace!("process_profile() called");
         self.processes
             .objects()
             .iter()

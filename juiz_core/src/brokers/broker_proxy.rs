@@ -16,20 +16,55 @@ use juiz_sdk::types::TypeSchema;
 
 use std::path::PathBuf;
 
+/// 相手のブローカーにその関数が無いというエラーか (docs/spec/manifest-profile.md §7 の 4)。
+///
+/// 古い juiz に `*/profile` を呼んだときの判定に使う。手元の CRUDBroker の
+/// `CRUDBrokerCanNotFindFunctionError`、HTTP の 404、古い juiz の HTTP が 500 で返す同じエラーの文、
+/// メッセンジャー系の `BrokerProxyRemoteError` に入った同じエラーの文のどれかなら true。
+pub fn is_function_not_found(e: &juiz_sdk::anyhow::Error) -> bool {
+    for c in e.chain() {
+        if let Some(JuizError::CRUDBrokerCanNotFindFunctionError { .. }) = c.downcast_ref::<JuizError>() {
+            return true;
+        }
+        if let Some(crate::brokers::http::http_broker_proxy::HTTPBrokerError::HTTPStatusError {
+            status_code,
+            ..
+        }) = c.downcast_ref()
+        {
+            if *status_code == reqwest::StatusCode::NOT_FOUND {
+                return true;
+            }
+        }
+    }
+    format!("{e:#}").contains("CRUDBroker can not detect function (")
+}
+
 pub trait SystemBrokerProxy {
     /// Systemのプロファイルを取得する
     ///
     /// System登録のプロセスやコンテナの情報を全て列挙したデータを取得する
     ///
-    fn system_profile_full(&self) -> JuizResult<Value>;
+    fn system_profile(&self) -> JuizResult<Value>;
 
     /// サブシステムの中身まで含めた System のプロファイルを取得する (issue #116)
     ///
-    /// system_profile_full() の subsystems は、サブシステムへの BrokerProxy の profile だけになっている。
-    /// こちらは各サブシステムの system_profile_full_recursive() を入れ子にし、
+    /// system_profile() の subsystems は、サブシステムへの BrokerProxy の profile だけになっている。
+    /// こちらは各サブシステムの system_profile_recursive() を入れ子にし、
     /// 各 System が持つ接続の profile を connections に加える。
+    fn system_profile_recursive(&self) -> JuizResult<Value> {
+        self.system_profile()
+    }
+
+    /// 古い名前。[`Self::system_profile`] を使う (docs/spec/manifest-profile.md §7)
+    #[deprecated(since = "0.2.11", note = "use system_profile")]
+    fn system_profile_full(&self) -> JuizResult<Value> {
+        self.system_profile()
+    }
+
+    /// 古い名前。[`Self::system_profile_recursive`] を使う (docs/spec/manifest-profile.md §7)
+    #[deprecated(since = "0.2.11", note = "use system_profile_recursive")]
     fn system_profile_full_recursive(&self) -> JuizResult<Value> {
-        self.system_profile_full()
+        self.system_profile_recursive()
     }
 
     ///
@@ -106,7 +141,13 @@ pub trait ProcessBrokerProxy {
         caller_broker_profile: Option<Value>,
     ) -> JuizResult<Vec<ProcessIdentifier>>;
 
-    fn process_profile_full(&self, id: &ProcessIdentifier) -> JuizResult<ProcessProfile>;
+    fn process_profile(&self, id: &ProcessIdentifier) -> JuizResult<ProcessProfile>;
+
+    /// 古い名前。[`Self::process_profile`] を使う (docs/spec/manifest-profile.md §7)
+    #[deprecated(since = "0.2.11", note = "use process_profile")]
+    fn process_profile_full(&self, id: &ProcessIdentifier) -> JuizResult<ProcessProfile> {
+        self.process_profile(id)
+    }
 
     /// プロセスをCallする
     ///
@@ -179,7 +220,13 @@ pub trait ContainerBrokerProxy {
         caller_broker_profile: Option<Value>,
     ) -> JuizResult<Vec<ContainerIdentifier>>;
 
-    fn container_profile_full(&self, id: &ContainerIdentifier) -> JuizResult<ContainerProfile>;
+    fn container_profile(&self, id: &ContainerIdentifier) -> JuizResult<ContainerProfile>;
+
+    /// 古い名前。[`Self::container_profile`] を使う (docs/spec/manifest-profile.md §7)
+    #[deprecated(since = "0.2.11", note = "use container_profile")]
+    fn container_profile_full(&self, id: &ContainerIdentifier) -> JuizResult<ContainerProfile> {
+        self.container_profile(id)
+    }
 
     /// Container `identifier` (ID か名前) の 3D モデルのモデル情報 (`juiz_std.model.ContainerModelInfo` の形)。
     /// モデルが無ければ `Null` (docs/spec/container-model.md §6.1)。
@@ -215,7 +262,13 @@ pub trait ContainerProcessBrokerProxy {
         caller_broker_profile: Option<Value>,
     ) -> JuizResult<Vec<ProcessIdentifier>>;
 
-    fn container_process_profile_full(&self, id: &ProcessIdentifier) -> JuizResult<ProcessProfile>;
+    fn container_process_profile(&self, id: &ProcessIdentifier) -> JuizResult<ProcessProfile>;
+
+    /// 古い名前。[`Self::container_process_profile`] を使う (docs/spec/manifest-profile.md §7)
+    #[deprecated(since = "0.2.11", note = "use container_process_profile")]
+    fn container_process_profile_full(&self, id: &ProcessIdentifier) -> JuizResult<ProcessProfile> {
+        self.container_process_profile(id)
+    }
 
     fn container_process_call(
         &self,
@@ -254,7 +307,13 @@ pub trait ExecutionContextBrokerProxy {
     /// * `recursive` - サブシステムのプロセスを再起的に読み込む場合はtrue
     fn ec_list(&self, recursive: bool) -> JuizResult<Value>;
 
-    fn ec_profile_full(&self, id: &Identifier) -> JuizResult<Value>;
+    fn ec_profile(&self, id: &Identifier) -> JuizResult<Value>;
+
+    /// 古い名前。[`Self::ec_profile`] を使う (docs/spec/manifest-profile.md §7)
+    #[deprecated(since = "0.2.11", note = "use ec_profile")]
+    fn ec_profile_full(&self, id: &Identifier) -> JuizResult<Value> {
+        self.ec_profile(id)
+    }
 
     fn ec_get_state(&self, id: &Identifier) -> JuizResult<Value>;
 
@@ -270,7 +329,13 @@ pub trait BrokerBrokerProxy {
     /// * `recursive` - サブシステムのプロセスを再起的に読み込む場合はtrue
     fn broker_list(&self, recursive: bool) -> JuizResult<Vec<String>>;
 
-    fn broker_profile_full(&self, id: &Identifier) -> JuizResult<BrokerProfile>;
+    fn broker_profile(&self, id: &Identifier) -> JuizResult<BrokerProfile>;
+
+    /// 古い名前。[`Self::broker_profile`] を使う (docs/spec/manifest-profile.md §7)
+    #[deprecated(since = "0.2.11", note = "use broker_profile")]
+    fn broker_profile_full(&self, id: &Identifier) -> JuizResult<BrokerProfile> {
+        self.broker_profile(id)
+    }
 }
 
 pub trait ConnectionBrokerProxy {
@@ -281,7 +346,13 @@ pub trait ConnectionBrokerProxy {
     /// * `recursive` - サブシステムのプロセスを再起的に読み込む場合はtrue
     fn connection_list(&self, recursive: bool) -> JuizResult<Vec<ConnectionIdentifier>>;
 
-    fn connection_profile_full(&self, id: &ConnectionIdentifier) -> JuizResult<ConnectionProfile>;
+    fn connection_profile(&self, id: &ConnectionIdentifier) -> JuizResult<ConnectionProfile>;
+
+    /// 古い名前。[`Self::connection_profile`] を使う (docs/spec/manifest-profile.md §7)
+    #[deprecated(since = "0.2.11", note = "use connection_profile")]
+    fn connection_profile_full(&self, id: &ConnectionIdentifier) -> JuizResult<ConnectionProfile> {
+        self.connection_profile(id)
+    }
 
     fn connection_create(&mut self, manifest: &ConnectionManifest)
         -> JuizResult<ConnectionProfile>;
@@ -371,7 +442,13 @@ pub trait CompositeBrokerProxy {
     fn composite_list(&self) -> JuizResult<Vec<String>>;
 
     /// Composite の Factory の manifest
-    fn composite_profile_full(&self, type_name: &str) -> JuizResult<ProcessManifest>;
+    fn composite_profile(&self, type_name: &str) -> JuizResult<ProcessManifest>;
+
+    /// 古い名前。[`Self::composite_profile`] を使う (docs/spec/manifest-profile.md §7)
+    #[deprecated(since = "0.2.11", note = "use composite_profile")]
+    fn composite_profile_full(&self, type_name: &str) -> JuizResult<ProcessManifest> {
+        self.composite_profile(type_name)
+    }
 
     /// Composite の Factory の登録を外す。インスタンスや、子として使う Composite があればエラー
     fn composite_destroy(&mut self, type_name: &str) -> JuizResult<ProcessManifest>;
@@ -444,17 +521,29 @@ pub trait TransformationsBrokerProxy {
 
     /// `{identifier, source, destination, transform, stamp}`。System をまたぐ Transform には `remote` (§19.10)。
     /// ID の終点が別 System の Container なら、その System に回す (§19.2 の 7)
-    fn transform_profile_full(&self, identifier: &str) -> JuizResult<Value> {
-        self.transform_profile_full_from_system(identifier, None)
+    fn transform_profile(&self, identifier: &str) -> JuizResult<Value> {
+        self.transform_profile_from_system(identifier, None)
     }
 
-    /// 別 System `source_system` (UUID) から回された [`Self::transform_profile_full`]。
+    /// 古い名前。[`Self::transform_profile`] を使う (docs/spec/manifest-profile.md §7)
+    #[deprecated(since = "0.2.11", note = "use transform_profile")]
+    fn transform_profile_full(&self, identifier: &str) -> JuizResult<Value> {
+        self.transform_profile(identifier)
+    }
+
+    /// 別 System `source_system` (UUID) から回された [`Self::transform_profile`]。
     /// ID の始点は `source_system` での core の ID (§19.2 の 7)
-    fn transform_profile_full_from_system(
+    fn transform_profile_from_system(
         &self,
         identifier: &str,
         source_system: Option<&str>,
     ) -> JuizResult<Value>;
+
+    /// 古い名前。[`Self::transform_profile_from_system`] を使う (docs/spec/manifest-profile.md §7)
+    #[deprecated(since = "0.2.11", note = "use transform_profile_from_system")]
+    fn transform_profile_full_from_system(&self, identifier: &str, source_system: Option<&str>) -> JuizResult<Value> {
+        self.transform_profile_from_system(identifier, source_system)
+    }
 
     /// Transform を作り、profile を返す。木の規則 (§5.2) を破ればエラーで何も作らない。
     /// 終点が別 System の Container なら、その System に回して作る (§19.2 の 5)
@@ -504,7 +593,13 @@ pub trait TransformationsBrokerProxy {
     fn pose_listener_list(&self) -> JuizResult<Vec<String>>;
 
     /// `{identifier, container, process, arg, reference, on_update, initial}`
-    fn pose_listener_profile_full(&self, identifier: &str) -> JuizResult<Value>;
+    fn pose_listener_profile(&self, identifier: &str) -> JuizResult<Value>;
+
+    /// 古い名前。[`Self::pose_listener_profile`] を使う (docs/spec/manifest-profile.md §7)
+    #[deprecated(since = "0.2.11", note = "use pose_listener_profile")]
+    fn pose_listener_profile_full(&self, identifier: &str) -> JuizResult<Value> {
+        self.pose_listener_profile(identifier)
+    }
 
     /// Pose 通知を登録し、profile を返す (§8.3)
     fn pose_listener_create(&mut self, manifest: &PoseListenerManifest) -> JuizResult<Value>;
@@ -544,14 +639,20 @@ pub trait BrokerProxy:
         //Ok(value_merge(processes, &container_processes)?.into())
     }
 
-    fn any_process_profile_full(&self, id: &ProcessIdentifier) -> JuizResult<ProcessProfile> {
-        log::info!("BrokerProxy::any_process_profile_full({id}) called");
+    fn any_process_profile(&self, id: &ProcessIdentifier) -> JuizResult<ProcessProfile> {
+        log::info!("BrokerProxy::any_process_profile({id}) called");
         //let id_struct = IdentifierStruct::try_from(id.clone())?;
         //log::info!("id_struct{:?}", id_struct);
         if id.class_name == "process" {
-            return self.process_profile_full(id);
+            return self.process_profile(id);
         }
-        self.container_process_profile_full(id)
+        self.container_process_profile(id)
+    }
+
+    /// 古い名前。[`Self::any_process_profile`] を使う (docs/spec/manifest-profile.md §7)
+    #[deprecated(since = "0.2.11", note = "use any_process_profile")]
+    fn any_process_profile_full(&self, id: &ProcessIdentifier) -> JuizResult<ProcessProfile> {
+        self.any_process_profile(id)
     }
 
     fn any_process_call(&self, id: &ProcessIdentifier, args: CapsuleMap) -> JuizResult<CapsulePtr> {

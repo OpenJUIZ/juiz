@@ -23,7 +23,7 @@ juiz のコード・API・文書では「manifest」と「profile」が混ざっ
 | **実行時の状態** | 動いている間に変わる値。拘束値・push で届いた値、EC の状態と束ねた Process、写しを取りに来ている System、Transform の今の値など(§4) |
 | **Profile** | **使われている最中の様子**。インスタンスの manifest と実行時の状態を合わせたもの。Profile = Manifest + 実行時の状態 |
 
-- 「profile」は API の `*/profile_full` の応答、`system/profile_full` の `core_store` の各要素、`*/create`・`*/destroy` が返すものを指す。
+- 「profile」は API の `*/profile` の応答、`system/profile` の `core_store` の各要素、`*/create`・`*/destroy` が返すものを指す。
 - 実行時の状態を持たないもの(Factory、Broker、PoseListener など、§4)の Profile は Manifest と同じ中身になる。それでも API では profile と呼ぶ(問い合わせの形をそろえるため)。
 
 ## 3. 規則
@@ -31,7 +31,7 @@ juiz のコード・API・文書では「manifest」と「profile」が混ざっ
 1. **Profile = Manifest + 実行時の状態。** Profile の型は Manifest の型を含む形にする(Rust では Manifest の型のフィールドを持ち、serde の `#[serde(flatten)]` で今の JSON の形を保つ)。Profile の型から Manifest を取り出せ、Manifest から状態を空にした Profile を作れなければならない。
 2. **実行と検査は Manifest で行う。** 実行中のオブジェクトが自分のために持つ値(呼び出し前の検査 `check_manifest_before_call`、既定値の補い `fill_default_arguments`、Composite の子の検査)は Manifest の型でなければならない。Profile は問い合わせのたびに Manifest と状態から作る。
 3. **宣言だけのものに Profile の名前を付けない。** 出力の型の宣言など、実行時の状態を含み得ないものは Manifest と呼ぶ(§6 の Step 2)。
-4. **JSON の形は変えない。** 型名・関数名を変えても、API・conf・`system/profile_full` の JSON のキーと値は今のまま保たなければならない。他の版の juiz・pyjuiz・管理画面とつながるため。キーを足すのはよいが、消す・名前を変えるのは別の issue で決める。
+4. **JSON の形は変えない。** 型名・関数名を変えても、API・conf・`system/profile` の JSON のキーと値は今のまま保たなければならない。他の版の juiz・pyjuiz・管理画面とつながるため。キーを足すのはよいが、消す・名前を変えるのは別の issue で決める。
 5. **外から見える名前を変えるときは別名を残す**(§7)。
 
 ## 4. オブジェクトごとの Manifest と Profile
@@ -40,19 +40,19 @@ juiz のコード・API・文書では「manifest」と「profile」が混ざっ
 
 | オブジェクト | Manifest(Rust の型) | Manifest に入る主なもの | Profile に足す実行時の状態 | 載せていないもの | profile の API |
 | --- | --- | --- | --- | --- | --- |
-| Process | `ProcessManifest` | 名前・ネームスペース・型名・引数(型・既定値・schema)・出力の型・`use_memo`・言語・publish / subscribe・`composition`(Composite) | 引数ごとの `value`(拘束値か push で届いた値、#112。値型でないとき・まだ無いときは出さない) | 接続(`connection/list` で取る)、束ねている EC、出力の値 | `process/profile_full` |
-| ContainerProcess | `ProcessManifest`(conf の書き方は `ContainerProcessManifest`) | Process と同じ + `container_name`・`container_type`・`readonly` | Process と同じ | Process と同じ | `container_process/profile_full` |
-| Container | `ContainerManifest` | 名前・ネームスペース・型名・引数・`args`・親・持つ ContainerProcess の manifest・`model` の宣言 | `remote_children`(写しを取りに来ている System、transformations.md §19.10)、`model`(ファイルから読み直したモデル情報、container-model.md §7)、`processes` の各要素の Process の状態 | 中身(利用者のデータ)、位置姿勢(`container/pose` で取る) | `container/profile_full` |
-| CompositeContainer | conf の `composite_containers` の 1 項目(Factory は `CompositeManifest`) | Container と同じ + スロット名と参照先の名前 | Container と同じ + `slots`(スロット → 解決した Container の ID) | — | `container/profile_full` |
-| Anchor | `ContainerManifest` + `AnchorManifest` | Container と同じ + `anchor: {kind, rate}` | Container と同じ | 変換木での位置(`transformations/tree` で取る) | `container/profile_full` |
-| Connection | `ConnectionManifest` | 種類(push / pull)・送り元・送り先・引数名 | なし(今は Manifest と同じ中身) | 最後に流れた時刻・値 | `connection/profile_full` |
-| Topic | `TopicManifest`(名前だけ。conf の Topic の項目に共有メモリの設定 `shared_memory` を書く。Topic 自体は内部で Process として持つ) | 名前・ネームスペース・共有メモリの設定 | 共有メモリの数え上げ `shared_memory`(large-data.md §6.8) | 転送先の System の一覧 | `system/profile_full` の `core_store.topics` |
-| Broker | `BrokerManifest` | 型名・名前・説明 | なし | 受け付けているアドレス・接続数 | `broker/profile_full` |
-| EC | conf の `ecs` の 1 項目(Rust の型は無い、`Value`) | 型名・名前・ネームスペース・`rate`・`auto_start`・bind の宣言 | `state`(started / stopped)・`targets`(今束ねている Process の ID) | 周期の実測 | `execution_context/profile_full` |
-| Factory(Process / Container / ContainerProcess / EC / Broker / Composite) | Factory の manifest(`ProcessManifest`・`ContainerManifest` など) | §2 の Factory の manifest + 読み込んだプラグインの `path`・`abi` | なし(§5) | 作ったインスタンスの一覧 | `system/profile_full` の `core_store.*_factories`、`composite/profile_full` |
-| Transform | `TransformManifest` | 始点・終点・初期値・`writers`・`rate`・`timeout` | `transform`(今の値)・`stamp`、またぐ Transform の `remote: {system, rate, timeout, state, last_success}`(transformations.md §19.10) | — | `transform/profile_full` |
-| PoseListener | `PoseListenerManifest` | 見張る Container・呼ぶ Process・引数・基準・`on_update`・`initial` | なし | 最後に呼んだ時刻 | `pose_listener/profile_full` |
-| System | conf 全体(`.juizapp` から起動したときはその `package` も) | conf に書いたもの、`package: {name, version}`(app-package.md §10.1) | `system_store.uuid`・ブローカー、`core_store`(上の各 Profile の一覧)、`subsystems`・`mastersystem`(今つながっている System の profile) | — | `system/profile_full` |
+| Process | `ProcessManifest` | 名前・ネームスペース・型名・引数(型・既定値・schema)・出力の型・`use_memo`・言語・publish / subscribe・`composition`(Composite) | 引数ごとの `value`(拘束値か push で届いた値、#112。値型でないとき・まだ無いときは出さない) | 接続(`connection/list` で取る)、束ねている EC、出力の値 | `process/profile` |
+| ContainerProcess | `ProcessManifest`(conf の書き方は `ContainerProcessManifest`) | Process と同じ + `container_name`・`container_type`・`readonly` | Process と同じ | Process と同じ | `container_process/profile` |
+| Container | `ContainerManifest` | 名前・ネームスペース・型名・引数・`args`・親・持つ ContainerProcess の manifest・`model` の宣言 | `remote_children`(写しを取りに来ている System、transformations.md §19.10)、`model`(ファイルから読み直したモデル情報、container-model.md §7)、`processes` の各要素の Process の状態 | 中身(利用者のデータ)、位置姿勢(`container/pose` で取る) | `container/profile` |
+| CompositeContainer | conf の `composite_containers` の 1 項目(Factory は `CompositeManifest`) | Container と同じ + スロット名と参照先の名前 | Container と同じ + `slots`(スロット → 解決した Container の ID) | — | `container/profile` |
+| Anchor | `ContainerManifest` + `AnchorManifest` | Container と同じ + `anchor: {kind, rate}` | Container と同じ | 変換木での位置(`transformations/tree` で取る) | `container/profile` |
+| Connection | `ConnectionManifest` | 種類(push / pull)・送り元・送り先・引数名 | なし(今は Manifest と同じ中身) | 最後に流れた時刻・値 | `connection/profile` |
+| Topic | `TopicManifest`(名前だけ。conf の Topic の項目に共有メモリの設定 `shared_memory` を書く。Topic 自体は内部で Process として持つ) | 名前・ネームスペース・共有メモリの設定 | 共有メモリの数え上げ `shared_memory`(large-data.md §6.8) | 転送先の System の一覧 | `system/profile` の `core_store.topics` |
+| Broker | `BrokerManifest` | 型名・名前・説明 | なし | 受け付けているアドレス・接続数 | `broker/profile` |
+| EC | conf の `ecs` の 1 項目(Rust の型は無い、`Value`) | 型名・名前・ネームスペース・`rate`・`auto_start`・bind の宣言 | `state`(started / stopped)・`targets`(今束ねている Process の ID) | 周期の実測 | `execution_context/profile` |
+| Factory(Process / Container / ContainerProcess / EC / Broker / Composite) | Factory の manifest(`ProcessManifest`・`ContainerManifest` など) | §2 の Factory の manifest + 読み込んだプラグインの `path`・`abi` | なし(§5) | 作ったインスタンスの一覧 | `system/profile` の `core_store.*_factories`、`composite/profile` |
+| Transform | `TransformManifest` | 始点・終点・初期値・`writers`・`rate`・`timeout` | `transform`(今の値)・`stamp`、またぐ Transform の `remote: {system, rate, timeout, state, last_success}`(transformations.md §19.10) | — | `transform/profile` |
+| PoseListener | `PoseListenerManifest` | 見張る Container・呼ぶ Process・引数・基準・`on_update`・`initial` | なし | 最後に呼んだ時刻 | `pose_listener/profile` |
+| System | conf 全体(`.juizapp` から起動したときはその `package` も) | conf に書いたもの、`package: {name, version}`(app-package.md §10.1) | `system_store.uuid`・ブローカー、`core_store`(上の各 Profile の一覧)、`subsystems`・`mastersystem`(今つながっている System の profile) | — | `system/profile` |
 
 - Topic の Rust の型: `TopicProfile` は `TopicManifest` を含むだけの型にした(状態なし、§8.1)。Topic の profile の API は Process の profile(`ProcessProfile`)で返り、`TopicProfile` は使わない。
 - Broker の profile に今出ている `BrokerProfile` は Manifest と同じ中身。Step 1 で `BrokerManifest` を `#[serde(flatten)]` で含む形にした(§8.1)。
@@ -63,7 +63,7 @@ juiz のコード・API・文書では「manifest」と「profile」が混ざっ
 
 - 「そのまま」は意味の上の決めごと。JSON の形は今のまま(識別子などオブジェクトに共通の項目 + `plugin: {path, abi}` + 型の manifest)にする(§3 の 4)。プラグインの `path`・`abi` は conf の `plugins` の宣言から決まる静的な値なので、Manifest の一部と見なす。
 - 作ったインスタンスの一覧などを Factory の profile に足してはならない。足したくなったら、それは Factory の状態ではなくインスタンスの一覧の問い合わせとして別の API にする。
-- `composite/profile_full` は今も Factory の manifest(`ProcessManifest`)を返している。この決めごとに合っている。composition.md §8.4 の表の書き方もこの節を指すように直した。
+- `composite/profile` は今も Factory の manifest(`ProcessManifest`)を返している。この決めごとに合っている。composition.md §8.4 の表の書き方もこの節を指すように直した。
 - container-model.md §7 の「Factory の `profile_full` の `container_factory.model` に manifest に書いたままの値を載せる」もこの決めごとに合っている。
 
 ## 6. 名前の変更(Step 1〜4)
@@ -91,7 +91,7 @@ juiz のコード・API・文書では「manifest」と「profile」が混ざっ
 1. 外から見える名前(Rust の SDK の公開型・関数、pyjuiz の公開名、ブローカー API)を変えるときは、**古い名前を別名として残す**。Rust は `#[deprecated(note = "use …")]`、pyjuiz は古い名前から新しい名前を呼び、初めて使われたときに `DeprecationWarning` を出す。
 2. **別名は 0.2 系のあいだ残す。** 消すのは 0.3.0 以降で、消すときは別の issue を立てる。release/0.1(不具合修正だけの枝)には名前の変更を持ち込まない。
 3. **API の `*/profile_full` は 0.3.0 以降も、消す issue で決めるまで残す。** 古い版の juiz とつながる System(subsystems・mastersystem)や古い pyjuiz・管理画面が使うため。応答は `*/profile` と同じにし、OpenAPI では `deprecated: true` を付ける。
-4. **新しい側から古い juiz を呼ぶとき**: CLI・pyjuiz・管理画面・`BrokerProxy` は `*/profile` を呼び、相手が 404(古い juiz で `*/profile` が無い)なら `*/profile_full` を呼び直さなければならない。相手の版を覚えるかどうか(毎回呼び直すか)は Step 4 で決める。
+4. **新しい側から古い juiz を呼ぶとき**: CLI・pyjuiz・管理画面・`BrokerProxy` は `*/profile` を呼び、相手が 404(古い juiz で `*/profile` が無い)なら `*/profile_full` を呼び直さなければならない。相手の版を覚えるかどうか(毎回呼び直すか)は Step 4 で決める(§8.4 で、接続先ごとに覚えることにした)。
 5. 公開の後に古い名前を使っている所(サイトのチュートリアル・ガイド、サンプル 4 言語)を新しい名前に直す。直す時期はその Step の公開の後で、Step ごとに決める。
 
 ## 8. Step ごとに決めたこと
@@ -142,3 +142,32 @@ juiz のコード・API・文書では「manifest」と「profile」が混ざっ
 **変わらないもの。** ブローカー API `process/try_connect_to` の応答の JSON。2 つの型は serde で同じキー(`connection_type`・`source_process_id`・`destination_process_id`・`arg_name`)に直列化されるので、古い juiz の応答を新しい側が、新しい juiz の応答を古い側がそのまま読める(juiz_sdk の `connection_manifest_and_profile_serialize_alike` で確かめる)。`connection/create`・`connection/destroy`・`connection/profile_full` は前から `ConnectionProfile` を返していて、変えていない。
 
 **公開の後に直す所(§7 の 5)。** 無い。
+
+### 8.4 Step 4(#508)
+
+**API。** 11 種類(process・container・container_process・any_process・connection・execution_context・broker・system・composite・transform・pose_listener)の READ の関数を `profile` にし、`profile_full` は同じ関数を指す別名にした。別名は CRUDBroker の READ の表を作るとき(`add_profile_full_aliases`)に足すので、HTTP・qmp・IPC・Zenoh・メッセンジャー系のどれでも同じに受ける。応答の JSON は変わらない(golden の profile_json_test・qmp_profile_json_test が `*/profile` で通る)。
+
+**OpenAPI。** 定義は `/api/<class>/profile` に書き、`/api-docs/openapi.json` を返すときに `/api/<class>/profile_full` へ写して `deprecated: true` を付ける(`add_profile_full_paths`)。応答の型などは写す前に足すので、2 つは同じ。
+
+**無い関数は 404。** HTTP ブローカーは、無い関数を呼ばれたとき(`CRUDBrokerCanNotFindFunctionError`)に 500 ではなく 404 を返すようにした(container-model.md §11 の振り分けに足した)。
+
+**古い juiz を呼ぶとき(§7 の 4)。** 相手に `profile` が無いことの見分け方は、404、または古い juiz が返す 500 とメッセンジャー系の `BrokerProxyRemoteError` に入る「`CRUDBroker can not detect function (`」の文(`is_function_not_found`)。
+
+- **相手の版は接続先ごとに覚える。** 一度 `profile_full` に呼び直したら、その接続先には以後はじめから `profile_full` を呼ぶ。Rust は BrokerProxy(`CRUDBrokerProxyHolder`・`MessengerBrokerProxy`)ごと、pyjuiz は `CRUDProxy`(`HttpProxy`・`IpcProxy`)ごと、管理画面は接続先の URL ごと。相手が新しい juiz に入れ替わっても `profile_full` は使えるので、覚えたままでよい。
+- 呼び直すのは `profile` だけ。ほかのエラー(無い Process など)はそのまま返す。
+
+**Rust の SDK。** `BrokerProxy` のトレイトの関数を `system_profile`・`system_profile_recursive`・`process_profile`・`container_profile`・`container_process_profile`・`any_process_profile`・`ec_profile`・`broker_profile`・`connection_profile`・`composite_profile`・`transform_profile`・`transform_profile_from_system`・`pose_listener_profile` にした。古い名前は `#[deprecated(since = "0.2.11")]` の既定の実装として残し、新しい名前を呼ぶ。実装する側(`CoreBroker`・`CRUDBrokerProxyHolder`・`MessengerBrokerProxy`)は新しい名前だけを実装する。
+
+**変えなかったもの。** `JuizObject::profile_full()`(オブジェクトが自分の profile を JSON にする関数)と CoreStore の `*_profile_full`(`objects_profile_full` など)は juiz_core の中の関数で、API の名前ではないので、この Step では変えない。
+
+**pyjuiz。** `SystemProxy.profile()` と、Process・Container・ContainerProcess の proxy の `profile(update=False)` を足した。`profile_full()` は名前ごとに初めの 1 回だけ `DeprecationWarning` を出して `profile()` を呼ぶ。
+
+**管理画面。** `JuizClient` の `systemProfile`・`connectionProfile`・`transformProfile` が `*/profile` を呼び、古い juiz なら `*/profile_full` を呼び直す。`src/api/openapi.json` は新しい定義から取り直した。
+
+**C ABI・CLI。** C ABI(cjuiz・cppjuiz・hsjuiz)に `profile_full` を呼ぶ所は無い。CLI は BrokerProxy を通すので、上の呼び直しがそのまま効く。
+
+**公開の後に直す所(§7 の 5)。** 次の版の公開の後に `*/profile` に直す(2026-11-16 に確かめた)。
+
+- サンプル 4 言語(C++・Haskell・Python・Rust): README の `curl .../api/container_process/profile_full` と tests/test_examples.py の `PROFILE` の読み出し。
+- 公式サイト: ガイドの composition・container-model・large-data・transformations で `*/profile_full` を書いている所(16 か所)。
+- teleop_twist: 無い。

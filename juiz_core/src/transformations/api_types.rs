@@ -55,7 +55,7 @@ pub struct PoseStateQuery {
     /// 前回受け取った `system` (相手の UUID)。相手の今の UUID と違えば `since` は無視される
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub system: Option<String>,
-    /// 取りに来た System の UUID (`container/profile_full` の `remote_children` に使う、§19.10)
+    /// 取りに来た System の UUID (`container/profile` の `remote_children` に使う、§19.10)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subscriber: Option<String>,
     /// 取りに来た System での終点の ID (§19.10)

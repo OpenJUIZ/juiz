@@ -383,7 +383,7 @@
       "name": "MIT OR Apache-2.0"
     },
     "title": "juiz_core",
-    "version": "0.2.8"
+    "version": "0.2.10"
   },
   "openapi": "3.0.3",
   "paths": {
@@ -466,9 +466,34 @@
         ]
       }
     },
-    "/api/any_process/profile_full": {
+    "/api/any_process/profile": {
       "get": {
         "operationId": "profile_handler_dummy",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        },
+        "tags": [
+          "any_process"
+        ]
+      }
+    },
+    "/api/any_process/profile_full": {
+      "get": {
+        "deprecated": true,
+        "operationId": "profile_handler_dummy_full",
         "parameters": [
           {
             "in": "query",
@@ -503,9 +528,34 @@
         ]
       }
     },
-    "/api/broker/profile_full": {
+    "/api/broker/profile": {
       "get": {
         "operationId": "profile_handler_dummy",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        },
+        "tags": [
+          "universal.broker"
+        ]
+      }
+    },
+    "/api/broker/profile_full": {
+      "get": {
+        "deprecated": true,
+        "operationId": "profile_handler_dummy_full",
         "parameters": [
           {
             "in": "query",
@@ -586,9 +636,34 @@
         ]
       }
     },
-    "/api/composite/profile_full": {
+    "/api/composite/profile": {
       "get": {
         "operationId": "profile_handler_dummy",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Factory の manifest"
+          }
+        },
+        "tags": [
+          "universal.composite"
+        ]
+      }
+    },
+    "/api/composite/profile_full": {
+      "get": {
+        "deprecated": true,
+        "operationId": "profile_handler_dummy_full",
         "parameters": [
           {
             "in": "query",
@@ -668,9 +743,34 @@
         ]
       }
     },
-    "/api/connection/profile_full": {
+    "/api/connection/profile": {
       "get": {
         "operationId": "profile_handler_dummy",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        },
+        "tags": [
+          "universal.connection"
+        ]
+      }
+    },
+    "/api/connection/profile_full": {
+      "get": {
+        "deprecated": true,
+        "operationId": "profile_handler_dummy_full",
         "parameters": [
           {
             "in": "query",
@@ -991,9 +1091,53 @@
         ]
       }
     },
-    "/api/container/profile_full": {
+    "/api/container/profile": {
       "get": {
         "operationId": "profile_handler_dummy",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "model": {
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/juiz_std.model.ContainerModelInfo"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Container"
+          }
+        },
+        "tags": [
+          "universal.container"
+        ]
+      }
+    },
+    "/api/container/profile_full": {
+      "get": {
+        "deprecated": true,
+        "operationId": "profile_handler_dummy_full",
         "parameters": [
           {
             "in": "query",
@@ -1310,9 +1454,34 @@
         ]
       }
     },
-    "/api/container_process/profile_full": {
+    "/api/container_process/profile": {
       "get": {
         "operationId": "profile_handler_dummy",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        },
+        "tags": [
+          "universal.container_process"
+        ]
+      }
+    },
+    "/api/container_process/profile_full": {
+      "get": {
+        "deprecated": true,
+        "operationId": "profile_handler_dummy_full",
         "parameters": [
           {
             "in": "query",
@@ -1391,9 +1560,34 @@
         ]
       }
     },
-    "/api/execution_context/profile_full": {
+    "/api/execution_context/profile": {
       "get": {
         "operationId": "profile_handler_dummy",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        },
+        "tags": [
+          "universal.execution_context"
+        ]
+      }
+    },
+    "/api/execution_context/profile_full": {
+      "get": {
+        "deprecated": true,
+        "operationId": "profile_handler_dummy_full",
         "parameters": [
           {
             "in": "query",
@@ -1540,9 +1734,34 @@
         ]
       }
     },
-    "/api/pose_listener/profile_full": {
+    "/api/pose_listener/profile": {
       "get": {
         "operationId": "pose_listener_profile_dummy",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{identifier, container, process, arg, reference, on_update, initial}"
+          }
+        },
+        "tags": [
+          "universal.transformations"
+        ]
+      }
+    },
+    "/api/pose_listener/profile_full": {
+      "get": {
+        "deprecated": true,
+        "operationId": "pose_listener_profile_dummy_full",
         "parameters": [
           {
             "in": "query",
@@ -1795,9 +2014,34 @@
         ]
       }
     },
-    "/api/process/profile_full": {
+    "/api/process/profile": {
       "get": {
         "operationId": "profile_handler_dummy",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "System"
+          }
+        },
+        "tags": [
+          "universal.process"
+        ]
+      }
+    },
+    "/api/process/profile_full": {
+      "get": {
+        "deprecated": true,
+        "operationId": "profile_handler_dummy_full",
         "parameters": [
           {
             "in": "query",
@@ -2049,9 +2293,34 @@
         ]
       }
     },
-    "/api/system/profile_full": {
+    "/api/system/profile": {
       "get": {
         "operationId": "profile_handler_dummy",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "recursive",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "System. recursive=true ならサブシステムの中身と各 System の接続 (connections) も入れる"
+          }
+        },
+        "tags": [
+          "universal.system"
+        ]
+      }
+    },
+    "/api/system/profile_full": {
+      "get": {
+        "deprecated": true,
+        "operationId": "profile_handler_dummy_full",
         "parameters": [
           {
             "in": "query",
@@ -2440,9 +2709,96 @@
         ]
       }
     },
-    "/api/transform/profile_full": {
+    "/api/transform/profile": {
       "get": {
         "operationId": "transform_profile_dummy",
+        "parameters": [
+          {
+            "description": "Transform の ID (transform://<始点>|<終点>)",
+            "in": "query",
+            "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "別 System から回されたとき、始点の System の UUID (§19.2 の 7)",
+            "in": "query",
+            "name": "source_system",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "destination": {
+                      "type": "string"
+                    },
+                    "identifier": {
+                      "type": "string"
+                    },
+                    "remote": {
+                      "description": "System をまたぐ Transform の取り込みの様子 (§19.10)",
+                      "properties": {
+                        "last_success": {
+                          "$ref": "#/components/schemas/juiz_std.common.Time"
+                        },
+                        "rate": {
+                          "type": "number"
+                        },
+                        "state": {
+                          "enum": [
+                            "ok",
+                            "stale",
+                            "lost"
+                          ],
+                          "type": "string"
+                        },
+                        "system": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "timeout": {
+                          "type": "number"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "stamp": {
+                      "$ref": "#/components/schemas/juiz_std.common.Time"
+                    },
+                    "transform": {
+                      "$ref": "#/components/schemas/juiz_std.geometry.Transform"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "{identifier, source, destination, transform, stamp, remote?}"
+          }
+        },
+        "tags": [
+          "universal.transformations"
+        ]
+      }
+    },
+    "/api/transform/profile_full": {
+      "get": {
+        "deprecated": true,
+        "operationId": "transform_profile_dummy_full",
         "parameters": [
           {
             "description": "Transform の ID (transform://<始点>|<終点>)",

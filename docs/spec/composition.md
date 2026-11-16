@@ -282,7 +282,7 @@ composition:
 - Composite の Factory の profile(型の情報)にも同じ `composition` を出す。
 - CompositeContainer の profile(`ContainerProfile`)には、スロット名 → 参照先の Container の ID を `slots` として出す。
 
-`composition` と `slots` は HTTP・qmp のどちらの API でも profile / profile_full に含まれる(`system/profile_full?recursive=true` の `core_store` にも出る)。
+`composition` と `slots` は HTTP・qmp のどちらの API でも `*/profile`(古い名前 `*/profile_full`、manifest-profile.md §7)に含まれる(`system/profile?recursive=true` の `core_store` にも出る)。
 
 ### 8.3 表示(C5)
 
@@ -308,11 +308,11 @@ composition:
 |---|---|---|
 | `POST /api/composite/create` | ボディ `{"__manifest__": <Composite の定義>}` | Factory の manifest(§8.2、`composition` を含む) |
 | `GET /api/composite/list` | なし | Composite の型名の配列(名前順) |
-| `GET /api/composite/profile_full?identifier=<型名>` | 型名 | Factory の profile。Factory は実行時の状態を持たないので Factory の manifest と同じ(manifest-profile.md §5) |
+| `GET /api/composite/profile?identifier=<型名>` | 型名 | Factory の profile。Factory は実行時の状態を持たないので Factory の manifest と同じ(manifest-profile.md §5) |
 | `DELETE /api/composite/destroy?identifier=<型名>` | 型名 | 消した Factory の manifest |
 | `POST /api/composite_container/create` | ボディ `{"__manifest__": <composite_containers: の 1 件>}` | CompositeContainer の profile(`identifier` と `slots` つき) |
 
-- Rust の `BrokerProxy` には `CompositeBrokerProxy` トレイト(`composite_create` / `composite_list` / `composite_profile_full` / `composite_destroy` / `composite_container_create`)を足した。HTTP・qmp・メッセンジャー系の BrokerProxy と CoreBroker が実装する。
+- Rust の `BrokerProxy` には `CompositeBrokerProxy` トレイト(`composite_create` / `composite_list` / `composite_profile`(古い名前 `composite_profile_full` は `#[deprecated]` の別名、manifest-profile.md §8.4) / `composite_destroy` / `composite_container_create`)を足した。HTTP・qmp・メッセンジャー系の BrokerProxy と CoreBroker が実装する。
 - **作成**: スロット(`containers`)が無ければ Process の型、あれば CompositeContainerProcess の型として登録する(conf と同じ、§3.3)。子はその juiz プロセスに登録済みの Factory(先に足した Composite を含む)から探す。定義の誤りは conf と同じエラー(`CompositeManifestInvalidError`。子の Factory が見つからない、子に無い引数名、公開引数の衝突など)、同じ型名の Factory があれば `FactoryOfSameTypeNameAlreadyExistsError` で、どちらも何も登録しない。
 - 作った Composite は普通の型として、`process/create`(スロットがあれば CompositeContainer に `container_process/create`)でインスタンスを作れる。
 - **CompositeContainer**: `name`・`namespace`・`slots`・`processes` は §7.1 と同じ。ただし `namespace` は**絶対**として扱う(先頭の `/` はあってもなくてもよい。conf のように System の既定ネームスペースからは解決しない)。スロットの名前は CompositeContainer のネームスペースから解決する。`processes` の作成に失敗したら、作った CompositeContainer は消してからエラーを返す。CompositeContainer の削除と一覧は Container と同じ `container/destroy` / `container/list`。

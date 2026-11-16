@@ -14,7 +14,7 @@ Container に 3D モデルのファイル(形)を持たせ、外から取り出�
 |---|---|
 | **ContainerModel** | Container が持つ 3D モデル。ファイルの中身(バイト列)と、その付帯情報の組。ContainerPose にそろえた名前。conf のキーは `model`、API は `container/model` |
 | **モデルのファイル** | ContainerModel の中身になる 1 つのファイル(.glb・.stl・.sdf など) |
-| **モデル情報**(model info) | 中身を除いた付帯情報(形式・大きさ・指紋・縮尺・取り付け位置・上の軸・色)。小さな JSON で、型は `juiz_std.model.ContainerModelInfo`(§8)。`container/profile_full` に載る |
+| **モデル情報**(model info) | 中身を除いた付帯情報(形式・大きさ・指紋・縮尺・取り付け位置・上の軸・色)。小さな JSON で、型は `juiz_std.model.ContainerModelInfo`(§8)。`container/profile` に載る |
 | **取り付け位置**(origin) | Container の座標から見たモデルの位置姿勢。モデルの原点が Container の原点とずれているときに使う。値の形は `juiz_std.geometry.Transform` |
 | **形式の変換** | モデルのファイルの「上の軸」を juiz の Z 上にそろえる回転(§4.2) |
 
@@ -196,7 +196,7 @@ Container の作成時(conf の読み込み)に次を順に確かめ、満たさ
 
 ### 5.3 取り出すとき
 
-- 取り出しの要求(§6 の `container/model_info`・`container/model`・`container/profile_full`)のたびにファイルの大きさと更新時刻を見る。どちらかが変わっていれば §5.2 の 3〜5 をやり直して覚え直す(SHA-256 も ETag も変わる)。変わっていなければ SHA-256 は計算し直さない。
+- 取り出しの要求(§6 の `container/model_info`・`container/model`・`container/profile`)のたびにファイルの大きさと更新時刻を見る。どちらかが変わっていれば §5.2 の 3〜5 をやり直して覚え直す(SHA-256 も ETag も変わる)。変わっていなければ SHA-256 は計算し直さない。
 - `container/model` は、覚え直した後にファイルを読み、読んだバイト列の大きさが覚えた値と違えば(読む間に書き換わった)、もう一度だけ覚え直して読み直す。
 - 実行中にファイルが消えた・上限を超えた・形式が合わなくなったときは、その要求をエラーにし(`ContainerModelFileNotFoundError` / `ContainerModelInvalidError`)、WARN を出す。Container は消さない。ファイルが戻れば次の要求から元に戻る。
 
@@ -274,7 +274,7 @@ manifest = containerManifest "pantilt_hs"
 
 | 種類 | クラス / 関数 | 引数 | 戻り値 |
 |---|---|---|---|
-| read | `container/profile_full` | `identifier` | 今の profile に `model` を足す。値はモデル情報(§8)、モデルが無ければ `null` |
+| read | `container/profile` | `identifier` | 今の profile に `model` を足す。値はモデル情報(§8)、モデルが無ければ `null` |
 | read | `container/model_info` | `identifier` | モデル情報(§8)。モデルが無ければ `null` |
 | read | `container/model` | `identifier` | モデルの中身(§6.2・§6.3)。モデルが無ければ `ContainerHasNoModelError` |
 
@@ -332,13 +332,13 @@ qmp・IPC・メッセンジャー系のブローカーと、Rust の BrokerProxy
 
 ## 7. profile と list
 
-- `container/profile_full` の `model`(§6.1)。Composite の profile・Anchor の profile も同じ。
+- `container/profile` の `model`(§6.1)。Composite の profile・Anchor の profile も同じ。
 - `ContainerManifest` に `model: Option<ModelManifest>`(conf の §5.1 の値。`None` なら直列化しない)を足す。manifest に載るのは conf の値で、モデル情報(大きさ・SHA-256)は profile の `model` に載る(Step 1 #381)。
 - Step 1 で決めたこと: `ContainerProfile` に `model: Option<Value>` を足した。§6.1 のとおり、モデルが無くても `"model": null` を出す(古い profile は無くても読める)。`ModelManifest` と形式の表(`ModelFormat`: 名前・拡張子・`media_type`・既定の `up_axis`)は juiz_sdk に置き、Step 2 の CLI からも使う。
-- `container/profile_full` はモデルのファイルが消えていればエラーになる(§5.3 の「その要求をエラーにする」)。
-- `system/profile_full` の `core_store.containers[].model` にも同じ値を載せる(Step 4 #384 で決めたこと。それまでは常に `null` だった)。ただし一覧は管理画面が数秒ごとに取るので、ファイルが消えたなどで取り出せない Container は一覧全体をエラーにせず `null` にし、WARN も出さない(`container/profile_full` か `container/model_info` を呼べば WARN とエラーが出る)。
+- `container/profile` はモデルのファイルが消えていればエラーになる(§5.3 の「その要求をエラーにする」)。
+- `system/profile` の `core_store.containers[].model` にも同じ値を載せる(Step 4 #384 で決めたこと。それまでは常に `null` だった)。ただし一覧は管理画面が数秒ごとに取るので、ファイルが消えたなどで取り出せない Container は一覧全体をエラーにせず `null` にし、WARN も出さない(`container/profile` か `container/model_info` を呼べば WARN とエラーが出る)。
 - `juiz list --long` の Container の行に形式と大きさを出す(Step 2 #382)。
-- Step 2 で決めたこと: `juiz container list --long` の、モデルを持つ Container の行の下に `model: <format> <大きさ> (<file_name>)` を 1 行出す(例 `model: glb 1.2 MiB (pantilt.glb)`。大きさは 1024 未満は `B`、それ以上は `KiB`・`MiB` で小数 1 桁)。Anchor の種類(transformations.md §13.2)と同じく列は増やさず、Process の一覧と同じ表の形を保つ。値は `container/profile_full` の `model` から取る。
+- Step 2 で決めたこと: `juiz container list --long` の、モデルを持つ Container の行の下に `model: <format> <大きさ> (<file_name>)` を 1 行出す(例 `model: glb 1.2 MiB (pantilt.glb)`。大きさは 1024 未満は `B`、それ以上は `KiB`・`MiB` で小数 1 桁)。Anchor の種類(transformations.md §13.2)と同じく列は増やさず、Process の一覧と同じ表の形を保つ。値は `container/profile` の `model` から取る。
 
 ## 8. モデル情報の型 `juiz_std.model.ContainerModelInfo`
 
@@ -373,9 +373,9 @@ record ContainerModelInfo {
 
 - `format`・`up_axis` は実際に使う値(既定から決めたものも含む)を入れる。conf で省いたかどうかは区別しない。
 - `file_name` だけを出し、ディレクトリは出さない(System を動かす機械のパスを外に見せない)。
-- 型の登録所(`type/list`)と OpenAPI の `components.schemas` にいつも載せ、`container/model_info` と `container/profile_full` の `model` の応答はこの型を参照する(Transformations の型と同じ扱い、transformations.md §13.1)。
+- 型の登録所(`type/list`)と OpenAPI の `components.schemas` にいつも載せ、`container/model_info` と `container/profile` の `model` の応答はこの型を参照する(Transformations の型と同じ扱い、transformations.md §13.1)。
 - Step 1 で決めたこと: `.jidl` は `juiz_idl/std/juiz_std/model.jidl`。`import idl "geometry.jidl";` で `Transform` を読み、`origin` の既定値は `{"translation": {"x": 0.0, "y": 0.0, "z": 0.0}, "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}}`(geometry.jidl の `TransformStamped` と同じ書式)。指紋は `juiz_std.model.ContainerModelInfo@sha256:500282a80f0f81bd0641ae610d73a89d67cdd51ef94801fb2803e4a4a9b8cda1`(`juiz_idl/tests/idl_test.rs` の `std_type_fingerprints_are_fixed` で固定)。Rust は `juiz_std_types::model::ContainerModelInfo`、Python は pyjuiz 同梱の `juiz_std.model`。
-- 型の登録所(`type/list`)では `used_by` が `container_model`。OpenAPI では `container/model_info` の応答と `container/profile_full` の `model` がこの型(か `null`)を参照し、`container/model` の応答は §3.1 の 5 つの Content-Type のバイナリ。
+- 型の登録所(`type/list`)では `used_by` が `container_model`。OpenAPI では `container/model_info` の応答と `container/profile` の `model` がこの型(か `null`)を参照し、`container/model` の応答は §3.1 の 5 つの Content-Type のバイナリ。
 
 ## 9. CLI(Step 2 #382)
 
@@ -431,7 +431,7 @@ Step 3 で決めたこと:
 - パスの検査に加えて core の作成時の検査(§5.2、`ContainerModel::load`)も pack で通す。大きさの上限は entry の conf の `option.model.max_bytes`(§5.4)。
 - SDF の `<mesh><uri>`(§3.2.1)は issue #383 のとおりパッケージの中を指さなければならない(外を指せばエラー)。指す先が pack に入らないときと `://` を含むときは警告。`<mesh>` は表示に使わないので、起動を止める理由にはしない。
 - `juiz run` は変えていない。展開した先の conf から読むので、パッケージの中のモデルはそのまま解決される(`package_cli_test` の `pack_and_run_container_model` で確かめた)。
-- 気づいたこと(この Step では直さない): `system/profile_full` の `core_store.containers[].model` は、モデルがあっても `null` になる(モデル情報を入れるのは `container/profile_full` だけ、§7)。
+- 気づいたこと(この Step では直さない): `system/profile` の `core_store.containers[].model` は、モデルがあっても `null` になる(モデル情報を入れるのは `container/profile` だけ、§7)。
 
 ## 11. エラー
 
@@ -443,7 +443,9 @@ Step 3 で決めたこと:
 
 HTTP では `ContainerModelFileNotFoundError` と `ContainerHasNoModelError` を 404、`ContainerModelInvalidError` を 400(作成時)・500(取り出し時)にする。
 
-Step 1 で決めたこと: それまでの HTTP ブローカーはエラーをすべて 500 で返していた(対応表は無かった)。エラーの応答を作る所(`http_router::error_status`)で、エラーの連なりの中の `JuizError` を見て上の 3 つだけを振り分け、それ以外は今までどおり 500 にした。「作成時」は POST(`*/create`)の要求のこと。404 はどの経路(`container/model`・`model_info`・`profile_full`)でも同じ。本文は今までどおり `{"message": …}`。
+Step 1 で決めたこと: それまでの HTTP ブローカーはエラーをすべて 500 で返していた(対応表は無かった)。エラーの応答を作る所(`http_router::error_status`)で、エラーの連なりの中の `JuizError` を見て上の 3 つだけを振り分け、それ以外は今までどおり 500 にした。「作成時」は POST(`*/create`)の要求のこと。404 はどの経路(`container/model`・`model_info`・`profile`)でも同じ。本文は今までどおり `{"message": …}`。
+
+manifest-profile.md §8.4(#508)で、無い関数を呼ばれたとき(`CRUDBrokerCanNotFindFunctionError`)も 404 にした。古い名前の API を見分けるため。
 
 ローカルブローカー・qmp などのメッセンジャー系の BrokerProxy では、相手のエラーは文(`BrokerProxyRemoteError`)で届く(既存の扱い)。
 
@@ -459,7 +461,7 @@ Step 4 で決めたこと(#384):
 
 - 中央の表示に「系の図」と「3D」の切り替えを置く(選んだ方はブラウザに覚える)。three.js(0.187、MIT)は npm の依存として同梱し、`ModelView` を `React.lazy` で読み込むので、3D を開くまで three.js の部分(約 670 kB)は読まない。
 - Anchor は右上で選ぶ(最上位の系の Anchor の木と写しの Anchor の木、最初は先頭)。位置は選んだ Anchor の `transformations/tree` を 5 Hz(200 ms)で取り、前の問い合わせが終わっていなければその回は飛ばす。「一時停止」で止められる。
-- モデル情報は `system/profile_full` の `core_store.containers[].model` から取る(§7 の Step 4 で決めたこと)。写しなど system/profile_full に載らない容器と、`model` のキーが無い古い juiz では `container/model_info` を 5 秒ごとに取る。
+- モデル情報は `system/profile` の `core_store.containers[].model` から取る(§7 の Step 4 で決めたこと)。写しなど system/profile に載らない容器と、`model` のキーが無い古い juiz では `container/model_info` を 5 秒ごとに取る。
 - モデルの使い回しの鍵は「SHA-256・形式・色」(色は glTF では使わないので鍵に入れない)。`container/model` は `fetch` で取り、`Cache-Control: no-cache` と `ETag` によりブラウザが `If-None-Match` を付けて問い合わせ直す。読み込みに失敗したら、次の更新で取り直す。
 - 置き方は §4.4 のとおり `pose_A(C) ∘ origin ∘ U ∘ S`。SDF の形は S の内側に置く(model・link・visual の `<pose>` は U と S の右)。計算は `webui/src/three/placement.ts` にまとめ、§4.4 の数値の例を `webui/tests/placement.test.ts`(`npm test`、node の test runner)で確かめる。CI の WebUI ワークフローでも走らせる。
 - モデルを表示した Container は座標軸を出さない。モデルの無い Container・`other`・読めないモデル・`<mesh>` だけの SDF は座標軸(x 赤・y 緑・z 青)を出す。名前の札はすべての Container に出し、札かモデル(モデルが無ければ座標軸の原点の見えない球)を押すと右側の詳細を出す。選んだ Container は外接箱の枠で示す。写しの Container は選べない(系の中に要素が無い)。

@@ -222,7 +222,7 @@ impl CoreBroker {
     }
 
     /// core_store の containers に、写しを取りに来ている別 System (`remote_children`) を足す。
-    /// 管理画面が system/profile_full だけで「別 System の子あり」の印を出せるように (transformations.md §19.14)
+    /// 管理画面が system/profile だけで「別 System の子あり」の印を出せるように (transformations.md §19.14)
     fn add_remote_children(&self, core_store: &mut Value) -> JuizResult<()> {
         let Some(containers) = core_store.get_mut("containers").and_then(|v| v.as_array_mut()) else {
             return Ok(());
@@ -318,14 +318,14 @@ impl JuizObject for CoreBroker {
 }
 
 impl SystemBrokerProxy for CoreBroker {
-    fn system_profile_full(&self) -> JuizResult<Value> {
-        log::trace!("【呼出】system_profile_full() called");
+    fn system_profile(&self) -> JuizResult<Value> {
+        log::trace!("【呼出】system_profile() called");
         let result = self.profile_full();
         result
     }
 
-    fn system_profile_full_recursive(&self) -> JuizResult<Value> {
-        log::trace!("【呼出】system_profile_full_recursive() called");
+    fn system_profile_recursive(&self) -> JuizResult<Value> {
+        log::trace!("【呼出】system_profile_recursive() called");
         let mut v = self.profile_full()?;
         // この System が持つ接続。両端が別の System の接続は、両方の System に現れる
         let connections = self
@@ -348,13 +348,13 @@ impl SystemBrokerProxy for CoreBroker {
                 let bp = ssp.broker_proxy();
                 let bp = juiz_borrow(&bp)?;
                 let proxy_profile = bp.profile_full()?;
-                Ok(match bp.system_profile_full_recursive() {
+                Ok(match bp.system_profile_recursive() {
                     Ok(mut sub) => {
                         get_hashmap_mut(&mut sub)?.insert("broker_proxy".to_owned(), proxy_profile);
                         sub
                     }
                     Err(e) => {
-                        log::error!("【system_profile_full_recursive】サブシステム({ssp})の profile を取得できませんでした。エラーは({e})");
+                        log::error!("【system_profile_recursive】サブシステム({ssp})の profile を取得できませんでした。エラーは({e})");
                         obj_merge(proxy_profile, &jvalue!({ "error": e.to_string() }))?
                     }
                 })
@@ -936,7 +936,7 @@ impl ProcessBrokerProxy for CoreBroker {
         }
     }
 
-    fn process_profile_full(&self, id: &ProcessIdentifier) -> JuizResult<ProcessProfile> {
+    fn process_profile(&self, id: &ProcessIdentifier) -> JuizResult<ProcessProfile> {
         Ok(self
             .worker()
             .store()
@@ -1133,7 +1133,7 @@ impl ProcessBrokerProxy for CoreBroker {
 }
 
 impl ContainerBrokerProxy for CoreBroker {
-    fn container_profile_full(&self, id: &ContainerIdentifier) -> JuizResult<ContainerProfile> {
+    fn container_profile(&self, id: &ContainerIdentifier) -> JuizResult<ContainerProfile> {
         let store = self.worker().store();
         let container = store.containers.get(&id.to_string())?;
         let mut profile = store.container_profile(&container)?;
@@ -1246,7 +1246,7 @@ impl ContainerBrokerProxy for CoreBroker {
 }
 
 impl ContainerProcessBrokerProxy for CoreBroker {
-    fn container_process_profile_full(&self, id: &ProcessIdentifier) -> JuizResult<ProcessProfile> {
+    fn container_process_profile(&self, id: &ProcessIdentifier) -> JuizResult<ProcessProfile> {
         self.worker()
             .store()
             .container_processes
@@ -1463,8 +1463,8 @@ impl BrokerBrokerProxy for CoreBroker {
         Ok(ids)
     }
 
-    fn broker_profile_full(&self, id: &Identifier) -> JuizResult<BrokerProfile> {
-        self.worker().store().broker_profile_full(id)
+    fn broker_profile(&self, id: &Identifier) -> JuizResult<BrokerProfile> {
+        self.worker().store().broker_profile(id)
     }
 }
 
@@ -1670,10 +1670,10 @@ impl ExecutionContextBrokerProxy for CoreBroker {
         Ok(ids)
     }
 
-    fn ec_profile_full(&self, id: &Identifier) -> JuizResult<Value> {
+    fn ec_profile(&self, id: &Identifier) -> JuizResult<Value> {
         juiz_lock(&self.worker().store().ecs.get(id)?)
             .with_context(|| {
-                format!("locking ec(id={id:}) in CoreBroker::ec_profile_full() function")
+                format!("locking ec(id={id:}) in CoreBroker::ec_profile() function")
             })?
             .profile_full()
     }
@@ -1751,7 +1751,7 @@ impl ConnectionBrokerProxy for CoreBroker {
         Ok(ids_arr)
     }
 
-    fn connection_profile_full(&self, id: &ConnectionIdentifier) -> JuizResult<ConnectionProfile> {
+    fn connection_profile(&self, id: &ConnectionIdentifier) -> JuizResult<ConnectionProfile> {
         self.worker().connection_profile(id, true)
     }
 
@@ -1816,7 +1816,7 @@ impl CompositeBrokerProxy for CoreBroker {
         self.worker().composite_type_names()
     }
 
-    fn composite_profile_full(&self, type_name: &str) -> JuizResult<ProcessManifest> {
+    fn composite_profile(&self, type_name: &str) -> JuizResult<ProcessManifest> {
         self.worker().composite_manifest(type_name)
     }
 
@@ -1885,7 +1885,7 @@ impl TransformationsBrokerProxy for CoreBroker {
         self.transformations().transform_list()
     }
 
-    fn transform_profile_full_from_system(
+    fn transform_profile_from_system(
         &self,
         identifier: &str,
         source_system: Option<&str>,
@@ -1894,7 +1894,7 @@ impl TransformationsBrokerProxy for CoreBroker {
             identifier,
             source_system,
             |t, id| t.transform_profile(id),
-            |bp, id, uuid| bp.transform_profile_full_from_system(id, Some(uuid)),
+            |bp, id, uuid| bp.transform_profile_from_system(id, Some(uuid)),
         )
     }
 
@@ -1949,7 +1949,7 @@ impl TransformationsBrokerProxy for CoreBroker {
         self.transformations().pose_listener_list()
     }
 
-    fn pose_listener_profile_full(&self, identifier: &str) -> JuizResult<Value> {
+    fn pose_listener_profile(&self, identifier: &str) -> JuizResult<Value> {
         self.transformations().pose_listener_profile(identifier)
     }
 

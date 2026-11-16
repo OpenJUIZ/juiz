@@ -173,7 +173,7 @@ fn check_errors(c: &Client) -> JuizResult<()> {
         .send()?;
     assert_error(res, "nothing")?;
     let res = c
-        .get(url("/api/process/profile_full"))
+        .get(url("/api/process/profile"))
         .query(&[("identifier", "core://core/process/nothing::py_bench_invert")])
         .send()?;
     assert_eq!(res.status(), reqwest::StatusCode::INTERNAL_SERVER_ERROR);
@@ -184,7 +184,7 @@ fn check_errors(c: &Client) -> JuizResult<()> {
 fn check_missing_identifier(c: &Client) -> JuizResult<()> {
     use reqwest::Method;
     let cases = [
-        (Method::GET, "process/profile_full"),
+        (Method::GET, "process/profile"),
         (Method::GET, "process/openapi_spec"),
         (Method::PATCH, "process/call"),
         (Method::PATCH, "process/execute"),
@@ -192,20 +192,20 @@ fn check_missing_identifier(c: &Client) -> JuizResult<()> {
         (Method::PATCH, "process/push_by"),
         (Method::DELETE, "process/destroy"),
         (Method::POST, "container_process/create"),
-        (Method::GET, "container_process/profile_full"),
+        (Method::GET, "container_process/profile"),
         (Method::GET, "container_process/openapi_spec"),
         (Method::PATCH, "container_process/call"),
         (Method::PATCH, "container_process/execute"),
         (Method::PATCH, "container_process/p_apply"),
         (Method::DELETE, "container_process/destroy"),
-        (Method::GET, "container/profile_full"),
+        (Method::GET, "container/profile"),
         (Method::DELETE, "container/destroy"),
-        (Method::GET, "execution_context/profile_full"),
+        (Method::GET, "execution_context/profile"),
         (Method::GET, "execution_context/get_state"),
         (Method::PATCH, "execution_context/start"),
         (Method::PATCH, "execution_context/stop"),
         (Method::DELETE, "execution_context/destroy"),
-        (Method::GET, "connection/profile_full"),
+        (Method::GET, "connection/profile"),
         (Method::DELETE, "connection/destroy"),
     ];
     for (method, path) in cases {
@@ -261,7 +261,7 @@ fn check_openapi(c: &Client) -> JuizResult<()> {
     // /api-docs/openapi.json には各クラスの口と、読み込んだ Factory の引数のスキーマが入る
     let v: Value = c.get(url("/api-docs/openapi.json")).send()?.json()?;
     for path in [
-        "/api/system/profile_full",
+        "/api/system/profile",
         "/api/system/uuid",
         "/api/process/call",
     ] {
@@ -298,12 +298,12 @@ fn check_add_mastersystem(c: &Client, system: &System) -> JuizResult<()> {
                 .send()?;
             assert!(res.status().is_success(), "{:?}", res.text());
             // somewhere は要求元 (127.0.0.1) に置き換わる
-            let profile = system.core_broker().lock()?.system_profile_full()?;
+            let profile = system.core_broker().lock()?.system_profile()?;
             assert_eq!(
                 profile["mastersystem"][0]["name"],
                 jvalue!(format!("127.0.0.1:{MASTER_PORT}"))
             );
-            let subs = master.core_broker().lock()?.system_profile_full()?["subsystems"].clone();
+            let subs = master.core_broker().lock()?.system_profile()?["subsystems"].clone();
             assert_eq!(subs.as_array().map(|a| a.len()), Some(1), "{subs:?}");
             Ok(())
         })

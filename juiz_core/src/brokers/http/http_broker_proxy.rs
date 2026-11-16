@@ -19,7 +19,7 @@ use thiserror::Error;
 // use opencv::imgcodecs::*;
 
 #[derive(Error, Debug, PartialEq)]
-enum HTTPBrokerError {
+pub(crate) enum HTTPBrokerError {
     #[error("General Error")]
     GeneralError {},
 

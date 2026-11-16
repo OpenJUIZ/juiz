@@ -252,7 +252,7 @@ fn composite_container_process_spans_two_containers() -> JuizResult<()> {
             Into::<String>::into(pid.clone()),
             "core://core/container_process/ssd0::sense_scale_drive:robot0"
         );
-        let profile = bp.container_profile_full(&cc.identifier())?;
+        let profile = bp.container_profile(&cc.identifier())?;
         let profile_slots = profile.slots.clone().expect("slots");
         assert_eq!(
             profile_slots.get("sensor").map(|s| s.as_str()),
@@ -268,7 +268,7 @@ fn composite_container_process_spans_two_containers() -> JuizResult<()> {
         );
         // 普通の Container の profile には slots を出さない
         let sensor_profile =
-            serde_json::to_value(bp.container_profile_full(&sensor.identifier())?)?;
+            serde_json::to_value(bp.container_profile(&sensor.identifier())?)?;
         assert!(sensor_profile.get("slots").is_none());
 
         // ブローカー越しにも呼べる
@@ -362,15 +362,15 @@ fn container_in_use_cannot_be_destroyed() -> JuizResult<()> {
         }
         assert!(err.to_string().contains(&cc_id), "{err}");
         // 拒否したので、Container も CompositeContainerProcess も残っている
-        assert!(bp.container_profile_full(&sensor.identifier()).is_ok());
-        assert!(bp.container_process_profile_full(&pid).is_ok());
+        assert!(bp.container_profile(&sensor.identifier()).is_ok());
+        assert!(bp.container_process_profile(&pid).is_ok());
 
         // CompositeContainer を消すと、その CompositeContainerProcess も消え、参照先は残る
         let profile = bp.container_destroy(&cc.identifier())?;
         assert_eq!(profile.type_name, COMPOSITE_CONTAINER_TYPE_NAME);
-        assert!(bp.container_process_profile_full(&pid).is_err());
-        assert!(bp.container_profile_full(&cc.identifier()).is_err());
-        assert!(bp.container_profile_full(&motor.identifier()).is_ok());
+        assert!(bp.container_process_profile(&pid).is_err());
+        assert!(bp.container_profile(&cc.identifier()).is_err());
+        assert!(bp.container_profile(&motor.identifier()).is_ok());
         drop(cc);
         bp.container_destroy(&sensor.identifier())?;
         bp.container_destroy(&motor.identifier())?;

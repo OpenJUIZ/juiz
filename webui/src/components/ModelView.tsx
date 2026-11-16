@@ -16,7 +16,7 @@ interface Props {
 
 /** 位置を問い合わせる間隔 [ms](5 Hz、§12) */
 const TREE_INTERVAL_MS = 200;
-/** system/profile_full に model の無い容器(写し・古い juiz)のモデル情報を取り直す間隔 [ms] */
+/** system/profile に model の無い容器(写し・古い juiz)のモデル情報を取り直す間隔 [ms] */
 const INFO_INTERVAL_MS = 5000;
 
 /** 表示する Anchor の木の候補 */
@@ -57,7 +57,7 @@ export default function ModelView({ model, serverUrl, selectedKey, onSelect }: P
   const [treeError, setTreeError] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
   const [warnings, setWarnings] = useState<Map<string, string[]>>(new Map());
-  /** system/profile_full から分からない容器のモデル情報(識別子 → 値と取った時刻) */
+  /** system/profile から分からない容器のモデル情報(識別子 → 値と取った時刻) */
   const [fetchedInfos, setFetchedInfos] = useState<Map<string, { info: ContainerModelInfo | null; at: number }>>(
     new Map(),
   );
@@ -123,7 +123,7 @@ export default function ModelView({ model, serverUrl, selectedKey, onSelect }: P
     const out: SceneNode[] = [];
     const walk = (n: TransformationsTreeNode, parent: string | null) => {
       const c = keyOf.get(n.identifier);
-      // system/profile_full の model(#384 から)。キーが無いのは古い juiz なので model_info で取る
+      // system/profile の model(#384 から)。キーが無いのは古い juiz なので model_info で取る
       const info = c && c.profile.model !== undefined ? c.profile.model : (fetchedInfos.get(n.identifier)?.info ?? null);
       out.push({
         identifier: n.identifier,
@@ -139,7 +139,7 @@ export default function ModelView({ model, serverUrl, selectedKey, onSelect }: P
     return out;
   }, [tree, anchor, model, fetchedInfos]);
 
-  // system/profile_full にモデル情報の無い容器(写し・古い juiz)は container/model_info で取る
+  // system/profile にモデル情報の無い容器(写し・古い juiz)は container/model_info で取る
   const missing = useMemo(() => {
     if (!nodes || !model) return [];
     const local = new Map(model.root.containers.map((c) => [c.identifier, c]));

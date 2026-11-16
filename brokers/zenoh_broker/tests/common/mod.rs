@@ -110,7 +110,7 @@ pub fn assert_no_options(c: JuizResult<CapsulePtr>) -> CapsulePtr {
 
 /// zenoh 経由で得た識別子は、アクセスした zenoh ブローカーを指す
 pub fn check_processes(bp: &mut dyn BrokerProxy, broker_name: &str) -> JuizResult<()> {
-    assert!(bp.system_profile_full()?.is_object());
+    assert!(bp.system_profile()?.is_object());
     assert!(bp.system_uuid()?.as_str().is_some());
 
     let ids = bp.process_list(false, None)?;
@@ -123,7 +123,7 @@ pub fn check_processes(bp: &mut dyn BrokerProxy, broker_name: &str) -> JuizResul
     let inc0 = find_process(&ids, "inc0");
     assert_eq!(int_of(bp.process_call(inc0, args("arg1", 10))), 11);
     assert_eq!(int_of(bp.any_process_call(inc0, args("arg1", 20))), 21);
-    assert_eq!(bp.process_profile_full(inc0)?.instance_name(), "inc0");
+    assert_eq!(bp.process_profile(inc0)?.instance_name(), "inc0");
     bp.process_p_apply(inc0, "arg1", jvalue!(1).into())?;
     assert_eq!(int_of(bp.process_execute(inc0)), 2);
     // HTTP と同じく、結果の option は空 (#277)
@@ -137,7 +137,7 @@ pub fn check_containers(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     let names: Vec<String> = bp
         .container_list(false, None)?
         .iter()
-        .map(|id| bp.container_profile_full(id).map(|p| p.instance_name().to_owned()))
+        .map(|id| bp.container_profile(id).map(|p| p.instance_name().to_owned()))
         .collect::<JuizResult<_>>()?;
     assert_eq!(names, vec!["c0"]);
 
@@ -164,7 +164,7 @@ pub fn check_error_keeps_connection(bp: &mut dyn BrokerProxy, broker_name: &str)
     let start = Instant::now();
     assert!(bp.process_call(&missing, args("arg1", 1)).is_err());
     assert!(start.elapsed() < Duration::from_secs(3));
-    assert!(bp.process_profile_full(&missing).is_err());
+    assert!(bp.process_profile(&missing).is_err());
     assert_eq!(bp.process_list(false, None)?.len(), 2);
     Ok(())
 }

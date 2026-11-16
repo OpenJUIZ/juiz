@@ -59,7 +59,7 @@ impl JuizObject for ExecutionContextProxy {
     fn profile_full(&self) -> JuizResult<Value> {
         let id = self.identifier();
         log::trace!("ProcessProxy({id})::profile_full() called");
-        juiz_borrow(&self.broker_proxy)?.ec_profile_full(&self.identifier())
+        juiz_borrow(&self.broker_proxy)?.ec_profile(&self.identifier())
     }
 }
 

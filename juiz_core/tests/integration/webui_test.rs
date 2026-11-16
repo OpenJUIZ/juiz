@@ -52,7 +52,7 @@ fn webui_is_served_at_ui() -> JuizResult<()> {
 
             // API はそのまま
             let res = c
-                .get(format!("http://localhost:{PORT}/api/system/profile_full"))
+                .get(format!("http://localhost:{PORT}/api/system/profile"))
                 .send()?;
             assert!(res.status().is_success(), "{:?}", res.status());
             Ok(())

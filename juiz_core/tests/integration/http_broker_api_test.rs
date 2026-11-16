@@ -16,7 +16,7 @@ fn args(name: &str, v: i64) -> CapsuleMap {
 }
 
 fn check_system(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
-    assert!(bp.system_profile_full()?.is_object());
+    assert!(bp.system_profile()?.is_object());
     assert!(bp.system_uuid()?.as_str().is_some());
     bp.system_filesystem_list(std::path::PathBuf::from("."))?;
 
@@ -117,7 +117,7 @@ fn check_ec(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     };
 
     assert_eq!(
-        bp.ec_profile_full(&id)?["__value__"]["name"],
+        bp.ec_profile(&id)?["__value__"]["name"],
         jvalue!("timer0")
     );
     assert_eq!(state(bp)?, jvalue!("STOPPED"));
@@ -158,7 +158,7 @@ fn check_connections(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     let cons = bp.connection_list(false)?;
     assert_eq!(cons.len(), 1, "{cons:?}");
     assert_eq!(cons[0].arg_name, "arg1");
-    assert_eq!(bp.connection_profile_full(&cons[0])?.arg_name, "arg1");
+    assert_eq!(bp.connection_profile(&cons[0])?.arg_name, "arg1");
 
     // pyinc0 を実行すると inc0 の出力を pull して使う
     let src_out = int_of(bp.process_execute(find_process(&ids, "inc0")));
@@ -184,7 +184,7 @@ fn check_lists_and_profiles(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
         let id_struct = IdentifierStruct::try_from(id.clone())?;
         assert_eq!(id_struct.class_name, "broker", "{id}");
         assert_eq!(id_struct.broker_type_name, "http", "{id}");
-        let profile = bp.broker_profile_full(id)?;
+        let profile = bp.broker_profile(id)?;
         assert_eq!(Into::<Identifier>::into(profile.clone()), *id);
         assert_eq!(profile.name, id_struct.object_name);
         assert_eq!(profile.type_name, id_struct.type_name);
@@ -198,9 +198,9 @@ fn check_lists_and_profiles(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
         .any(|id| id.ends_with("/broker/local::local")));
 
     // 解析できない識別子はエラーになり、HTTP サーバは止まらない
-    assert!(bp.broker_profile_full(&"invalid".to_owned()).is_err());
+    assert!(bp.broker_profile(&"invalid".to_owned()).is_err());
     assert!(bp
-        .broker_profile_full(&format!("http://localhost:{PORT}/broker/nothing::http"))
+        .broker_profile(&format!("http://localhost:{PORT}/broker/nothing::http"))
         .is_err());
     assert!(!bp.broker_list(false)?.is_empty());
     assert!(bp.topic_list()?.is_empty());
@@ -208,23 +208,23 @@ fn check_lists_and_profiles(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
     let ids = bp.process_list(false, None)?;
     for (name, type_name) in PROCESSES {
         let id = find_process(&ids, name);
-        let profile = bp.process_profile_full(id)?;
+        let profile = bp.process_profile(id)?;
         assert_eq!(
             (profile.instance_name(), profile.type_name.as_str()),
             (name, type_name)
         );
-        assert_eq!(bp.any_process_profile_full(id)?.instance_name(), name);
+        assert_eq!(bp.any_process_profile(id)?.instance_name(), name);
     }
 
     let ids = bp.container_process_list(false, None)?;
     for (_container_name, add_name, _arg_name, get_name) in CONTAINERS {
         assert_eq!(
-            bp.container_process_profile_full(find_process(&ids, add_name))?
+            bp.container_process_profile(find_process(&ids, add_name))?
                 .instance_name(),
             add_name
         );
         assert_eq!(
-            bp.any_process_profile_full(find_process(&ids, get_name))?
+            bp.any_process_profile(find_process(&ids, get_name))?
                 .instance_name(),
             get_name
         );
@@ -232,7 +232,7 @@ fn check_lists_and_profiles(bp: &mut dyn BrokerProxy) -> JuizResult<()> {
 
     let mut names = vec![];
     for id in bp.container_list(false, None)? {
-        names.push(bp.container_profile_full(&id)?.instance_name().to_owned());
+        names.push(bp.container_profile(&id)?.instance_name().to_owned());
     }
     names.sort();
     assert_eq!(names, vec!["c0", "cppc0", "pyc0"]);

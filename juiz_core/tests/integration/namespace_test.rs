@@ -98,7 +98,7 @@ fn test_same_conf_in_two_namespaces() -> JuizResult<()> {
             assert_eq!(int_of(system.core_broker().lock_mut()?.process_execute(&r2_inc1)), 1);
 
             // profile の name は短い名前のまま、namespace が付く
-            let prof = system.core_broker().lock()?.process_profile_full(&r2_inc0)?;
+            let prof = system.core_broker().lock()?.process_profile(&r2_inc0)?;
             assert_eq!(prof.instance_name(), "inc0");
             assert_eq!(prof.namespace, "robot2");
             assert_eq!(prof.identifier(), r2_inc0);
@@ -114,7 +114,7 @@ fn test_same_conf_in_two_namespaces() -> JuizResult<()> {
             assert_eq!(namespaces, vec!["robot1", "robot2"]);
             for c in containers.iter() {
                 let cprof: ContainerProfile =
-                    system.core_broker().lock()?.container_profile_full(c)?;
+                    system.core_broker().lock()?.container_profile(c)?;
                 assert_eq!(cprof.instance_name(), "container0");
                 assert_eq!(cprof.namespace, c.namespace);
             }
@@ -145,7 +145,7 @@ fn test_same_conf_in_two_namespaces() -> JuizResult<()> {
                     "core://core/execution_context/robot2/ec0::main_loop_ec",
                 ]
             );
-            let ec_prof = system.core_broker().lock()?.ec_profile_full(&ec_ids[1])?;
+            let ec_prof = system.core_broker().lock()?.ec_profile(&ec_ids[1])?;
             assert_eq!(ec_prof["name"], jvalue!("ec0"));
             assert_eq!(ec_prof["namespace"], jvalue!("robot2"));
             // bind は EC のネームスペースで解決される
@@ -336,9 +336,9 @@ fn test_same_topic_name_in_two_namespaces() -> JuizResult<()> {
             );
 
             // profile の publishes / subscribes は解決後の完全な名前
-            let prof = system.core_broker().lock()?.process_profile_full(&r2_pub)?;
+            let prof = system.core_broker().lock()?.process_profile(&r2_pub)?;
             assert_eq!(prof.publishes[0].name, "robot2/value_topic");
-            let prof = system.core_broker().lock()?.process_profile_full(&r1_sub)?;
+            let prof = system.core_broker().lock()?.process_profile(&r1_sub)?;
             assert_eq!(
                 prof.subscribes.get("arg1").unwrap().name,
                 "robot1/value_topic"

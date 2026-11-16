@@ -39,7 +39,7 @@ pub struct PoseStateQuery {
     since: Option<String>,
     /// 前回受け取った system (相手の UUID)。今の UUID と違えば since を無視する
     system: Option<String>,
-    /// 取りに来た System の UUID (container/profile_full の remote_children に出る)
+    /// 取りに来た System の UUID (container/profile の remote_children に出る)
     subscriber: Option<String>,
     /// 取りに来た System での終点の ID (複数なら `,` 区切り)
     destination: Option<String>,
@@ -106,7 +106,7 @@ pub fn transform_list_dummy() {}
 #[allow(unused)]
 #[utoipa::path(
     get,
-    path = "/api/transform/profile_full",
+    path = "/api/transform/profile",
     params(TransformQuery),
     responses((status = 200, description = "{identifier, source, destination, transform, stamp, remote?}")),
     tag = "universal.transformations",
@@ -186,7 +186,7 @@ pub fn pose_listener_list_dummy() {}
 #[allow(unused)]
 #[utoipa::path(
     get,
-    path = "/api/pose_listener/profile_full",
+    path = "/api/pose_listener/profile",
     params(IdentifierQuery),
     responses((status = 200, description = "{identifier, container, process, arg, reference, on_update, initial}")),
     tag = "universal.transformations",
@@ -309,7 +309,7 @@ pub fn add_transformations_schemas(api: &mut Value) {
         }
     });
     for (path, method) in [
-        ("/api/transform/profile_full", "get"),
+        ("/api/transform/profile", "get"),
         ("/api/transform/create", "post"),
         ("/api/transform/update", "patch"),
         ("/api/transform/destroy", "delete"),

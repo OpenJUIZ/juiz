@@ -393,7 +393,7 @@ fn shm_topic_between_processes() -> JuizResult<()> {
         assert_eq!(stat(&r, "broken"), 0, "no frame may be broken");
 
         // 数え上げ: 送り手
-        let profile = system.core_broker().lock()?.system_profile_full()?;
+        let profile = system.core_broker().lock()?.system_profile()?;
         let hd = shm_stats(&profile, TOPIC_HD);
         assert_eq!((stat(&hd, "sent"), stat(&hd, "fallback")), (n_hd, 1), "{hd}");
         assert_eq!((stat(&hd, "slots"), stat(&hd, "slot_bytes")), (4, 3 << 20), "{hd}");
@@ -402,7 +402,7 @@ fn shm_topic_between_processes() -> JuizResult<()> {
         assert_eq!(stat(&shm_stats(&profile, TOPIC_SLOW), "sent"), n_slow);
 
         // 数え上げ: 受け手。届いた数 + 捨てた数 = 送った数
-        let remote = juiz_borrow(&proxy)?.system_profile_full()?;
+        let remote = juiz_borrow(&proxy)?.system_profile()?;
         let slow_stats = shm_stats(&remote, TOPIC_SLOW);
         assert_eq!(
             slow.len() as u64 + stat(&slow_stats, "dropped") + stat(&slow_stats, "overwritten"),

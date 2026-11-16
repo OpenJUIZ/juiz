@@ -144,10 +144,10 @@ fn haskell_component_can_be_loaded_and_called() -> JuizResult<()> {
             );
 
             // マニフェストは Haskell の ComponentManifest で組み立てたもの
-            let p = cb.process_profile_full(&inc0)?;
+            let p = cb.process_profile(&inc0)?;
             assert_eq!(p.type_name, "example_component_hs_increment");
             assert_eq!(p.description.as_str(), "Adds 1 to arg0.");
-            let p = cb.container_process_profile_full(&cinc0)?;
+            let p = cb.container_process_profile(&cinc0)?;
             assert_eq!(p.type_name, "example_component_hs_counter_increment");
             assert_eq!(p.arguments[0].name, "arg0");
 

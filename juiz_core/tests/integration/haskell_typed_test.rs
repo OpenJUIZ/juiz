@@ -394,7 +394,7 @@ fn container_takes_typed_arguments() -> JuizResult<()> {
         let result = cb.container_process_call(&scale0, args)?;
         assert_eq!(value_of(&result)?["position"]["x"], jvalue!(3.0));
         assert_eq!(last()?, jvalue!("1.5"));
-        let profile = cb.container_process_profile_full(&scale0)?;
+        let profile = cb.container_process_profile(&scale0)?;
         assert_eq!(
             profile.output_schema.as_ref().unwrap().name,
             "robot.geometry.Pose2D"

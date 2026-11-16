@@ -347,7 +347,7 @@ Topic の profile に、送り手と受け手のそれぞれで次の数を出�
 - **ページの用意。** 毎フレームでページフォールトを払わないように、Linux は送り手・受け手とも `MAP_POPULATE` で対応付け、ほかの OS は送り手が作るときに各ページを 1 度触る。用意しないと 4K の 1 枠の最初の書き込みに約 20ms かかる(2 回目からは約 4ms)。
 - **memfd の封印。** `F_SEAL_GROW`・`F_SEAL_SHRINK` に加えて `F_SEAL_SEAL` も付ける。
 - **配達のスレッド。** 受け手の IPC ブローカーが Topic ごとに 1 本持つ。ブローカーを止めるときは知らせるだけで待たない(CoreBroker のロックの中で止めることがあり、配達中のスレッドがそのロックを待つため)。
-- **数え上げ。** 送り手は `sent`・`fallback`、受け手は `dropped`・`overwritten` を足す。profile の `shared_memory` は、送り手では conf に設定があるとき、受け手では共有メモリで受け取ったときに出る。`slot_bytes` は決まるまで `"auto"`。今は Topic の profile(`system/profile_full` の `core_store.topics`)に出るだけで、管理画面の表示と CLI はまだ(`juiz topic` は無い)。
+- **数え上げ。** 送り手は `sent`・`fallback`、受け手は `dropped`・`overwritten` を足す。profile の `shared_memory` は、送り手では conf に設定があるとき、受け手では共有メモリで受け取ったときに出る。`slot_bytes` は決まるまで `"auto"`。今は Topic の profile(`system/profile` の `core_store.topics`)に出るだけで、管理画面の表示と CLI はまだ(`juiz topic` は無い)。
 - **速さ(#230 のベンチ、別プロセスへの Topic、release、ms)。** B は publish が返るまでを縮めるが、受け手に届くまでは A とほぼ同じ。受け手で毎フレーム新しく確保した画像へのコピー(新しいページのフォールトを含む)が大半を占めるため。受け手のコピーをなくすのは C(§9)。#270 で内訳を測り、受け手の領域を使い回して 4K の届くまでを約 8〜11ms にした(§11)。
 
 | | A: publish が返るまで | A: 届くまで | B: publish が返るまで | B: 届くまで |

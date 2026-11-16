@@ -1,7 +1,7 @@
 //! Container の 3D モデル (ContainerModel Step 1、issue #381、仕様 docs/spec/container-model.md) のテスト
 //!
 //! - conf の `model:` (conf 相対のパス、作成時の検査、option.model.max_bytes)
-//! - `container/model_info`・`container/model`・`container/profile_full` の `model` を、
+//! - `container/model_info`・`container/model`・`container/profile` の `model` を、
 //!   CoreBroker・ローカルブローカー (MessengerBrokerProxy)・HTTP ブローカー (CRUDBrokerProxy) で
 //! - HTTP の生のバイト列・ETag・304・404、API からの作成に `model` を付けるとエラー
 //! - サブシステムの Container のモデルを、親の System 越しに取り出す
@@ -149,14 +149,14 @@ fn check_proxy(bp: &dyn BrokerProxy, kind: &str) -> JuizResult<()> {
     // 無い Container はエラー
     assert!(bp.container_model_info("nothing").is_err());
 
-    // profile_full に載る。無ければ null
+    // profile に載る。無ければ null
     let id = ContainerIdentifier::try_from("core://core/container/pantilt0::static_anchor".to_owned())?;
-    assert_eq!(bp.container_profile_full(&id)?.model, Some(info.clone()), "{kind}");
+    assert_eq!(bp.container_profile(&id)?.model, Some(info.clone()), "{kind}");
     let plain = ContainerIdentifier::try_from("core://core/container/plain::static_anchor".to_owned())?;
-    assert_eq!(bp.container_profile_full(&plain)?.model, None, "{kind}");
+    assert_eq!(bp.container_profile(&plain)?.model, None, "{kind}");
 
-    // system/profile_full の containers にも載る (#384、管理画面の 3D 表示が使う)
-    let sys = bp.system_profile_full()?;
+    // system/profile の containers にも載る (#384、管理画面の 3D 表示が使う)
+    let sys = bp.system_profile()?;
     // BrokerProxy によっては {"__value__": …} に包まれて返る
     let sys = sys.get("__value__").cloned().unwrap_or(sys);
     let model_of = |name: &str| -> Value {
@@ -164,7 +164,7 @@ fn check_proxy(bp: &dyn BrokerProxy, kind: &str) -> JuizResult<()> {
             .as_array()
             .and_then(|cs| cs.iter().find(|c| c["name"] == name))
             .map(|c| c["model"].clone())
-            .unwrap_or_else(|| panic!("{kind}: {name} is not in system/profile_full"))
+            .unwrap_or_else(|| panic!("{kind}: {name} is not in system/profile"))
     };
     assert_eq!(model_of("pantilt0"), info, "{kind}");
     assert_eq!(model_of("cc0")["format"], "glb", "{kind}");
@@ -254,15 +254,15 @@ fn check_http_raw(dir: &TempDir, port: i64) -> JuizResult<()> {
         .send()?
         .json()?;
     assert_eq!(v, Value::Null);
-    // profile_full に model
+    // profile に model
     let v: Value = c
-        .get(format!("{base}/container/profile_full"))
+        .get(format!("{base}/container/profile"))
         .query(&[("identifier", "core://core/container/pantilt0::static_anchor")])
         .send()?
         .json()?;
     assert_eq!(v["model"]["format"], "glb", "{v}");
     let v: Value = c
-        .get(format!("{base}/container/profile_full"))
+        .get(format!("{base}/container/profile"))
         .query(&[("identifier", "core://core/container/plain::static_anchor")])
         .send()?
         .json()?;
@@ -298,8 +298,8 @@ fn check_http_raw(dir: &TempDir, port: i64) -> JuizResult<()> {
         .query(&[("identifier", "pantilt0")])
         .send()?;
     assert_eq!(r.status(), 404);
-    // system/profile_full は一覧全体をエラーにせず、その Container の model を null にする (#384)
-    let v: Value = c.get(format!("{base}/system/profile_full")).send()?.json()?;
+    // system/profile は一覧全体をエラーにせず、その Container の model を null にする (#384)
+    let v: Value = c.get(format!("{base}/system/profile")).send()?.json()?;
     let pantilt = v["core_store"]["containers"]
         .as_array()
         .and_then(|cs| cs.iter().find(|c| c["name"] == "pantilt0"))

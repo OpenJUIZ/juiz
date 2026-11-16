@@ -136,7 +136,7 @@ fn check_pose(bp: &mut dyn BrokerProxy, k: &str) -> JuizResult<()> {
     let tid = format!(
         "transform://core://core/container/{base}::part|core://core/container/{camera}::part"
     );
-    let t = bp.transform_profile_full(&tid)?;
+    let t = bp.transform_profile(&tid)?;
     let value: juiz_sdk::geometry::Transform = (&t["transform"]).try_into()?;
     assert!(value.approx_eq(
         &juiz_sdk::geometry::Transform::new(Vector3::new(0.2, 0.0, 0.3), Quaternion::identity()),
@@ -230,7 +230,7 @@ fn check_pose_listener(bp: &mut dyn BrokerProxy, k: &str) -> JuizResult<()> {
         format!("pose_listener://core://core/container/{base}::part|core://core/process/recorder::pose_recorder|pose")
     );
     assert!(bp.pose_listener_list()?.contains(&id));
-    assert_eq!(bp.pose_listener_profile_full(&id)?["arg"], jvalue!("pose"));
+    assert_eq!(bp.pose_listener_profile(&id)?["arg"], jvalue!("pose"));
     let e = error_text(bp.pose_listener_create(&PoseListenerManifest::new(&base, "recorder")));
     assert!(e.contains("already exists"), "{e}");
 
@@ -320,7 +320,7 @@ fn check_http_json(system: &System) -> JuizResult<()> {
     assert!(body.contains("juiz_std.geometry.Pose"), "{body}");
     let _ = k;
 
-    // 取りに来た System は system/profile_full の容器の profile にも remote_children で出る
+    // 取りに来た System は system/profile の容器の profile にも remote_children で出る
     // (管理画面の「別 System の子あり」の印、transformations.md §19.14)
     let r = client
         .get(format!(
@@ -329,14 +329,14 @@ fn check_http_json(system: &System) -> JuizResult<()> {
         .send()?;
     assert_eq!(r.status(), 200);
     let profile: Value = client
-        .get(format!("{base_url}/system/profile_full"))
+        .get(format!("{base_url}/system/profile"))
         .send()?
         .json()?;
     let containers = profile["core_store"]["containers"].as_array().unwrap();
     let map = containers
         .iter()
         .find(|c| c["name"] == jvalue!("map_json"))
-        .expect("map_json in system/profile_full");
+        .expect("map_json in system/profile");
     assert_eq!(map["remote_children"][0]["system"], jvalue!("uuid-of-child"), "{map}");
     assert_eq!(
         map["remote_children"][0]["destinations"],

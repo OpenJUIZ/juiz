@@ -2,7 +2,7 @@
 //!
 //! - サブシステム越しに、ネームスペース付きの Process / ContainerProcess を呼べる
 //! - list の `?namespace=` で、そのネームスペースとその下だけに絞り込める
-//! - 再帰的な system/profile_full に namespace が載る
+//! - 再帰的な system/profile に namespace が載る
 use juiz_core::prelude::*;
 use juiz_sdk::process_identifier::ProcessIdentifier;
 
@@ -221,11 +221,11 @@ fn check_list_filter() -> JuizResult<()> {
     Ok(())
 }
 
-/// 管理画面向けの再帰的な system/profile_full で、サブシステムの中身に namespace が載る
+/// 管理画面向けの再帰的な system/profile で、サブシステムの中身に namespace が載る
 fn check_recursive_profile(master: &System) -> JuizResult<()> {
     let profile = client()?
         .get(format!(
-            "http://127.0.0.1:{MASTER_PORT}/api/system/profile_full"
+            "http://127.0.0.1:{MASTER_PORT}/api/system/profile"
         ))
         .query(&[("recursive", "true")])
         .send()?
@@ -276,7 +276,7 @@ fn check_recursive_profile(master: &System) -> JuizResult<()> {
     let direct = master
         .core_broker()
         .lock()?
-        .system_profile_full_recursive()?;
+        .system_profile_recursive()?;
     assert_eq!(
         direct["subsystems"][0]["core_store"]["processes"]
             .as_array()
