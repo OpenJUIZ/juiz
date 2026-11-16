@@ -83,6 +83,34 @@ fn rust_part_peek(c: &ContainerImpl<RustPart>, reference: String, sleep_ms: i64)
     Ok(p.into())
 }
 
+/// 2 回目の呼び出しの待ち合わせに使う、これまでに `rust_part_meet` に入った呼び出しの数 (#534)
+static MEET_ARRIVED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// readonly の ContainerProcess (#534)。2 つずつ組にして待ち合わせる。もう 1 つの呼び出しが入ってくるのを
+/// timeout_ms まで待ち、来たら true、来なければ false を返す。その後 linger_ms 待ってから ContainerPose を読む
+/// (読めなければエラー)。同じ Container の readonly 同士が並行に走っていれば、組の 2 つはどちらも true を返す。
+/// かかった時間で比べないので、混んだ CI のランナーでも揺れない
+#[juiz_component_container_process(container_type = "rust_part" arguments = { default = { reference = "map" timeout_ms = 10000 linger_ms = 0 } })]
+fn rust_part_meet(c: &ContainerImpl<RustPart>, reference: String, timeout_ms: i64, linger_ms: i64) -> JuizResult<Capsule> {
+    use std::sync::atomic::Ordering;
+    let n = MEET_ARRIVED.fetch_add(1, Ordering::SeqCst) + 1;
+    // 1・2 回目が 1 組目、3・4 回目が 2 組目、…
+    let wanted = n.div_ceil(2) * 2;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms.max(0) as u64);
+    let met = loop {
+        if MEET_ARRIVED.load(Ordering::SeqCst) >= wanted {
+            break true;
+        }
+        if std::time::Instant::now() >= deadline {
+            break false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    };
+    std::thread::sleep(std::time::Duration::from_millis(linger_ms.max(0) as u64));
+    c.pose(&reference)?;
+    Ok(jvalue!(met).into())
+}
+
 /// readonly でない ContainerProcess。sleep_ms だけ待って id を返す (並行に走らないことの比較用)
 #[juiz_component_container_process(container_type = "rust_part" arguments = { default = { sleep_ms = 0 } })]
 fn rust_part_sleep(c: &mut ContainerImpl<RustPart>, sleep_ms: i64) -> JuizResult<Capsule> {
@@ -170,6 +198,7 @@ juiz_component_manifest!(
             rust_part_peek,
             rust_part_sleep,
             rust_part_try_readonly,
+            rust_part_meet,
             rust_part_lookup,
             rust_part_set_transform
         ]
