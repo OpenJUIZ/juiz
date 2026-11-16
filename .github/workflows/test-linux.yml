@@ -96,6 +96,8 @@ jobs:
           { echo "DIAG target: $(du -sh target/* 2>/dev/null | tr '\n' ' ')"
             echo "DIAG pkg-test: deps=$(ls target/pkg-test/debug/deps 2>/dev/null | wc -l) fingerprint=$(ls target/pkg-test/debug/.fingerprint 2>/dev/null | wc -l)"
             echo "DIAG pkg-test fp: $(ls target/pkg-test/debug/.fingerprint 2>/dev/null | grep -E '^(juiz|pkg|serde-|tokio-)' | tr '\n' ' ')"
+            echo "DIAG pkg-test tree: $(find target/pkg-test -maxdepth 3 -type d | head -30 | tr '\n' ' ')"
+            echo "DIAG pkg-test du: $(du -sh target/pkg-test/*/* 2>/dev/null | head -20 | tr '\n' ' ')"
           } > "$RUNNER_TEMP/diag.txt"
 
       # Haskell の例(examples/haskell)のビルドに使う GHC と cabal を入れる。
@@ -165,6 +167,7 @@ jobs:
         if: always()
         run: |
           echo "DIAG after: pkg-test deps=$(ls target/pkg-test/debug/deps 2>/dev/null | wc -l)"
+          echo "DIAG after tree: $(find target/pkg-test -maxdepth 3 -type d | head -30 | tr '\n' ' ')"
           cat "$RUNNER_TEMP/diag.txt"
 
   # OpenCV を使うコンポーネント(examples/rust/component/juiz_opencv)のビルドとテスト。
