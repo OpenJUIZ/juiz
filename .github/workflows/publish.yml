@@ -70,7 +70,11 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # タグや PR の枝に保存したキャッシュは他の枝から読めず、Actions のキャッシュの上限(10GB)を埋めるだけなので
+      # 保存しない(#520)。main のキャッシュは読める
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: false
 
       - name: Build (default workspace members)
         run: cargo build --verbose
@@ -112,7 +116,11 @@ jobs:
       # 複数クレートをまとめて依存順に公開する cargo publish -p ... は Rust 1.90 以降が必要
       - uses: dtolnay/rust-toolchain@stable
 
+      # タグや PR の枝に保存したキャッシュは他の枝から読めず、Actions のキャッシュの上限(10GB)を埋めるだけなので
+      # 保存しない(#520)。main のキャッシュは読める
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: false
 
       # 管理画面(webui)をビルドし、juiz_webui クレートに同梱する(issue #117)。
       # cargo だけで juiz を入れる人が Node.js を要らないようにするため。

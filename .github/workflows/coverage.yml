@@ -1,0 +1,99 @@
+name: Coverage
+
+# テストカバレッジ(cargo-llvm-cov)。結果はジョブサマリーに表示し、
+# main の回は shields.io 用の JSON を badges ブランチに置いて README のバッジに使う。
+# test-linux.yml の rust ジョブとほぼ同じビルドとテストをやり直して約 10 分かかるので、
+# push ごとには動かさず、週 1 回(月曜 3:00 JST)と手動実行にする(#520)。
+# 手動実行で main 以外の枝を選ぶと、サマリーと lcov だけを出してバッジは更新しない。
+on:
+  schedule:
+    - cron: "0 18 * * 0"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # pyo3 が埋め込む Python をシステムの python3 に固定する
+  PYO3_PYTHON: python3
+
+jobs:
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake clang python3-dev python3-pip patchelf
+
+      - name: Install pyjuiz dependencies (used by the embedded Python)
+        run: python3 -m pip install --break-system-packages pyyaml httpx pillow numpy
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - uses: taiki-e/install-action@cargo-llvm-cov
+
+      # 保存は main だけ(test-linux.yml と同じ、#520)
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # system_test が読み込む例(Rust/C++)は通常ビルドで ../target/debug などに用意する
+      - name: Prepare tests (build examples, check Python packages)
+        run: scripts/test.sh --prepare-only
+
+      # パッケージを指定しないと cargo-llvm-cov はルートパッケージ(juiz_meta)だけを集計し、
+      # サブディレクトリのメンバーが除外されて 0% になるので、default-members を明示する。
+      - name: Select default workspace members
+        run: |
+          pkgs=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.workspace_default_members as $d | [.packages[] | select(.id as $i | $d | index($i)) | "-p " + .name] | join(" ")')
+          echo "COV_PACKAGES=$pkgs" >> "$GITHUB_ENV"
+
+      - name: Test with coverage
+        env:
+          PYTHONPATH: ${{ github.workspace }}/bindings/pyjuiz
+        run: cargo llvm-cov --no-report $COV_PACKAGES -- --test-threads=1
+
+      - name: Coverage report
+        run: |
+          cargo llvm-cov report $COV_PACKAGES --lcov --output-path lcov.info
+          cargo llvm-cov report $COV_PACKAGES --json --summary-only --output-path coverage-summary.json
+          {
+            echo '## Coverage'
+            echo '```'
+            cargo llvm-cov report $COV_PACKAGES --summary-only
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: lcov.info
+
+      - name: Publish coverage badge data
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pct=$(jq '.data[0].totals.lines.percent' coverage-summary.json)
+          label=$(printf '%.1f%%' "$pct")
+          color=$(awk -v p="$pct" 'BEGIN { if (p >= 80) print "brightgreen"; else if (p >= 60) print "yellow"; else if (p >= 40) print "orange"; else print "red" }')
+          mkdir badges && cd badges
+          printf '{"schemaVersion":1,"label":"coverage","message":"%s","color":"%s"}\n' "$label" "$color" > coverage.json
+          git init -q -b badges
+          git config user.name "github-actions[bot]"
+          git config user.email "41898299+github-actions[bot]@users.noreply.github.com"
+          git add coverage.json
+          git commit -q -m "Update coverage badge: $label"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" badges

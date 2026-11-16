@@ -54,7 +54,11 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # タグや PR の枝に保存したキャッシュは他の枝から読めず、Actions のキャッシュの上限(10GB)を埋めるだけなので
+      # 保存しない(#520)。main のキャッシュは読める
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: false
 
       # hsjuiz の configure と haddock は libjuiz_sdk を探すので、配布するものと同じ形で用意する
       - name: Build and package libjuiz_sdk

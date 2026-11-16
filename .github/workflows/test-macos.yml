@@ -57,7 +57,12 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # キャッシュの保存は main と release/* だけ(#520)。PR や手動実行の枝の保存は他の枝から読めず、
+      # Actions のキャッシュの上限(10GB)を埋めて main の GHC などのキャッシュを追い出していた。
+      # PR は main のキャッシュを読むだけにする
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') }}
 
       # Haskell の例(examples/haskell)のビルドに使う GHC と cabal を入れる。
       # ghcup での GHC のインストールに Linux で約 2 分、macOS で約 4 分かかるので、入れた GHC をキャッシュする。
@@ -79,9 +84,12 @@ jobs:
           cabal-version: ${{ env.CABAL_VERSION }}
           # examples/haskell の依存は GHC に付いてくるパッケージだけなので、Hackage の索引は使わない
           cabal-update: false
-      # テストが失敗しても次から使えるよう、インストールした直後に保存する
+      # テストが失敗しても次から使えるよう、インストールした直後に保存する。
+      # PR の枝に保存したキャッシュは他の枝から読めないので、main と release/* でだけ保存する(#520)
       - name: Save GHC
-        if: steps.ghc-cache.outputs.cache-hit != 'true'
+        if: >-
+          steps.ghc-cache.outputs.cache-hit != 'true'
+          && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/'))
         uses: actions/cache/save@v4
         with:
           path: ${{ steps.ghcup.outputs.dir }}/ghc/${{ env.GHC_VERSION }}
