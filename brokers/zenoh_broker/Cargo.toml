@@ -36,5 +36,5 @@ libc = "0.2"
 # どのブローカーでも成り立つ確認 (tests/ の中身、issue #522)。版を書かない path だけの dev-dependency は公開のときに外される
 juiz_broker_suite = { path = "../broker_suite" }
 uuid = { workspace = true }
-# HTTP で受けた要求を zenoh の副系へ転送するテスト (tests/zenoh_errors_test.rs) のため。juiz_core が既に使っている
+# HTTP で受けた要求を zenoh の副系へ転送するテスト (tests/broker/error_handling.rs) のため。juiz_core が既に使っている
 reqwest = { workspace = true }

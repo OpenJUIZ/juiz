@@ -131,7 +131,7 @@ jobs:
         if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
         env:
           PYTHONPATH: ${{ github.workspace }}/bindings/pyjuiz
-        run: cargo test -p juiz_app --no-fail-fast --test package_cli_test -- --test-threads=1
+        run: cargo test -p juiz_app --no-fail-fast --test cli -- --test-threads=1 package::
 
   # pip で入れる juiz(bindings/juiz_py、issue #88)の wheel を macOS でビルドし、
   # インストールした juiz コマンドで Python の Process とサンプルを動かす(juiz-wheels.yml)

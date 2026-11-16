@@ -27,5 +27,5 @@ Zenoh はビルドが重いので、このクレートはワークスペース�
 ```sh
 cargo build                                              # juiz コマンドとテストで使うプラグイン
 cargo test -p juiz_zenoh_broker -- --test-threads=1      # このクレートのテスト (ポート 5212〜5254 を使う)
-cargo test --release -p juiz_zenoh_broker --test zenoh_bench_test -- --ignored --nocapture --test-threads=1
+cargo test --release -p juiz_zenoh_broker --test broker -- bench:: --ignored --nocapture --test-threads=1
 ```

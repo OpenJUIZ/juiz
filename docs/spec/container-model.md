@@ -318,7 +318,7 @@ qmp・IPC・メッセンジャー系のブローカーと、Rust の BrokerProxy
 
 ### 6.5 ベンチ(Step 1 #381)
 
-50 MB の .glb を同じ機械の上で取り出した時間(release、5 回の中央値、4 コアのクラウドの Linux、2026-11-14)。測り方は `brokers/qmp_broker/tests/qmp_container_model_test.rs` の `container_model_bench`(`#[ignore]`)。
+50 MB の .glb を同じ機械の上で取り出した時間(release、5 回の中央値、4 コアのクラウドの Linux、2026-11-14)。測り方は `brokers/qmp_broker/tests/broker/bench/container_model.rs` の `bench_container_model`(`#[ignore]`)。
 
 | 経路 | 時間 |
 |---|---|
