@@ -4,7 +4,7 @@
 ホストとつないだ確認は juiz_core の tests/integration/python_transformations_test.rs。
 bindings/pyjuiz で実行する:
 
-    python test/transformations_test.py
+    python test/unit/transformations_test.py
 """
 import sys
 

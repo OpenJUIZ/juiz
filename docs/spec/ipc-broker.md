@@ -153,4 +153,4 @@ system = connect("ipc://cam0")                # SystemProxy。connect("http://lo
 - エラー応答は `IpcRemoteError`(`InternalServerError` の子。`class_name`・`function_name` を持つ)、繋がらない・フレームが読めないなどの通り道の失敗は `IpcError`。
 - 共有メモリ(B)は使わない。B は Topic の push で送り手が Rust のときだけで、pyjuiz はサーバーにならないため。
 - あわせて直したもの: `ProcessProxy.call` / `ContainerProcessProxy.call` に位置で 2 つ以上の引数を渡すと、画像以外を JSON の文字列にしていたので、HTTP の PATCH では文字列のまま届いていた。値のまま渡し、HTTP の multipart(画像があるとき)で画像以外を JSON の文字列にするのは `HttpProxy` が受け持つようにした(`datatype.typed_call` も同じ)。
-- テスト: `bindings/pyjuiz/test/ipc_frame_test.py`(サーバーなしでフレームの往復、余白のある画像、不正なフレーム、偽のサーバーでのエラー応答と画像)と、`juiz_core/tests/integration/pyjuiz/ipc_proxy.rs`(System を起動して `bindings/pyjuiz/test/ipc_proxy_test.py` を別プロセスで実行。Process / Container、画像の形式ごとの引数と戻り値、数の配列、エラー応答、繋ぎ直し、HTTP との比べ)。
+- テスト: `bindings/pyjuiz/test/unit/ipc_frame_test.py`(サーバーなしでフレームの往復、余白のある画像、不正なフレーム、偽のサーバーでのエラー応答と画像)と、`juiz_core/tests/integration/pyjuiz/ipc_proxy.rs`(System を起動して `bindings/pyjuiz/test/system/ipc_proxy_test.py` を別プロセスで実行。Process / Container、画像の形式ごとの引数と戻り値、数の配列、エラー応答、繋ぎ直し、HTTP との比べ)。

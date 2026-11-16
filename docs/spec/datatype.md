@@ -631,7 +631,7 @@ core の実装は `juiz_core::types` にある。
 ### 20.5 テスト
 
 - `bindings/pyjuiz/test/gen` は `juiz_idl/test_package/idl/geometry.jidl` から作った Python のコードで、リポジトリに入れておく。juiz_idl の `python_gen_is_up_to_date` が生成器の出力と一致するかを確かめる(作り直しは `JUIZ_IDL_UPDATE_PYTHON_GEN=1 cargo test -p juiz_idl --test idl_test python_gen_is_up_to_date`)。
-- `bindings/pyjuiz/test/datatype_test.py`(変換・デコレータ・client stub、juiz を起動しない)、`juiz_core/tests/integration/datatype/python.rs`(manifest の型参照と Rust の指紋の一致、Python 同士でネイティブ値のまま渡ること、Python ↔ Rust の辞書の受け渡し、接続時の型検査、`bindings/pyjuiz/test/typed_client_test.py` で HTTP 越しの client stub)。
+- `bindings/pyjuiz/test/unit/datatype_test.py`(変換・デコレータ・client stub、juiz を起動しない)、`juiz_core/tests/integration/datatype/python.rs`(manifest の型参照と Rust の指紋の一致、Python 同士でネイティブ値のまま渡ること、Python ↔ Rust の辞書の受け渡し、接続時の型検査、`bindings/pyjuiz/test/system/typed_client_test.py` で HTTP 越しの client stub)。
 
 ### 20.6 雛形(python-skeleton、#468 で決めたこと)
 
@@ -887,7 +887,7 @@ juiz-idl(`juiz_idl/std/juiz_std/*.jidl`)に組み込み、どこからでも `im
 
 - `juiz_idl/tests/idl_test.rs` の `builtin_std_types`(組み込みのファイルを入力・import に書ける、全フィールドに既定値)、`import_dirs`(`-I` の探し方と相対パスが先)、`extern_namespaces`(書き出さない・Rust のパス・Python の import)、`std_type_fingerprints_are_fixed`、`pyjuiz_std_types_are_up_to_date`。
 - `juiz_std_types/tests/std_types_test.rs`(辞書との変換、既定値)と `juiz_std_types/test_package`(`extern_path` で juiz_std_types の型を参照する型のクレート)。
-- `bindings/pyjuiz/test/std_types_test.py`(pyjuiz の `juiz_std` を Process の引数・戻り値に使う)。
+- `bindings/pyjuiz/test/unit/std_types_test.py`(pyjuiz の `juiz_std` を Process の引数・戻り値に使う)。
 - C++ は組み込みの JIDL と `IMPORT_DIRS` を使う `juiz_generate_types` でヘッダを作り、g++ でビルドできることを手で確かめた。Haskell の生成コードは §22 のテスト(`haskell_code`)と同じ生成器で作る。
 
 ## 25. ROS 2 の型の取り込み(Step 13 #201 で決めたこと)

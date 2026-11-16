@@ -3,13 +3,13 @@
 test/gen は juiz_idl/test_package/idl/geometry.jidl から juiz-idl -g python で作ったもの
 (juiz_idl の python_gen_is_up_to_date テストが最新かを確かめる)。bindings/pyjuiz で実行する:
 
-    python test/datatype_test.py
+    python test/unit/datatype_test.py
 """
 import os
 import sys
 
 sys.path.append('.')
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gen'))
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'gen'))
 
 import dataclasses
 

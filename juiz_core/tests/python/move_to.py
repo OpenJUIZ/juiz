@@ -1,5 +1,5 @@
 # データ型 Step 5 (issue #194) のテスト用。geometry.jidl の process move_to を Python で書いたもの
-# (bindings/pyjuiz/test/typed_client_test.py が生成した MoveToClient で呼ぶ)
+# (bindings/pyjuiz/test/system/typed_client_test.py が生成した MoveToClient で呼ぶ)
 from juiz import juiz_process
 from robot.geometry import Point2D, Pose2D
 

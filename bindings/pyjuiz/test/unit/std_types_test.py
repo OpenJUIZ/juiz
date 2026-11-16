@@ -3,7 +3,7 @@
 juiz_std は juiz-idl に組み込んだ JIDL から作ったもの (juiz_idl の pyjuiz_std_types_are_up_to_date テストが
 最新かを確かめる)。bindings/pyjuiz で実行する:
 
-    python test/std_types_test.py
+    python test/unit/std_types_test.py
 """
 import sys
 

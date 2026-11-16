@@ -1,5 +1,5 @@
 """SystemProxy.container(id)・process(id) を名前や ID で探すテスト (issue #502)。juiz を起動せずに
-    python test/system_lookup_test.py
+    python test/unit/system_lookup_test.py
 で実行する。list API の応答は偽の CRUD で返す。
 """
 import sys
