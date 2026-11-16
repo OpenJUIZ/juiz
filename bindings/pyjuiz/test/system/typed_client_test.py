@@ -2,13 +2,13 @@
 
 juiz_core/tests/integration/python_datatype_test.rs が juiz を起動してから実行する:
 
-    python test/typed_client_test.py <port>
+    python test/system/typed_client_test.py <port>
 """
 import os
 import sys
 
 sys.path.append('.')
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gen'))
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'gen'))
 
 from juiz.proxy import ProcessProxy, InternalServerError
 from robot.geometry import MotorMode, MoveToClient, Point2D, Pose2D

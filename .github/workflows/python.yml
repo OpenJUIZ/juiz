@@ -39,34 +39,8 @@ jobs:
       - name: Syntax check Python sources
         run: python -m compileall -q bindings/pyjuiz examples/python
 
-      - name: Run pyjuiz decorator test
+      # test/unit/*_test.py を集めて 1 本ずつ実行する(issue #525)。足したテストは名指し不要。
+      # juiz の System が要る test/system/ は Rust の統合テスト(test-linux.yml)から起動する
+      - name: Run pyjuiz unit tests
         working-directory: bindings/pyjuiz
-        run: python test/decorator_test.py
-
-      - name: Run pyjuiz identifier test
-        working-directory: bindings/pyjuiz
-        run: python test/identifier_test.py
-
-      - name: Run pyjuiz system lookup test
-        working-directory: bindings/pyjuiz
-        run: python test/system_lookup_test.py
-
-      - name: Run pyjuiz datatype test
-        working-directory: bindings/pyjuiz
-        run: python test/datatype_test.py
-
-      - name: Run pyjuiz profile alias test
-        working-directory: bindings/pyjuiz
-        run: python test/profile_alias_test.py
-
-      - name: Run pyjuiz IPC frame test
-        working-directory: bindings/pyjuiz
-        run: python test/ipc_frame_test.py
-
-      - name: Run pyjuiz standard types test
-        working-directory: bindings/pyjuiz
-        run: python test/std_types_test.py
-
-      - name: Run pyjuiz transformations test
-        working-directory: bindings/pyjuiz
-        run: python test/transformations_test.py
+        run: python test/run_unit_tests.py

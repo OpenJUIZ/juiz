@@ -1,6 +1,6 @@
 //! HTTP ブローカーを立てた System に、pyjuiz のプロキシ (juiz.proxy) で繋ぐテスト (issue #79)
 //!
-//! System を起動したまま別プロセスの Python で bindings/pyjuiz/test/proxy_test.py を実行し、
+//! System を起動したまま別プロセスの Python で bindings/pyjuiz/test/system/proxy_test.py を実行し、
 //! ProcessProxy(name, host, port) / ContainerProxy の call / execute / p_apply を確かめる。
 //! ネームスペース robot1 にも同じ名前の inc0 と c0 を置き、名前の取り違えが無いことも確かめる (issue #152)。
 //! ルートの c0 には 3D モデル (STL) を持たせ、model_info / model を確かめる (issue #382)。
@@ -34,7 +34,7 @@ fn pyjuiz_proxy_over_http_broker() -> JuizResult<()> {
             let output = std::process::Command::new(python)
                 .current_dir("../bindings/pyjuiz")
                 .env("PYTHONPATH", ".")
-                .arg("test/proxy_test.py")
+                .arg("test/system/proxy_test.py")
                 .arg(PORT.to_string())
                 .arg(&model)
                 .output()?;

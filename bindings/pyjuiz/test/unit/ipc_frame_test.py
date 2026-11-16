@@ -2,7 +2,7 @@
 
 サーバーは使わない。bindings/pyjuiz で実行する:
 
-    python test/ipc_frame_test.py
+    python test/unit/ipc_frame_test.py
 
 numpy があれば numpy の配列の画像も確かめる。
 """

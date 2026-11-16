@@ -6,7 +6,7 @@
 //! - Python → Python の接続では dataclass がそのまま (ネイティブ値で) 渡る
 //! - Python → Rust では辞書 (to_value) になり、Rust → Python では型の値 (from_value) になる
 //! - 接続時の型検査 (Step 4) が Python の型参照でも働く
-//! - 型付きクライアント (client stub) で HTTP 越しに呼べる (bindings/pyjuiz/test/typed_client_test.py)
+//! - 型付きクライアント (client stub) で HTTP 越しに呼べる (bindings/pyjuiz/test/system/typed_client_test.py)
 //!
 //! 仕様は docs/spec/datatype.md §20。
 
@@ -287,7 +287,7 @@ fn incompatible_connection_with_python_is_error() -> JuizResult<()> {
     })
 }
 
-/// 生成した client stub で HTTP 越しに呼ぶ (bindings/pyjuiz/test/typed_client_test.py)
+/// 生成した client stub で HTTP 越しに呼ぶ (bindings/pyjuiz/test/system/typed_client_test.py)
 #[test]
 fn typed_client_over_http() -> JuizResult<()> {
     with_system(true, |_system| {
@@ -295,7 +295,7 @@ fn typed_client_over_http() -> JuizResult<()> {
         let output = std::process::Command::new(python)
             .current_dir("../bindings/pyjuiz")
             .env("PYTHONPATH", ".")
-            .args(["test/typed_client_test.py", PORT.to_string().as_str()])
+            .args(["test/system/typed_client_test.py", PORT.to_string().as_str()])
             .output()?;
         assert!(
             output.status.success(),

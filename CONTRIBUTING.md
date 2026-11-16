@@ -139,7 +139,7 @@ HTTP ブローカーの 8000 番ポートはホストに転送されるので、
 
 テストの置き場所・名前・実行のしかたの決まりです(issue #518 の整理で決めたもの)。
 
-いまのテストはまだこの決まりにそろっていません。置き場所と名前は issue #521〜#525 で順に移します(juiz_core の integration は #521、テストバイナリの集約は #523 で済み)(下の「移行中の扱い」)。新しく書くテストの関数名は今から決まりに合わせてください。
+いまのテストはまだこの決まりにそろっていません。置き場所と名前は issue #521〜#525 で順に移します(juiz_core の integration は #521、テストバイナリの集約は #523、pyjuiz は #525 で済み)(下の「移行中の扱い」)。新しく書くテストの関数名は今から決まりに合わせてください。
 
 ### テストを実行する
 
@@ -163,7 +163,7 @@ Rust 以外のテスト:
 
 | 対象 | 置き場所 | 実行 |
 |---|---|---|
-| pyjuiz | `bindings/pyjuiz/test/*_test.py` | `cd bindings/pyjuiz && python test/<名前>_test.py`。CI は `python.yml` が 1 本ずつ名指しで走らせるので、足したら `python.yml` にも足す(自動で集める形には #525 で変える)。juiz の System が要るものは Rust の統合テスト(`pyjuiz_*`)から起動する |
+| pyjuiz | 単体で動くもの: `bindings/pyjuiz/test/unit/*_test.py`。juiz の System が要るもの: `bindings/pyjuiz/test/system/*_test.py` | unit は `cd bindings/pyjuiz && python test/run_unit_tests.py` が集めて 1 本ずつ別プロセスで実行する(`python test/run_unit_tests.py ipc` のように名前の一部で絞り込める)。CI は `python.yml` が同じスクリプトを使うので、足すときにワークフローの変更は要らない。system は Rust の統合テスト(`pyjuiz::` と `datatype::python`)が System を起動してから実行する |
 | 管理画面 | `webui/tests/*.test.ts` | `cd webui && npm test`(`node --test`)。CI は `webui.yml` |
 
 ### カテゴリと置き場所
@@ -290,7 +290,7 @@ macOS・Windows(`test-macos.yml`・`test-windows.yml`)は 1 版で、それぞ�
 | #522 | ブローカー共通のスイート(juiz_core の `brokers::{core,local,http,ipc}_api`、qmp・Zenoh の `*_broker_api_test` と、ほぼ同じ写しの qmp・Zenoh の tests をまとめる)(済み) |
 | #523 | `juiz_app`・qmp・Zenoh・`juiz_sdk` のテストをクレートごとに 1 本のバイナリへ(済み) |
 | #524 | slow の印と、Python 3.10 のジョブで走らせるテストの絞り込み(済み) |
-| #525 | pyjuiz のテストを自動で集める形に |
+| #525 | pyjuiz のテストを `unit/`・`system/` に分け、unit を自動で集める形に(済み) |
 
 ### ベンチマークを実行する
 

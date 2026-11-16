@@ -1,7 +1,7 @@
 //! IPC ブローカーを立てた System に、pyjuiz の IPC クライアント (juiz.proxy.IpcProxy) で繋ぐテスト (issue #236)
 //!
 //! HTTP ブローカーは止めたまま System を起動し、別プロセスの Python で
-//! bindings/pyjuiz/test/ipc_proxy_test.py を実行する。Process / Container の呼び出しに加えて、
+//! bindings/pyjuiz/test/system/ipc_proxy_test.py を実行する。Process / Container の呼び出しに加えて、
 //! 画像 (形式ごと) と数の配列の引数と戻り値、エラー応答を確かめる。
 //! Process と conf は brokers::ipc_api のものを使う。比べるため、同じ Process を HTTP でも呼ぶ。
 
@@ -28,7 +28,7 @@ fn pyjuiz_proxy_over_ipc_broker() -> JuizResult<()> {
             let output = std::process::Command::new(python)
                 .current_dir("../bindings/pyjuiz")
                 .env("PYTHONPATH", ".")
-                .args(["test/ipc_proxy_test.py", ipc_name, PORT.to_string().as_str()])
+                .args(["test/system/ipc_proxy_test.py", ipc_name, PORT.to_string().as_str()])
                 .arg(&model)
                 .output()?;
             assert!(

@@ -2,7 +2,7 @@
 //!
 //! HTTP ブローカーを立てた System を 2 つ (S1: 地図の `map`、S2: ロボットの `odom`・`base0`・`c2`、
 //! S2 は S1 をマスターシステムにする) 起動したまま、別プロセスの Python で
-//! bindings/pyjuiz/test/cross_system_test.py を実行する。
+//! bindings/pyjuiz/test/system/cross_system_test.py を実行する。
 
 use juiz_core::prelude::*;
 
@@ -48,7 +48,7 @@ fn pyjuiz_transforms_across_systems() -> JuizResult<()> {
                         .current_dir("../bindings/pyjuiz")
                         .env("PYTHONPATH", ".")
                         .args([
-                            "test/cross_system_test.py",
+                            "test/system/cross_system_test.py",
                             PORT_S1.to_string().as_str(),
                             PORT_S2.to_string().as_str(),
                         ])

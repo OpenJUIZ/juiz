@@ -2,7 +2,7 @@
 
 サーバーは使わない。bindings/pyjuiz で実行する:
 
-    python test/profile_alias_test.py
+    python test/unit/profile_alias_test.py
 """
 import sys
 import warnings

@@ -1,5 +1,5 @@
 """ID の分解のテスト (issue #152)。juiz を起動せずに
-    python test/identifier_test.py
+    python test/unit/identifier_test.py
 で実行する。
 """
 import sys
