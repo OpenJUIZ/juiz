@@ -18,7 +18,7 @@ const PORT: i64 = 5028;
 const HTTP_PORT: i64 = 8099;
 
 fn manifest() -> Value {
-    let mut m = server_manifest("qmp_profile_json_test", PORT, HTTP_PORT, true);
+    let mut m = QMP.server_manifest("qmp_profile_json_test", PORT, HTTP_PORT, true);
     m["processes"][1]["p_apply"] = jvalue!({ "arg1": 5 });
     m["processes"][1]["description"] = jvalue!("p_apply 5");
     m["containers"]

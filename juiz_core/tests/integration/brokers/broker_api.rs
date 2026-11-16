@@ -1,13 +1,16 @@
 //! System を起動して BrokerProxy の API を叩くテスト用の共通部品
 //!
 //! Rust / Python / C++ のプロセスとコンテナを読み込んだ System を作る。
+//! 確かめる中身はブローカー共通のスイート juiz_broker_suite にある (issue #522)。
 //! C++ の例は CI の "Build C++ examples" で ../target にビルドされ、
 //! Rust の例は cargo build で ../target/debug にビルドされている前提。
 
 #![allow(dead_code)]
 
+pub use juiz_broker_suite::api::{self as suite, Expect};
+pub use juiz_broker_suite::fixture::Fixture;
+pub use juiz_broker_suite::support::*;
 use juiz_core::prelude::*;
-use juiz_sdk::process_identifier::ProcessIdentifier;
 
 pub fn system_manifest(name: &str, port: i64) -> Value {
     jvalue!({
@@ -91,27 +94,9 @@ pub const CONTAINERS: [(&str, &str, &str, &str); 3] = [
     ("cppc0", "cppc0inc", "arg0", "cppc0get"),
 ];
 
-pub fn find_process<'a>(ids: &'a [ProcessIdentifier], name: &str) -> &'a ProcessIdentifier {
-    ids.iter()
-        .find(|id| id.name == name)
-        .unwrap_or_else(|| panic!("process {name} not found in {ids:?}"))
-}
-
-pub fn int_of(c: JuizResult<CapsulePtr>) -> i64 {
-    c.expect("call failed")
-        .lock_as_value(|v| v.as_i64().expect("not an integer"))
-        .unwrap()
-}
-
-/// 結果のカプセルに、要求の経路 (class_name / function_name など) が option として残っていない (#277)
-pub fn assert_no_options(c: JuizResult<CapsulePtr>) -> CapsulePtr {
-    let c = c.expect("call failed");
-    let options = c.lock_as_capsule(|c| c.get_options().clone()).unwrap();
-    assert!(options.is_empty(), "options should be empty: {options:?}");
-    c
-}
-
-/// get_output などでカプセルが Value でない場合も考えて、整数として取り出す
-pub fn try_int_of(c: &CapsulePtr) -> Option<i64> {
-    c.lock_as_value(|v| v.as_i64()).ok().flatten()
-}
+/// [`system_manifest`] の System の中身 (ブローカー共通のスイートに渡す)
+pub const MULTI_LANGUAGE: Fixture = Fixture {
+    processes: &PROCESSES,
+    containers: &CONTAINERS,
+    connect: ("inc0", "pyinc0"),
+};

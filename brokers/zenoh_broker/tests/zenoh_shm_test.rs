@@ -54,7 +54,7 @@ fn send_images(proxy: &ZenohBrokerProxy, n: usize) -> JuizResult<()> {
             "process",
             "call",
             args,
-            param("core://core/process/make0::zenoh_image_make"),
+            param("core://core/process/make0::image_make"),
         )?;
         assert!(got.lock_as_image(|i| i.as_bytes() == img.as_bytes())?);
 
@@ -64,7 +64,7 @@ fn send_images(proxy: &ZenohBrokerProxy, n: usize) -> JuizResult<()> {
             "process",
             "call",
             args,
-            param("core://core/process/sum0::zenoh_image_sum"),
+            param("core://core/process/sum0::image_sum"),
         )?;
         assert_eq!(got.extract_value()?, jvalue!(expected_sum));
     }

@@ -21,7 +21,7 @@ fn cli_disconnect_is_not_logged_as_error() {
         "qmp_disconnect_test_server_{}.log",
         std::process::id()
     ));
-    let mut server = spawn_server_with_log(SERVER_PORT, 8040, false, Some(&log));
+    let mut server = QMP.spawn_server_with_log(SERVER_PORT, 8040, false, Some(&log));
     let juiz = target_dir().join(format!("juiz{}", std::env::consts::EXE_SUFFIX));
     // 系の conf (./juiz.conf) を読まないよう、空の作業ディレクトリで CLI を動かす
     let work = std::env::temp_dir().join(format!("qmp_disconnect_test_{}", std::process::id()));

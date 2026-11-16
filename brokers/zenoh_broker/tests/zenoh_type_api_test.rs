@@ -1,72 +1,15 @@
 //! zenoh ブローカー経由で型の登録所を引けること (issue #193)
 //!
-//! System 自身の zenoh ブローカーに zenoh の BrokerProxy で繋ぎ、type/list・type/schema を呼ぶ。
-//! HTTP は juiz_core の datatype::type_check。仕様は docs/spec/datatype.md の §19。
+//! 中身はブローカー共通のスイート (juiz_broker_suite::remote::type_api、issue #522)。qmp も同じものを走らせる。
 
 mod common;
 
 use common::*;
 use juiz_core::env_logger;
 use juiz_core::prelude::*;
-use juiz_sdk::types::{DataType, RecordField, RecordType, TypeSchema};
-
-const PORT: i64 = 5222;
-
-fn twist() -> TypeSchema {
-    TypeSchema::from_data_type(&DataType::Record(
-        RecordType::new("robot.geometry", "Twist")
-            .field(RecordField::new("linear", DataType::Double))
-            .field(RecordField::new("angular", DataType::Double)),
-    ))
-    .unwrap()
-}
-
-fn make_twist(_: CapsuleMap) -> JuizResult<Capsule> {
-    Ok(jvalue!({"linear": 1.0, "angular": 0.0}).into())
-}
 
 #[test]
-fn zenoh_type_api() -> JuizResult<()> {
+fn type_registry_can_be_read() -> JuizResult<()> {
     let _ = env_logger::try_init();
-    let broker_name = format!("localhost:{PORT}");
-    let manifest = server_manifest("zenoh_type_api_test", PORT, 8239, true);
-    System::new(manifest)?.setup()?.run_and_do_once(|system| {
-        let pf = process_factory_create(
-            ProcessManifest::new("make_twist").set_output_schema(Some(twist()))?,
-            make_twist,
-        )?;
-        system
-            .core_broker()
-            .lock_mut()?
-            .worker_mut()
-            .store_mut()
-            .processes
-            .register_factory("make_twist", pf)?;
-
-        let proxy = system.core_broker().lock()?.worker().broker_proxy(
-            "zenoh",
-            broker_name.as_str(),
-            true,
-        )?;
-        let bp = juiz_borrow(&proxy)?;
-        // Transformations の API の型 (juiz_std.geometry、issue #370) と Container のモデル情報の型
-        // (juiz_std.model、issue #381) はいつも載るので除く
-        let list: Vec<_> = bp
-            .type_list()?
-            .into_iter()
-            .filter(|e| {
-                !e.used_by
-                    .iter()
-                    .all(|u| u == "transformations" || u == "container_model")
-            })
-            .collect();
-        assert_eq!(list.len(), 1, "{list:?}");
-        assert_eq!(list[0].identifier, twist().identifier());
-        assert_eq!(list[0].used_by, vec!["make_twist"]);
-        assert_eq!(bp.type_schema(&twist().identifier())?, twist());
-        assert_eq!(bp.type_schema("robot.geometry.Twist")?, twist());
-        let e = format!("{:#}", bp.type_schema("robot.geometry.Pose2D").unwrap_err());
-        assert!(e.contains("not found"), "{e}");
-        Ok(())
-    })
+    remote::type_api(&ZENOH)
 }

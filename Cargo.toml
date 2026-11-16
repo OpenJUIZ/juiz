@@ -111,6 +111,8 @@ members = [
     "brokers/qmp_broker",
     # Zenoh はビルドが重いので default-members には入れない (docs/spec/zenoh-broker.md §2.1)
     "brokers/zenoh_broker",
+    # どのブローカーでも成り立つ確認をまとめたテスト用のクレート (公開しない、issue #522)
+    "brokers/broker_suite",
 
 
     "juiz_sdk/test_packages/a_arg_proc",

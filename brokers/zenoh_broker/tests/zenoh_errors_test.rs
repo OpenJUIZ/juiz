@@ -167,7 +167,7 @@ fn zenoh_server_restart() -> JuizResult<()> {
         Ok(v.as_array().map(|a| a.len()).unwrap_or(0))
     };
 
-    let mut server = spawn_server(RESTART_PORT, 8243, true);
+    let mut server = ZENOH.spawn_server(RESTART_PORT, 8243, true);
     let proxy = connect(&mut server);
     assert_eq!(list(&proxy)?, 2);
     drop(server);
@@ -176,7 +176,7 @@ fn zenoh_server_restart() -> JuizResult<()> {
     assert!(list(&proxy).is_err());
     assert!(start.elapsed() < Duration::from_secs(13), "{:?}", start.elapsed());
 
-    let mut server = spawn_server(RESTART_PORT, 8243, true);
+    let mut server = ZENOH.spawn_server(RESTART_PORT, 8243, true);
     // サーバーの起動を、別の BrokerProxy で待つ
     drop(connect(&mut server));
     // 元の BrokerProxy は Zenoh が繋ぎ直す
@@ -200,10 +200,10 @@ fn zenoh_server_restart() -> JuizResult<()> {
 #[test]
 fn zenoh_forward_from_http() -> JuizResult<()> {
     setup();
-    let mut sub = server_manifest("zenoh_forward_sub", FORWARD_SUB_PORT, 8246, false);
+    let mut sub = ZENOH.server_manifest("zenoh_forward_sub", FORWARD_SUB_PORT, 8246, false);
     sub["namespace"] = jvalue!("robot1");
     System::new(sub)?.setup()?.run_and_do_once(|_sub| {
-        let mut master = client_manifest("zenoh_forward_master", false);
+        let mut master = ZENOH.client_manifest("zenoh_forward_master", false);
         master["option"] = jvalue!({ "http_broker": { "start": true, "port": FORWARD_HTTP_PORT } });
         master["brokers"] = jvalue!([
             { "type_name": "zenoh", "name": format!("127.0.0.1:{FORWARD_MASTER_PORT}"),
