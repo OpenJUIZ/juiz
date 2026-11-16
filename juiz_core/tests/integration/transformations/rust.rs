@@ -13,13 +13,14 @@ const EPS: f64 = 1e-9;
 const H: f64 = std::f64::consts::FRAC_1_SQRT_2;
 const ABIS: [&str; 2] = ["c", "rust"];
 
-const PROCESSES: [&str; 8] = [
+const PROCESSES: [&str; 9] = [
     "rust_part_pose",
     "rust_part_set_pose",
     "rust_part_try",
     "rust_part_peek",
     "rust_part_sleep",
     "rust_part_try_readonly",
+    "rust_part_meet",
     "rust_part_lookup",
     "rust_part_set_transform",
 ];
@@ -181,34 +182,35 @@ fn rust_pose_errors_have_kinds() -> JuizResult<()> {
     })
 }
 
-/// 同じ Container の 2 つの ContainerProcess を 2 つのスレッドから同時に呼び、かかった時間を返す
+/// 同じ Container の 2 つの ContainerProcess を 2 つのスレッドから同時に呼び、かかった時間とそれぞれの結果を返す
 fn call_two_at_once(
     system: &System,
     container: &str,
     (t1, a1): (&str, Value),
     (t2, a2): (&str, Value),
-) -> JuizResult<std::time::Duration> {
+) -> JuizResult<(std::time::Duration, [Value; 2])> {
     let broker = system.core_broker().clone();
     let start = std::time::Instant::now();
-    std::thread::scope(|scope| -> JuizResult<()> {
+    let results = std::thread::scope(|scope| -> JuizResult<[Value; 2]> {
         let calls = [(t1, a1), (t2, a2)].map(|(t, a)| {
             let broker = broker.clone();
             let container = container.to_owned();
             let t = t.to_owned();
-            scope.spawn(move || -> JuizResult<()> {
+            scope.spawn(move || -> JuizResult<Value> {
                 let id: ProcessIdentifier =
                     format!("core://core/container_process/{container}_{t}::{t}:{container}").try_into()?;
                 let args: CapsuleMap = a.try_into()?;
-                broker.lock()?.container_process_call(&id, args)?;
-                Ok(())
+                let out = broker.lock()?.container_process_call(&id, args)?;
+                out.lock_as_value(|v| v.clone())
             })
         });
-        for c in calls {
-            c.join().expect("the calling thread panicked")?;
-        }
-        Ok(())
+        let [c1, c2] = calls;
+        Ok([
+            c1.join().expect("the calling thread panicked")?,
+            c2.join().expect("the calling thread panicked")?,
+        ])
     })?;
-    Ok(start.elapsed())
+    Ok((start.elapsed(), results))
 }
 
 /// readonly の ContainerProcess (#377) は Container を読み出しロックで呼ぶので、同じ Container の readonly 同士は
@@ -217,20 +219,20 @@ fn call_two_at_once(
 fn rust_readonly_container_processes_run_concurrently() -> JuizResult<()> {
     for_each_abi(|system, abi| {
         let sleep = 300;
-        // readonly 同士: 長いほう 1 回分の時間で終わる。短いほうが先に終わっても、長いほうは
-        // 終わった後に ContainerPose を読める (C ABI で口を外すのは最後の呼び出しが終わったとき)
-        let both_readonly = call_two_at_once(
+        // readonly 同士: 2 つが同時に走っていれば、rust_part_meet の待ち合わせがどちらも成り立つ。
+        // かかった時間ではなく重なったかどうかで確かめる (#534、混んだ macOS のランナーで時間の余裕が足りず揺れた)。
+        // 短いほうが先に終わっても、長いほうは終わった後に ContainerPose を読める
+        // (C ABI で口を外すのは最後の呼び出しが終わったとき。読めなければ rust_part_meet がエラーになる)
+        let (_, met) = call_two_at_once(
             system,
             "base0",
-            ("rust_part_peek", jvalue!({"reference": "map", "sleep_ms": sleep})),
-            ("rust_part_peek", jvalue!({"reference": "map", "sleep_ms": sleep / 2})),
+            ("rust_part_meet", jvalue!({"reference": "map", "linger_ms": sleep})),
+            ("rust_part_meet", jvalue!({"reference": "map"})),
         )?;
-        assert!(
-            both_readonly.as_millis() < (sleep + sleep / 2 - 30) as u128,
-            "abi={abi}: two readonly calls took {both_readonly:?}"
-        );
+        assert_eq!(met, [jvalue!(true), jvalue!(true)], "abi={abi}: two readonly calls did not run concurrently");
         // readonly と書き込みのもの: 書き込みロックを待つので 2 回分かかる
-        let mixed = call_two_at_once(
+        // (直列なら必ず 2 回分以上かかるので、この下限は混んだランナーでも揺れない)
+        let (mixed, _) = call_two_at_once(
             system,
             "base0",
             ("rust_part_peek", jvalue!({"reference": "map", "sleep_ms": sleep})),
