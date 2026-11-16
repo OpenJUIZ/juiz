@@ -48,7 +48,7 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      # system_test が読み込む例(Rust/C++)は通常ビルドで ../target/debug などに用意する
+      # core::system が読み込む例(Rust/C++)は通常ビルドで ../target/debug などに用意する
       - name: Prepare tests (build examples, check Python packages)
         run: scripts/test.sh --prepare-only
 

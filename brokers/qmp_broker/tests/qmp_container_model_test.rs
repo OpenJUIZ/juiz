@@ -2,7 +2,7 @@
 //!
 //! System 自身の qmp ブローカーに qmp の BrokerProxy で繋ぎ、`container/model_info`・`container/model`
 //! (`{info, data: <base64>}`)・`container/profile` の `model` を確かめる。
-//! HTTP とローカルブローカーは juiz_core の container_model_test。
+//! HTTP とローカルブローカーは juiz_core の container_model::core。
 //!
 //! 50 MB の .glb を HTTP (生のバイト列) と qmp (base64 の JSON) で取り出すベンチは `container_model_bench`
 //! (`#[ignore]`、release で測る):

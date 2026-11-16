@@ -79,7 +79,7 @@ jobs:
       - name: Build (default workspace members)
         run: cargo build --verbose
 
-      # Rust のプラグインの C ABI のテスト (rust_cabi_load_test、package_cli_test) が読む、
+      # Rust のプラグインの C ABI のテスト (plugins::rust::cabi_load、package_cli_test) が読む、
       # 違う rustc でビルドしたことにしたプラグイン。scripts/test.sh と同じ手順 (issue #330・#333)
       - name: Build plugins with a fake rustc (target/fake-rustc)
         run: |

@@ -2,7 +2,7 @@
 //!
 //! System 自身の zenoh ブローカーに zenoh の BrokerProxy で繋ぎ、Composite Process の profile に
 //! `composition`、CompositeContainer の profile に `slots` が出ることを確かめる。
-//! HTTP は juiz_core の composite_display_test。仕様は docs/spec/composition.md の §8.2。
+//! HTTP は juiz_core の composition::display。仕様は docs/spec/composition.md の §8.2。
 
 mod common;
 

@@ -36,7 +36,7 @@ Zenoh を足すと juiz_app の初回ビルドが 86 秒から 190 秒になる(
 
 - `brokers/zenoh_broker` はワークスペースの `members` に入れ、`default-members` には入れない。`scripts/test.sh` の `cargo build` / `cargo test` と、カバレッジのジョブ(`default-members` からパッケージを選ぶ)は Zenoh をビルドしない。
 - juiz_app の feature `zenoh-broker` は `default` に入れない(§8.2)。
-- juiz_core に `juiz_zenoh_broker` を dev-dependency として足さない(qmp は `image_transfer_bench` のために足しているが、そうすると juiz_core のテストが Zenoh をビルドする)。Zenoh のテストとベンチは `brokers/zenoh_broker/tests` に置く(§10)。
+- juiz_core に `juiz_zenoh_broker` を dev-dependency として足さない(qmp は `bench::image_transfer` のために足しているが、そうすると juiz_core のテストが Zenoh をビルドする)。Zenoh のテストとベンチは `brokers/zenoh_broker/tests` に置く(§10)。
 - CI は Zenoh だけの別ジョブ(`test-linux.yml` の `zenoh`、キャッシュも別)にする。ジョブも手元も `scripts/test-zenoh.sh` で、feature `zenoh-broker` 付きの `juiz`・例のプラグイン・juiz_core の feature なしの Zenoh のプラグインを作り、`cargo test -p juiz_zenoh_broker` と juiz_app の `zenoh_cli_test` を走らせる(#491)。
 
 ## 3. ID と名前
@@ -197,14 +197,14 @@ juiz_py(PyPI の juiz-cli)の wheel を feature `zenoh-broker` ありとなし�
 - エラー応答、繋がらないとき、待ち時間切れ、サーバーを再起動した後の要求、`max_frame_bytes` を超えるフレーム。
 - 繋ぎ先は `tcp/127.0.0.1:<port>`(クラウドの環境には IPv6 が無い)。ポートは他のテストと重ならない番号を Step 1 で選ぶ。
 - feature なしの juiz_core で作ったプラグインを読むテスト(#450 の `broker_plugin_features_cli_test` と同じ形)。
-- ベンチは large-data.md の `image_transfer_bench` と同じ大きさ(720p・4K)の call と Topic の push を、Zenoh のクレートの中のテストとして置き、qmp・IPC と並べて数字を残す(§2.1 のとおり juiz_core には置かない)。
+- ベンチは large-data.md の `bench::image_transfer` と同じ大きさ(720p・4K)の call と Topic の push を、Zenoh のクレートの中のテストとして置き、qmp・IPC と並べて数字を残す(§2.1 のとおり juiz_core には置かない)。
 
 ### 10.1 Step 1 で置いたもの(#490)
 
 - テストは `brokers/zenoh_broker/tests` の `zenoh_*_test.rs`。qmp のテスト(API・組み込み・Composite・3D モデル・ネームスペース・Transformations・型)を同じ形で置き、`zenoh_errors_test.rs` に上の 3 つ目の項目と、HTTP の処理から Zenoh の BrokerProxy を呼ぶ転送(§5.2)を置いた。ポートは 5212〜5250(HTTP は 8232〜8269)。
 - 別プロセスのテストは、`juiz` コマンドに Zenoh のプラグインを読ませる(組み込みは Step 2)。プラグインは `cargo test -p juiz_zenoh_broker` が juiz_core の feature なしで作るので、既定の feature の juiz に feature なしのプラグインを読ませる確かめ(#450)を兼ねる。別のテストは足していない。
 - ブローカーの `name` は省いてよい。省くと `<host>:<port>` にし、起動後に実際の住所に付け直す(§3)。
-- ベンチは `zenoh_bench_test.rs`(`#[ignore]`)。同じクラウドの環境(4 vCPU、release)で `image_transfer_bench` と並べた値(1 回あたり [ms]):
+- ベンチは `zenoh_bench_test.rs`(`#[ignore]`)。同じクラウドの環境(4 vCPU、release)で `bench::image_transfer` と並べた値(1 回あたり [ms]):
 
 | 大きさ | 方式 | call の戻り値 | 引数で送る | Topic の push |
 |---|---|---|---|---|
@@ -260,7 +260,7 @@ Zenoh は qmp より 720p で約 2.5 倍、4K で約 3 倍速い。Zenoh の Top
 
 ### 11.5 計測
 
-`zenoh_bench_test.rs` と `image_transfer_bench`(IPC)を同じクラウドの環境(4 vCPU、release、2026-11-14)で続けて測った値(1 回あたり [ms]、Topic の push は受け手の Process の実行が終わって応答が返るまで):
+`zenoh_bench_test.rs` と `bench::image_transfer`(IPC)を同じクラウドの環境(4 vCPU、release、2026-11-14)で続けて測った値(1 回あたり [ms]、Topic の push は受け手の Process の実行が終わって応答が返るまで):
 
 | 大きさ | 方式 | call の戻り値 | 引数で送る | Topic の push |
 |---|---|---|---|---|

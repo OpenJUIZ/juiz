@@ -2,7 +2,7 @@
 
 juiz_core/tests/integration/pyjuiz_ipc_proxy_test.rs が System を起動してから、このスクリプトを
     python test/ipc_proxy_test.py <IPC ブローカーの名前> <HTTP のポート>
-で実行する。Process と Container は ipc_broker_api_test.rs の server_manifest と setup_test_processes のもの
+で実行する。Process と Container は juiz_core/tests/integration/brokers/ipc_api.rs の server_manifest と setup_test_processes のもの
 (inc0 / inc1、c0 の c0inc / c0get、画像を作る make0、画像を返す echo0、値を返す vecho0、必ず失敗する fail0)。
 同じ Process を HTTP でも呼び、HTTP の画像 (PNG) と位置で渡す複数の引数が今までどおり動くことと、速さを比べる。
 """
@@ -51,7 +51,7 @@ def check_system(name):
 
 
 def rgb8_pixel(x, y):
-    # ipc_broker_api_test.rs の image_of_format("rgb8") と同じ
+    # brokers/ipc_api.rs の image_of_format("rgb8") と同じ
     return (x % 256, y % 256, (x ^ y) % 256)
 
 

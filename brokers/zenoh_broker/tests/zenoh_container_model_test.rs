@@ -2,7 +2,7 @@
 //!
 //! System 自身の zenoh ブローカーに zenoh の BrokerProxy で繋ぎ、`container/model_info`・`container/model`
 //! (`{info, data: <base64>}`)・`container/profile` の `model` を確かめる。
-//! HTTP とローカルブローカーは juiz_core の container_model_test、HTTP と比べたベンチは qmp の
+//! HTTP とローカルブローカーは juiz_core の container_model::core、HTTP と比べたベンチは qmp の
 //! qmp_container_model_test にある。
 
 mod common;
