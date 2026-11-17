@@ -805,7 +805,8 @@ juiz associate --remove   # 外す
 - 管理者権限は要らない(利用者ごとの場所にだけ書く)。
 - 既に別の juiz が関連付けられていたら、上書きする前に `.juizapp was associated with <前のパス>; now <今のパス>` と出す。同じなら何もせず成功。
 - venv の中で打つと、その venv の juiz が登録される(その venv の Python とパッケージで動く)。
-- `--remove` は、関連付けが今の juiz を指していなくても、§17.4 で書いたものを消す。無ければ何もせず成功。
+- `--remove` は、関連付けが今の juiz を指していなくても、§17.4 で書いたものを消す。無ければ何もせず成功。ただし拡張子のキー(Windows の `.juizapp`)は、既定値が juiz のもの(`JUIZ.App`)のときだけ消す(ほかのアプリの関連付けを消さないため、#395)。
+- 書き直すときは、前の版が書いた余分なキーが残らないように、juiz のキー(Windows の `JUIZ.App`)を消してから書く。
 - ダブルクリックの動作は `juiz run`。インストールは右クリック(Windows・Linux)のメニューに置く。
 
 ### 17.2 juiz の実行ファイル
@@ -814,6 +815,8 @@ juiz associate --remove   # 外す
 
 - `cargo install` の juiz: `std::env::current_exe()`。
 - pip の `juiz-cli`: Windows の `Scripts\juiz.exe` は pip のランチャで、Rust 側の `current_exe()` は python.exe を指す。そのため Python の入口(`juiz_cli:main`)が `sys.argv[0]` から求めたランチャの絶対パスを環境変数 `JUIZ_LAUNCHER` で Rust 側に渡し、あればそれを使う。macOS・Linux も同じ(`bin/juiz` のスクリプト)。
+  - pip のランチャは `sys.argv[0]` から `.exe` を落とすので、Windows では `<パス>.exe` があればそれにする。
+  - `sys.argv[0]` が実行ファイルでない(`python -m juiz_cli` の `.py` など)ときは入れない(親から受け継いだ値があればそのまま)。求められたときは、親から受け継いだ値より自分のランチャを優先する。
 
 ### 17.3 `--launched`
 
@@ -821,7 +824,8 @@ juiz associate --remove   # 外す
 
 - 起動時に `juiz - <name> <version>` を窓のタイトルにする(Windows は `SetConsoleTitleW`、他は端末のエスケープ `ESC ] 0 ; … BEL`)。
 - 起動時に `Close this window or press Ctrl+C to stop.` と 1 行出す。
-- **エラーで終わったときは `Press Enter to close.` と出して待つ**(エラーの文が窓ごと一瞬で消えないように)。正常終了・Ctrl+C での停止では待たない。標準入力が端末でなければ待たない。
+- **エラーで終わったときは `Press Enter to close.` と出して待つ**(エラーの文が窓ごと一瞬で消えないように)。正常終了・Ctrl+C での停止・§15.1 で「やめる」を選んだときは待たない。標準入力が端末でなければ待たない。
+- `juiz install --launched` は、成功したときも `Press Enter to close.` と出して待つ(インストールはすぐ終わるので、待たないと結果を読む前に窓が消える、#395)。
 - §15.1 の対話は、`--launched` でも普通に出す。
 
 ### 17.4 OS ごとに書くもの
@@ -840,6 +844,8 @@ HKCU\Software\Classes\JUIZ.App\shell\install\command (既定) = "<juiz>" install
 - 書いた後に `SHChangeNotify(SHCNE_ASSOCCHANGED)` でエクスプローラーに知らせる。
 - `<アイコン>` は `<データ>/juizapp.ico` に書き出したもの(pip のランチャにはアイコンを埋められないため)。用意できるまでは `DefaultIcon` を書かなくてよい。
 - コンソール窓の × で閉じたとき(`CTRL_CLOSE_EVENT`)は、`SetConsoleCtrlHandler` のハンドラで停止を始め、後始末(相手の System から外れる処理など、#303)が終わるまで最大 5 秒ハンドラから戻らない(戻ると OS がすぐプロセスを止めるため)。
+  - ハンドラは `System::wait_for_signal` が最初に呼ばれたときに入れる。`--launched` に関係なく、juiz を動かすどのコンソールでも効く。ログオフ・シャットダウン(`CTRL_LOGOFF_EVENT`・`CTRL_SHUTDOWN_EVENT`)も同じに扱う。Ctrl+C・Ctrl+Break は今まで通り(#307)。
+  - 後始末が終わってプロセスが終われば、5 秒を待たずにそのまま終わる。
 
 **Linux**(freedesktop、#396)
 

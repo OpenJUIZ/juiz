@@ -348,7 +348,9 @@ impl System {
         for sig in STOP_SIGNALS {
             let _ = signal_hook::flag::register(*sig, Arc::clone(&term));
         }
-        while !term.load(Ordering::Relaxed) {
+        #[cfg(windows)]
+        console_close::install();
+        while !term.load(Ordering::Relaxed) && !console_close::requested() {
             self.spin();
             std::thread::sleep(self.sleep_time);
         }
@@ -704,4 +706,53 @@ fn merge_home_manifest(manifest: Value) -> JuizResult<Value> {
     }
 
     Ok(manifest)
+}
+
+/// コンソール窓の × で閉じたとき (`CTRL_CLOSE_EVENT`) の後始末 (docs/spec/app-package.md §17.4、#395)。
+///
+/// CRT は CTRL_CLOSE_EVENT を SIGBREAK に変えて旗を立てるが、そのハンドラが戻ると OS がすぐプロセスを
+/// 止めるので、[`System::wait_for_signal`] の後の後始末 (相手の System から外れる処理、#303) が走らない。
+/// そこで自前のハンドラを先に呼ばれるように入れ、止める合図を立ててから最大 5 秒戻らずに待つ。
+/// 後始末が終わってプロセスが終われば、待っている途中でもそのまま終わる。
+mod console_close {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static REQUESTED: AtomicBool = AtomicBool::new(false);
+
+    /// 窓が閉じられた (ログオフ・シャットダウンも含む) か
+    pub(super) fn requested() -> bool {
+        REQUESTED.load(Ordering::Relaxed)
+    }
+
+    /// ハンドラから戻らずに待つ最長の時間。OS は約 5 秒でプロセスを止める
+    #[cfg(windows)]
+    const WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+    #[cfg(windows)]
+    pub(super) fn install() {
+        use windows_sys::Win32::System::Console::SetConsoleCtrlHandler;
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| unsafe {
+            // 後から入れたハンドラが先に呼ばれる。CTRL_C・CTRL_BREAK は FALSE を返して CRT (signal_hook) に任せる
+            if SetConsoleCtrlHandler(Some(handler), 1) == 0 {
+                crate::prelude::log::warn!("SetConsoleCtrlHandler failed; closing the console window may skip the cleanup");
+            }
+        });
+    }
+
+    #[cfg(windows)]
+    unsafe extern "system" fn handler(ctrl_type: u32) -> windows_sys::core::BOOL {
+        use windows_sys::Win32::System::Console::{
+            CTRL_CLOSE_EVENT, CTRL_LOGOFF_EVENT, CTRL_SHUTDOWN_EVENT,
+        };
+        match ctrl_type {
+            CTRL_CLOSE_EVENT | CTRL_LOGOFF_EVENT | CTRL_SHUTDOWN_EVENT => {
+                REQUESTED.store(true, Ordering::Relaxed);
+                // 戻ると OS がすぐプロセスを止めるので、後始末が終わってプロセスが終わるまで待つ
+                std::thread::sleep(WAIT);
+                1
+            }
+            _ => 0,
+        }
+    }
 }

@@ -889,3 +889,45 @@ fn run_prechecks_ports() {
     d.stop();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// `--launched`(§17.3): 起動時に止め方を出す。エラーで終わっても、標準入力が端末でなければ待たない
+#[test]
+fn run_and_install_launched() {
+    let dir = temp_dir("package_launched");
+    let cache = dir.join("cache");
+    // conf がマップでないので、展開の後(止め方を出した後)にエラーで終わる
+    let pkg = pack_conf_only(&dir, "launched_app", "version: 0.3.0\n", "- not a map\n");
+    let o = juiz()
+        .current_dir(&dir)
+        .env("JUIZ_CACHE_DIR", &cache)
+        .env("JUIZ_DATA_DIR", dir.join("data"))
+        .args(["run", "--launched", path_str(&pkg)])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(o.status.code(), Some(1), "{o:?}");
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(err.contains("Close this window or press Ctrl+C to stop."), "{err}");
+    assert!(err.contains("must be a map"), "{err}");
+    assert!(!err.contains("Press Enter to close."), "{err}");
+
+    // install --launched も標準入力が端末でなければ待たずに終わる
+    let o = juiz()
+        .current_dir(&dir)
+        .env("JUIZ_DATA_DIR", dir.join("data"))
+        .args(["install", "--launched", path_str(&pkg)])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{o:?}");
+    assert!(String::from_utf8_lossy(&o.stdout).contains("Installed launched_app 0.3.0"));
+}
+
+/// `juiz associate` は今は Windows だけ(macOS・Linux は #396)
+#[cfg(not(windows))]
+#[test]
+fn associate_is_windows_only_for_now() {
+    let o = juiz().args(["associate"]).output().unwrap();
+    assert_eq!(o.status.code(), Some(1), "{o:?}");
+    assert!(String::from_utf8_lossy(&o.stderr).contains("issue #396"));
+}

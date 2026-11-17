@@ -4,6 +4,7 @@
 //! Python から起動する `juiz`(pip で入る版、issue #88)も同じ関数を使い、
 //! そのときは feature `python-entry` の [`python::main_with_args`] から GIL を解放して呼ぶ。
 
+mod associate;
 mod composite;
 mod composition;
 mod connection;
@@ -11,6 +12,7 @@ mod container;
 mod container_process;
 mod default_juiz_conf;
 mod execution_context;
+mod launched;
 mod model;
 mod namespace;
 mod package;
@@ -356,6 +358,10 @@ enum SubCommands {
     Install {
         /// .juizapp file
         package: String,
+
+        /// Started from the file association (not for users to type).
+        #[arg(long = "launched", hide = true)]
+        launched: bool,
     },
 
     /// Remove an installed package: name (all versions) or name@version
@@ -365,6 +371,13 @@ enum SubCommands {
 
     /// List installed packages
     Packages {},
+
+    /// Run .juizapp files with this juiz on double-click (this user only; Windows for now). docs/spec/app-package.md §17
+    Associate {
+        /// Remove the association instead
+        #[arg(long = "remove")]
+        remove: bool,
+    },
 }
 
 fn do_task_once(system: &mut System, args: Args) -> JuizResult<()> {
@@ -770,12 +783,23 @@ where
         };
     }
     // juiz pack / juiz run も系の conf (-f) を読まない
+    let launched = launched_flag(&args);
     match package_command(&args) {
-        Some(Ok(_)) => return 0,
+        Some(Ok(_)) => {
+            // ダブルクリックのインストールは終わるとすぐ窓が消えるので、結果を読めるように待つ (§17.3)
+            if matches!(args.subcommand, Some(SubCommands::Install { launched: true, .. })) {
+                launched::wait_for_enter();
+            }
+            return 0;
+        }
         // 利用者がやめるを選んだときは何も出さない (docs/spec/app-package.md §15.1)
         Some(Err(e)) if e.downcast_ref::<package::precheck::Quit>().is_some() => return 1,
         Some(Err(e)) => {
             eprintln!("error: {e:#}");
+            // 関連付けから起動したときは、エラーの文が窓ごと消えないように待つ (§17.3)
+            if launched {
+                launched::wait_for_enter();
+            }
             return 1;
         }
         None => {}
@@ -787,6 +811,14 @@ where
             1
         }
     }
+}
+
+/// `--launched`(関連付けや別窓から起動された、§17.3)が付いているか
+fn launched_flag(args: &Args) -> bool {
+    matches!(
+        args.subcommand,
+        Some(SubCommands::Run { launched: true, .. }) | Some(SubCommands::Install { launched: true, .. })
+    )
 }
 
 /// `juiz pack`・`juiz run`・`juiz install` などパッケージのコマンドを実行する。どれでもなければ None
@@ -843,8 +875,14 @@ fn package_command(args: &Args) -> Option<JuizResult<()>> {
             forget_depends: *forget_depends,
             launched: *launched,
         })),
-        SubCommands::Install { package } => Some((|| {
+        SubCommands::Install { package, launched } => Some((|| {
             use package::install::{install, InstallOutcome};
+            if *launched {
+                // 窓のタイトルは読めたら付ける。読めないときのエラーは install が出す
+                if let Ok((_, m)) = package::run::open_package(std::path::Path::new(package)) {
+                    launched::set_title(&launched::title(&m.name, &m.version.to_string()));
+                }
+            }
             let data = package::install::data_dir()?;
             match install(std::path::Path::new(package), &data, &package::run::Host::current())? {
                 InstallOutcome::Installed(i) => println!(
@@ -869,6 +907,7 @@ fn package_command(args: &Args) -> Option<JuizResult<()>> {
             }
             Ok(())
         })()),
+        SubCommands::Associate { remove } => Some(associate::run(*remove)),
         SubCommands::Packages {} => Some((|| {
             let data = package::install::data_dir()?;
             let all = package::install::list(&data)?;
@@ -978,7 +1017,8 @@ fn run(args: Args) -> JuizResult<()> {
         | SubCommands::Run { .. }
         | SubCommands::Install { .. }
         | SubCommands::Uninstall { .. }
-        | SubCommands::Packages { .. } => {
+        | SubCommands::Packages { .. }
+        | SubCommands::Associate { .. } => {
             unreachable!()
         }
         /* _ => {
