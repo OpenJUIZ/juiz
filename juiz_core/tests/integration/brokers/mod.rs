@@ -13,6 +13,7 @@ mod ipc_shared_memory;
 mod local_api;
 mod messenger_proxy;
 mod namespace;
+mod port_fallback;
 mod profile_alias;
 mod viewer_api;
 mod webui;

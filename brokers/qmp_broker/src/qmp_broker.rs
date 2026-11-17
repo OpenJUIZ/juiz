@@ -14,7 +14,12 @@ use rustls::crypto::ring::default_provider;
 use rustls::pki_types::CertificateDer;
 use rustls::pki_types::PrivatePkcs8KeyDer;
 
+use crate::qmp_broker_proxy::QuicBrokerProxy;
 use crate::{frame_limits, BlockingRecv, BlockingSend, READ_BUFFER_BYTES};
+use juiz_core::port_policy::{
+    bind_with_policy, looks_like_juiz_profile, probe_host, Occupant, PortPolicy, PROBE_TIMEOUT,
+};
+use juiz_core::CRUDBrokerProxyHolder;
 use juiz_core::frame::{read_frame, FrameLimits, FrameReadError, OutgoingFrame};
 use std::io::BufReader;
 use juiz_core::localize_identifier;
@@ -36,7 +41,8 @@ pub fn make_server_endpoint(
     let endpoint = match Endpoint::server(server_config.clone(), bind_addr) {
         Ok(v) => Ok(v),
         Err(e) => {
-            log::error!("Endpoint::server({server_config:?}, {bind_addr}) in make_server_endpoint failed. Error({e:?})");
+            // 使用中のときは呼び出し元 (port_policy) が番号を取り直すので、ここでは debug にとどめる
+            log::debug!("Endpoint::server({bind_addr}) in make_server_endpoint failed. Error({e:?})");
             Err(anyhow!(e))
         }
     }.with_context(|| {format!("Endpoint::server({server_config:?}, {bind_addr}) failed")})?;
@@ -202,13 +208,24 @@ pub async fn on_start(broker_manifest: Value, crud_broker: Arc<Mutex<CRUDBroker>
         .or::<Option<u64>>(Ok(None))
         .unwrap();
     let limits = frame_limits(&broker_manifest);
-    let address = format!("{:}:{:}", host, port);
-    let endpoint = match bind_server(address.as_str(), idle_timeout) {
-        Ok(v) => v,
-        Err(e) => {
-            log::error!("qmp_broker::on_start(broker_manifest='{broker_manifest:}') failed. Error({e:?})");
-            return;
-        }
+    let policy = match PortPolicy::from_manifest(&broker_manifest) {
+        Ok(p) => p,
+        Err(e) => return start_failed(&crud_broker, e.to_string()),
+    };
+    let bound = bind_with_policy(
+        "qmp broker",
+        "qmp",
+        host,
+        port,
+        policy,
+        &crud_broker,
+        |address| std::future::ready(bind_server_io(address.as_str(), idle_timeout)),
+        |port| check_server_is_juiz(probe_host(host).to_owned(), port),
+    )
+    .await;
+    let endpoint = match bound {
+        Ok(b) => b.listener,
+        Err(reason) => return start_failed(&crud_broker, reason),
     };
     // バインドできたら名前を実際の住所にそろえてから起動済みにする。
     // System は wait_until_started() で起動を待ち、その直後に profile() を読む (http_broker と同じ)
@@ -231,6 +248,58 @@ pub async fn on_start(broker_manifest: Value, crud_broker: Arc<Mutex<CRUDBroker>
         }),
     )
     .await;
+}
+
+/// ブローカーの起動の失敗を記録する。System::start_brokers がこの理由をエラーにする (issue #392)
+fn start_failed(crud_broker: &Arc<Mutex<CRUDBroker>>, reason: String) {
+    log::error!("{reason}");
+    if let Ok(mut b) = juiz_lock(crud_broker) {
+        b.set_start_failed(reason);
+    }
+}
+
+/// [`bind_server`] のエラーを io::Error にする。使用中かどうか (AddrInUse) を bind_with_policy が見分けるため
+fn bind_server_io(address: &str, idle_timeout: Option<u64>) -> std::io::Result<Endpoint> {
+    bind_server(address, idle_timeout).map_err(|e| {
+        let kind = e
+            .chain()
+            .find_map(|c| c.downcast_ref::<std::io::Error>())
+            .map(|io| io.kind())
+            .unwrap_or(std::io::ErrorKind::Other);
+        let reason = e
+            .chain()
+            .find_map(|c| c.downcast_ref::<std::io::Error>())
+            .map(|io| io.to_string())
+            .unwrap_or_else(|| format!("{e:#}"));
+        std::io::Error::new(kind, reason)
+    })
+}
+
+/// 使用中のポートの相手が juiz かを確かめる (docs/spec/app-package.md §16.3)。
+///
+/// qmp の BrokerProxy でつなぎ、`system/profile` が `system_store.uuid` を持てば juiz とみなす。
+/// QUIC の接続はつながらないと長く待つので、別スレッドで試して 1 秒で見切る。
+async fn check_server_is_juiz(host: String, port: i64) -> Occupant {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let result = (|| -> JuizResult<Value> {
+            let manifest = jvalue!({"type_name": "qmp", "name": format!("{host}:{port}")});
+            let proxy = CRUDBrokerProxyHolder::new(
+                "QuicBrokerProxy",
+                "qmp",
+                &format!("{host}:{port}"),
+                Box::new(QuicBrokerProxy::new(&manifest)?),
+            )?;
+            let profile = juiz_borrow(&proxy)?.system_profile();
+            profile
+        })();
+        let _ = tx.send(result);
+    });
+    let waited = tokio::task::spawn_blocking(move || rx.recv_timeout(PROBE_TIMEOUT)).await;
+    match waited {
+        Ok(Ok(Ok(v))) if looks_like_juiz_profile(&v) => Occupant::Juiz,
+        _ => Occupant::Other,
+    }
 }
 
 fn bind_server(address: &str, idle_timeout: Option<u64>) -> anyhow::Result<Endpoint> {

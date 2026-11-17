@@ -747,7 +747,9 @@ brokers:
 - HTTP: `GET http://127.0.0.1:<port>/api/system/profile` を 1 秒のタイムアウトで呼び、200 で JSON のオブジェクトが返り、`system_store.uuid` を持てば juiz とみなす。
 - qmp: そのポートへ qmp の BrokerProxy でつなぎ、`system/profile` を同じ規則で確かめる(1 秒)。
 - それ以外(つながらない、タイムアウト、形が違う)は juiz 以外とみなす。juiz 以外は親にしない(`port_fallback: next` なら番号を取り直すだけ)。
-- 今の `check_server_is_juiz` は常に真を返す仮実装で、無関係なサーバーを親とみなしてしまう。#392 でこの規則に置き換える。
+- 0.2.11 までの `check_server_is_juiz` は常に真を返す仮実装で、無関係なサーバーを親とみなしていた。#392 でこの規則に置き換えた。
+- HTTP で `system/profile` が 404 なら、0.2.10 までの juiz として `system/profile_full` で同じ規則を確かめる(#508)。
+- 親とみなすのは、取り直しの途中で最初に見つけた juiz だけ。
 
 ### 16.4 利用者への表示とエラー
 

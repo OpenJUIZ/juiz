@@ -82,23 +82,24 @@ impl CoreWorker {
         self.store_mut().get_opt_mut()
     }
 
-    pub fn reserve_master_broker(&mut self, master_info: Value) -> JuizResult<()> {
+    /// 使用中のポートにいた juiz を mastersystem として予約する。conf に mastersystem があれば予約せず false を返す
+    pub fn reserve_master_broker(&mut self, master_info: Value) -> JuizResult<bool> {
         log::trace!("reserve_master_broker({master_info:}) called");
         match self.store_mut().manifest_mut().as_object_mut() {
             Some(manif) => {
                 if manif.contains_key("mastersystem") {
-                    log::warn!("manifest already contains master system information. Reservation is skipped.");
-                } else {
-                    log::debug!("Master system ({master_info:}) is reserved.");
-                    manif.insert("mastersystem".to_owned(), master_info);
+                    log::info!("manifest already contains master system information. Reservation is skipped.");
+                    return Ok(false);
                 }
+                log::debug!("Master system ({master_info:}) is reserved.");
+                manif.insert("mastersystem".to_owned(), master_info);
             }
             None => {
                 log::error!("reserve_master_broker() failed. Can not get manifest map value.");
                 panic!()
             }
         }
-        Ok(())
+        Ok(true)
     }
 
     pub fn process_from_identifier(

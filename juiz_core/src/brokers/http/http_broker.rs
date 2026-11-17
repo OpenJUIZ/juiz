@@ -1,5 +1,4 @@
 use std::{
-    io::ErrorKind,
     net::SocketAddr,
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -9,6 +8,9 @@ use tokio::net::TcpListener;
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 
 use super::super::core_broker::CoreBrokerPtr;
+use crate::brokers::port_policy::{
+    bind_with_policy, looks_like_juiz_profile, probe_host, Occupant, PortPolicy, PROBE_TIMEOUT,
+};
 use crate::brokers::CRUDBroker;
 use crate::brokers::{
     broker_factory_impl::create_broker_factory_impl, BrokerFactory, CRUDBrokerHolder,
@@ -17,11 +19,35 @@ use crate::{brokers::broker_ptr::BrokerPtr, prelude::*};
 
 use super::http_router::app_new;
 
-fn into_address(host: &str, port: i64) -> String {
-    return format!("{:}:{:}", host, port);
-}
-fn check_server_is_juiz(_host: &str, _port: i64) -> bool {
-    return true;
+/// 使用中のポートの相手が juiz かを確かめる (docs/spec/app-package.md §16.3)。
+///
+/// `GET /api/system/profile` を 1 秒で呼び、`system_store.uuid` を持つ JSON が返れば juiz とみなす。
+/// 0.2.10 までの juiz には `system/profile` が無いので、404 なら `system/profile_full` を呼び直す (#508)。
+async fn check_server_is_juiz(host: String, port: i64) -> Occupant {
+    let Ok(client) = reqwest::Client::builder()
+        .timeout(PROBE_TIMEOUT)
+        .no_proxy()
+        .build()
+    else {
+        return Occupant::Other;
+    };
+    for function in ["profile", "profile_full"] {
+        let url = format!("http://{host}:{port}/api/system/{function}");
+        let Ok(response) = client.get(&url).send().await else {
+            return Occupant::Other;
+        };
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            continue;
+        }
+        if !response.status().is_success() {
+            return Occupant::Other;
+        }
+        return match response.json::<Value>().await {
+            Ok(v) if looks_like_juiz_profile(&v) => Occupant::Juiz,
+            _ => Occupant::Other,
+        };
+    }
+    Occupant::Other
 }
 
 /// 埋め込んだ管理画面を /ui で配信するか (issue #117)。
@@ -142,7 +168,7 @@ async fn on_start_inner(broker_manifest: Value, crud_broker: Arc<Mutex<CRUDBroke
     let host = obj_get_str(&broker_manifest, "host")
         .or::<&str>(Ok("0.0.0.0"))
         .unwrap();
-    let mut port = obj_get_i64(&broker_manifest, "port")
+    let port = obj_get_i64(&broker_manifest, "port")
         .or::<i64>(Ok(8080))
         .unwrap();
     //let address = format!("{:}:{:}", host, port);
@@ -162,77 +188,60 @@ async fn on_start_inner(broker_manifest: Value, crud_broker: Arc<Mutex<CRUDBroke
 
     let serve_webui = serve_webui(&broker_manifest, &static_filepaths);
 
-    loop {
-        let address = into_address(host, port);
-        log::debug!(
-            "HTTPブローカはポートバインドを試行中(host={host}, port={port}, {broker_manifest:?}))"
-        );
-        match TcpListener::bind(address).await {
-            Ok(listener) => {
-                log::info!("バインド成功(host={host}, port={port})");
-                // 名前の更新を済ませてから起動済みにする。wait_until_started() の直後に
-                // profile() が読まれるので、順序が逆だと古い名前が登録されることがある (issue #55)
-                {
-                    let new_broker_name = format!("127.0.0.1:{:}", port);
-                    let mut b = juiz_lock(&crud_broker).unwrap();
-                    let _ = b.update_broker_name(new_broker_name.as_str());
-                    b.set_started();
-                }
-                log::trace!("HTTPブローカ起動します。");
-                if serve_webui {
-                    announce_webui(host, port);
-                }
-                let max_body_bytes = max_body_bytes(&broker_manifest);
-                let mut app = app_new(crud_broker, static_filepaths, serve_webui)
-                    .layer(axum::extract::DefaultBodyLimit::max(max_body_bytes));
-                if let Some(cors) = cors_layer(&broker_manifest) {
-                    app = app.layer(cors);
-                }
-                return axum::serve(
-                    listener,
-                    app.into_make_service_with_connect_info::<SocketAddr>(),
-                )
-                .await
-                .unwrap();
-            }
-            Err(e) => {
-                if e.kind() == ErrorKind::AddrInUse {
-                    // TODO: ここで同じポートにすでにhttpがあったら、スレーブになってそこに接続する
-                    // check server is juiz?
-                    if !check_server_is_juiz(host, port) {
-                        // ポートを占有しているサーバーはJUIZではない。
-                        log::error!("on_start(broker_manifest='{broker_manifest:}') failed. Error({e:?}, {e})");
-                        return ();
-                    }
-                    match juiz_lock(&crud_broker) {
-                        Ok(mut b) => {
-                            log::warn!("{host}:{port} is already occupied by JUIZ. This server is reserved as master server.");
-                            let _result = b.reserve_master_broker(jvalue!({
-                                "host": "127.0.0.1",
-                                "port": port,
-                                "broker_type": "http",
-                                "broker_name": format!("127.0.0.1:{port}"),
-                            })).or_else(|e| {
-                                log::error!("【失敗】CRUDBroker.reserve_master_broker(). エラーは({e})。このエラーは無視されます。");
-                                Err(e)
-                            });
-                        }
-                        Err(_) => {
-                            log::error!("【ロック失敗】CRUDBroker。エラー:{e:?}");
-                            panic!()
-                        }
-                    }
-                    port = port + 1;
-                } else {
-                    log::error!(
-                        "on_start(broker_manifest='{broker_manifest:}') failed. Error({e:?}, {e})"
-                    );
-                    return ();
-                }
-            }
-        }
-    } // loop
-      //    axum::serve(TcpListener::bind( address ).await.unwrap(), app_new(crud_broker)).await.unwrap();
+    let policy = match PortPolicy::from_manifest(&broker_manifest) {
+        Ok(p) => p,
+        Err(e) => return start_failed(&crud_broker, e.to_string()),
+    };
+    let bound = bind_with_policy(
+        "HTTP broker",
+        "http",
+        host,
+        port,
+        policy,
+        &crud_broker,
+        |address| TcpListener::bind(address),
+        |port| check_server_is_juiz(probe_host(host).to_owned(), port),
+    )
+    .await;
+    let (listener, port) = match bound {
+        Ok(b) => (b.listener, b.port),
+        Err(reason) => return start_failed(&crud_broker, reason),
+    };
+    log::info!("バインド成功(host={host}, port={port})");
+    // 名前の更新を済ませてから起動済みにする。wait_until_started() の直後に
+    // profile() が読まれるので、順序が逆だと古い名前が登録されることがある (issue #55)
+    {
+        let new_broker_name = format!("127.0.0.1:{:}", port);
+        let mut b = juiz_lock(&crud_broker).unwrap();
+        let _ = b.update_broker_name(new_broker_name.as_str());
+        b.set_started();
+    }
+    log::trace!("HTTPブローカ起動します。");
+    if serve_webui {
+        announce_webui(host, port);
+    }
+    let max_body_bytes = max_body_bytes(&broker_manifest);
+    let mut app = app_new(crud_broker, static_filepaths, serve_webui)
+        .layer(axum::extract::DefaultBodyLimit::max(max_body_bytes));
+    if let Some(cors) = cors_layer(&broker_manifest) {
+        app = app.layer(cors);
+    }
+    if let Err(e) = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    {
+        log::error!("HTTP broker stopped. {e}");
+    }
+}
+
+/// ブローカーの起動の失敗を記録する。System::start_brokers がこの理由をエラーにする (issue #392)
+fn start_failed(crud_broker: &Arc<Mutex<CRUDBroker>>, reason: String) {
+    log::error!("{reason}");
+    if let Ok(mut b) = juiz_lock(crud_broker) {
+        b.set_start_failed(reason);
+    }
 }
 
 pub fn http_broker_factory(
