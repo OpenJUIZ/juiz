@@ -392,7 +392,7 @@ src/<name>.cpp
 - dev.sh: `cmake -S . -B build -D CMAKE_BUILD_TYPE=<Debug|Release>` → `cmake --build build --config <Debug|Release>` → `build/plugins/` のプラグインと libjuiz_sdk(Linux `lib<name>.so`・`libjuiz_sdk.so`、macOS `.dylib`、Windows `<name>.dll`・`juiz_sdk.dll`)を `app/plugins/<ターゲット>/` に写す。`build/plugins/` を丸ごと写さないのは、Windows でできる `.pdb`・`.exp`・`.lib` を入れないため。
   - 環境変数 `JUIZ_SDK_DIR` があれば `-D JUIZ_SDK_DIR=…` を付ける(`cmake` を自分で打たずに SDK の場所を変えるため)。cmake が PATH に無ければ、入れるものを示して止める。
   - pack.sh・pack.ps1 は Rust と同じもの(§5.4)。
-- libjuiz_sdk の版は juiz と同じでなければならない(読み込み時に `juiz_sdk_build_info` で比べる)。README に `scripts/install-juiz-sdk.sh <版>` の手順を書く。
+- libjuiz_sdk の版は juiz と同じでなければならない(読み込み時に `juiz_sdk_build_info` で比べる)。README に `juiz sdk install` の手順を書く(juiz#548。それ以前は `scripts/install-juiz-sdk.sh <版>`)。
 
 ### 6.4 Haskell
 
@@ -414,7 +414,7 @@ package hsjuiz
 ```
 
   - hsjuiz の場所は `--hsjuiz-dir`、省けば `~/juiz-<版>/bindings/hsjuiz`。lib の場所は `--juiz-sdk-dir` の `lib`、省けば `~/.juiz/sdk/<版>/lib`。`~` は生成時に展開する。
-  - どちらも、生成時に無ければ警告を出し、用意するコマンド(`git clone --depth 1 --branch v<版> https://github.com/OpenJUIZ/juiz.git ~/juiz-<版>`、`install-juiz-sdk.sh <版>`)を表示する。生成は続ける(後から用意してよい)。
+  - どちらも、生成時に無ければ警告を出し、用意するコマンド(`git clone --depth 1 --branch v<版> https://github.com/OpenJUIZ/juiz.git ~/juiz-<版>`、`juiz sdk install`)を表示する。生成は続ける(後から用意してよい)。
   - Hackage の hsjuiz(#360)が使えるようになったら、hsjuiz をソースから取らない形に変える(その時に決める)。
 - `.cabal`: パッケージ名 `<name-kebab>`、version `0.1.0`、`foreign-library <name>`(type native-shared、`hs-source-dirs: src`、`other-modules: <Name>`)。
 - `src/<Name>.hs`: `juizComponent` でまとめる(チュートリアル第 5 章 Haskell と同じ)。
@@ -522,7 +522,7 @@ Next steps:
 ```
 
 - 言語ごとに先頭の手順が変わる: Python は `python3 -m venv .venv` → 有効化 → `pip install -e .`、C++ は SDK の用意(無ければ)→ `scripts/dev.sh`、Haskell は hsjuiz・SDK の用意(無ければ)→ `scripts/dev.sh`。
-  - C++ の「無ければ」は、SDK の場所(`--juiz-sdk-dir`、省けば `~/.juiz/sdk/<版>`)に `lib/cmake/juiz_sdk/juiz_sdkConfig.cmake` が無いとき。用意するコマンドは `install-juiz-sdk.sh <版>`(Windows は `install-juiz-sdk.ps1`)で、`--juiz-sdk-dir` を付けたときはその場所を 2 つめの引数に付ける。README の手順(`next_steps`)には、在るかどうかによらず書く(Step 2)。
+  - C++ の「無ければ」は、SDK の場所(`--juiz-sdk-dir`、省けば `~/.juiz/sdk/<版>`)に `lib/cmake/juiz_sdk/juiz_sdkConfig.cmake` が無いとき。用意するコマンドは `juiz sdk install`(juiz#548、OS によらず同じ。版は juiz と同じなので付けない)で、`--juiz-sdk-dir` を付けたときはその場所を `--dir` で付ける。README の手順(`next_steps`)には、在るかどうかによらず書く(Step 2)。
 - Windows で動いているときは `scripts\dev.ps1` の形で表示する。
 - 呼び出しの例は、そのテンプレートに入っている型の分だけ出す。
 - 警告(§6.4 の hsjuiz が無いなど)は、この表示の前に出す。

@@ -17,6 +17,7 @@ mod model;
 mod namespace;
 mod package;
 mod process;
+mod sdk;
 mod setup;
 mod transformations;
 mod types;
@@ -279,6 +280,13 @@ enum SubCommands {
     Pkg {
         #[command(flatten)]
         args: juiz_pkg::cli::PkgArgs,
+    },
+
+    /// Install libjuiz_sdk for C++ / Haskell plugins, and show where it is (issue #548)
+    #[clap(arg_required_else_help = true)]
+    Sdk {
+        #[clap(subcommand)]
+        subcommand: sdk::SdkSubCommands,
     },
 
     /// Pack a directory with juizapp.yaml into a .juizapp package (docs/spec/app-package.md §6)
@@ -772,6 +780,10 @@ where
     if let Some(SubCommands::Model { subcommand }) = &args.subcommand {
         return model::run_model_command(subcommand);
     }
+    // juiz sdk も系を作らない (issue #548)
+    if let Some(SubCommands::Sdk { subcommand }) = &args.subcommand {
+        return sdk::run_sdk_command(subcommand);
+    }
     // juiz pkg も系を作らない (docs/spec/pkg.md §2.1)
     if let Some(SubCommands::Pkg { args }) = &args.subcommand {
         return match juiz_pkg::cli::run(args) {
@@ -1013,6 +1025,7 @@ fn run(args: Args) -> JuizResult<()> {
         SubCommands::Idl { .. }
         | SubCommands::Model { .. }
         | SubCommands::Pkg { .. }
+        | SubCommands::Sdk { .. }
         | SubCommands::Pack { .. }
         | SubCommands::Run { .. }
         | SubCommands::Install { .. }

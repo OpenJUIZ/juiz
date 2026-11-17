@@ -25,8 +25,8 @@ License: {{license}}
 - juiz in PATH when you build (CMake runs `juiz idl` to generate the C++ types of the `.jidl`)
 - CMake 3.16 or later and a C++17 compiler (on Windows, Visual Studio 2022 with "Desktop development with C++")
 - libjuiz_sdk {{juiz_version}} in `~/.juiz/sdk/{{juiz_version}}` (`%USERPROFILE%\.juiz\sdk\{{juiz_version}}` on Windows).
-  On Windows, install it in PowerShell with
-  `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/OpenJUIZ/juiz/main/scripts/install-juiz-sdk.ps1))) {{juiz_version}}`
+  Install it with `juiz sdk install` (it downloads libjuiz_sdk of the same version as juiz;
+  `juiz sdk path` prints where it is).
 
 libjuiz_sdk must be the same version as juiz: juiz does not load a plugin that carries another version of libjuiz_sdk.
 `CMakeLists.txt` asks for exactly `{{juiz_version}}`, and `app/juizapp.yaml` requires `juiz: "={{juiz_version}}"` for the same reason.

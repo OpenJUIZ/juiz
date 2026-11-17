@@ -328,7 +328,7 @@ cargo test --release -p juiz_zenoh_broker --test broker -- bench:: --ignored --n
 - `bindings/pyjuiz/setup.py`、`bindings/juiz_py/pyproject.toml`(`version` と `pyjuiz==`)、`bindings/juiz_py/Cargo.toml`、`bindings/juiz_py/Cargo.lock`
 - `bindings/hsjuiz/hsjuiz.cabal` の `version`(と `bindings/hsjuiz/CHANGELOG.md`)
 
-libjuiz_sdk のアーカイブは `scripts/package-juiz-sdk.sh` で作り、利用者は `scripts/install-juiz-sdk.sh <版>`(Windows は `scripts/install-juiz-sdk.ps1 <版>`)で取得します。
+libjuiz_sdk のアーカイブは `scripts/package-juiz-sdk.sh` で作り、利用者は `juiz sdk install`(`juiz_app/src/sdk.rs`、#548)か、juiz を入れずに `scripts/install-juiz-sdk.sh <版>`(Windows は `scripts/install-juiz-sdk.ps1 <版>`)で取得します。アーカイブの名前・置き場所を変えるときは、この 3 つをそろえます。
 アーカイブには CMake の `find_package(juiz_sdk)` 用の `lib/cmake/juiz_sdk/juiz_sdkConfig.cmake`(元は `bindings/cppjuiz/cmake/juiz_sdkConfig.cmake`)が入り、
 `sdk-release.yml` は `bindings/cppjuiz/tests/find_package` をそのアーカイブでビルドして確かめます。
 `scripts/check-hsjuiz-package.sh <展開したアーカイブ>` は、hsjuiz を sdist から(Hackage から入れたときと同じ形で)そのアーカイブだけを使ってビルドできるか確かめます。

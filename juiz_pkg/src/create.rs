@@ -141,21 +141,13 @@ fn shell_arg(p: &Path) -> String {
     }
 }
 
-/// libjuiz_sdk を用意するコマンド。`given` (--juiz-sdk-dir を指定した) ときはその場所を 2 つめの引数に付ける
-fn sdk_install_command(dir: &Path, given: bool, windows: bool) -> String {
-    let dest = if given {
-        format!(" {}", shell_arg(dir))
+/// libjuiz_sdk を用意するコマンド (`juiz sdk install`、juiz#548)。
+/// `given` (--juiz-sdk-dir を指定した) ときはその場所を `--dir` で付ける。版は juiz と同じなので省く
+fn sdk_install_command(dir: &Path, given: bool) -> String {
+    if given {
+        format!("juiz sdk install --dir {}", shell_arg(dir))
     } else {
-        String::new()
-    };
-    if windows {
-        format!(
-            "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/OpenJUIZ/juiz/main/scripts/install-juiz-sdk.ps1))) {JUIZ_VERSION}{dest}"
-        )
-    } else {
-        format!(
-            "curl -fsSL https://raw.githubusercontent.com/OpenJUIZ/juiz/main/scripts/install-juiz-sdk.sh | sh -s -- {JUIZ_VERSION}{dest}"
-        )
+        "juiz sdk install".to_owned()
     }
 }
 
@@ -295,7 +287,7 @@ impl Plan {
                 warnings.push(format!(
                     "libjuiz_sdk {JUIZ_VERSION} is not in {} (cabal.project points to its lib). Install it:\n    {}",
                     slash(&juiz_sdk_dir),
-                    sdk_install_command(&juiz_sdk_dir, args.juiz_sdk_dir.is_some(), false)
+                    sdk_install_command(&juiz_sdk_dir, args.juiz_sdk_dir.is_some())
                 ));
             }
         }
@@ -423,8 +415,8 @@ impl Plan {
     }
 
     /// libjuiz_sdk を用意するコマンド (C++・Haskell、§6.3・§6.4・§9)
-    fn sdk_install_command(&self, windows: bool) -> String {
-        sdk_install_command(&self.juiz_sdk_dir, self.juiz_sdk_dir_given, windows)
+    fn sdk_install_command(&self) -> String {
+        sdk_install_command(&self.juiz_sdk_dir, self.juiz_sdk_dir_given)
     }
 
     /// 次に打つコマンド (§9)。`cd` は表示のときだけ付ける。
@@ -459,7 +451,7 @@ impl Plan {
                     format!("# once: put libjuiz_sdk {JUIZ_VERSION} in {}", slash(&self.sdk_dir_label())),
                     "",
                 ));
-                lines.push((self.sdk_install_command(windows), ""));
+                lines.push((self.sdk_install_command(), ""));
                 lines.push((
                     script("dev"),
                     "# build and put the plugin and libjuiz_sdk in app/plugins/<target>/",
@@ -484,7 +476,7 @@ impl Plan {
                         format!("# once: put libjuiz_sdk {JUIZ_VERSION} in {}", slash(&self.juiz_sdk_dir)),
                         "",
                     ));
-                    lines.push((self.sdk_install_command(false), ""));
+                    lines.push((self.sdk_install_command(), ""));
                 }
                 lines.push((script("dev"), "# build and put the plugin in app/plugins/<target>/"));
             }
@@ -834,7 +826,7 @@ mod tests {
         // hsjuiz も libjuiz_sdk も無いので、用意するコマンドを警告に出す
         assert_eq!(w.len(), 2, "{w:?}");
         assert!(w[0].contains("git clone --depth 1 --branch v") && w[0].contains("/juiz-x"), "{w:?}");
-        assert!(w[1].contains("install-juiz-sdk.sh | sh -s -- "), "{w:?}");
+        assert!(w[1].contains("juiz sdk install --dir "), "{w:?}");
         let files = p.files().unwrap();
         let get = |n: &str| files.iter().find(|f| f.path == n).unwrap().content.clone();
         // cabal.project には絶対パスを埋める (§6.4)
@@ -857,7 +849,7 @@ mod tests {
         // 次の手順に用意するコマンドを出す
         let s = p.summary();
         assert!(s.contains("git clone --depth 1"), "{s}");
-        assert!(s.contains("install-juiz-sdk.sh"), "{s}");
+        assert!(s.contains("juiz sdk install"), "{s}");
         assert!(s.contains("scripts/dev.sh"), "{s}");
     }
 
@@ -879,11 +871,11 @@ mod tests {
         assert!(w.is_empty(), "{w:?}");
         assert!(p.hsjuiz_dir.ends_with("bindings/hsjuiz"), "{}", p.hsjuiz_dir.display());
         let s = p.summary();
-        assert!(!s.contains("git clone") && !s.contains("install-juiz-sdk"), "{s}");
+        assert!(!s.contains("git clone") && !s.contains("juiz sdk install"), "{s}");
         // README には在っても書く
         let files = p.files().unwrap();
         let readme = &files.iter().find(|f| f.path == "README.md").unwrap().content;
-        assert!(readme.contains("git clone --depth 1") && readme.contains("install-juiz-sdk.sh"), "{readme}");
+        assert!(readme.contains("git clone --depth 1") && readme.contains("juiz sdk install"), "{readme}");
         // Windows では警告を出し、.ps1 は置かず .sh の形で表示する
         let (p, w) = Plan::from_args_with(&args, || None, true).unwrap();
         assert_eq!(w.len(), 1, "{w:?}");
@@ -1011,7 +1003,7 @@ mod tests {
         assert!(cpp.contains("std::optional<int64_t> my_robot_get(const MyRobot* container)"), "{cpp}");
         assert!(cpp.contains("DEFINE_COMPONENT_MANIFEST_ENTRY_POINT(my_robot_component_manifest)"), "{cpp}");
         let readme = get("README.md");
-        assert!(readme.contains("install-juiz-sdk.sh | sh -s -- "), "{readme}");
+        assert!(readme.contains("juiz sdk install"), "{readme}");
     }
 
     #[test]
@@ -1034,7 +1026,7 @@ mod tests {
         // SDK が無ければ、次の手順に用意するコマンドを出す (指定した場所に)
         let s = p.summary();
         assert!(
-            s.contains(&format!("install-juiz-sdk.sh | sh -s -- {JUIZ_VERSION} \"{missing_s}\"\n")),
+            s.contains(&format!("juiz sdk install --dir \"{missing_s}\"\n")),
             "{s}"
         );
         // 在れば出さない
@@ -1046,12 +1038,12 @@ mod tests {
         let (p, _) = Plan::from_args_with(&args, || None, true).unwrap();
         assert!(!p.sdk_missing);
         let s = p.summary();
-        assert!(!s.contains("install-juiz-sdk"), "{s}");
+        assert!(!s.contains("juiz sdk install"), "{s}");
         assert!(s.contains("scripts\\dev.ps1"), "{s}");
         // README には在っても書く
         let files = p.files().unwrap();
         let readme = &files.iter().find(|f| f.path == "README.md").unwrap().content;
-        assert!(readme.contains("install-juiz-sdk.sh"), "{readme}");
+        assert!(readme.contains("juiz sdk install"), "{readme}");
         let _ = std::fs::remove_dir_all(&sdk);
     }
 
