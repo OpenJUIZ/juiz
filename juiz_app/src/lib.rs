@@ -330,6 +330,18 @@ enum SubCommands {
         /// Rename a topic that processes in the conf subscribe or publish: <old>=<new> (ex., cmd_vel=cmd_vel_dwa). Can be repeated.
         #[arg(long = "remap")]
         remap: Vec<String>,
+
+        /// Port of the HTTP broker (overrides option.http_broker.port in the conf). Does not change whether it starts.
+        #[arg(long = "http-port")]
+        http_port: Option<u16>,
+
+        /// Do not ask; take the recommended choice when a port is in use.
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+
+        /// Do not ask; behave as when not run from a terminal. Wins over --yes.
+        #[arg(long = "no-prompt")]
+        no_prompt: bool,
     },
 
     /// Install a .juizapp package (docs/spec/app-package.md §8)
@@ -752,6 +764,8 @@ where
     // juiz pack / juiz run も系の conf (-f) を読まない
     match package_command(&args) {
         Some(Ok(_)) => return 0,
+        // 利用者がやめるを選んだときは何も出さない (docs/spec/app-package.md §15.1)
+        Some(Err(e)) if e.downcast_ref::<package::precheck::Quit>().is_some() => return 1,
         Some(Err(e)) => {
             eprintln!("error: {e:#}");
             return 1;
@@ -799,6 +813,9 @@ fn package_command(args: &Args) -> Option<JuizResult<()>> {
             namespace,
             depend,
             remap,
+            http_port,
+            yes,
+            no_prompt,
         } => Some(package::run::run_package(&package::run::RunOptions {
             package: package.clone(),
             entry: entry.clone(),
@@ -810,6 +827,9 @@ fn package_command(args: &Args) -> Option<JuizResult<()>> {
             namespace: namespace.clone().or_else(|| args.namespace.clone()),
             depends: depend.clone(),
             remaps: remap.clone(),
+            http_port: *http_port,
+            yes: *yes,
+            no_prompt: *no_prompt,
         })),
         SubCommands::Install { package } => Some((|| {
             use package::install::{install, InstallOutcome};

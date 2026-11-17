@@ -2,7 +2,7 @@
 
 use super::manifest::{check_format, exact_version, parse_req, Kind, Manifest};
 use super::names::{check_entry_name, find_case_collision, is_reserved_path, normalize_relative};
-use super::{depends, install};
+use super::{depends, install, precheck};
 use super::{sha256_hex_reader, yaml, JUIZ_VERSION, MANIFEST_FILE};
 use juiz_core::anyhow::{anyhow, bail, Context, Result};
 use juiz_core::prelude::*;
@@ -43,6 +43,12 @@ pub(crate) struct RunOptions {
     pub depends: Vec<String>,
     /// `--remap <旧>=<新>`(§7.3、#452)
     pub remaps: Vec<String>,
+    /// `--http-port <n>`(§15.3)
+    pub http_port: Option<u16>,
+    /// `--yes`(§15.1)
+    pub yes: bool,
+    /// `--no-prompt`(§15.1)
+    pub no_prompt: bool,
 }
 
 /// パッケージを動かそうとしている juiz(§1.1 のホスト)
@@ -177,11 +183,26 @@ fn start(prepared: &Prepared, conf: &Path, opts: &RunOptions, data: &Path) -> Re
     let (ipc, needs_http) = depends::ensure_brokers(m, &mut manifest, &deps, ipc.as_deref())?;
     let mut manifest = crate::add_ipc_broker(manifest, ipc.as_deref())?;
     apply_port_policy(m, &mut manifest, &deps, opts);
+    let http_flag = http_broker_flag(opts, needs_http)?;
+    if let Some(port) = opts.http_port {
+        set_http_port(&mut manifest, port)?;
+    }
+    // ポートと IPC 名の事前確認(§15.2)
+    let ctx = precheck::Context {
+        name: m.name.clone(),
+        kind: m.kind,
+        base_http_port: m.base_http_port,
+        http_starts: http_flag.unwrap_or_else(|| http_broker_starts_in_conf(&manifest)),
+        mode: precheck::Mode::current(opts.yes, opts.no_prompt),
+    };
+    if precheck::precheck(&mut manifest, &ctx, &mut precheck::RealEnv)? == precheck::Outcome::Exit {
+        return Ok(());
+    }
     let working_dir = conf.parent().unwrap_or(app_dir);
     let mut system = System::new(manifest)?
         .set_working_dir(working_dir)
         .set_subsystem_check(subsystem_check(m, deps, &installed));
-    if let Some(flag) = http_broker_flag(opts, needs_http)? {
+    if let Some(flag) = http_flag {
         system = system.start_http_broker(flag);
     }
     let mut system = system.setup().map_err(|e| {
@@ -191,7 +212,43 @@ fn start(prepared: &Prepared, conf: &Path, opts: &RunOptions, data: &Path) -> Re
             None => e,
         }
     })?;
-    system.run_and_do(|_| Ok(()))
+    system.run_and_do(|system| {
+        // 立てたブローカーのつなぎ先を出す(§15.3)
+        let profile = system.core_broker().lock()?.system_profile()?;
+        precheck::announce_brokers(&profile);
+        Ok(())
+    })
+}
+
+/// `--http-port <n>` を conf の `option.http_broker.port` に入れる(§15.3)。立てるかどうかは変えない
+fn set_http_port(conf: &mut Value, port: u16) -> Result<()> {
+    let obj = conf
+        .as_object_mut()
+        .ok_or_else(|| anyhow!("the system definition file must be a map"))?;
+    let option = obj.entry("option").or_insert_with(|| jvalue!({}));
+    if option.is_null() {
+        *option = jvalue!({});
+    }
+    let option = option
+        .as_object_mut()
+        .ok_or_else(|| anyhow!("'option' in the conf must be a map"))?;
+    let http = option.entry("http_broker").or_insert_with(|| jvalue!({}));
+    if !http.is_object() {
+        *http = jvalue!({});
+    }
+    http.as_object_mut()
+        .unwrap()
+        .insert("port".to_owned(), jvalue!(port));
+    Ok(())
+}
+
+/// conf の `option.http_broker.start`(書いていなければ立つ、system_builder の is_http_broker_start と同じ)
+fn http_broker_starts_in_conf(conf: &Value) -> bool {
+    conf.get("option")
+        .and_then(|o| o.get("http_broker"))
+        .and_then(|h| h.get("start"))
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
 }
 
 /// ポートが使用中のときの扱い(§16.2)。基礎と、依存の subsystem を足したアプリは、使用中のポートの juiz を

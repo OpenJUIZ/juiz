@@ -824,3 +824,68 @@ fn pack_and_run_container_model() {
     d.stop();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// juiz run の事前確認 (issue #393、§15.2・§15.3)。端末でないので選択は出さない
+#[test]
+fn run_prechecks_ports() {
+    let dir = temp_dir("package_precheck");
+    let cache = dir.join("cache");
+    // 基礎の名前は IPC 名になるので、テストごとに変える
+    let base = format!("pc_base_{}", std::process::id() % 100000);
+    let port: u16 = 8620;
+    let base_pkg = pack_conf_only(
+        &dir,
+        &base,
+        &format!("version: 1.0.0\nkind: base\nbase:\n  http_port: {port}\n"),
+        "name: precheck_base_system\n",
+    );
+    let run = |args: &[&str]| {
+        let mut cmd = juiz();
+        cmd.current_dir(&dir)
+            .env("JUIZ_CACHE_DIR", &cache)
+            .env("JUIZ_DATA_DIR", dir.join("data"))
+            .arg("run")
+            .args(args);
+        cmd
+    };
+
+    // 基礎のポートを juiz 以外が使っていれば、対話できないのでエラー
+    let blocker = std::net::TcpListener::bind(("0.0.0.0", port)).unwrap();
+    let o = run(&[path_str(&base_pkg)]).output().unwrap();
+    assert_eq!(o.status.code(), Some(1), "{o:?}");
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(
+        err.contains(&format!(
+            "port {port} for {base} is in use by another program. Free the port, or start it with --http-port <n>."
+        )),
+        "{err}"
+    );
+
+    // --yes なら空いている番号で起動し、base.http_port と違うことを添え、つなぎ先を出す
+    let mut d = Daemon::spawn_command(run(&[path_str(&base_pkg), "--yes"]), dir.join("yes.log"));
+    d.wait_log(&format!("HTTP broker: http://127.0.0.1:{}/", port + 1));
+    let text = d.log_text();
+    assert!(
+        text.contains(&format!("note: apps that connect to {base} over http look for port {port} and will not find it.")),
+        "{text}"
+    );
+    assert!(text.contains(&format!("IPC broker: ipc://{base}")), "{text}");
+
+    // 動いている基礎をもう 1 つ起動しようとすると、IPC 名で止まる
+    let o = run(&[path_str(&base_pkg), "--yes"]).output().unwrap();
+    assert_eq!(o.status.code(), Some(1), "{o:?}");
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(err.contains(&format!("{base} is already running at ipc://{base}.")), "{err}");
+    d.stop();
+    drop(blocker);
+
+    // --http-port で番号を変える(--no-prompt でも空いていればそのまま起動する)
+    let other = port + 2;
+    let mut d = Daemon::spawn_command(
+        run(&[path_str(&base_pkg), "--http-port", &other.to_string(), "--no-prompt"]),
+        dir.join("http_port.log"),
+    );
+    d.wait_log(&format!("HTTP broker: http://127.0.0.1:{other}/"));
+    d.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -20,6 +20,8 @@ mod qmp_broker_proxy;
 
 /// qmp の CRUD を直接使うとき (list の namespace 絞り込みなど BrokerProxy に無い引数を渡すとき) に使う
 pub use qmp_broker_proxy::QuicBrokerProxy;
+/// qmp の相手の system/profile を読む (juiz run の事前確認、docs/spec/app-package.md §15.2)
+pub use qmp_broker::fetch_profile_blocking;
 
 /// ストリームを読むときのバッファの大きさ。本体の大きな読み込みはバッファを通さずに直接読む
 pub(crate) const READ_BUFFER_BYTES: usize = 64 * 1024;

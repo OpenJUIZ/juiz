@@ -9,7 +9,7 @@ use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 
 use super::super::core_broker::CoreBrokerPtr;
 use crate::brokers::port_policy::{
-    bind_with_policy, looks_like_juiz_profile, probe_host, Occupant, PortPolicy, PROBE_TIMEOUT,
+    bind_with_policy, fetch_http_profile, probe_host, Occupant, PortPolicy,
 };
 use crate::brokers::CRUDBroker;
 use crate::brokers::{
@@ -19,35 +19,12 @@ use crate::{brokers::broker_ptr::BrokerPtr, prelude::*};
 
 use super::http_router::app_new;
 
-/// 使用中のポートの相手が juiz かを確かめる (docs/spec/app-package.md §16.3)。
-///
-/// `GET /api/system/profile` を 1 秒で呼び、`system_store.uuid` を持つ JSON が返れば juiz とみなす。
-/// 0.2.10 までの juiz には `system/profile` が無いので、404 なら `system/profile_full` を呼び直す (#508)。
+/// 使用中のポートの相手が juiz かを確かめる (docs/spec/app-package.md §16.3)
 async fn check_server_is_juiz(host: String, port: i64) -> Occupant {
-    let Ok(client) = reqwest::Client::builder()
-        .timeout(PROBE_TIMEOUT)
-        .no_proxy()
-        .build()
-    else {
-        return Occupant::Other;
-    };
-    for function in ["profile", "profile_full"] {
-        let url = format!("http://{host}:{port}/api/system/{function}");
-        let Ok(response) = client.get(&url).send().await else {
-            return Occupant::Other;
-        };
-        if response.status() == reqwest::StatusCode::NOT_FOUND {
-            continue;
-        }
-        if !response.status().is_success() {
-            return Occupant::Other;
-        }
-        return match response.json::<Value>().await {
-            Ok(v) if looks_like_juiz_profile(&v) => Occupant::Juiz,
-            _ => Occupant::Other,
-        };
+    match fetch_http_profile(&host, port).await {
+        Some(_) => Occupant::Juiz,
+        None => Occupant::Other,
     }
-    Occupant::Other
 }
 
 /// 埋め込んだ管理画面を /ui で配信するか (issue #117)。

@@ -624,6 +624,17 @@ choose [1]:
 - 番号を選び直した結果、§16 の取り直しは起きない(事前確認で取れた番号を conf に入れて起動するため)。事前確認の後に誰かが取った場合は §16 の規則で扱う。
 - qmp のポートも同じ表で扱う(選択肢の文の `port` を `qmp port` にする)。
 
+#393 の実装で決めた細部:
+
+- 対象のブローカーは `option.http_broker`(立てるとき。番号を書いていなければ 8000)と、`brokers` の `type_name: http`・`qmp`(書いていなければ 8080)。どれも `port_fallback`・`adopt_master` はそのブローカーの設定(§16.1、§16.2 の既定と引数を入れた後)で見る。
+- アプリで `port_fallback: error`(か `--no-port-fallback`)なら「空いている `<n>` で起動」を出さない。番号の入力とやめるは出す(入れた番号は利用者が選んだものなので取り直しには当たらない)。
+- 入れた番号も使用中なら、その番号について同じ選択をもう一度出す。「空いている `<n>`」はそこから +1 ずつ探す。
+- 同じパッケージでも qmp のポートでは 2)(管理画面を開く)を出さない。
+- `--yes` は一番上の選択が「空いている `<n>` で起動」のときだけそれを選ぶ。そうでないとき(空きが無い、`port_fallback: error`)は、アプリは対話できないときと同じ扱い、基礎は `no free port for robot_base in 8100..8200` のエラーにする。
+- 基礎のポートに同じパッケージの juiz がいたときの文は `robot_base is already running at http://127.0.0.1:8100/`(終了コード 1)。対話できないときの基礎の qmp のエラーは、`--http-port` の代わりに `change the port in the conf` と案内する。
+- 相手を親にすると決めたときは `joining the juiz at 127.0.0.1:8080 as its subsystem` と出し、conf の `mastersystem` に §16 と同じ値(`host`・`port`・`broker_type`・`broker_name`)を入れる。2 つ目以降のブローカーで juiz に当たっても親は増やさない。
+- 「やめる」と入力の EOF は何も出さずに終了コード 1。「管理画面を開いて終了」は終了コード 0。ブラウザは Windows が `cmd /C start`、macOS が `open`、それ以外が `xdg-open` で開き、開けなければ URL を出す。
+
 ### 15.3 `juiz run` に足すオプション
 
 | オプション | 意味 |

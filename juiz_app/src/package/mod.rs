@@ -14,6 +14,7 @@ pub(crate) mod manifest;
 pub(crate) mod models;
 pub(crate) mod names;
 pub(crate) mod pack;
+pub(crate) mod precheck;
 pub(crate) mod run;
 mod yaml;
 
