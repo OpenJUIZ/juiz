@@ -169,6 +169,53 @@ pub fn looks_like_juiz_profile(v: &Value) -> bool {
         .unwrap_or(false)
 }
 
+/// HTTP の相手の `system/profile` を読む (§16.3)。juiz の形でなければ None。
+///
+/// `GET http://<host>:<port>/api/system/profile` を [`PROBE_TIMEOUT`] で呼び、`system_store.uuid` を持つ JSON が
+/// 返れば、その値 (`__value__` の包みは外す) を返す。0.2.10 までの juiz には `system/profile` が無いので、
+/// 404 なら `system/profile_full` を呼び直す (#508)。`juiz run` の事前確認 (§15.2) は `package` も読む。
+pub async fn fetch_http_profile(host: &str, port: i64) -> Option<Value> {
+    let client = reqwest::Client::builder()
+        .timeout(PROBE_TIMEOUT)
+        .no_proxy()
+        .build()
+        .ok()?;
+    for function in ["profile", "profile_full"] {
+        let url = format!("http://{host}:{port}/api/system/{function}");
+        let response = client.get(&url).send().await.ok()?;
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            continue;
+        }
+        if !response.status().is_success() {
+            return None;
+        }
+        let v = response.json::<Value>().await.ok()?;
+        return juiz_profile(v);
+    }
+    None
+}
+
+/// `system/profile` の値が juiz の形なら、`__value__` の包みを外して返す
+pub fn juiz_profile(v: Value) -> Option<Value> {
+    if !looks_like_juiz_profile(&v) {
+        return None;
+    }
+    Some(match v {
+        Value::Object(mut m) if m.contains_key("__value__") => m.remove("__value__").unwrap(),
+        v => v,
+    })
+}
+
+/// 使用中のポートの juiz を親とするときの conf の `mastersystem` の値 (§16.1、§15.2)
+pub fn master_info(broker_type: &str, port: i64) -> Value {
+    jvalue!({
+        "host": "127.0.0.1",
+        "port": port,
+        "broker_type": broker_type,
+        "broker_name": format!("127.0.0.1:{port}"),
+    })
+}
+
 /// 待ち受けるホストから、同じ機械で相手に問い合わせるときのホストを決める
 pub fn probe_host(host: &str) -> &str {
     match host {
@@ -256,13 +303,8 @@ where
 
 /// 使用中のポートの juiz を mastersystem として予約する。conf に mastersystem があれば予約しない
 fn adopt(label: &str, broker_type: &str, port: i64, crud_broker: &Arc<Mutex<CRUDBroker>>) {
-    let master_info = jvalue!({
-        "host": "127.0.0.1",
-        "port": port,
-        "broker_type": broker_type,
-        "broker_name": format!("127.0.0.1:{port}"),
-    });
-    let reserved = juiz_lock(crud_broker).and_then(|mut b| b.reserve_master_broker(master_info));
+    let reserved = juiz_lock(crud_broker)
+        .and_then(|mut b| b.reserve_master_broker(master_info(broker_type, port)));
     match reserved {
         Ok(true) => eprintln!("joined the juiz at 127.0.0.1:{port} as its subsystem"),
         Ok(false) => log::info!(
@@ -338,5 +380,10 @@ mod tests {
         ));
         assert!(!looks_like_juiz_profile(&jvalue!({"system_store": {}})));
         assert!(!looks_like_juiz_profile(&jvalue!("<html>")));
+        assert_eq!(
+            juiz_profile(jvalue!({"__value__": {"system_store": {"uuid": "abc"}, "package": {"name": "a"}}})),
+            Some(jvalue!({"system_store": {"uuid": "abc"}, "package": {"name": "a"}}))
+        );
+        assert_eq!(juiz_profile(jvalue!({"system_store": {}})), None);
     }
 }

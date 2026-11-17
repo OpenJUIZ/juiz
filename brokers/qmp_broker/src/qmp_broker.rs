@@ -17,7 +17,7 @@ use rustls::pki_types::PrivatePkcs8KeyDer;
 use crate::qmp_broker_proxy::QuicBrokerProxy;
 use crate::{frame_limits, BlockingRecv, BlockingSend, READ_BUFFER_BYTES};
 use juiz_core::port_policy::{
-    bind_with_policy, looks_like_juiz_profile, probe_host, Occupant, PortPolicy, PROBE_TIMEOUT,
+    bind_with_policy, juiz_profile, probe_host, Occupant, PortPolicy, PROBE_TIMEOUT,
 };
 use juiz_core::CRUDBrokerProxyHolder;
 use juiz_core::frame::{read_frame, FrameLimits, FrameReadError, OutgoingFrame};
@@ -275,12 +275,22 @@ fn bind_server_io(address: &str, idle_timeout: Option<u64>) -> std::io::Result<E
     })
 }
 
-/// 使用中のポートの相手が juiz かを確かめる (docs/spec/app-package.md §16.3)。
+/// 使用中のポートの相手が juiz かを確かめる (docs/spec/app-package.md §16.3)
+async fn check_server_is_juiz(host: String, port: i64) -> Occupant {
+    let found = tokio::task::spawn_blocking(move || fetch_profile_blocking(&host, port)).await;
+    match found {
+        Ok(Some(_)) => Occupant::Juiz,
+        _ => Occupant::Other,
+    }
+}
+
+/// qmp の相手の `system/profile` を読む (docs/spec/app-package.md §16.3、§15.2)。juiz の形でなければ None。
 ///
 /// qmp の BrokerProxy でつなぎ、`system/profile` が `system_store.uuid` を持てば juiz とみなす。
 /// QUIC の接続はつながらないと長く待つので、別スレッドで試して 1 秒で見切る。
-async fn check_server_is_juiz(host: String, port: i64) -> Occupant {
+pub fn fetch_profile_blocking(host: &str, port: i64) -> Option<Value> {
     let (tx, rx) = std::sync::mpsc::channel();
+    let host = host.to_owned();
     std::thread::spawn(move || {
         let result = (|| -> JuizResult<Value> {
             let manifest = jvalue!({"type_name": "qmp", "name": format!("{host}:{port}")});
@@ -295,10 +305,9 @@ async fn check_server_is_juiz(host: String, port: i64) -> Occupant {
         })();
         let _ = tx.send(result);
     });
-    let waited = tokio::task::spawn_blocking(move || rx.recv_timeout(PROBE_TIMEOUT)).await;
-    match waited {
-        Ok(Ok(Ok(v))) if looks_like_juiz_profile(&v) => Occupant::Juiz,
-        _ => Occupant::Other,
+    match rx.recv_timeout(PROBE_TIMEOUT) {
+        Ok(Ok(v)) => juiz_profile(v),
+        _ => None,
     }
 }
 
