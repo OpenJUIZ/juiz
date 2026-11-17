@@ -342,6 +342,14 @@ enum SubCommands {
         /// Do not ask; behave as when not run from a terminal. Wins over --yes.
         #[arg(long = "no-prompt")]
         no_prompt: bool,
+
+        /// Forget where the dependencies of this app were found last time (the remembered connections).
+        #[arg(long = "forget-depends")]
+        forget_depends: bool,
+
+        /// Started from the file association or another window (not for users to type).
+        #[arg(long = "launched", hide = true)]
+        launched: bool,
     },
 
     /// Install a .juizapp package (docs/spec/app-package.md §8)
@@ -816,6 +824,8 @@ fn package_command(args: &Args) -> Option<JuizResult<()>> {
             http_port,
             yes,
             no_prompt,
+            forget_depends,
+            launched,
         } => Some(package::run::run_package(&package::run::RunOptions {
             package: package.clone(),
             entry: entry.clone(),
@@ -830,6 +840,8 @@ fn package_command(args: &Args) -> Option<JuizResult<()>> {
             http_port: *http_port,
             yes: *yes,
             no_prompt: *no_prompt,
+            forget_depends: *forget_depends,
+            launched: *launched,
         })),
         SubCommands::Install { package } => Some((|| {
             use package::install::{install, InstallOutcome};
