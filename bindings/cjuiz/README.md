@@ -14,6 +14,15 @@ v0.0.26 以降は、libjuiz_sdk とこのヘッダ(C++ のヘッダも)を OS・
 どのアーカイブにも CMake の `find_package(juiz_sdk)` 用の `juiz_sdkConfig.cmake` を入れます(issue #273、#162)。
 Windows では PowerShell で `scripts/install-juiz-sdk.ps1 <版>` を実行すると `%USERPROFILE%\.juiz\sdk\<版>` に展開できます。
 
+0.2.11 の次の版からは、juiz コマンドで同じことができます(issue #548)。juiz と同じ版のアーカイブを取得し、`.sha256` と照合して
+同じ場所(`~/.juiz/sdk/<版>`、Windows は `%USERPROFILE%\.juiz\sdk\<版>`。環境変数 `JUIZ_SDK_HOME` で `~/.juiz/sdk` を変えられる)に展開します。
+
+```sh
+juiz sdk install                      # juiz と同じ版。--version <版>・--dir <dir>・--force も使える
+juiz sdk path                         # 展開した場所(cmake -DCMAKE_PREFIX_PATH="$(juiz sdk path)")
+juiz sdk path --cmake-dir             # juiz_sdkConfig.cmake のある場所(-Djuiz_sdk_DIR=...)
+```
+
 ```
 lib/libjuiz_sdk.so (macOS は .dylib、install name は @rpath/libjuiz_sdk.dylib)
 lib/pkgconfig/juiz_sdk.pc

@@ -56,6 +56,10 @@ sha2 = { workspace = true }
 roxmltree = { workspace = true }
 yaml-rust2 = { workspace = true }
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+# juiz sdk install (libjuiz_sdk のアーカイブの取得と展開、#548)
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+reqwest = { workspace = true }
+tar = { version = "0.4", default-features = false }
 
 # juiz associate のレジストリ (HKCU\Software\Classes) と --launched の窓のタイトル (docs/spec/app-package.md §17、#395)
 [target.'cfg(windows)'.dependencies]

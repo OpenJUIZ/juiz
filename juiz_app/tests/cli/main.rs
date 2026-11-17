@@ -28,6 +28,7 @@ mod package;
 mod pkg;
 mod plugin_path;
 mod remote;
+mod sdk;
 mod setup;
 mod transformations;
 mod transformations_cross_system;
