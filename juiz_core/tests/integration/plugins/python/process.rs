@@ -102,6 +102,32 @@ fn check_value_conversion(system: &System) -> JuizResult<()> {
     Ok(())
 }
 
+/// Python で書いた Process・Container・ContainerProcess の profile の language は "python"
+/// (manifest() が language を書かないので、既定の "rust" になっていた)
+fn check_language(system: &System) -> JuizResult<()> {
+    let cb = system.core_broker().lock()?;
+    for id in [
+        "core://core/process/types0::py_types",
+        "core://core/process/double0::py_comp_double",
+    ] {
+        let p = cb.process_profile(&id.try_into()?)?;
+        assert_eq!(p.language, "python", "{id}");
+    }
+    let c = cb.container_profile(&"core://core/container/acc0::py_comp_acc".to_owned().try_into()?)?;
+    assert_eq!(c.language, "python");
+    for cp in c.processes.iter() {
+        assert_eq!(cp.language, "python", "{}", cp.type_name);
+    }
+    let cp = cb.container_process_profile(
+        &"core://core/container_process/acc0add::py_comp_acc_add:acc0".try_into()?,
+    )?;
+    assert_eq!(cp.language, "python");
+    // Factory の profile も同じ
+    let pf = cb.worker().store().processes.factory("py_types")?.lock()?.profile_full()?;
+    assert_eq!(pf["language"], "python", "{pf}");
+    Ok(())
+}
+
 #[test]
 fn python_component_and_value_conversion() -> JuizResult<()> {
     crate::common::logger::init();
@@ -110,6 +136,7 @@ fn python_component_and_value_conversion() -> JuizResult<()> {
         .run_and_do_once(|system| {
             check_component(system)?;
             check_value_conversion(system)?;
+            check_language(system)?;
             Ok(())
         })
 }

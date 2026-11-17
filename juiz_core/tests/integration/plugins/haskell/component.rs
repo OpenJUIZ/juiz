@@ -151,6 +151,17 @@ fn haskell_component_can_be_loaded_and_called() -> JuizResult<()> {
             assert_eq!(p.type_name, "example_component_hs_counter_increment");
             assert_eq!(p.arguments[0].name, "arg0");
 
+            // profile の language は Haskell (既定の "rust" ではない)
+            assert_eq!(cb.process_profile(&inc0)?.language, "haskell");
+            assert_eq!(p.language, "haskell");
+            let c0 = cb
+                .container_list(false, None)?
+                .into_iter()
+                .find(|id| id.name == "c0")
+                .expect("container c0 not found");
+            let c = cb.container_profile(&c0)?;
+            assert_eq!(c.language, "haskell");
+
             // 引数の型が違えば、プロセスは落ちずに呼び出しがエラーになる
             let r = cb.process_call(&greet0, vec![("name", jvalue!(1))].into());
             assert!(r.is_err(), "{r:?}");

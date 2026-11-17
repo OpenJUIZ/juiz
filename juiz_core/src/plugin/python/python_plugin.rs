@@ -370,7 +370,9 @@ if not r"{path_str:}" in sys.path:
             })
             .or_else(|e| Err(anyhow!(e)))
         };
-        let result_process_manifest = serde_json::from_value::<ProcessManifest>(manifest);
+        // 言語はプラグインで決まる (Python の manifest() は language を書かないので既定の rust にならないように)
+        let result_process_manifest =
+            serde_json::from_value::<ProcessManifest>(manifest).map(|m| m.language("python"));
         if result_process_manifest.is_err() {
             log::error!("【load_process_factory】【失敗】エラー({result_process_manifest:?})");
         }
@@ -438,7 +440,7 @@ if not r"{path_str:}" in sys.path:
             .or_else(|e| Err(anyhow!(e)))
         };
 
-        let manifest: ProcessManifest = serde_json::from_value(manifest)?;
+        let manifest: ProcessManifest = serde_json::from_value::<ProcessManifest>(manifest)?.language("python");
         // readonly (transformations.md §14、#377) なら Container を読み出しロックで呼ぶ。
         // Python のオブジェクトの書き換えは止められないので、利用者の状態を書き換えないのは書き手が守る
         let binded = if manifest.readonly {
@@ -518,7 +520,10 @@ if not r"{path_str:}" in sys.path:
                 Ok(ContainerPtr::new(container))
             };
 
-        container_factory_create(serde_json::from_value(manifest)?, Arc::new(constructor))
+        container_factory_create(
+            serde_json::from_value::<ContainerManifest>(manifest)?.language("python"),
+            Arc::new(constructor),
+        )
     }
 
     pub fn load_component_manifest(
