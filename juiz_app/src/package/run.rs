@@ -51,7 +51,7 @@ pub(crate) struct RunOptions {
     pub no_prompt: bool,
     /// `--forget-depends`(§15.6)
     pub forget_depends: bool,
-    /// `--launched`(§17.3)。基礎を別窓で起動するときに付ける(§15.7)。窓のタイトル・エラー時に待つ等は #395
+    /// `--launched`(§17.3)。関連付けからの起動と、基礎を別窓で起動するとき(§15.7)に付く。窓のタイトルと止め方を出し、エラーで終わったら待つ
     #[allow(dead_code)]
     pub launched: bool,
 }
@@ -145,6 +145,9 @@ pub(crate) fn run_package(opts: &RunOptions) -> Result<()> {
         m.version,
         prepared.dir.display()
     );
+    if opts.launched {
+        crate::launched::announce_run(&m.name, &m.version.to_string());
+    }
     start(&prepared, &prepared.dir.join(&entry), opts, &data)
 }
 
