@@ -4,6 +4,7 @@ use juiz_sdk::anyhow::Context;
 
 use crate::{
     brokers::{
+        port_policy::PortPolicy,
         broker_factories_wrapper::BrokerFactoriesWrapper,
         http::{http_broker_factory, http_broker_proxy_factory},
     },
@@ -22,12 +23,15 @@ pub fn setup_http_broker_factory(system: &mut System) -> JuizResult<()> {
 /// option.http_broker のうち、HTTP ブローカーにそのまま渡す項目
 /// (static_filepaths: 静的ファイルの配信、cors_allow_origins: CORS の許可オリジン (issue #112)、
 /// webui: false で埋め込みの管理画面を /ui で配信しない (issue #117)、
-/// max_body_bytes: 本文の上限、既定 256 MiB (issue #233))
-const HTTP_BROKER_PASS_THROUGH_OPTIONS: [&str; 4] = [
+/// max_body_bytes: 本文の上限、既定 256 MiB (issue #233)、
+/// port_fallback・adopt_master: ポートが使用中のときの扱い (docs/spec/app-package.md §16、issue #392))
+const HTTP_BROKER_PASS_THROUGH_OPTIONS: [&str; 6] = [
     "static_filepaths",
     "cors_allow_origins",
     "webui",
     "max_body_bytes",
+    "port_fallback",
+    "adopt_master",
 ];
 
 pub(super) fn setup_http_broker(
@@ -52,6 +56,8 @@ pub(super) fn setup_http_broker(
     }
 
     resolve_static_filepaths(&mut manifest, system.get_working_dir().as_deref());
+    // 知らない値はブローカーを立てる前にエラーにする
+    PortPolicy::from_manifest(&manifest).context("option.http_broker")?;
 
     let _http_broker = system
         .create_broker(&manifest)

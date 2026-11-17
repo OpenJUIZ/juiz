@@ -83,6 +83,18 @@ struct Args {
     start_http_broker: bool,
 
     #[arg(
+        long = "no-port-fallback",
+        help = "Stop when a broker's port is in use, instead of trying the next port (port_fallback: error for all brokers)."
+    )]
+    no_port_fallback: bool,
+
+    #[arg(
+        long = "no-adopt-master",
+        help = "Do not take a juiz on a port in use as the mastersystem (adopt_master: false for all brokers)."
+    )]
+    no_adopt_master: bool,
+
+    #[arg(
         short = 'f',
         default_value = "./juiz.conf",
         help = "Input system definition file path"
@@ -298,6 +310,12 @@ enum SubCommands {
             help = "Do not start HTTP Broker even if the conf has no option.http_broker or says start: true. --http wins."
         )]
         stop_http_broker: bool,
+
+        #[arg(long = "no-port-fallback", help = "Stop when a broker's port is in use (same as juiz --no-port-fallback).")]
+        no_port_fallback: bool,
+
+        #[arg(long = "no-adopt-master", help = "Do not take a juiz on a port in use as the mastersystem (same as juiz --no-adopt-master).")]
+        no_adopt_master: bool,
 
         #[arg(long = "ipc", help = "Start an IPC broker with this name (same as juiz --ipc).")]
         ipc: Option<String>,
@@ -775,6 +793,8 @@ fn package_command(args: &Args) -> Option<JuizResult<()>> {
             entry,
             start_http_broker,
             stop_http_broker,
+            no_port_fallback,
+            no_adopt_master,
             ipc,
             namespace,
             depend,
@@ -784,6 +804,8 @@ fn package_command(args: &Args) -> Option<JuizResult<()>> {
             entry: entry.clone(),
             start_http_broker: *start_http_broker || args.start_http_broker,
             stop_http_broker: *stop_http_broker || args.stop_http_broker,
+            no_port_fallback: *no_port_fallback || args.no_port_fallback,
+            no_adopt_master: *no_adopt_master || args.no_adopt_master,
             ipc: ipc.clone().or_else(|| args.ipc.clone()),
             namespace: namespace.clone().or_else(|| args.namespace.clone()),
             depends: depend.clone(),
@@ -861,7 +883,13 @@ fn run(args: Args) -> JuizResult<()> {
     if let Some(obj) = manifest.as_object_mut() {
         obj.remove("package");
     }
-    let manifest = add_ipc_broker(manifest, args.ipc.as_deref())?;
+    let mut manifest = add_ipc_broker(manifest, args.ipc.as_deref())?;
+    // ポートが使用中のときの扱い (docs/spec/app-package.md §16.2)
+    juiz_core::port_policy::override_port_policy(
+        &mut manifest,
+        args.no_port_fallback,
+        args.no_adopt_master,
+    );
     // -d は HTTP ブローカーを立てる。--no-http で立てない。--http はどちらでも立てる (issue #306)
     let flag_start = args.start_http_broker || (args.daemonize && !args.stop_http_broker);
     let manifest_filepath = PathBuf::from(args.filepath.as_str().to_string());

@@ -33,6 +33,10 @@ pub(crate) struct RunOptions {
     pub start_http_broker: bool,
     /// `--no-http`(issue #306)
     pub stop_http_broker: bool,
+    /// `--no-port-fallback`(§16.2)
+    pub no_port_fallback: bool,
+    /// `--no-adopt-master`(§16.2)
+    pub no_adopt_master: bool,
     pub ipc: Option<String>,
     pub namespace: Option<String>,
     /// `--depend <名前>=<URL>` と `--depend <名前>=none`(§10.2)
@@ -171,7 +175,8 @@ fn start(prepared: &Prepared, conf: &Path, opts: &RunOptions, data: &Path) -> Re
         .collect::<Result<Vec<_>>>()?;
     depends::remap_topics(&mut manifest, &remaps)?;
     let (ipc, needs_http) = depends::ensure_brokers(m, &mut manifest, &deps, ipc.as_deref())?;
-    let manifest = crate::add_ipc_broker(manifest, ipc.as_deref())?;
+    let mut manifest = crate::add_ipc_broker(manifest, ipc.as_deref())?;
+    apply_port_policy(m, &mut manifest, &deps, opts);
     let working_dir = conf.parent().unwrap_or(app_dir);
     let mut system = System::new(manifest)?
         .set_working_dir(working_dir)
@@ -187,6 +192,15 @@ fn start(prepared: &Prepared, conf: &Path, opts: &RunOptions, data: &Path) -> Re
         }
     })?;
     system.run_and_do(|_| Ok(()))
+}
+
+/// ポートが使用中のときの扱い(§16.2)。基礎と、依存の subsystem を足したアプリは、使用中のポートの juiz を
+/// 既定で親にしない(conf に adopt_master を書けばそれに従う)。引数はどちらよりも優先する
+fn apply_port_policy(m: &Manifest, conf: &mut Value, deps: &[depends::Depend], opts: &RunOptions) {
+    if m.kind == Kind::Base || !deps.is_empty() {
+        juiz_core::port_policy::default_adopt_master(conf, false);
+    }
+    juiz_core::port_policy::override_port_policy(conf, opts.no_port_fallback, opts.no_adopt_master);
 }
 
 /// HTTP ブローカーを立てるかどうか(§7.1、issue #306)。None なら conf の `option.http_broker` に従う
@@ -700,6 +714,51 @@ pub(crate) mod tests {
             .unwrap_err()
             .to_string();
         assert!(e.contains("--no-http"), "{e}");
+    }
+
+    /// ポートの扱いの既定と引数(§16.2)
+    #[test]
+    fn port_policy_defaults_by_kind_and_depends() {
+        let m = |text: &str| Manifest::parse_str(text, "t").unwrap();
+        let plain = m("format: 1\nname: a\nversion: 0.1.0\n");
+        let base = m("format: 1\nname: b\nversion: 0.1.0\nkind: base\n");
+        let dep = depends::Depend {
+            name: "b".into(),
+            range: ">=0.1".into(),
+            req: semver::VersionReq::parse(">=0.1").unwrap(),
+            conf: jvalue!({}),
+        };
+        let conf = || jvalue!({"brokers": [{"type_name": "qmp", "port": 3000}]});
+        let opts = RunOptions::default();
+
+        // 依存の無いアプリ: 既定のまま(書き足さない)
+        let mut c = conf();
+        apply_port_policy(&plain, &mut c, &[], &opts);
+        assert!(c["brokers"][0].get("adopt_master").is_none());
+
+        // 基礎と、依存の subsystem を足したアプリ: adopt_master: false
+        for (mm, deps) in [(&base, vec![]), (&plain, vec![dep.clone()])] {
+            let mut c = conf();
+            apply_port_policy(mm, &mut c, &deps, &opts);
+            assert_eq!(c["brokers"][0]["adopt_master"], false);
+            assert_eq!(c["option"]["http_broker"]["adopt_master"], false);
+        }
+
+        // conf に書けばそれに従う
+        let mut c = jvalue!({"option": {"http_broker": {"adopt_master": true}}});
+        apply_port_policy(&base, &mut c, &[], &opts);
+        assert_eq!(c["option"]["http_broker"]["adopt_master"], true);
+
+        // 引数は conf より優先する
+        let opts = RunOptions {
+            no_port_fallback: true,
+            no_adopt_master: true,
+            ..Default::default()
+        };
+        let mut c = jvalue!({"option": {"http_broker": {"adopt_master": true, "port_fallback": "next"}}});
+        apply_port_policy(&plain, &mut c, &[], &opts);
+        assert_eq!(c["option"]["http_broker"]["adopt_master"], false);
+        assert_eq!(c["option"]["http_broker"]["port_fallback"], "error");
     }
 
     pub(crate) fn host() -> Host {

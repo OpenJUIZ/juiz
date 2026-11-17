@@ -18,6 +18,7 @@ pub struct CRUDBroker {
     manifest: Value,
     dispatcher: CRUDDispatcher,
     is_started: bool,
+    start_error: Option<String>,
     profile: BrokerProfile,
 }
 
@@ -62,6 +63,7 @@ impl CRUDBroker {
             _name: broker_name.to_owned(),
             manifest,
             is_started: false,
+            start_error: None,
             profile,
         })
     }
@@ -84,6 +86,16 @@ impl CRUDBroker {
 
     pub fn clear_started(&mut self) -> () {
         self.is_started = false;
+    }
+
+    /// 起動に失敗したことを記録する。`wait_until_started` はこの理由をエラーにして返す (issue #392)
+    pub fn set_start_failed(&mut self, reason: String) -> () {
+        self.start_error = Some(reason);
+    }
+
+    /// 起動の失敗の理由 ([`CRUDBroker::set_start_failed`])
+    pub fn start_error(&self) -> Option<String> {
+        self.start_error.clone()
     }
 
     pub fn identifier(&self) -> BrokerIdentifier {
@@ -138,7 +150,7 @@ impl CRUDBroker {
         Ok(crate::types::openapi::openapi_components(&factories, &extra))
     }
 
-    pub fn reserve_master_broker(&mut self, master_info: Value) -> JuizResult<()> {
+    pub fn reserve_master_broker(&mut self, master_info: Value) -> JuizResult<bool> {
         log::trace!("reserve_master_broker({master_info:}) called");
         self.core_broker
             .lock_mut()?

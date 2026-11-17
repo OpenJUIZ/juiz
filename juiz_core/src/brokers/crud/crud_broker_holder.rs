@@ -115,6 +115,10 @@ where
                     if crud.is_started() {
                         return Ok(());
                     }
+                    // 起動に失敗したら待たずに理由を返す (bind の失敗など、issue #392)
+                    if let Some(reason) = crud.start_error() {
+                        return Err(anyhow!(reason));
+                    }
 
                     let duration = start_time.elapsed();
                     if duration > timeout {
@@ -126,6 +130,7 @@ where
                     panic!("Error lock is poisoned (Error{e:?})")
                 }
             }
+            std::thread::sleep(Duration::from_millis(1));
         }
     }
 

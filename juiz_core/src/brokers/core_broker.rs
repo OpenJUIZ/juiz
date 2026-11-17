@@ -275,7 +275,7 @@ impl CoreBroker {
             .create_broker_proxy(self.worker(), &broker_manifest)
     }
 
-    pub fn reserve_master_broker(&mut self, master_info: Value) -> JuizResult<()> {
+    pub fn reserve_master_broker(&mut self, master_info: Value) -> JuizResult<bool> {
         log::trace!("reserve_master_broker({master_info:}) called");
         // let broker_type = obj_get_str(&master_info, "broker_type");
         self.worker_mut().reserve_master_broker(master_info)

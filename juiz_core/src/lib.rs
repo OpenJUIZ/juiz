@@ -29,6 +29,8 @@ pub use brokers::builtin_broker_factories::{
 pub use brokers::{localize_identifier, CRUDBrokerProxy, CRUDBrokerProxyHolder};
 /// 生バイトのフレーム形式 (docs/spec/large-data.md §3)。qmp ブローカーも使う
 pub use brokers::frame;
+/// ブローカーの待ち受けポートが使用中のときの扱い (docs/spec/app-package.md §16)。qmp ブローカーも使う
+pub use brokers::port_policy;
 /// IPC ブローカー (docs/spec/ipc-broker.md、feature "ipc-broker")
 #[cfg(feature = "ipc-broker")]
 pub use brokers::ipc;

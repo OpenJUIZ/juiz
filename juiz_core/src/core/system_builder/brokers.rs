@@ -78,6 +78,11 @@ pub fn setup_brokers(system: &mut System, manifest: &Value) -> JuizResult<()> {
         // ipc ブローカーは名前を省略できる (juiz になる)
         let name = obj_get_str(p, "name").unwrap_or("(default)");
         let mut p = p.clone();
+        if crate::brokers::port_policy::PORT_POLICY_BROKER_TYPES.contains(&type_name) {
+            // port_fallback・adopt_master の知らない値はブローカーを立てる前にエラーにする (issue #392)
+            crate::brokers::port_policy::PortPolicy::from_manifest(&p)
+                .with_context(|| format!("broker '{name}' ({type_name}) in 'brokers'"))?;
+        }
         if type_name == "http" {
             super::http_broker::resolve_static_filepaths(
                 &mut p,
