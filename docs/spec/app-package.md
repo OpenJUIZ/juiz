@@ -849,15 +849,23 @@ HKCU\Software\Classes\JUIZ.App\shell\install\command (既定) = "<juiz>" install
 
 **Linux**(freedesktop、#396)
 
-- `~/.local/share/mime/packages/juiz-juizapp.xml`: `*.juizapp` → `application/x-juizapp`。
-- `~/.local/share/applications/juiz.desktop`: `Exec="<juiz>" run --launched %f`、`Terminal=true`、`MimeType=application/x-juizapp;`、アクション `install`(`Exec="<juiz>" install --launched %f`)。
-- `update-mime-database`・`update-desktop-database`・`xdg-mime default juiz.desktop application/x-juizapp` を呼ぶ。コマンドが無ければ警告を出して続ける(端末エミュレータが開くかはデスクトップ環境に任せる)。
+`<データ>` は `$XDG_DATA_HOME`(無いか相対パスなら `~/.local/share`)、`<設定>` は `$XDG_CONFIG_HOME`(同じく `~/.config`)。
+
+- `<データ>/mime/packages/juiz-juizapp.xml`: `*.juizapp` → `application/x-juizapp`(`application/zip` の下位、glob の重み 60)。中身を見て zip と判定されても、下位の型なので拡張子の判定が勝つ。
+- `<データ>/applications/juiz.desktop`: `Exec=<juiz> run --launched %f`、`Terminal=true`、`NoDisplay=true`(アプリの一覧には出さない)、`MimeType=application/x-juizapp;`。
+- `<データ>/applications/juiz-install.desktop`: 名前 `Install with juiz`、`Exec=<juiz> install --launched %f`、`Terminal=true`。ファイルマネージャの「このアプリで開く」に出すため、アクションではなく別の .desktop にし、`NoDisplay` にしない(GNOME は `NoDisplay` のアプリと .desktop のアクションを「このアプリで開く」に出さないため)。
+- `<juiz>` は、空白や `"` など Desktop Entry Specification で囲む必要のある文字があるときだけ `"…"` で囲む(xdg-mime の汎用の処理は引用符を外さずに実行ファイルを探すため、囲まなくてよいときは囲まない)。`%` は `%%` にする。
+- `<設定>/mimeapps.list`: `[Default Applications]` に `application/x-juizapp=juiz.desktop;`、`[Added Associations]` に `application/x-juizapp=juiz.desktop;juiz-install.desktop;` を書く(`xdg-mime default` が書くのと同じ場所。xdg-utils が無くても効くように直接書く)。
+- 書いた後に `update-mime-database <データ>/mime`・`update-desktop-database <データ>/applications` を呼ぶ。コマンドが無いか失敗したら `warning:` を出して続ける。端末エミュレータが開くかはデスクトップ環境に任せる。
+- `--remove` は上の 3 ファイルを消し、mimeapps.list の 2 項目は値が上と同じ(juiz のもの)ときだけ消す。
 
 **macOS**(#396)
 
-- ファイルは argv ではなく Apple Event で渡されるので、`~/Applications/JUIZ Launcher.app` を作る。`osacompile` で AppleScript のアプレットとして作り、`on open` で Terminal に `"<juiz>" run --launched <パス>` を打たせる。
-- アプレットの Info.plist に `CFBundleDocumentTypes`(拡張子 `juizapp`、役割 Viewer)を足し、`lsregister -f` で登録する。
-- 自分の機械で作ったアプレットには隔離属性が付かないので、Gatekeeper には止められない。
+- ファイルは argv ではなく Apple Event で渡されるので、`~/Applications/JUIZ Launcher.app` を作る。`osacompile` で AppleScript のアプレットとして作り、`on open` で Terminal に `'<juiz>' run --launched '<パス>'` を打たせる(`do script`。引数は `quoted form of` で囲む)。ファイルなしで開いたときは、使い方と指している juiz をダイアログで出す。
+- Info.plist を `plutil -replace` で書き換える: `CFBundleIdentifier` = `io.github.openjuiz.launcher`、`CFBundleDocumentTypes`(型 `io.github.openjuiz.juizapp`・拡張子 `juizapp`、役割 Viewer、`LSHandlerRank` Owner)、`UTExportedTypeDeclarations`(`io.github.openjuiz.juizapp`、`public.data` に従う、拡張子 `juizapp`)。
+- Info.plist を書き換えると osacompile の署名が合わなくなるので、`codesign --force --sign -` で署名し直す。その後 `lsregister -f` で Launch Services に登録する。どちらも失敗したら `warning:` を出して続ける(osacompile・plutil の失敗はエラー)。
+- アプリの中の `Contents/Resources/juiz-launcher.txt` に指している juiz(`executable=<juiz>`)と作り方の版(`layout=1`)を書く。これがあるものだけを juiz が作ったものとして書き換え・削除する。無い同名のアプリがあれば、`juiz associate` はエラーにし、`--remove` は警告だけで残す。
+- 自分の機械で作ったアプレットには隔離属性が付かないので、Gatekeeper には止められない。初めて開いたときに「JUIZ Launcher が Terminal を制御しようとしています」の確認が出るので、許可する。
 - インストールのメニューは作らない(Finder の右クリックに足すにはサービスが要るため)。
 
 **SIGHUP**: Windows 以外では、端末を閉じたとき(SIGHUP)も止まる合図に足す(`System::wait_for_signal`、#307 と同じ後始末)。

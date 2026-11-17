@@ -372,7 +372,7 @@ enum SubCommands {
     /// List installed packages
     Packages {},
 
-    /// Run .juizapp files with this juiz on double-click (this user only; Windows for now). docs/spec/app-package.md §17
+    /// Run .juizapp files with this juiz on double-click (this user only; Windows, macOS, Linux). docs/spec/app-package.md §17
     Associate {
         /// Remove the association instead
         #[arg(long = "remove")]
