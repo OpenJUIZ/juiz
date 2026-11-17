@@ -2,7 +2,7 @@
 
 use super::manifest::{check_format, exact_version, parse_req, Kind, Manifest};
 use super::names::{check_entry_name, find_case_collision, is_reserved_path, normalize_relative};
-use super::{depends, install, precheck};
+use super::{depcheck, depends, install, precheck};
 use super::{sha256_hex_reader, yaml, JUIZ_VERSION, MANIFEST_FILE};
 use juiz_core::anyhow::{anyhow, bail, Context, Result};
 use juiz_core::prelude::*;
@@ -49,6 +49,11 @@ pub(crate) struct RunOptions {
     pub yes: bool,
     /// `--no-prompt`(§15.1)
     pub no_prompt: bool,
+    /// `--forget-depends`(§15.6)
+    pub forget_depends: bool,
+    /// `--launched`(§17.3)。基礎を別窓で起動するときに付ける(§15.7)。窓のタイトル・エラー時に待つ等は #395
+    #[allow(dead_code)]
+    pub launched: bool,
 }
 
 /// パッケージを動かそうとしている juiz(§1.1 のホスト)
@@ -173,7 +178,39 @@ fn start(prepared: &Prepared, conf: &Path, opts: &RunOptions, data: &Path) -> Re
         .map(|s| depends::parse_depend_arg(s))
         .collect::<Result<Vec<_>>>()?;
     let installed = install::list(data)?;
-    let deps = depends::resolve(m, &mut manifest, &cli, &installed)?;
+    // `--no-http` と http での依存の接続が両立しないことは、つなぐ前に見る(§7.1)
+    {
+        let deps = depends::resolve(m, &mut manifest.clone(), &cli, &installed)?;
+        let (_, needs_http) = depends::ensure_brokers(m, &mut manifest.clone(), &deps, ipc.as_deref())?;
+        http_broker_flag(opts, needs_http)?;
+    }
+    // 依存のつなぎ先を決め、つながるかを確かめる。つながらなければ対話で選び直す(§10.2、§15.4〜§15.6)
+    let mode = precheck::Mode::current(opts.yes, opts.no_prompt);
+    if opts.forget_depends && depcheck::forget(data, &m.name)? {
+        eprintln!("forgot the remembered connections of {}", m.name);
+    }
+    let remembered = if m.depends.is_empty() {
+        Default::default()
+    } else {
+        depcheck::load_remembered(data, &m.name)
+    };
+    let mut dep_env = depcheck::RealDepEnv {
+        log_dir: cache_dir()?.join("logs"),
+    };
+    let checked = depcheck::resolve_and_check(
+        m,
+        &manifest,
+        &cli,
+        &remembered,
+        &installed,
+        mode,
+        &mut dep_env,
+    )?;
+    if let Err(e) = depcheck::remember(data, &m.name, &checked.remember) {
+        eprintln!("warning: cannot remember the connection: {e:#}");
+    }
+    let mut manifest = checked.conf;
+    let deps = checked.depends;
     let remaps = opts
         .remaps
         .iter()
@@ -193,7 +230,7 @@ fn start(prepared: &Prepared, conf: &Path, opts: &RunOptions, data: &Path) -> Re
         kind: m.kind,
         base_http_port: m.base_http_port,
         http_starts: http_flag.unwrap_or_else(|| http_broker_starts_in_conf(&manifest)),
-        mode: precheck::Mode::current(opts.yes, opts.no_prompt),
+        mode,
     };
     if precheck::precheck(&mut manifest, &ctx, &mut precheck::RealEnv)? == precheck::Outcome::Exit {
         return Ok(());

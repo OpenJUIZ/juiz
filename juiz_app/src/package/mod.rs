@@ -8,6 +8,7 @@
 //! - [`install`]: `juiz install` / `uninstall` / `packages` とインストール済みの検索(§8)
 //! - [`depends`]: 基礎の起動時の設定と、depends の解決・確認(§10)
 
+pub(crate) mod depcheck;
 pub(crate) mod depends;
 pub(crate) mod install;
 pub(crate) mod manifest;

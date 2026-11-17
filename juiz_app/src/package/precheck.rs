@@ -89,18 +89,22 @@ impl Transport {
     }
 }
 
+/// 利用者とのやりとり(§15.1)。テストでは差し替える
+pub(crate) trait Prompt {
+    /// 標準エラーに 1 行出す
+    fn say(&mut self, line: &str);
+    /// prompt を出して 1 行読む。入力が閉じたら None
+    fn ask(&mut self, prompt: &str) -> Option<String>;
+}
+
 /// 事前確認が外の世界に触る所。テストでは差し替える
-pub(crate) trait Env {
+pub(crate) trait Env: Prompt {
     /// その番号の待ち受けを試しに取り、使用中なら true(使用中以外の失敗は false にして、ブローカーの起動に任せる)
     fn port_in_use(&mut self, transport: Transport, host: &str, port: i64) -> bool;
     /// 相手の `system/profile`(juiz でなければ None、§16.3)
     fn profile(&mut self, transport: Transport, host: &str, port: i64) -> Option<Value>;
     /// その IPC 名で待ち受けている相手がいるか
     fn ipc_in_use(&mut self, name: &str) -> bool;
-    /// 標準エラーに 1 行出す
-    fn say(&mut self, line: &str);
-    /// prompt を出して 1 行読む。入力が閉じたら None
-    fn ask(&mut self, prompt: &str) -> Option<String>;
     /// URL をブラウザで開く
     fn open_browser(&mut self, url: &str);
 }
@@ -281,7 +285,7 @@ enum Choice {
 
 /// 番号つきの選択を出して 1 つ選ばせる(§15.1)。空行は既定。範囲外・数でない入力は同じ選択をもう一度出す。
 /// 入力が閉じたら None
-fn choose(env: &mut impl Env, question: &str, options: &[String], default: usize) -> Option<usize> {
+pub(crate) fn choose(env: &mut impl Prompt, question: &str, options: &[String], default: usize) -> Option<usize> {
     loop {
         env.say(question);
         for (i, o) in options.iter().enumerate() {
@@ -509,6 +513,25 @@ fn use_port(conf: &mut Value, ctx: &Context, t: &Target, port: i64, env: &mut im
 /// 本物の端末・ネットワークを使う [`Env`]
 pub(crate) struct RealEnv;
 
+impl Prompt for RealEnv {
+    fn say(&mut self, line: &str) {
+        eprintln!("{line}");
+    }
+
+    fn ask(&mut self, prompt: &str) -> Option<String> {
+        eprint!("{prompt}");
+        let _ = std::io::stderr().flush();
+        let mut line = String::new();
+        match std::io::stdin().lock().read_line(&mut line) {
+            Ok(0) | Err(_) => {
+                eprintln!();
+                None
+            }
+            Ok(_) => Some(line),
+        }
+    }
+}
+
 impl Env for RealEnv {
     fn port_in_use(&mut self, transport: Transport, host: &str, port: i64) -> bool {
         let Ok(port) = u16::try_from(port) else {
@@ -550,23 +573,6 @@ impl Env for RealEnv {
         return juiz_core::ipc::ipc_name_in_use(name);
         #[cfg(not(feature = "ipc-broker"))]
         return false;
-    }
-
-    fn say(&mut self, line: &str) {
-        eprintln!("{line}");
-    }
-
-    fn ask(&mut self, prompt: &str) -> Option<String> {
-        eprint!("{prompt}");
-        let _ = std::io::stderr().flush();
-        let mut line = String::new();
-        match std::io::stdin().lock().read_line(&mut line) {
-            Ok(0) | Err(_) => {
-                eprintln!();
-                None
-            }
-            Ok(_) => Some(line),
-        }
     }
 
     fn open_browser(&mut self, url: &str) {
@@ -670,6 +676,16 @@ mod tests {
         }
     }
 
+    impl Prompt for Fake {
+        fn say(&mut self, line: &str) {
+            self.said.push(line.to_owned());
+        }
+        fn ask(&mut self, prompt: &str) -> Option<String> {
+            self.said.push(prompt.to_owned());
+            self.answers.pop_front().map(str::to_owned)
+        }
+    }
+
     impl Env for Fake {
         fn port_in_use(&mut self, t: Transport, _host: &str, port: i64) -> bool {
             self.used.contains(&(t.type_name(), port))
@@ -680,13 +696,6 @@ mod tests {
         }
         fn ipc_in_use(&mut self, name: &str) -> bool {
             self.ipc.contains(name)
-        }
-        fn say(&mut self, line: &str) {
-            self.said.push(line.to_owned());
-        }
-        fn ask(&mut self, prompt: &str) -> Option<String> {
-            self.said.push(prompt.to_owned());
-            self.answers.pop_front().map(str::to_owned)
         }
         fn open_browser(&mut self, url: &str) {
             self.opened.push(url.to_owned());
