@@ -52,6 +52,8 @@ fn cpp_container_is_deleted_when_destroyed() -> JuizResult<()> {
                 CapsuleMap::new(),
             )?;
             assert_eq!(alive(), initial + 2);
+            // profile の language は C++ (既定の "rust" ではない)
+            assert_eq!(created.language, "c++");
 
             cb.container_destroy(&created.identifier())?;
             assert_eq!(alive(), initial + 1);

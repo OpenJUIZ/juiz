@@ -36,6 +36,8 @@ fn cpp_process_receives_array_and_object_args() -> JuizResult<()> {
                 .into_iter()
                 .find(|id| id.name == "types0")
                 .expect("process types0 not found");
+            // profile の language は C++ (既定の "rust" ではない)
+            assert_eq!(cb.process_profile(&id)?.language, "c++");
             let cases = [
                 (jvalue!([]), jvalue!({}), "[] {}"),
                 (

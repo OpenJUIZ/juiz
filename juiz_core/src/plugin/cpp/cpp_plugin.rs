@@ -250,7 +250,8 @@ impl CppPlugin {
                 }?
             }
         };
-        create_cpp_process_factory(manifest, f, self.lib.clone())
+        // 言語はプラグインで決まる (C ABI の manifest は language を書かないので既定の rust にならないように)
+        create_cpp_process_factory(manifest.language(self.language.as_str()), f, self.lib.clone())
     }
 
     pub fn load_container_factory(
@@ -317,7 +318,10 @@ impl CppPlugin {
                     }),
                 )?))
             };
-        container_factory_create(container_manifest, Arc::new(constructor))
+        container_factory_create(
+            container_manifest.language(self.language.as_str()),
+            Arc::new(constructor),
+        )
     }
 
     pub fn load_container_process_factory(
@@ -340,6 +344,7 @@ impl CppPlugin {
             )?,
             None => serde_json::from_value(self.get_manifest().clone())?,
         };
+        let container_process_manifest = container_process_manifest.language(self.language.as_str());
         let type_name = container_process_manifest.type_name.to_owned();
         let lib = self.lib.clone();
         // readonly (transformations.md §14、#377) なら Container を読み出しロックで呼び、

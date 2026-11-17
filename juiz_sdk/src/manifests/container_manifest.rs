@@ -84,6 +84,8 @@ impl ContainerManifest {
         mut partial_instance_manifest: ContainerManifest,
     ) -> JuizResult<Self> {
         partial_instance_manifest.type_name = self.type_name.clone();
+        // 言語は Factory (プラグイン) で決まるので、インスタンスの設定では変えられない
+        partial_instance_manifest.language = self.language.clone();
         Ok(partial_instance_manifest.description(self.description.as_str()))
     }
 
