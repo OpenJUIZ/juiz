@@ -127,6 +127,11 @@ jobs:
           cargo test -p juiz_core --no-fail-fast --test integration
           -- --test-threads=1 plugins::rust::cabi_ datatype::rust_native transformations::rust
 
+      # juiz associate の macOS の実装(#396): 本物の osacompile・plutil・codesign でランチャを作れるか
+      - name: Test (juiz associate)
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        run: cargo test -p juiz_app --lib --no-fail-fast -- --test-threads=1 associate
+
       - name: Test (Rust C ABI, .juizapp)
         if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
         env:

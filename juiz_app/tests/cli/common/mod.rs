@@ -58,10 +58,15 @@ impl Daemon {
 
     /// 止めて、終わるまで待つ。Unix では SIGTERM で正常に終わったかを返す
     pub fn stop(&mut self) -> bool {
+        self.stop_with("TERM")
+    }
+
+    /// Unix では合図 `signal`(`TERM`・`HUP` など)で止めて、正常に終わったかを返す。終わらなければ kill する
+    pub fn stop_with(&mut self, signal: &str) -> bool {
         #[cfg(unix)]
         {
             let _ = Command::new("kill")
-                .args(["-TERM", &self.child.id().to_string()])
+                .args([&format!("-{signal}"), &self.child.id().to_string()])
                 .status();
             let deadline = Instant::now() + Duration::from_secs(10);
             while Instant::now() < deadline {
@@ -71,6 +76,8 @@ impl Daemon {
                 std::thread::sleep(Duration::from_millis(100));
             }
         }
+        #[cfg(not(unix))]
+        let _ = signal;
         let _ = self.child.kill();
         let _ = self.child.wait();
         false

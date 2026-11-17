@@ -923,11 +923,102 @@ fn run_and_install_launched() {
     assert!(String::from_utf8_lossy(&o.stdout).contains("Installed launched_app 0.3.0"));
 }
 
-/// `juiz associate` は今は Windows だけ(macOS・Linux は #396)
-#[cfg(not(windows))]
+/// Linux の `juiz associate`(§17.4、#396): XDG の場所に .desktop と MIME を書き、mimeapps.list の既定にする。
+/// update-mime-database などが無くても警告だけで成功する
+#[cfg(all(unix, not(target_os = "macos")))]
 #[test]
-fn associate_is_windows_only_for_now() {
-    let o = juiz().args(["associate"]).output().unwrap();
-    assert_eq!(o.status.code(), Some(1), "{o:?}");
-    assert!(String::from_utf8_lossy(&o.stderr).contains("issue #396"));
+fn associate_linux() {
+    let dir = temp_dir("package_associate_linux");
+    let data = dir.join("data");
+    let config = dir.join("config");
+    let assoc = |extra: &[&str]| {
+        juiz()
+            .env("XDG_DATA_HOME", &data)
+            .env("XDG_CONFIG_HOME", &config)
+            .env("JUIZ_LAUNCHER", "/opt/my juiz/bin/juiz")
+            // 見つからないコマンドは警告にする
+            .env("PATH", dir.join("no_bin"))
+            .arg("associate")
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    let o = assoc(&[]);
+    assert!(o.status.success(), "{o:?}");
+    let out = String::from_utf8_lossy(&o.stdout);
+    assert!(out.contains("Associated .juizapp with /opt/my juiz/bin/juiz"), "{out}");
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(err.contains("warning: update-mime-database was not found"), "{err}");
+    let desktop = std::fs::read_to_string(data.join("applications/juiz.desktop")).unwrap();
+    assert!(
+        desktop.contains("Exec=\"/opt/my juiz/bin/juiz\" run --launched %f\n"),
+        "{desktop}"
+    );
+    assert!(data.join("applications/juiz-install.desktop").exists());
+    assert!(data.join("mime/packages/juiz-juizapp.xml").exists());
+    let list = std::fs::read_to_string(config.join("mimeapps.list")).unwrap();
+    assert!(list.contains("application/x-juizapp=juiz.desktop;"), "{list}");
+
+    let o = assoc(&[]);
+    assert!(String::from_utf8_lossy(&o.stdout).contains("already associated"), "{o:?}");
+
+    let o = assoc(&["--remove"]);
+    assert!(o.status.success(), "{o:?}");
+    assert!(String::from_utf8_lossy(&o.stdout).contains("Removed the association of .juizapp"));
+    assert!(!data.join("applications/juiz.desktop").exists());
+    let o = assoc(&["--remove"]);
+    assert!(String::from_utf8_lossy(&o.stdout).contains("is not associated"), "{o:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// macOS の `juiz associate`(§17.4、#396): ~/Applications に JUIZ Launcher.app を作って外す
+#[cfg(target_os = "macos")]
+#[test]
+fn associate_macos() {
+    let dir = temp_dir("package_associate_macos");
+    let assoc = |extra: &[&str]| {
+        juiz()
+            .env("HOME", &dir)
+            .env("JUIZ_LAUNCHER", "/opt/my juiz/bin/juiz")
+            .arg("associate")
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    let o = assoc(&[]);
+    assert!(o.status.success(), "{o:?}");
+    assert!(
+        String::from_utf8_lossy(&o.stdout).contains("Associated .juizapp with /opt/my juiz/bin/juiz"),
+        "{o:?}"
+    );
+    let app = dir.join("Applications/JUIZ Launcher.app");
+    assert!(app.join("Contents/Info.plist").exists());
+    let o = assoc(&["--remove"]);
+    assert!(o.status.success(), "{o:?}");
+    assert!(!app.exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 端末を閉じたとき(SIGHUP)も、SIGTERM と同じく後始末をして正常に終わる(§17.4、#396)
+#[cfg(unix)]
+#[test]
+fn run_stops_on_sighup() {
+    let dir = temp_dir("package_sighup");
+    let pkg = pack_conf_only(
+        &dir,
+        "hup_app",
+        "version: 0.1.0\n",
+        "name: hup_system\noption:\n  http_broker:\n    port: 8625\n",
+    );
+    let mut cmd = juiz();
+    cmd.current_dir(&dir)
+        .env("JUIZ_CACHE_DIR", dir.join("cache"))
+        .env("JUIZ_DATA_DIR", dir.join("data"))
+        .args(["run", "--no-prompt", path_str(&pkg)]);
+    let mut d = Daemon::spawn_command(cmd, dir.join("hup.log"));
+    d.wait_log("HTTP broker: http://127.0.0.1:8625/");
+    // 合図を受ける準備(wait_for_signal)ができるまで少し待つ
+    std::thread::sleep(std::time::Duration::from_millis(1000));
+    assert!(d.stop_with("HUP"), "{}", d.log_text());
+    let _ = std::fs::remove_dir_all(&dir);
 }

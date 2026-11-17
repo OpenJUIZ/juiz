@@ -1,9 +1,17 @@
 //! `juiz associate`: .juizapp をダブルクリックで起動できるようにする関連付け(docs/spec/app-package.md §17、#395)
 //!
-//! Windows は HKCU\Software\Classes に書く(管理者権限は要らない)。macOS・Linux は #396。
-//! 書く中身は [`entries`] で決め、読み書きは [`Registry`] で差し替えられるようにして、
-//! どの OS でも偽の Registry で確かめられるようにしている。
-#![cfg_attr(not(windows), allow(dead_code))]
+//! - Windows は HKCU\Software\Classes に書く(管理者権限は要らない、#395)。
+//!   書く中身は [`entries`] で決め、読み書きは [`Registry`] で差し替えられるようにして、
+//!   どの OS でも偽の Registry で確かめられるようにしている。
+//! - Linux は freedesktop の MIME と .desktop([`linux`]、#396)。
+//! - macOS は AppleScript のアプレット `~/Applications/JUIZ Launcher.app`([`macos`]、#396)。
+//!
+//! どの OS の実装もすべての OS でビルドしてテストし、[`run`] で今の OS のものを選ぶ。
+#![allow(dead_code)]
+
+pub(crate) mod linux;
+pub(crate) mod macos;
+pub(crate) mod tools;
 
 use juiz_core::anyhow::Result;
 use std::path::Path;
@@ -123,32 +131,84 @@ pub(crate) fn run(remove_flag: bool) -> Result<()> {
     {
         let mut reg = windows::HkcuClasses;
         if remove_flag {
-            if remove(&mut reg)? {
-                println!("Removed the association of .juizapp");
-            } else {
-                println!(".juizapp is not associated with juiz");
-            }
+            report_removed(remove(&mut reg)?, &[]);
             return Ok(());
         }
         let exe = crate::package::depcheck::juiz_executable()?;
-        match associate(&mut reg, &exe)? {
-            Associated::Unchanged => {
-                println!(".juizapp is already associated with {}", exe.display())
-            }
-            Associated::Replaced(prev) => {
-                println!(".juizapp was associated with {prev}; now {}", exe.display())
-            }
-            Associated::New => println!("Associated .juizapp with {}", exe.display()),
-        }
+        report_associated(&associate(&mut reg, &exe)?, &[], &exe);
         println!("Double-click a .juizapp to run it; right-click it for \"Install with juiz\".");
         Ok(())
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        let apps = macos::apps_dir_from_env()?;
+        let mut tools = tools::SystemTools;
+        if remove_flag {
+            let (removed, warnings) = macos::remove(&mut tools, &apps)?;
+            report_removed(removed, &warnings);
+            return Ok(());
+        }
+        let exe = crate::package::depcheck::juiz_executable()?;
+        let (r, warnings) = macos::associate(&mut tools, &apps, &exe)?;
+        report_associated(&r, &warnings, &exe);
+        println!(
+            "Double-click a .juizapp to run it in Terminal ({} opens it).",
+            apps.join(macos::APP_NAME).display()
+        );
+        println!(
+            "The first time, macOS asks whether JUIZ Launcher may control Terminal; allow it."
+        );
+        Ok(())
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let dirs = linux::Dirs::from_env()?;
+        let mut tools = tools::SystemTools;
+        if remove_flag {
+            let (removed, warnings) = linux::remove(&mut tools, &dirs)?;
+            report_removed(removed, &warnings);
+            return Ok(());
+        }
+        let exe = crate::package::depcheck::juiz_executable()?;
+        let (r, warnings) = linux::associate(&mut tools, &dirs, &exe)?;
+        report_associated(&r, &warnings, &exe);
+        println!(
+            "Double-click a .juizapp to run it in a terminal; use \"Open With\" > \"Install with juiz\" to install it."
+        );
+        Ok(())
+    }
+    #[cfg(not(any(windows, unix)))]
     {
         let _ = remove_flag;
-        juiz_core::anyhow::bail!(
-            "juiz associate is only available on Windows for now (macOS and Linux: issue #396)"
-        )
+        juiz_core::anyhow::bail!("juiz associate is not available on this OS")
+    }
+}
+
+fn report_warnings(warnings: &[String]) {
+    for w in warnings {
+        eprintln!("warning: {w}");
+    }
+}
+
+fn report_removed(removed: bool, warnings: &[String]) {
+    report_warnings(warnings);
+    if removed {
+        println!("Removed the association of .juizapp");
+    } else {
+        println!(".juizapp is not associated with juiz");
+    }
+}
+
+fn report_associated(r: &Associated, warnings: &[String], exe: &Path) {
+    report_warnings(warnings);
+    match r {
+        Associated::Unchanged => {
+            println!(".juizapp is already associated with {}", exe.display())
+        }
+        Associated::Replaced(prev) => {
+            println!(".juizapp was associated with {prev}; now {}", exe.display())
+        }
+        Associated::New => println!("Associated .juizapp with {}", exe.display()),
     }
 }
 

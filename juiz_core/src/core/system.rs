@@ -24,9 +24,14 @@ use super::system_store::{SystemStore, SystemStorePtr};
 
 type SpinCallbackFunctionType = dyn Fn() -> JuizResult<()>;
 
-/// [`System::wait_for_signal`] が待つ、止める合図。
+/// [`System::wait_for_signal`] が待つ、止める合図。端末を閉じたときの SIGHUP も止める合図にする
+/// (.juizapp をダブルクリックで開いた端末の窓を閉じたとき、docs/spec/app-package.md §17.4、#396)。
 #[cfg(not(windows))]
-const STOP_SIGNALS: &[i32] = &[signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM];
+const STOP_SIGNALS: &[i32] = &[
+    signal_hook::consts::SIGINT,
+    signal_hook::consts::SIGTERM,
+    signal_hook::consts::SIGHUP,
+];
 /// [`System::wait_for_signal`] が待つ、止める合図。Windows では Ctrl+Break の SIGBREAK も待つ (issue #307)。
 #[cfg(windows)]
 const STOP_SIGNALS: &[i32] = &[
@@ -336,7 +341,7 @@ impl System {
     }
 
     ///
-    /// 止める合図(SIGINT・SIGTERM、Windows ではこれに加えて Ctrl+Break の SIGBREAK)を待つ。
+    /// 止める合図(SIGINT・SIGTERM、Windows ではこれに加えて Ctrl+Break の SIGBREAK、ほかの OS では SIGHUP)を待つ。
     /// 待つ間はsleep_time秒だけsleepするたびにself.spin()を呼ぶ。
     ///
     /// SIGBREAK を受けないと、Windows の Ctrl+Break(`CREATE_NEW_PROCESS_GROUP` で起動した
