@@ -241,9 +241,9 @@ function Diagram({ model, serverUrl, selectedKey, onSelect, onChanged }: Props) 
     return () => window.clearTimeout(id);
   }, [notice]);
 
-  // 線を引いている間、つなげる先(別の処理・容器処理)の取っ手だけを受け付ける
+  // 線を引いている間、つなげる先(引数のある別の処理・容器処理)の取っ手だけを受け付ける
   const isValidConnection = useCallback<IsValidConnection<JuizEdge>>(
-    (c) => c.source !== c.target && !!asProcess(model, c.target),
+    (c) => c.source !== c.target && (asProcess(model, c.target)?.profile.arguments ?? []).length > 0,
     [model],
   );
 
@@ -260,6 +260,11 @@ function Diagram({ model, serverUrl, selectedKey, onSelect, onChanged }: Props) 
         ?.getAttribute("data-id");
       const destination = asProcess(model, state.toNode?.id ?? underPointer);
       if (!destination || destination.key === source.key) return;
+      // 引数の無い処理にはつなげない。メニューを出さずに知らせる
+      if ((destination.profile.arguments ?? []).length === 0) {
+        setNotice({ error: true, text: `${destination.fullName} には引数が無いので、つなげません` });
+        return;
+      }
       setNotice(null);
       setConnectRequest({ source, destination, x: at.x, y: at.y });
     },
