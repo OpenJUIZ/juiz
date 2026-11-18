@@ -232,7 +232,23 @@ export type BrokerProfile = ObjectProfile;
 export type TopicProfile = ProcessProfile;
 
 /** system/profile の core_store */
+/** 生成器(Factory)の profile。引数は種類ごとの入れ物(given_process_factory など)の中にある */
+export interface FactoryProfile {
+  type_name: string;
+  name?: string;
+  identifier?: string;
+  language?: string;
+  plugin?: { path?: string } | null;
+  given_process_factory?: { arguments?: ArgumentProfile[] };
+  container_factory?: { arguments?: ArgumentProfile[] };
+  container_process_factory?: { arguments?: ArgumentProfile[] };
+}
+
 export interface CoreStore {
+  /** 生成器。古い juiz では無い */
+  process_factories?: FactoryProfile[];
+  container_factories?: FactoryProfile[];
+  container_process_factories?: FactoryProfile[];
   processes: ProcessProfile[];
   containers: ContainerProfile[];
   container_processes: ContainerProcessProfile[];

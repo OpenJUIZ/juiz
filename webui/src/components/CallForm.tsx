@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import type { ArgumentProfile } from "../api/types.ts";
 import { JuizClient } from "../api/client.ts";
-import { initialValue, isObject, parseAvro, typeLabel, type AvroType } from "../avro.ts";
+import { initialValue, isObject, typeLabel, type AvroType } from "../avro.ts";
+import { argInitial, argType } from "../args.ts";
 import { descriptionText, type ProcessElement } from "../model.ts";
 
 // 処理を呼ぶフォーム(#197)。型付きの引数は型参照の Avro のスキーマから、
@@ -17,33 +17,6 @@ interface Props {
   mode?: "call" | "p_apply";
   /** 呼び出せた・拘束できたとき */
   onDone?: () => void;
-}
-
-/** 型なしの引数の type_name を型にする。Array・Object は JSON で入力する */
-function untypedArgType(typeName: string): AvroType {
-  switch (typeName) {
-    case "Bool":
-      return { kind: "boolean" };
-    case "Int":
-      return { kind: "long" };
-    case "Float":
-      return { kind: "double" };
-    case "String":
-      return { kind: "string" };
-    case "Image":
-      return { kind: "image" };
-    default:
-      return { kind: "any" };
-  }
-}
-
-function argType(a: ArgumentProfile): AvroType {
-  return a.schema ? parseAvro(a.schema.avro) : untypedArgType(a.type_name);
-}
-
-/** 引数の初期値。manifest の既定値(辞書の表し方)があればそれ */
-function argInitial(a: ArgumentProfile, t: AvroType): unknown {
-  return a.default !== undefined && a.default !== null ? a.default : initialValue(t);
 }
 
 type Result = { value: unknown } | { image: string } | { error: string };
