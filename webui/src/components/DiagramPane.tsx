@@ -286,26 +286,35 @@ function Diagram({ model, serverUrl, selectedKey, onSelect, onChanged }: Props) 
   const closeConnectMenu = useCallback(() => setConnectRequest(null), []);
 
   // 接続の線を選んで Delete(または Backspace)で外す。入力欄で打っているときは除く
-  const selectedConnection = selectedKey ? model?.elements.get(selectedKey) : undefined;
+  // 線の「切断」ボタン、または線を選んで Delete から呼ぶ
+  const disconnect = useCallback(
+    (key: string) => {
+      const c = model?.elements.get(key);
+      if (c?.kind !== "connection") return;
+      new JuizClient(serverUrl)
+        .connectionDestroy(c.identifier)
+        .then(() => {
+          setNotice({ error: false, text: `${c.name} を切断しました` });
+          onSelect(null);
+          onChanged();
+        })
+        .catch((err: unknown) => setNotice({ error: true, text: `切断できませんでした: ${(err as Error).message}` }));
+    },
+    [model, serverUrl, onSelect, onChanged],
+  );
+  const selectedConnectionKey = selectedKey && model?.elements.get(selectedKey)?.kind === "connection" ? selectedKey : null;
   useEffect(() => {
-    if (selectedConnection?.kind !== "connection") return;
+    if (!selectedConnectionKey) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Delete" && e.key !== "Backspace") return;
       const t = e.target as HTMLElement | null;
       if (t && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName))) return;
       e.preventDefault();
-      new JuizClient(serverUrl)
-        .connectionDestroy(selectedConnection.identifier)
-        .then(() => {
-          setNotice({ error: false, text: `${selectedConnection.name} を外しました` });
-          onSelect(null);
-          onChanged();
-        })
-        .catch((err: unknown) => setNotice({ error: true, text: `外せませんでした: ${(err as Error).message}` }));
+      disconnect(selectedConnectionKey);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectedConnection, serverUrl, onSelect, onChanged]);
+  }, [selectedConnectionKey, disconnect]);
 
   // ---- 照準の輪のメニュー(呼びだし・部分拘束・削除) ----
   const [dialog, setDialog] = useState<{ key: string; mode: "call" | "p_apply" } | null>(null);
@@ -326,8 +335,9 @@ function Diagram({ model, serverUrl, selectedKey, onSelect, onChanged }: Props) 
           })
           .catch((err: unknown) => setNotice({ error: true, text: `削除できませんでした: ${(err as Error).message}` }));
       },
+      disconnect,
     }),
-    [model, serverUrl, onSelect, onChanged],
+    [model, serverUrl, onSelect, onChanged, disconnect],
   );
   const dialogElement = asProcess(model, dialog?.key);
   const closeDialog = useCallback(() => setDialog(null), []);

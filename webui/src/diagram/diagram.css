@@ -557,7 +557,10 @@
   z-index: 50;
   min-width: 220px;
   max-width: 360px;
-  transform: translate(8px, 8px);
+  /* 引数が多くても画面に収め、中を巻き取る */
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  box-sizing: border-box;
   padding: 8px 0 6px;
   border: 1px solid var(--kind-connection);
   background: var(--bg-pane);
@@ -760,4 +763,24 @@
     animation: none;
     transition: none;
   }
+}
+
+/* 選んだ接続の線の中ほどに出す「切断」ボタン */
+.dedge-disconnect {
+  position: absolute;
+  pointer-events: all;
+  padding: 1px 8px;
+  border: 1px solid var(--error);
+  background: rgba(0, 0, 0, 0.8);
+  color: var(--error);
+  font-size: 12px;
+  cursor: pointer;
+  animation: reticle-fade-in 160ms ease-out both;
+}
+
+.dedge-disconnect:hover,
+.dedge-disconnect:focus-visible {
+  color: #000;
+  background: var(--error);
+  box-shadow: 0 0 8px var(--error);
 }
