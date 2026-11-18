@@ -505,7 +505,8 @@ button.elem-link:hover {
   margin-top: 4px;
 }
 
-.dialog .hint {
+.dialog .hint,
+.props-pane .hint {
   font-size: 0.85em;
   color: var(--text-dim);
 }

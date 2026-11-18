@@ -219,7 +219,7 @@
   box-shadow: 0 0 8px var(--kind);
 }
 
-/* 段階1は表示だけなので接続の口は見せない */
+/* 取っ手はふだん見せない。線の端の位置にだけ使う */
 .dnode .react-flow__handle {
   opacity: 0;
   border: none;
@@ -227,6 +227,40 @@
   height: 2px;
   min-width: 0;
   min-height: 0;
+}
+
+/*
+ * 処理の出力の取っ手(右端)。ここからドラッグして別の処理へつなぐ。
+ * 掴みやすいよう大きめにとり、要素に重ねたときだけ丸を見せる
+ */
+.dnode .react-flow__handle-right.connectablestart {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--bg);
+  border: 2px solid var(--kind);
+  box-shadow: 0 0 6px var(--kind);
+  cursor: crosshair;
+  transition: opacity 120ms ease-out;
+}
+
+.dnode:hover .react-flow__handle-right.connectablestart,
+.react-flow__handle-right.connectablestart.connectingfrom {
+  opacity: 1;
+}
+
+/* 線を引いている間、つなげる先の入口(左端)を示す */
+.react-flow.connecting .dnode .react-flow__handle-left.connectableend,
+.dnode .react-flow__handle-left.connectingto {
+  opacity: 1;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--kind);
+}
+
+.dnode .react-flow__handle-left.connectingto.valid {
+  box-shadow: 0 0 10px var(--kind);
 }
 
 /* ---- 照準の輪 ---- */
@@ -514,4 +548,134 @@
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+/* ---- 接続を作る(引数を選ぶメニューと、結果の知らせ) ---- */
+
+.connect-menu {
+  position: fixed;
+  z-index: 50;
+  min-width: 220px;
+  max-width: 360px;
+  transform: translate(8px, 8px);
+  padding: 8px 0 6px;
+  border: 1px solid var(--kind-connection);
+  background: var(--bg-pane);
+  box-shadow: 0 0 12px rgba(201, 214, 219, 0.3);
+  font-size: 13px;
+}
+
+.connect-menu-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 6px;
+  padding: 0 12px 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.connect-menu-from {
+  color: var(--kind-process);
+}
+
+.connect-menu-to {
+  color: var(--kind-process);
+  font-weight: bold;
+}
+
+.connect-menu-type,
+.connect-arg-type {
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+.connect-menu-arrow {
+  color: var(--text-dim);
+}
+
+.connect-menu-kind {
+  display: flex;
+  gap: 4px;
+  padding: 6px 12px;
+}
+
+.connect-menu-kind button {
+  padding: 1px 10px;
+}
+
+.connect-menu-kind button[aria-checked="true"] {
+  color: #000;
+  background: var(--kind-connection);
+  border-color: var(--kind-connection);
+}
+
+.connect-menu ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.connect-arg {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 12px;
+  border: none;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.connect-arg:hover,
+.connect-arg:focus-visible {
+  background: var(--bg-raised);
+  outline: 1px solid var(--kind-connection);
+  outline-offset: -1px;
+}
+
+.connect-arg-name {
+  font-weight: bold;
+}
+
+.connect-arg-state,
+.connect-arg-warn {
+  margin-left: auto;
+  font-size: 0.85em;
+  color: var(--text-dim);
+}
+
+.connect-arg-warn {
+  color: var(--kind-ec);
+}
+
+.connect-arg-state + .connect-arg-warn {
+  margin-left: 0;
+}
+
+.connect-menu-empty {
+  padding: 6px 12px;
+  color: var(--text-dim);
+}
+
+.diagram-notice {
+  padding: 4px 12px;
+  border: 1px solid var(--ok);
+  background: var(--bg-pane);
+  color: var(--ok);
+  font-size: 13px;
+  max-width: 60%;
+}
+
+.diagram-notice.error {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dnode .react-flow__handle-right.connectablestart {
+    transition: none;
+  }
 }

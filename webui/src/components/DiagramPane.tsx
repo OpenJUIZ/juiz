@@ -4,6 +4,8 @@ import {
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
+  type FinalConnectionState,
+  type IsValidConnection,
   type NodeChange,
 } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -15,7 +17,9 @@ import { RETICLE_CLOSE_MS, prefersReducedMotion } from "../diagram/motion.ts";
 import { JuizNodeView, SystemFrameView, type JuizNode, type SystemFrameNode } from "../diagram/nodes.tsx";
 import { loadPositions, savePositions, type SavedPositions } from "../diagram/positions.ts";
 import "../diagram/diagram.css";
-import type { Model } from "../model.ts";
+import { JuizClient } from "../api/client.ts";
+import type { Model, ProcessElement } from "../model.ts";
+import { ConnectMenu, type ConnectRequest } from "./ConnectMenu.tsx";
 
 interface Props {
   model: Model | null;
@@ -23,6 +27,8 @@ interface Props {
   serverUrl: string;
   selectedKey: string | null;
   onSelect: (key: string | null) => void;
+  /** 接続を作った・外した後に、系の様子を取り直す */
+  onChanged: () => void;
 }
 
 const nodeTypes = { juiz: JuizNodeView, systemFrame: SystemFrameView };
@@ -50,7 +56,19 @@ export function DiagramPane(props: Props) {
   );
 }
 
-function Diagram({ model, serverUrl, selectedKey, onSelect }: Props) {
+/** 引数へつなげる要素(処理と容器処理) */
+function asProcess(model: Model | null, key: string | null | undefined): ProcessElement | null {
+  const e = key ? model?.elements.get(key) : undefined;
+  return e && (e.kind === "process" || e.kind === "containerProcess") ? e : null;
+}
+
+/** ポインタの位置(マウスとタッチの両方) */
+function pointerOf(event: MouseEvent | TouchEvent): { x: number; y: number } {
+  const t = "changedTouches" in event ? event.changedTouches[0] : undefined;
+  return t ? { x: t.clientX, y: t.clientY } : { x: (event as MouseEvent).clientX, y: (event as MouseEvent).clientY };
+}
+
+function Diagram({ model, serverUrl, selectedKey, onSelect, onChanged }: Props) {
   const { fitView } = useReactFlow();
   const graph = useMemo(() => buildGraph(model?.root ?? null), [model]);
 
@@ -206,6 +224,82 @@ function Diagram({ model, serverUrl, selectedKey, onSelect }: Props) {
     [saved],
   );
 
+  // ---- 図の上で接続を作る・外す ----
+  const [connectRequest, setConnectRequest] = useState<ConnectRequest | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<{ error: boolean; text: string } | null>(null);
+  useEffect(() => {
+    if (!notice) return;
+    const id = window.setTimeout(() => setNotice(null), notice.error ? 8000 : 3000);
+    return () => window.clearTimeout(id);
+  }, [notice]);
+
+  // 線を引いている間、つなげる先(別の処理・容器処理)の取っ手だけを受け付ける
+  const isValidConnection = useCallback<IsValidConnection<JuizEdge>>(
+    (c) => c.source !== c.target && !!asProcess(model, c.target),
+    [model],
+  );
+
+  // 処理の出力の取っ手から引いた線を、別の処理の上で離したら、つなぐ引数を選ぶメニューを出す。
+  // 取っ手の上でなくても、要素の上で離せばよい
+  const onConnectEnd = useCallback(
+    (event: MouseEvent | TouchEvent, state: FinalConnectionState) => {
+      const source = asProcess(model, state.fromNode?.id);
+      if (!source) return;
+      const at = pointerOf(event);
+      const underPointer = document
+        .elementFromPoint(at.x, at.y)
+        ?.closest<HTMLElement>(".react-flow__node")
+        ?.getAttribute("data-id");
+      const destination = asProcess(model, state.toNode?.id ?? underPointer);
+      if (!destination || destination.key === source.key) return;
+      setNotice(null);
+      setConnectRequest({ source, destination, x: at.x, y: at.y });
+    },
+    [model],
+  );
+
+  const createConnection = useCallback(
+    (argName: string, connectionType: "push" | "pull") => {
+      if (!connectRequest) return;
+      const { source, destination } = connectRequest;
+      setBusy(true);
+      new JuizClient(serverUrl)
+        .connectionCreate(source.identifier, destination.identifier, argName, connectionType)
+        .then(() => {
+          setNotice({ error: false, text: `${source.fullName} → ${destination.fullName}.${argName} をつなぎました` });
+          setConnectRequest(null);
+          onChanged();
+        })
+        .catch((e: unknown) => setNotice({ error: true, text: `つなげませんでした: ${(e as Error).message}` }))
+        .finally(() => setBusy(false));
+    },
+    [connectRequest, serverUrl, onChanged],
+  );
+  const closeConnectMenu = useCallback(() => setConnectRequest(null), []);
+
+  // 接続の線を選んで Delete(または Backspace)で外す。入力欄で打っているときは除く
+  const selectedConnection = selectedKey ? model?.elements.get(selectedKey) : undefined;
+  useEffect(() => {
+    if (selectedConnection?.kind !== "connection") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName))) return;
+      e.preventDefault();
+      new JuizClient(serverUrl)
+        .connectionDestroy(selectedConnection.identifier)
+        .then(() => {
+          setNotice({ error: false, text: `${selectedConnection.name} を外しました` });
+          onSelect(null);
+          onChanged();
+        })
+        .catch((err: unknown) => setNotice({ error: true, text: `外せませんでした: ${(err as Error).message}` }));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedConnection, serverUrl, onSelect, onChanged]);
+
   const resetLayout = useCallback(() => {
     savePositions(serverUrl, {});
     setSaved({ serverUrl, positions: {} });
@@ -213,39 +307,53 @@ function Diagram({ model, serverUrl, selectedKey, onSelect }: Props) {
   }, [serverUrl, fitView]);
 
   return (
-    <ReactFlow<DiagramFlowNode, JuizEdge>
-      nodes={nodes}
-      edges={edges}
-      nodeTypes={nodeTypes}
-      edgeTypes={edgeTypes}
-      onNodesChange={onNodesChange}
-      onNodeClick={(_, n) => onSelect(n.id)}
-      onEdgeClick={(_, e) => {
-        const key = graph.edges.find((g) => g.id === e.id)?.selectKey;
-        if (key) onSelect(key);
-      }}
-      onPaneClick={() => onSelect(null)}
-      nodesConnectable={false}
-      elementsSelectable={false}
-      minZoom={0.1}
-      maxZoom={3}
-      colorMode="dark"
-      proOptions={{ hideAttribution: true }}
-    >
-      <CurvedGrid />
-      <div className="diagram-vignette" />
-      <Panel position="top-right" className="diagram-tools">
-        <button type="button" onClick={resetLayout} title="手で動かした位置を消して自動配置に戻す">
-          自動配置
-        </button>
-        <button type="button" onClick={() => void fitView({ padding: 0.25, duration: 300 })}>
-          全体
-        </button>
-      </Panel>
-      <Panel position="bottom-left" className="diagram-legend">
-        <Legend />
-      </Panel>
-    </ReactFlow>
+    <>
+      <ReactFlow<DiagramFlowNode, JuizEdge>
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
+        onNodesChange={onNodesChange}
+        onNodeClick={(_, n) => onSelect(n.id)}
+        onEdgeClick={(_, e) => {
+          const key = graph.edges.find((g) => g.id === e.id)?.selectKey;
+          if (key) onSelect(key);
+        }}
+        onPaneClick={() => onSelect(null)}
+        nodesConnectable
+        isValidConnection={isValidConnection}
+        onConnectEnd={onConnectEnd}
+        connectionRadius={28}
+        connectionLineStyle={{ stroke: "var(--kind-connection)", strokeWidth: 2 }}
+        elementsSelectable={false}
+        minZoom={0.1}
+        maxZoom={3}
+        colorMode="dark"
+        proOptions={{ hideAttribution: true }}
+      >
+        <CurvedGrid />
+        <div className="diagram-vignette" />
+        <Panel position="top-right" className="diagram-tools">
+          <button type="button" onClick={resetLayout} title="手で動かした位置を消して自動配置に戻す">
+            自動配置
+          </button>
+          <button type="button" onClick={() => void fitView({ padding: 0.25, duration: 300 })}>
+            全体
+          </button>
+        </Panel>
+        <Panel position="bottom-left" className="diagram-legend">
+          <Legend />
+        </Panel>
+        {notice && (
+          <Panel position="top-center" className={`diagram-notice${notice.error ? " error" : ""}`}>
+            <span role="status">{notice.text}</span>
+          </Panel>
+        )}
+      </ReactFlow>
+      {connectRequest && (
+        <ConnectMenu request={connectRequest} busy={busy} onConnect={createConnection} onClose={closeConnectMenu} />
+      )}
+    </>
   );
 }
 

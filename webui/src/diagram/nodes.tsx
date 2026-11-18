@@ -42,9 +42,11 @@ export function JuizNodeView({ data, width, height, selected }: NodeProps<JuizNo
   const w = width ?? 0;
   const h = height ?? 0;
   const reticle = useReticlePresence(!!selected);
+  // 処理と容器処理は、右端(出力)から別の処理へ線を引いて接続を作れる
+  const connectable = data.kind === "process" || data.kind === "containerProcess";
   return (
     <div className={`dnode dnode-${data.kind}`} style={{ width: w, height: h }}>
-      <Handle type="target" position={Position.Left} isConnectable={false} />
+      <Handle type="target" position={Position.Left} isConnectable={connectable} isConnectableStart={false} />
       {data.kind === "process" || data.kind === "containerProcess" ? (
         <ProcessShape data={data} w={w} h={h} />
       ) : data.kind === "ec" ? (
@@ -65,7 +67,9 @@ export function JuizNodeView({ data, width, height, selected }: NodeProps<JuizNo
       <Handle
         type="source"
         position={Position.Right}
-        isConnectable={false}
+        isConnectable={connectable}
+        isConnectableEnd={false}
+        title={connectable ? "ドラッグして別の処理につなぐ" : undefined}
         style={data.kind === "ec" ? { top: EC_RUNNING_Y } : undefined}
       />
       {reticle && <Reticle data={data} w={w} h={h} closing={reticle === "closing"} />}

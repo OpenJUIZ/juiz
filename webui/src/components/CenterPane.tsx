@@ -23,6 +23,8 @@ interface Props {
   serverUrl: string;
   selectedKey: string | null;
   onSelect: (key: string | null) => void;
+  /** 図の上で接続を作った・外した後に、系の様子を取り直す */
+  onChanged: () => void;
 }
 
 export function CenterPane(props: Props) {

@@ -83,6 +83,7 @@ export default function App() {
         serverUrl={settings.serverUrl}
         selectedKey={selectedKey}
         onSelect={(key) => (key ? select(key) : setSelectedKey(null))}
+        onChanged={refresh}
       />
       <PropertyPane model={model} selectedKey={selectedKey} onSelect={select} serverUrl={settings.serverUrl} />
       {settingsOpen && (
