@@ -230,36 +230,71 @@
 }
 
 /*
- * 処理の出力の取っ手(右端)。ここからドラッグして別の処理へつなぐ。
- * 掴みやすいよう大きめにとり、要素に重ねたときだけ丸を見せる
+ * 取っ手そのものは 2px のまま図形の縁に置き、線の端が図形に付くようにする。
+ * 楕円は縁から 2px 内側に描いているので、処理・容器処理の左右の取っ手も 2px 内へ寄せる
  */
-.dnode .react-flow__handle-right.connectablestart {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--bg);
-  border: 2px solid var(--kind);
-  box-shadow: 0 0 6px var(--kind);
+.dnode-process .react-flow__handle-left,
+.dnode-containerProcess .react-flow__handle-left {
+  left: 2px;
+}
+
+.dnode-process .react-flow__handle-right,
+.dnode-containerProcess .react-flow__handle-right {
+  right: 2px;
+}
+
+/*
+ * 処理の出力の取っ手(右端)。ここからドラッグして別の処理へつなぐ。
+ * 見た目と掴む範囲は ::after の丸で広げる(取っ手の大きさを変えると線の端がずれる)。
+ * 要素に重ねたときだけ丸を見せる
+ */
+.dnode .react-flow__handle-right.connectable.connectablestart {
+  overflow: visible;
   cursor: crosshair;
   transition: opacity 120ms ease-out;
 }
 
-.dnode:hover .react-flow__handle-right.connectablestart,
-.react-flow__handle-right.connectablestart.connectingfrom {
+.dnode .react-flow__handle-right.connectable.connectablestart::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  box-sizing: border-box;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: var(--bg);
+  border: 2px solid var(--kind);
+  box-shadow: 0 0 6px var(--kind);
+}
+
+.dnode:hover .react-flow__handle-right.connectable.connectablestart,
+.react-flow__handle-right.connectable.connectablestart.connectingfrom {
   opacity: 1;
 }
 
-/* 線を引いている間、つなげる先の入口(左端)を示す */
-.react-flow.connecting .dnode .react-flow__handle-left.connectableend,
+/* 線を引いている間、つなげる先の入口(左端)を丸で示す */
+.react-flow.connecting .dnode .react-flow__handle-left.connectable.connectableend,
 .dnode .react-flow__handle-left.connectingto {
   opacity: 1;
+  overflow: visible;
+}
+
+.react-flow.connecting .dnode .react-flow__handle-left.connectable.connectableend::after,
+.dnode .react-flow__handle-left.connectingto::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
   width: 10px;
   height: 10px;
+  transform: translate(-50%, -50%);
   border-radius: 50%;
   background: var(--kind);
 }
 
-.dnode .react-flow__handle-left.connectingto.valid {
+.dnode .react-flow__handle-left.connectingto.valid::after {
   box-shadow: 0 0 10px var(--kind);
 }
 
@@ -678,7 +713,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .dnode .react-flow__handle-right.connectablestart {
+  .dnode .react-flow__handle-right.connectable.connectablestart {
     transition: none;
   }
 }
