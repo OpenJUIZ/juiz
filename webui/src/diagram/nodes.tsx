@@ -1,6 +1,8 @@
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
+import { useEffect, useState } from "react";
 import { ecStateLabel, formatValue, shortValue } from "../labels.ts";
 import { TERMS, type TermKey } from "../terms.ts";
+import { RETICLE_CLOSE_MS, prefersReducedMotion } from "./motion.ts";
 import type { ArgInfo, DiagramNodeData, DiagramNodeKind } from "./graph.ts";
 
 export type JuizNode = Node<DiagramNodeData, "juiz">;
@@ -16,10 +18,30 @@ const KIND_TERM: Record<DiagramNodeKind, TermKey> = {
 /** 実行文脈の「実行中」の枠の中心の高さ。ここから対象の処理へ矢印を出す */
 const EC_RUNNING_Y = 77;
 
+/**
+ * 照準の輪を出すかどうか。選ばれていれば "open"、選択が外れてから閉じるアニメーションの間は "closing"、
+ * それ以外は null(輪を外す)
+ */
+function useReticlePresence(selected: boolean): "open" | "closing" | null {
+  const [wasSelected, setWasSelected] = useState(selected);
+  const [closing, setClosing] = useState(false);
+  if (selected !== wasSelected) {
+    setWasSelected(selected);
+    setClosing(!selected && !prefersReducedMotion());
+  }
+  useEffect(() => {
+    if (!closing) return;
+    const id = window.setTimeout(() => setClosing(false), RETICLE_CLOSE_MS);
+    return () => window.clearTimeout(id);
+  }, [closing]);
+  return selected ? "open" : closing ? "closing" : null;
+}
+
 /** 図の要素。種類ごとの図形を描き、選ばれていれば照準の輪を重ねる */
 export function JuizNodeView({ data, width, height, selected }: NodeProps<JuizNode>) {
   const w = width ?? 0;
   const h = height ?? 0;
+  const reticle = useReticlePresence(!!selected);
   return (
     <div className={`dnode dnode-${data.kind}`} style={{ width: w, height: h }}>
       <Handle type="target" position={Position.Left} isConnectable={false} />
@@ -39,7 +61,7 @@ export function JuizNodeView({ data, width, height, selected }: NodeProps<JuizNo
         isConnectable={false}
         style={data.kind === "ec" ? { top: EC_RUNNING_Y } : undefined}
       />
-      {selected && <Reticle data={data} w={w} h={h} />}
+      {reticle && <Reticle data={data} w={w} h={h} closing={reticle === "closing"} />}
     </div>
   );
 }
@@ -94,8 +116,10 @@ const ARG_SPAN: [number, number] = [128, 232];
 /**
  * 選んだ要素に重ねる照準の輪(#111)。目盛り付きの輪、回る弧、引き出し線の先の「種類 "名前"」。
  * 処理なら輪の左に引数ごとの弧、右に出力の弧を出し、未接続・接続あり・拘束中を弧の塗りで分ける。
+ * 開くときは外から絞り込むように縮みながら現れ、引き出し線を伸ばしてから名前と引数の弧を出す。
+ * 閉じるときは広がりながら消える(diagram.css)。
  */
-function Reticle({ data, w, h }: { data: DiagramNodeData; w: number; h: number }) {
+function Reticle({ data, w, h, closing }: { data: DiagramNodeData; w: number; h: number; closing: boolean }) {
   const r = Math.max(w, h) / 2 + 30;
   const pad = 140;
   const size = 2 * (r + pad);
@@ -106,9 +130,11 @@ function Reticle({ data, w, h }: { data: DiagramNodeData; w: number; h: number }
   const ly1 = ly0 - 26;
   const term = TERMS[KIND_TERM[data.kind]];
   const isProcess = data.kind === "process" || data.kind === "containerProcess";
+  // 引き出し線の長さ。伸びるアニメーションの破線の長さに使う
+  const leaderLength = Math.hypot(lx1 - lx0, ly1 - ly0) + 120;
   return (
     <svg
-      className="reticle"
+      className={`reticle${closing ? " closing" : ""}`}
       width={size}
       height={size}
       style={{ left: w / 2 - c, top: h / 2 - c }}
@@ -128,7 +154,11 @@ function Reticle({ data, w, h }: { data: DiagramNodeData; w: number; h: number }
         ))}
       </g>
       {isProcess && <ArgArcs args={data.args ?? []} outputConnected={!!data.outputConnected} c={c} r={r + 22} />}
-      <polyline className="reticle-leader" points={`${lx0},${ly0} ${lx1},${ly1} ${lx1 + 120},${ly1}`} />
+      <polyline
+        className="reticle-leader"
+        points={`${lx0},${ly0} ${lx1},${ly1} ${lx1 + 120},${ly1}`}
+        style={{ strokeDasharray: leaderLength, ["--leader-length" as string]: `${leaderLength}` }}
+      />
       <text className="reticle-caption" x={lx1 + 4} y={ly1 - 6}>
         {term.ja} "{data.name}"
       </text>
@@ -147,7 +177,7 @@ function ArgArcs({ args, outputConnected, c, r }: { args: ArgInfo[]; outputConne
   const [from, to] = ARG_SPAN;
   const seg = args.length > 0 ? (to - from) / args.length : 0;
   return (
-    <g>
+    <g className="reticle-ports">
       {args.map((a, i) => {
         const a0 = from + i * seg + 2;
         const a1 = from + (i + 1) * seg - 2;

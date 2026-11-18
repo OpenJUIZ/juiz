@@ -11,6 +11,7 @@ import { CurvedGrid } from "../diagram/CurvedGrid.tsx";
 import { JuizEdgeView, type JuizEdge } from "../diagram/edges.tsx";
 import { buildGraph, frameMinWidth, type DiagramEdgeKind, type DiagramGraph } from "../diagram/graph.ts";
 import { EMPTY_FRAME_HEIGHT, GROUP_PADDING, layoutGraph, type XY } from "../diagram/layout.ts";
+import { RETICLE_CLOSE_MS, prefersReducedMotion } from "../diagram/motion.ts";
 import { JuizNodeView, SystemFrameView, type JuizNode, type SystemFrameNode } from "../diagram/nodes.tsx";
 import { loadPositions, savePositions, type SavedPositions } from "../diagram/positions.ts";
 import "../diagram/diagram.css";
@@ -84,6 +85,19 @@ function Diagram({ model, serverUrl, selectedKey, onSelect }: Props) {
   }));
   if (saved.serverUrl !== serverUrl) setSaved({ serverUrl, positions: loadPositions(serverUrl) });
 
+  // 選択が外れた要素。照準の輪が閉じるアニメーションの間は、他の要素の下に隠れないよう前に出しておく
+  const [lastSelected, setLastSelected] = useState(selectedKey);
+  const [closingKey, setClosingKey] = useState<string | null>(null);
+  if (lastSelected !== selectedKey) {
+    setLastSelected(selectedKey);
+    setClosingKey(prefersReducedMotion() ? null : lastSelected);
+  }
+  useEffect(() => {
+    if (!closingKey) return;
+    const id = window.setTimeout(() => setClosingKey(null), RETICLE_CLOSE_MS);
+    return () => window.clearTimeout(id);
+  }, [closingKey]);
+
   const nodes = useMemo<DiagramFlowNode[]>(() => {
     const elementNodes: JuizNode[] = graph.nodes.map((n) => ({
       id: n.id,
@@ -98,7 +112,7 @@ function Diagram({ model, serverUrl, selectedKey, onSelect }: Props) {
       measured: { width: n.width, height: n.height },
       selected: n.id === selectedKey,
       // 照準の輪が他の要素の下に隠れないようにする
-      zIndex: n.id === selectedKey ? 10 : 0,
+      zIndex: n.id === selectedKey ? 10 : n.id === closingKey ? 9 : 0,
       // 配置が済むまでは出さない(左上に重なって見えるのを避ける)
       hidden: !saved.positions[n.id] && !auto?.positions[n.id],
     }));
@@ -144,7 +158,7 @@ function Diagram({ model, serverUrl, selectedKey, onSelect }: Props) {
       ];
     });
     return [...frames, ...elementNodes];
-  }, [graph, saved, auto, selectedKey]);
+  }, [graph, saved, auto, selectedKey, closingKey]);
 
   const edges = useMemo<JuizEdge[]>(
     () =>
