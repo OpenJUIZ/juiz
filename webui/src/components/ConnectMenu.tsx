@@ -1,5 +1,5 @@
 // 図の上で処理の出力を別の処理へドラッグしたときに出す、つなぐ引数を選ぶメニュー。
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ProcessElement } from "../model.ts";
 
 export interface ConnectRequest {
@@ -26,6 +26,21 @@ export function ConnectMenu({ request, busy, onConnect, onClose }: Props) {
   const { source, destination, x, y } = request;
   const [connectionType, setConnectionType] = useState<"push" | "pull">("push");
   const ref = useRef<HTMLDivElement>(null);
+  // 画面の端からはみ出さない位置。離した点の右下に出し、入らなければ左や上へずらす
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const margin = 8;
+    const { width, height } = el.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let left = x + margin;
+    let top = y + margin;
+    if (left + width > vw - margin) left = Math.max(margin, x - margin - width);
+    if (top + height > vh - margin) top = Math.max(margin, vh - margin - height);
+    setPos({ left, top });
+  }, [x, y]);
   const args = destination.profile.arguments ?? [];
   const connectedArgs = new Set(destination.inputs.map((c) => c.profile.arg_name));
   const subscribed = new Set(Object.keys(destination.profile.subscribes ?? {}));
@@ -53,7 +68,14 @@ export function ConnectMenu({ request, busy, onConnect, onClose }: Props) {
   }, []);
 
   return (
-    <div ref={ref} className="connect-menu" style={{ left: x, top: y }} role="dialog" aria-label="つなぐ引数を選ぶ">
+    <div
+      ref={ref}
+      className="connect-menu"
+      // 測るまでは見せない(はみ出した位置で一瞬見えないように)
+      style={pos ? { left: pos.left, top: pos.top } : { left: x, top: y, visibility: "hidden" }}
+      role="dialog"
+      aria-label="つなぐ引数を選ぶ"
+    >
       <div className="connect-menu-head">
         <span className="connect-menu-from">{source.fullName}</span>
         {outType && <span className="connect-menu-type">{outType}</span>}

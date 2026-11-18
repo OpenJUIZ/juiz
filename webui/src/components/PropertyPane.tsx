@@ -593,7 +593,7 @@ function ConnectionBody({ element: e, model, onSelect }: BodyProps<ConnectionEle
           ["識別子", <Mono>{e.identifier}</Mono>],
         ]}
       />
-      <p className="hint">図でこの線を選んだまま Delete キーを押すと、接続を外せます。</p>
+      <p className="hint">図でこの線を選ぶと出る「切断」ボタンか、Delete キーで接続を外せます。</p>
     </Section>
   );
 }

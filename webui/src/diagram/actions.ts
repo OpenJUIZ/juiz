@@ -8,6 +8,8 @@ export interface DiagramActions {
   partialApply: (key: string) => void;
   /** 要素を消す(処理・容器処理・容器の destroy) */
   remove: (key: string) => void;
+  /** 接続を外す(connection の destroy)。key は接続の要素の鍵 */
+  disconnect: (key: string) => void;
 }
 
 export const DiagramActionsContext = createContext<DiagramActions | null>(null);

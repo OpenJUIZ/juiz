@@ -1,4 +1,6 @@
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, type Edge, type EdgeProps } from "@xyflow/react";
+import { useContext } from "react";
+import { DiagramActionsContext } from "./actions.ts";
 import type { DiagramEdgeData } from "./graph.ts";
 
 export type JuizEdge = Edge<DiagramEdgeData, "juiz">;
@@ -14,7 +16,10 @@ export type JuizEdge = Edge<DiagramEdgeData, "juiz">;
 export function JuizEdgeView(props: EdgeProps<JuizEdge>) {
   const { id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, markerEnd, selected, data } = props;
   const kind = data?.kind ?? "push";
-  const [path] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
+  const [path, midX, midY] = getBezierPath({ sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition });
+  const actions = useContext(DiagramActionsContext);
+  // 選んだ接続(押込・引込)の線の中ほどに「切断」ボタンを出す
+  const canDisconnect = selected && (kind === "push" || kind === "pull") && !!actions;
   return (
     <>
       <path d={path} className={`dedge dedge-${kind} dedge-glow${selected ? " selected" : ""}`} />
@@ -26,6 +31,22 @@ export function JuizEdgeView(props: EdgeProps<JuizEdge>) {
         interactionWidth={16}
       />
       {kind === "instrument" && <circle className="dedge-instrument-end" cx={targetX} cy={targetY} r={5} />}
+      {canDisconnect && (
+        <EdgeLabelRenderer>
+          <button
+            type="button"
+            className="dedge-disconnect nodrag nopan"
+            style={{ transform: `translate(-50%, -50%) translate(${midX}px, ${midY}px)` }}
+            title="この接続を外す(Delete キーでも外せます)"
+            onClick={(e) => {
+              e.stopPropagation();
+              actions.disconnect(id);
+            }}
+          >
+            切断
+          </button>
+        </EdgeLabelRenderer>
+      )}
       {data?.label && (
         <EdgeLabelRenderer>
           <div
