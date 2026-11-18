@@ -5,6 +5,12 @@
 
 import type { ProcessElement, SystemModel } from "../model.ts";
 
+/**
+ * 容器処理の上下の取っ手の id。容器からの道具リンク(instrument)は、容器が上にあれば上、下にあれば下につなぐ。
+ * 引数の線と同じ左端につなぐと入力と見分けにくいため
+ */
+export const TOOL_HANDLE = { top: "tool-top", bottom: "tool-bottom" } as const;
+
 export type DiagramNodeKind = "process" | "containerProcess" | "container" | "ec" | "topic";
 
 /** 処理の引数。選択時の照準の輪に弧として出す */
