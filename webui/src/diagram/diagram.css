@@ -819,3 +819,24 @@
   background: var(--error);
   box-shadow: 0 0 8px var(--error);
 }
+
+.connect-menu-foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+  padding: 6px 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+/*
+ * 要素は選択を自前で持つ(elementsSelectable=false)ので、React Flow の「選べる要素の枠を消す」が効かない。
+ * 押したり線を引いたりした後にブラウザの青い枠が出ないようにし、キーボードで移ったときだけ控えめな枠を出す
+ */
+.react-flow__node:focus {
+  outline: none;
+}
+
+.react-flow__node:focus-visible .dnode {
+  outline: 1px dashed var(--kind);
+  outline-offset: 4px;
+}

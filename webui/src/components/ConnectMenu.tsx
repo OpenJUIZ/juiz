@@ -136,6 +136,11 @@ export function ConnectMenu({ request, busy, onConnect, onClose }: Props) {
           })}
         </ul>
       )}
+      <div className="connect-menu-foot">
+        <button type="button" onClick={onClose}>
+          やめる
+        </button>
+      </div>
     </div>
   );
 }
