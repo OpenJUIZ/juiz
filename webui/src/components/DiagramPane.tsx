@@ -92,6 +92,10 @@ function Diagram({ model, serverUrl, selectedKey, onSelect }: Props) {
       data: n.data,
       width: n.width,
       height: n.height,
+      // measured を渡さないと、節を作り直すたびに React Flow が取っ手の位置(handleBounds)を捨てて
+      // 測り直すまで線を描かない。Safari は同じ要素の ResizeObserver を付け直しても通知しないので、
+      // 動かした後に線が消えたままになる(#546)。大きさは決めているので、そのまま measured にする
+      measured: { width: n.width, height: n.height },
       selected: n.id === selectedKey,
       // 照準の輪が他の要素の下に隠れないようにする
       zIndex: n.id === selectedKey ? 10 : 0,
@@ -129,6 +133,7 @@ function Diagram({ model, serverUrl, selectedKey, onSelect }: Props) {
           position: { x: box.x, y: box.y },
           width: box.width,
           height: box.height,
+          measured: { width: box.width, height: box.height },
           data: { name: g.name, isRoot: g.isRoot, via: g.via, error: g.error },
           selected: g.id === selectedKey,
           draggable: false,
