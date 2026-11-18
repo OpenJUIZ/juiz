@@ -8,6 +8,7 @@ import { categoryKey, type Model } from "./model.ts";
 import { loadSettings, pollIntervalMs, saveSettings, type Settings } from "./settings.ts";
 import type { TermKey } from "./terms.ts";
 import { useSystemModel } from "./useSystemModel.ts";
+import { defaultPaneOpen, useLayoutMode, type LayoutMode } from "./useLayoutMode.ts";
 
 /** ツリーでその要素を見せるために開いておく節の鍵 */
 function ancestorKeys(model: Model, key: string): string[] {
@@ -37,6 +38,30 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+
+  // 左右の欄を出すか。画面の幅で並べ方が変わったら、その並べ方の初めの状態に戻す
+  const mode = useLayoutMode();
+  const [panes, setPanes] = useState<{ mode: LayoutMode; tree: boolean; props: boolean }>(() => ({
+    mode,
+    ...defaultPaneOpen(mode),
+  }));
+  if (panes.mode !== mode) setPanes({ mode, ...defaultPaneOpen(mode) });
+  const overlayTree = mode === "narrow";
+  const overlayProps = mode !== "wide";
+  const togglePane = useCallback(
+    (pane: "tree" | "props") =>
+      setPanes((p) => {
+        const next = { ...p, [pane]: !p[pane] };
+        // 狭い画面では引き出す欄は 1 つだけ
+        if (p.mode === "narrow" && next[pane]) next[pane === "tree" ? "props" : "tree"] = false;
+        return next;
+      }),
+    [],
+  );
+  const closeOverlays = useCallback(
+    () => setPanes((p) => ({ ...p, tree: overlayTree ? false : p.tree, props: overlayProps ? false : p.props })),
+    [overlayTree, overlayProps],
+  );
   const { model, error, updatedAt, refresh } = useSystemModel(
     settings.serverUrl,
     pollIntervalMs(settings),
@@ -61,20 +86,35 @@ export default function App() {
     [model],
   );
 
+  const appClass = [
+    "app",
+    `layout-${mode}`,
+    panes.tree ? "tree-open" : "tree-closed",
+    panes.props ? "props-open" : "props-closed",
+  ].join(" ");
+  const overlayOpen = (overlayTree && panes.tree) || (overlayProps && panes.props);
+
   return (
-    <div className="app">
+    <div className={appClass}>
       <TopBar
         settings={settings}
         error={error}
         updatedAt={updatedAt}
         onRefresh={refresh}
+        treeOpen={panes.tree}
+        propsOpen={panes.props}
+        onTogglePane={togglePane}
       />
       <TreePane
         model={model}
         error={error}
         selectedKey={selectedKey}
         collapsed={collapsed}
-        onSelect={select}
+        onSelect={(key) => {
+          select(key);
+          // 引き出したツリーから選んだら、ツリーを閉じて図と性質欄を見せる
+          if (overlayTree) setPanes((p) => ({ ...p, tree: false, props: true }));
+        }}
         onToggle={toggle}
         onOpenSettings={() => setSettingsOpen(true)}
       />
@@ -85,6 +125,7 @@ export default function App() {
         onSelect={(key) => (key ? select(key) : setSelectedKey(null))}
         onChanged={refresh}
       />
+      {overlayOpen && <div className="pane-backdrop" onClick={closeOverlays} aria-hidden="true" />}
       <PropertyPane model={model} selectedKey={selectedKey} onSelect={select} serverUrl={settings.serverUrl} />
       {settingsOpen && (
         <SettingsDialog

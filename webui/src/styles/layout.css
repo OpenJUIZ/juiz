@@ -1,12 +1,80 @@
 .app {
+  --tree-width: 280px;
+  --props-width: 340px;
   display: grid;
   grid-template-rows: auto 1fr;
-  grid-template-columns: 280px 1fr 340px;
+  grid-template-columns: var(--tree-width) minmax(0, 1fr) var(--props-width);
   grid-template-areas:
     "top top top"
     "tree diagram props";
   height: 100%;
+  overflow: hidden;
 }
+
+/*
+ * 左右の欄の出し入れ(上の帯の「系」「性質」)。
+ * 広い画面では横に並べ、しまえば図が広がる。狭い画面では図の上に引き出す(useLayoutMode.ts と境目を合わせる)
+ */
+.app.tree-closed {
+  --tree-width: 0px;
+}
+
+.app.props-closed {
+  --props-width: 0px;
+}
+
+.app.tree-closed .tree-pane,
+.app.props-closed .props-pane {
+  display: none;
+}
+
+/*
+ * 中くらいの画面: 性質欄は図の上に右から引き出す。狭い画面: 左右とも図の上に引き出す。
+ * 引き出す欄は、図と同じ格子の行に重ねて置く(grid の項目は重ねられる)
+ */
+.app.layout-medium {
+  --props-width: 0px;
+}
+
+.app.layout-narrow {
+  --tree-width: 0px;
+  --props-width: 0px;
+}
+
+.app.layout-medium .props-pane,
+.app.layout-narrow .props-pane,
+.app.layout-narrow .tree-pane {
+  grid-row: 2;
+  grid-column: 1 / -1;
+  z-index: 8;
+  box-shadow: 0 0 16px rgba(0, 0, 0, 0.8);
+}
+
+.app.layout-medium .props-pane,
+.app.layout-narrow .props-pane {
+  justify-self: end;
+  width: min(360px, 90vw);
+}
+
+.app.layout-narrow .tree-pane {
+  justify-self: start;
+  width: min(300px, 85vw);
+}
+
+/* 引き出した欄の外を押すと閉じる */
+.pane-backdrop {
+  grid-row: 2;
+  grid-column: 1 / -1;
+  z-index: 7;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.pane-toggle[aria-pressed="true"] {
+  color: #000;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
 
 .top-bar {
   grid-area: top;
@@ -27,6 +95,7 @@
 
 .top-bar .field {
   display: flex;
+  white-space: nowrap;
   align-items: center;
   gap: 6px;
   color: var(--text-dim);
@@ -791,4 +860,16 @@ button.elem-link:hover {
   width: auto;
   margin: 0;
   vertical-align: middle;
+}
+
+/* 狭い画面では上の帯を詰める(.top-bar の後に置く) */
+@media (max-width: 799px) {
+  .top-bar {
+    gap: 8px;
+  }
+
+  .top-bar .field-optional,
+  .top-bar .field-server {
+    display: none;
+  }
 }
