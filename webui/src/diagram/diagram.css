@@ -362,13 +362,22 @@
   stroke: var(--kind-topic);
 }
 
-.react-flow__edge-path.dedge {
-  filter: drop-shadow(0 0 2px currentColor);
+/* 光彩は下敷きの線で描く。SVG の線に CSS の filter を掛けると Safari で線が消える(#546) */
+.dedge-glow {
+  stroke-width: 5;
+  stroke-linecap: round;
+  opacity: 0.3;
+  pointer-events: none;
 }
 
 .react-flow__edge-path.dedge.selected {
   stroke-width: 3;
-  filter: drop-shadow(0 0 5px var(--kind-connection));
+}
+
+.dedge-glow.selected {
+  stroke: var(--kind-connection);
+  stroke-width: 11;
+  opacity: 0.35;
 }
 
 .react-flow__edge-juiz {
