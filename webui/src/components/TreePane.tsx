@@ -25,6 +25,7 @@ import {
   remoteStateLabel,
 } from "../labels.ts";
 import { Term } from "./Term.tsx";
+import { systemFactories, type FactoryInfo, type FactoryKind } from "../factories.ts";
 
 interface Props {
   model: Model | null;
@@ -34,6 +35,8 @@ interface Props {
   onSelect: (key: string) => void;
   onToggle: (key: string) => void;
   onOpenSettings: () => void;
+  /** 生成器の「＋」。作るダイアログを開く */
+  onCreate: (factory: FactoryInfo) => void;
 }
 
 /** 左のツリー。系 → 分類 → 要素(容器の下に容器処理、副系は入れ子) */
@@ -167,6 +170,8 @@ function SystemNode({
           )}
           <Category {...p} k={ck("topic")} term="topic" items={system.topics} />
           <Category {...p} k={ck("broker")} term="broker" items={system.brokers} />
+          {/* 生成器から作れるのは、画面がつながっている最上位の系だけ */}
+          {depth === 0 && <FactoryCategory {...p} system={system} k={ck("factory")} />}
           {transformations && (transformations.trees.length > 0 || transformations.treeErrors.length > 0) && (
             <PoseTreeCategory {...p} k={ck("transformations")} model={rootModel} transformations={transformations} />
           )}
@@ -178,6 +183,68 @@ function SystemNode({
         </Category>
       )}
     </TreeNode>
+  );
+}
+
+const FACTORY_KINDS: FactoryKind[] = ["process", "container", "containerProcess"];
+
+/** 生成器の分類。処理・容器・容器処理の生成器を並べ、「＋」で作るダイアログを開く */
+function FactoryCategory({ system, k, ...p }: NodeProps & { system: SystemModel; k: string }) {
+  const factories = systemFactories(system);
+  if (!factories) return null;
+  const total = FACTORY_KINDS.reduce((n, kind) => n + factories[kind].length, 0);
+  const open = !p.collapsed.has(k);
+  return (
+    <li role="treeitem" aria-expanded={total > 0 ? open : undefined}>
+      <div className="row category">
+        <Twisty open={open} hidden={total === 0} onClick={() => p.onToggle(k)} />
+        <span className="label" onClick={() => p.onToggle(k)}>
+          <Term k="factory" />
+        </span>
+        <span className="count">{total}</span>
+      </div>
+      {open && total > 0 && (
+        <ul role="group">
+          {FACTORY_KINDS.filter((kind) => factories[kind].length > 0).map((kind) => {
+            const kk = `${k}/${kind}`;
+            const kindOpen = !p.collapsed.has(kk);
+            return (
+              <li key={kind} role="treeitem" aria-expanded={kindOpen}>
+                <div className="row category">
+                  <Twisty open={kindOpen} hidden={false} onClick={() => p.onToggle(kk)} />
+                  <span className="label" onClick={() => p.onToggle(kk)}>
+                    <Term k={kind} />
+                  </span>
+                  <span className="count">{factories[kind].length}</span>
+                </div>
+                {kindOpen && (
+                  <ul role="group">
+                    {factories[kind].map((f) => (
+                      <li key={f.typeName} role="treeitem">
+                        <div className="row factory" title={`${f.typeName} を生成`}>
+                          <span className="twisty" />
+                          <span className={`mark ${MARK_CLASS[kind]}`} />
+                          <span className="label">{f.typeName}</span>
+                          {f.language && <span className="sub">{f.language}</span>}
+                          <button
+                            type="button"
+                            className="factory-create"
+                            aria-label={`${f.typeName} を生成`}
+                            onClick={() => p.onCreate(f)}
+                          >
+                            ＋
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </li>
   );
 }
 

@@ -173,6 +173,23 @@ export class JuizClient {
     return (await this.send("DELETE", "/api/connection/destroy", { identifier })) as ConnectionProfile;
   }
 
+  /**
+   * 生成器から処理・容器・容器処理を作る(POST /api/<kind>/create)。
+   * 容器の引数(initial_value など)は __manifest__ と並べて本文に入れる。容器処理は入れる容器の識別子を付ける
+   */
+  async create(
+    kind: "process" | "container" | "container_process",
+    manifest: { type_name: string; name: string; namespace?: string },
+    options: { args?: Record<string, unknown>; container?: string } = {},
+  ): Promise<unknown> {
+    return await this.send(
+      "POST",
+      `/api/${kind}/create`,
+      options.container ? { identifier: options.container } : undefined,
+      { ...(options.args ?? {}), __manifest__: manifest },
+    );
+  }
+
   /** 処理・容器処理・容器を消す(DELETE /api/<kind>/destroy) */
   async destroy(kind: "process" | "container_process" | "container", identifier: string): Promise<unknown> {
     return await this.send("DELETE", `/api/${kind}/destroy`, { identifier });

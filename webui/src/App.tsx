@@ -4,6 +4,8 @@ import { PropertyPane } from "./components/PropertyPane.tsx";
 import { SettingsDialog } from "./components/SettingsDialog.tsx";
 import { TopBar } from "./components/TopBar.tsx";
 import { TreePane } from "./components/TreePane.tsx";
+import { CreateDialog } from "./components/CreateDialog.tsx";
+import type { FactoryInfo } from "./factories.ts";
 import { categoryKey, type Model } from "./model.ts";
 import { loadSettings, pollIntervalMs, saveSettings, type Settings } from "./settings.ts";
 import type { TermKey } from "./terms.ts";
@@ -36,6 +38,8 @@ function ancestorKeys(model: Model, key: string): string[] {
 export default function App() {
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // 生成器の「＋」で開く、作るダイアログ
+  const [creating, setCreating] = useState<FactoryInfo | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
 
@@ -117,6 +121,7 @@ export default function App() {
         }}
         onToggle={toggle}
         onOpenSettings={() => setSettingsOpen(true)}
+        onCreate={setCreating}
       />
       <CenterPane
         model={model}
@@ -127,6 +132,19 @@ export default function App() {
       />
       {overlayOpen && <div className="pane-backdrop" onClick={closeOverlays} aria-hidden="true" />}
       <PropertyPane model={model} selectedKey={selectedKey} onSelect={select} serverUrl={settings.serverUrl} />
+      {creating && model && (
+        <CreateDialog
+          key={`${creating.kind}|${creating.typeName}`}
+          model={model}
+          factory={creating}
+          serverUrl={settings.serverUrl}
+          onDone={() => {
+            setCreating(null);
+            refresh();
+          }}
+          onClose={() => setCreating(null)}
+        />
+      )}
       {settingsOpen && (
         <SettingsDialog
           settings={settings}
