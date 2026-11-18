@@ -679,3 +679,85 @@
     transition: none;
   }
 }
+
+/* ---- 照準の輪のメニュー(名前の下のボタン) ---- */
+
+.reticle-menu {
+  position: absolute;
+  z-index: 1;
+  display: flex;
+  gap: 4px;
+  pointer-events: auto;
+  white-space: nowrap;
+}
+
+.reticle-menu-button {
+  padding: 1px 8px;
+  border: 1px solid var(--kind);
+  background: rgba(0, 0, 0, 0.75);
+  color: var(--kind);
+  font-size: 12px;
+  cursor: pointer;
+  /* animation-delay は nodes.tsx で 1 つずつ与える(輪が開ききってから左から順に) */
+  animation: reticle-menu-in 160ms ease-out both;
+}
+
+.reticle-menu-button:hover,
+.reticle-menu-button:focus-visible {
+  color: #000;
+  background: var(--kind);
+  box-shadow: 0 0 8px var(--kind);
+}
+
+.reticle-menu-button.danger {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.reticle-menu-button.danger:hover,
+.reticle-menu-button.danger:focus-visible,
+.reticle-menu-button.confirming {
+  color: #000;
+  background: var(--error);
+  box-shadow: 0 0 8px var(--error);
+}
+
+@keyframes reticle-menu-in {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+}
+
+.reticle-menu.closing {
+  animation: reticle-fade-out 120ms ease-in both;
+  pointer-events: none;
+}
+
+@keyframes reticle-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+/* ---- 照準の輪が出ている間、ほかの要素と線をやや暗くする ---- */
+
+.react-flow__node,
+.react-flow__edge {
+  transition: opacity 200ms ease-out;
+}
+
+.diagram-focus .react-flow__node:not(.selected, .focus-related),
+.diagram-focus .react-flow__edge:not(.focus-related) {
+  opacity: 0.35;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reticle-menu-button,
+  .reticle-menu.closing,
+  .react-flow__node,
+  .react-flow__edge {
+    animation: none;
+    transition: none;
+  }
+}

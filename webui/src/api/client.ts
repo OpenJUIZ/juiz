@@ -103,6 +103,7 @@ export class JuizClient {
 
   /**
    * 処理・容器処理を呼ぶ(PATCH /api/process/call など、#197)。
+   * fn が call_partial なら一部の引数だけで呼び(省いた引数は拘束値か既定値)、p_apply なら引数を拘束する。
    * 戻り値が画像なら Blob、それ以外は JSON の値。エラーなら応答の message を持つ JuizApiError
    */
   async call(
@@ -110,8 +111,9 @@ export class JuizClient {
     identifier: string,
     args: Record<string, unknown>,
     signal?: AbortSignal,
+    fn: "call" | "call_partial" | "p_apply" = "call",
   ): Promise<{ value: unknown } | { image: Blob }> {
-    const path = kind === "process" ? "/api/process/call" : "/api/container_process/call";
+    const path = `/api/${kind}/${fn}`;
     let res: Response;
     try {
       res = await fetch(`${this.baseUrl}${path}?${new URLSearchParams({ identifier })}`, {
@@ -169,6 +171,11 @@ export class JuizClient {
   /** 接続を外す(DELETE /api/connection/destroy、識別子は connection://送り元|引数|送り先) */
   async connectionDestroy(identifier: string): Promise<ConnectionProfile> {
     return (await this.send("DELETE", "/api/connection/destroy", { identifier })) as ConnectionProfile;
+  }
+
+  /** 処理・容器処理・容器を消す(DELETE /api/<kind>/destroy) */
+  async destroy(kind: "process" | "container_process" | "container", identifier: string): Promise<unknown> {
+    return await this.send("DELETE", `/api/${kind}/destroy`, { identifier });
   }
 
   /** GET 以外の API を呼ぶ。エラーなら応答の message(無ければ状態コード)を持つ JuizApiError */

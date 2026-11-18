@@ -20,6 +20,8 @@ import "../diagram/diagram.css";
 import { JuizClient } from "../api/client.ts";
 import type { Model, ProcessElement } from "../model.ts";
 import { ConnectMenu, type ConnectRequest } from "./ConnectMenu.tsx";
+import { ProcessDialog } from "./ProcessDialog.tsx";
+import { DiagramActionsContext, type DiagramActions } from "../diagram/actions.ts";
 
 interface Props {
   model: Model | null;
@@ -178,6 +180,9 @@ function Diagram({ model, serverUrl, selectedKey, onSelect, onChanged }: Props) 
     return [...frames, ...elementNodes];
   }, [graph, saved, auto, selectedKey, closingKey]);
 
+  // 照準の輪を出している要素(図の要素を選んでいるとき)。ほかを暗くする
+  const focusKey = selectedKey && graph.nodes.some((n) => n.id === selectedKey) ? selectedKey : null;
+
   const edges = useMemo<JuizEdge[]>(() => {
     const byId = new Map(nodes.map((n) => [n.id, n]));
     const centerY = (id: string) => {
@@ -199,12 +204,14 @@ function Diagram({ model, serverUrl, selectedKey, onSelect, onChanged }: Props) 
               : TOOL_HANDLE.bottom
             : undefined,
         data: e.data,
+        // 選んだ要素につながる線は、ほかを暗くしても明るいままにする
+        className: focusKey && (e.source === focusKey || e.target === focusKey) ? "focus-related" : undefined,
         selectable: !!e.selectKey,
         selected: !!e.selectKey && e.selectKey === selectedKey,
         markerEnd: color ? { type: MarkerType.ArrowClosed, color, width: 16, height: 16 } : undefined,
       };
     });
-  }, [graph, nodes, selectedKey]);
+  }, [graph, nodes, selectedKey, focusKey]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange<DiagramFlowNode>[]) => {
@@ -300,6 +307,31 @@ function Diagram({ model, serverUrl, selectedKey, onSelect, onChanged }: Props) 
     return () => window.removeEventListener("keydown", onKey);
   }, [selectedConnection, serverUrl, onSelect, onChanged]);
 
+  // ---- 照準の輪のメニュー(呼びだし・部分拘束・削除) ----
+  const [dialog, setDialog] = useState<{ key: string; mode: "call" | "p_apply" } | null>(null);
+  const actions = useMemo<DiagramActions>(
+    () => ({
+      call: (key) => setDialog({ key, mode: "call" }),
+      partialApply: (key) => setDialog({ key, mode: "p_apply" }),
+      remove: (key) => {
+        const e = model?.elements.get(key);
+        if (!e || (e.kind !== "process" && e.kind !== "containerProcess" && e.kind !== "container")) return;
+        const kind = e.kind === "containerProcess" ? "container_process" : e.kind;
+        new JuizClient(serverUrl)
+          .destroy(kind, e.identifier)
+          .then(() => {
+            setNotice({ error: false, text: `${e.fullName} を削除しました` });
+            onSelect(null);
+            onChanged();
+          })
+          .catch((err: unknown) => setNotice({ error: true, text: `削除できませんでした: ${(err as Error).message}` }));
+      },
+    }),
+    [model, serverUrl, onSelect, onChanged],
+  );
+  const dialogElement = asProcess(model, dialog?.key);
+  const closeDialog = useCallback(() => setDialog(null), []);
+
   const resetLayout = useCallback(() => {
     savePositions(serverUrl, {});
     setSaved({ serverUrl, positions: {} });
@@ -307,8 +339,9 @@ function Diagram({ model, serverUrl, selectedKey, onSelect, onChanged }: Props) 
   }, [serverUrl, fitView]);
 
   return (
-    <>
+    <DiagramActionsContext.Provider value={actions}>
       <ReactFlow<DiagramFlowNode, JuizEdge>
+        className={focusKey ? "diagram-focus" : undefined}
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
@@ -353,7 +386,18 @@ function Diagram({ model, serverUrl, selectedKey, onSelect, onChanged }: Props) 
       {connectRequest && (
         <ConnectMenu request={connectRequest} busy={busy} onConnect={createConnection} onClose={closeConnectMenu} />
       )}
-    </>
+      {dialog && dialogElement && (
+        <ProcessDialog
+          // 別の要素・別の種類で開き直したら、入力を作り直す
+          key={`${dialog.key}|${dialog.mode}`}
+          element={dialogElement}
+          mode={dialog.mode}
+          serverUrl={serverUrl}
+          onDone={onChanged}
+          onClose={closeDialog}
+        />
+      )}
+    </DiagramActionsContext.Provider>
   );
 }
 

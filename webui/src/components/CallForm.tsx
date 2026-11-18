@@ -10,6 +10,13 @@ import { descriptionText, type ProcessElement } from "../model.ts";
 interface Props {
   element: ProcessElement;
   serverUrl: string;
+  /**
+   * call: 呼び出す。渡す引数を外すと call_partial で呼ぶ(外した引数は拘束値か既定値)。
+   * p_apply: 渡す引数を拘束する(部分拘束)。入力欄の初めの値は今の拘束値
+   */
+  mode?: "call" | "p_apply";
+  /** 呼び出せた・拘束できたとき */
+  onDone?: () => void;
 }
 
 /** 型なしの引数の type_name を型にする。Array・Object は JSON で入力する */
@@ -41,7 +48,7 @@ function argInitial(a: ArgumentProfile, t: AvroType): unknown {
 
 type Result = { value: unknown } | { image: string } | { error: string };
 
-export function CallForm({ element, serverUrl }: Props) {
+export function CallForm({ element, serverUrl, mode = "call", onDone }: Props) {
   const args = useMemo(
     () => (element.profile.arguments ?? []).map((a) => ({ arg: a, type: argType(a) })),
     [element.profile.arguments],
@@ -49,11 +56,17 @@ export function CallForm({ element, serverUrl }: Props) {
   const initial = useMemo(
     () =>
       Object.fromEntries(
-        args.flatMap(({ arg, type }) => (type.kind === "image" ? [] : [[arg.name, argInitial(arg, type)] as const])),
+        args.flatMap(({ arg, type }) =>
+          type.kind === "image"
+            ? []
+            : [[arg.name, mode === "p_apply" && arg.value !== undefined ? arg.value : argInitial(arg, type)] as const],
+        ),
       ),
-    [args],
+    [args, mode],
   );
   const [values, setValues] = useState<Record<string, unknown>>(initial);
+  // 渡す引数。外した引数は送らない
+  const [omitted, setOmitted] = useState<ReadonlySet<string>>(new Set());
   const [jsonMode, setJsonMode] = useState(false);
   const [jsonText, setJsonText] = useState("");
   const [jsonError, setJsonError] = useState<string | null>(null);
@@ -100,11 +113,23 @@ export function CallForm({ element, serverUrl }: Props) {
         return;
       }
     }
+    if (!jsonMode && omitted.size > 0) body = Object.fromEntries(Object.entries(body).filter(([k]) => !omitted.has(k)));
+    const fn = mode === "p_apply" ? "p_apply" : !jsonMode && omitted.size > 0 ? "call_partial" : "call";
     setBusy(true);
     try {
       const kind = element.kind === "containerProcess" ? "container_process" : "process";
-      const r = await new JuizClient(serverUrl).call(kind, element.identifier, body);
-      setResult("image" in r ? { image: URL.createObjectURL(r.image) } : r);
+      const client = new JuizClient(serverUrl);
+      if (fn === "p_apply") {
+        // p_apply は 1 回に 1 つの引数を拘束する({arg_name, value})
+        for (const [argName, value] of Object.entries(body)) {
+          await client.call(kind, element.identifier, { arg_name: argName, value }, undefined, "p_apply");
+        }
+        setResult({ value: body });
+      } else {
+        const r = await client.call(kind, element.identifier, body, undefined, fn);
+        setResult("image" in r ? { image: URL.createObjectURL(r.image) } : r);
+      }
+      onDone?.();
     } catch (e) {
       setResult({ error: (e as Error).message });
     } finally {
@@ -140,13 +165,33 @@ export function CallForm({ element, serverUrl }: Props) {
             ) : (
               <div key={a.name} className="call-arg" title={descriptionText(a.description)}>
                 <div className="call-arg-head">
-                  <code className="mono">{a.name}</code> <span className="dim">{a.schema ? typeLabel(type) : a.type_name}</span>
+                  <label className="call-arg-include" title={mode === "p_apply" ? "この引数を拘束する" : "この引数を渡す"}>
+                    <input
+                      type="checkbox"
+                      checked={!omitted.has(a.name)}
+                      onChange={(e) =>
+                        setOmitted((prev) => {
+                          const next = new Set(prev);
+                          if (e.target.checked) next.delete(a.name);
+                          else next.add(a.name);
+                          return next;
+                        })
+                      }
+                    />{" "}
+                    <code className="mono">{a.name}</code>
+                  </label>{" "}
+                  <span className="dim">{a.schema ? typeLabel(type) : a.type_name}</span>
+                  {mode === "call" && omitted.has(a.name) && (
+                    <span className="dim"> {a.value !== undefined ? "拘束値を使う" : "既定値を使う"}</span>
+                  )}
                 </div>
-                <ValueEditor
-                  type={type}
-                  value={values[a.name]}
-                  onChange={(v) => setValues((prev) => ({ ...prev, [a.name]: v }))}
-                />
+                {!omitted.has(a.name) && (
+                  <ValueEditor
+                    type={type}
+                    value={values[a.name]}
+                    onChange={(v) => setValues((prev) => ({ ...prev, [a.name]: v }))}
+                  />
+                )}
               </div>
             ),
           )}
@@ -161,6 +206,7 @@ export function CallForm({ element, serverUrl }: Props) {
           type="button"
           onClick={() => {
             setValues(initial);
+            setOmitted(new Set());
             setJsonMode(false);
             setJsonError(null);
           }}
@@ -168,13 +214,13 @@ export function CallForm({ element, serverUrl }: Props) {
           既定値に戻す
         </button>
         <button type="submit" disabled={busy}>
-          {busy ? "呼出中…" : "呼び出す"}
+          {mode === "p_apply" ? (busy ? "拘束中…" : "拘束する") : busy ? "呼出中…" : "呼び出す"}
         </button>
       </div>
       {hasImageArg && !jsonMode && <div className="dim hint">画像の引数を省くと、処理の既定のふるまいになります</div>}
       {result && (
         <div className="call-result">
-          <div className="dim">結果</div>
+          <div className="dim">{mode === "p_apply" && !("error" in result) ? "拘束しました" : "結果"}</div>
           {"error" in result ? (
             <pre className="error-text">{result.error}</pre>
           ) : "image" in result ? (
