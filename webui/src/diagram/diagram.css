@@ -278,30 +278,14 @@
 }
 
 /*
- * 開くとき: 外から絞り込むように縮みながら現れ、少し行き過ぎて止まる。引き出し線が伸びてから名前と引数の弧が出る。
+ * 開くとき: まず輪と回る弧が反時計回りに描かれて広がる(0〜360ms)。そのあと引き出し線が伸びて名前が出て、
+ * 目盛りが付け根から反時計回りに 1 本ずつ現れ、内側の点線の輪と引数の弧が出る。
+ * 目盛りの出し始めは nodes.tsx の TICKS_DELAY_MS と合わせる。
  * 閉じるとき: 広がりながら消える。長さは motion.ts の RETICLE_CLOSE_MS と合わせる。
- * 動かすのは svg 全体の transform と opacity だけで、要素の大きさは変えない(線の描画に響かないように。#546)
+ * 動かすのは opacity・transform・stroke-dashoffset だけで、要素の大きさは変えない(線の描画に響かないように。#546)
  */
-.reticle {
-  animation: reticle-open 320ms cubic-bezier(0.2, 0.8, 0.3, 1.15) both;
-}
-
 .reticle.closing {
   animation: reticle-close 200ms ease-in both;
-}
-
-@keyframes reticle-open {
-  from {
-    opacity: 0;
-    transform: scale(1.6) rotate(-25deg);
-  }
-  60% {
-    opacity: 1;
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
 }
 
 @keyframes reticle-close {
@@ -315,8 +299,25 @@
   }
 }
 
+.reticle-ring {
+  animation: reticle-ring-draw 360ms cubic-bezier(0.3, 0.6, 0.3, 1) both;
+}
+
+.reticle-arc {
+  animation: reticle-ring-draw 300ms cubic-bezier(0.3, 0.6, 0.3, 1) 60ms both;
+}
+
+@keyframes reticle-ring-draw {
+  from {
+    stroke-dashoffset: var(--draw-length);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
 .reticle-leader {
-  animation: reticle-leader-draw 220ms ease-out 180ms both;
+  animation: reticle-leader-draw 200ms ease-out 360ms both;
 }
 
 @keyframes reticle-leader-draw {
@@ -328,26 +329,36 @@
   }
 }
 
-.reticle-caption,
-.reticle-ports {
-  animation: reticle-fade-in 200ms ease-out 320ms both;
+/* 目盛りの animation-delay は nodes.tsx で 1 本ずつ与える */
+.reticle-tick {
+  animation: reticle-fade-in 120ms ease-out both;
 }
 
+.reticle-caption {
+  animation: reticle-fade-in 180ms ease-out 480ms both;
+}
+
+.reticle-inner,
+.reticle-ports {
+  animation: reticle-fade-in 220ms ease-out 520ms both;
+}
+
+/* to を書かず、各要素の元の不透明度まで上げる */
 @keyframes reticle-fade-in {
   from {
     opacity: 0;
-  }
-  to {
-    opacity: 1;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .reticle-spin,
-  .reticle,
   .reticle.closing,
+  .reticle-ring,
+  .reticle-arc,
   .reticle-leader,
+  .reticle-tick,
   .reticle-caption,
+  .reticle-inner,
   .reticle-ports {
     animation: none;
   }

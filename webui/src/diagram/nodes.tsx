@@ -1,9 +1,9 @@
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { ecStateLabel, formatValue, shortValue } from "../labels.ts";
 import { TERMS, type TermKey } from "../terms.ts";
 import { RETICLE_CLOSE_MS, prefersReducedMotion } from "./motion.ts";
-import type { ArgInfo, DiagramNodeData, DiagramNodeKind } from "./graph.ts";
+import { TOOL_HANDLE, type ArgInfo, type DiagramNodeData, type DiagramNodeKind } from "./graph.ts";
 
 export type JuizNode = Node<DiagramNodeData, "juiz">;
 
@@ -54,6 +54,13 @@ export function JuizNodeView({ data, width, height, selected }: NodeProps<JuizNo
           <div className="dnode-name">{data.name}</div>
           {data.kind === "container" && <div className="dnode-type">{data.typeName}</div>}
         </div>
+      )}
+      {data.kind === "containerProcess" && (
+        <>
+          {/* 容器からの道具リンクは楕円の上か下につなぐ。左端は引数の入り口と紛れるので避ける */}
+          <Handle id={TOOL_HANDLE.top} type="target" position={Position.Top} isConnectable={false} />
+          <Handle id={TOOL_HANDLE.bottom} type="target" position={Position.Bottom} isConnectable={false} />
+        </>
       )}
       <Handle
         type="source"
@@ -110,13 +117,30 @@ function arcPath(cx: number, cy: number, r: number, from: number, to: number): s
   return `M ${x0} ${y0} A ${r} ${r} 0 ${large} 1 ${x1} ${y1}`;
 }
 
+/** 引き出し線の付け根の角度。輪はここから反時計回りに描き始める */
+const LEADER_DEG = -50;
+
+/** 目盛りを出し始める時刻と、1 本ずつずらす間隔(ms)。diagram.css の輪を描くアニメーションの後に続ける */
+const TICKS_DELAY_MS = 380;
+const TICK_STEP_MS = 6;
+
+/**
+ * 線を端から描くアニメーション用の破線の設定。stroke-dashoffset を --draw-length(負)から 0 へ動かすと、
+ * 線の終わりから始まりへ向かって(弧なら反時計回りに)描かれる(diagram.css の reticle-ring-draw)。
+ * 継ぎ目に隙間が出ないよう 1 だけ長めにとる
+ */
+function drawStyle(length: number): CSSProperties {
+  const len = length + 1;
+  return { strokeDasharray: `${len} ${len}`, ["--draw-length" as string]: `${-len}` };
+}
+
 /** 引数の弧を並べる範囲(左側) */
 const ARG_SPAN: [number, number] = [128, 232];
 
 /**
  * 選んだ要素に重ねる照準の輪(#111)。目盛り付きの輪、回る弧、引き出し線の先の「種類 "名前"」。
  * 処理なら輪の左に引数ごとの弧、右に出力の弧を出し、未接続・接続あり・拘束中を弧の塗りで分ける。
- * 開くときは外から絞り込むように縮みながら現れ、引き出し線を伸ばしてから名前と引数の弧を出す。
+ * 開くときは、まず輪と回る弧が反時計回りに描かれて広がり、そのあと引き出し線・名前・目盛り・引数の弧を出す。
  * 閉じるときは広がりながら消える(diagram.css)。
  */
 function Reticle({ data, w, h, closing }: { data: DiagramNodeData; w: number; h: number; closing: boolean }) {
@@ -125,7 +149,7 @@ function Reticle({ data, w, h, closing }: { data: DiagramNodeData; w: number; h:
   const size = 2 * (r + pad);
   const c = size / 2;
   const ticks = Array.from({ length: 36 }, (_, i) => i * 10);
-  const [lx0, ly0] = polar(c, c, r, -50);
+  const [lx0, ly0] = polar(c, c, r, LEADER_DEG);
   const lx1 = lx0 + 26;
   const ly1 = ly0 - 26;
   const term = TERMS[KIND_TERM[data.kind]];
@@ -140,17 +164,42 @@ function Reticle({ data, w, h, closing }: { data: DiagramNodeData; w: number; h:
       style={{ left: w / 2 - c, top: h / 2 - c }}
       aria-hidden="true"
     >
-      <circle className="reticle-ring" cx={c} cy={c} r={r} />
+      {/* 引き出し線の付け根から反時計回りに描く。円の描き始めは右(0 度)なので、付け根の角度まで回しておく */}
+      <circle
+        className="reticle-ring"
+        cx={c}
+        cy={c}
+        r={r}
+        transform={`rotate(${LEADER_DEG} ${c} ${c})`}
+        style={drawStyle(2 * Math.PI * r)}
+      />
       <circle className="reticle-inner" cx={c} cy={c} r={r - 10} />
       {ticks.map((deg) => {
         const long = deg % 30 === 0;
         const [x0, y0] = polar(c, c, r, deg);
         const [x1, y1] = polar(c, c, r - (long ? 9 : 4), deg);
-        return <line key={deg} className="reticle-tick" x1={x0} y1={y0} x2={x1} y2={y1} />;
+        // 付け根から反時計回りの順に出す
+        const order = ((((LEADER_DEG - deg) % 360) + 360) % 360) / 10;
+        return (
+          <line
+            key={deg}
+            className="reticle-tick"
+            x1={x0}
+            y1={y0}
+            x2={x1}
+            y2={y1}
+            style={{ animationDelay: `${TICKS_DELAY_MS + order * TICK_STEP_MS}ms` }}
+          />
+        );
       })}
       <g className="reticle-spin" style={{ transformOrigin: `${c}px ${c}px` }}>
         {[0, 120, 240].map((deg) => (
-          <path key={deg} className="reticle-arc" d={arcPath(c, c, r + 9, deg, deg + 46)} />
+          <path
+            key={deg}
+            className="reticle-arc"
+            d={arcPath(c, c, r + 9, deg, deg + 46)}
+            style={drawStyle((2 * Math.PI * (r + 9) * 46) / 360)}
+          />
         ))}
       </g>
       {isProcess && <ArgArcs args={data.args ?? []} outputConnected={!!data.outputConnected} c={c} r={r + 22} />}

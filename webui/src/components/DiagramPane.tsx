@@ -9,7 +9,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CurvedGrid } from "../diagram/CurvedGrid.tsx";
 import { JuizEdgeView, type JuizEdge } from "../diagram/edges.tsx";
-import { buildGraph, frameMinWidth, type DiagramEdgeKind, type DiagramGraph } from "../diagram/graph.ts";
+import { buildGraph, frameMinWidth, TOOL_HANDLE, type DiagramEdgeKind, type DiagramGraph } from "../diagram/graph.ts";
 import { EMPTY_FRAME_HEIGHT, GROUP_PADDING, layoutGraph, type XY } from "../diagram/layout.ts";
 import { RETICLE_CLOSE_MS, prefersReducedMotion } from "../diagram/motion.ts";
 import { JuizNodeView, SystemFrameView, type JuizNode, type SystemFrameNode } from "../diagram/nodes.tsx";
@@ -160,23 +160,33 @@ function Diagram({ model, serverUrl, selectedKey, onSelect }: Props) {
     return [...frames, ...elementNodes];
   }, [graph, saved, auto, selectedKey, closingKey]);
 
-  const edges = useMemo<JuizEdge[]>(
-    () =>
-      graph.edges.map((e) => {
-        const color = MARKER_COLOR[e.data.kind];
-        return {
-          id: e.id,
-          type: "juiz",
-          source: e.source,
-          target: e.target,
-          data: e.data,
-          selectable: !!e.selectKey,
-          selected: !!e.selectKey && e.selectKey === selectedKey,
-          markerEnd: color ? { type: MarkerType.ArrowClosed, color, width: 16, height: 16 } : undefined,
-        };
-      }),
-    [graph, selectedKey],
-  );
+  const edges = useMemo<JuizEdge[]>(() => {
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    const centerY = (id: string) => {
+      const n = byId.get(id);
+      return n ? n.position.y + (n.height ?? 0) / 2 : 0;
+    };
+    return graph.edges.map((e) => {
+      const color = MARKER_COLOR[e.data.kind];
+      return {
+        id: e.id,
+        type: "juiz",
+        source: e.source,
+        target: e.target,
+        // 道具リンクは容器処理の楕円の上か下へ。容器のある側につなぐ
+        targetHandle:
+          e.data.kind === "instrument"
+            ? centerY(e.source) <= centerY(e.target)
+              ? TOOL_HANDLE.top
+              : TOOL_HANDLE.bottom
+            : undefined,
+        data: e.data,
+        selectable: !!e.selectKey,
+        selected: !!e.selectKey && e.selectKey === selectedKey,
+        markerEnd: color ? { type: MarkerType.ArrowClosed, color, width: 16, height: 16 } : undefined,
+      };
+    });
+  }, [graph, nodes, selectedKey]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange<DiagramFlowNode>[]) => {
