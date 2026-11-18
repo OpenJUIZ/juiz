@@ -505,7 +505,8 @@ button.elem-link:hover {
   margin-top: 4px;
 }
 
-.dialog .hint {
+.dialog .hint,
+.props-pane .hint {
   font-size: 0.85em;
   color: var(--text-dim);
 }
@@ -765,4 +766,29 @@ button.elem-link:hover {
   list-style: none;
   margin: 0;
   padding: 0;
+}
+
+/* 照準の輪のメニューから開く呼びだし・部分拘束のダイアログ */
+.process-dialog {
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  overflow: auto;
+  box-sizing: border-box;
+}
+
+.process-dialog-target {
+  margin-left: 0.6em;
+  color: var(--kind-process);
+}
+
+.call-form label.call-arg-include {
+  display: inline;
+  margin: 0;
+}
+
+.call-form label.call-arg-include input {
+  display: inline;
+  width: auto;
+  margin: 0;
+  vertical-align: middle;
 }

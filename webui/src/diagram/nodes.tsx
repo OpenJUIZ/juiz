@@ -1,5 +1,6 @@
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useContext, useEffect, useState, type CSSProperties } from "react";
+import { DiagramActionsContext } from "./actions.ts";
 import { ecStateLabel, formatValue, shortValue } from "../labels.ts";
 import { TERMS, type TermKey } from "../terms.ts";
 import { RETICLE_CLOSE_MS, prefersReducedMotion } from "./motion.ts";
@@ -38,13 +39,15 @@ function useReticlePresence(selected: boolean): "open" | "closing" | null {
 }
 
 /** 図の要素。種類ごとの図形を描き、選ばれていれば照準の輪を重ねる */
-export function JuizNodeView({ data, width, height, selected }: NodeProps<JuizNode>) {
+export function JuizNodeView({ id, data, width, height, selected }: NodeProps<JuizNode>) {
   const w = width ?? 0;
   const h = height ?? 0;
   const reticle = useReticlePresence(!!selected);
+  // 処理と容器処理は、右端(出力)から別の処理へ線を引いて接続を作れる
+  const connectable = data.kind === "process" || data.kind === "containerProcess";
   return (
     <div className={`dnode dnode-${data.kind}`} style={{ width: w, height: h }}>
-      <Handle type="target" position={Position.Left} isConnectable={false} />
+      <Handle type="target" position={Position.Left} isConnectable={connectable} isConnectableStart={false} />
       {data.kind === "process" || data.kind === "containerProcess" ? (
         <ProcessShape data={data} w={w} h={h} />
       ) : data.kind === "ec" ? (
@@ -65,10 +68,13 @@ export function JuizNodeView({ data, width, height, selected }: NodeProps<JuizNo
       <Handle
         type="source"
         position={Position.Right}
-        isConnectable={false}
+        isConnectable={connectable}
+        isConnectableEnd={false}
+        title={connectable ? "ドラッグして別の処理につなぐ" : undefined}
         style={data.kind === "ec" ? { top: EC_RUNNING_Y } : undefined}
       />
       {reticle && <Reticle data={data} w={w} h={h} closing={reticle === "closing"} />}
+      {reticle && <ReticleMenu nodeId={id} data={data} w={w} h={h} closing={reticle === "closing"} />}
     </div>
   );
 }
@@ -117,6 +123,9 @@ function arcPath(cx: number, cy: number, r: number, from: number, to: number): s
   return `M ${x0} ${y0} A ${r} ${r} 0 ${large} 1 ${x1} ${y1}`;
 }
 
+/** 輪が開ききってからメニューのボタンを出し始める時刻(ms)。diagram.css の開くアニメーションの終わりに合わせる */
+const RETICLE_MENU_DELAY_MS = 760;
+
 /** 引き出し線の付け根の角度。輪はここから反時計回りに描き始める */
 const LEADER_DEG = -50;
 
@@ -143,15 +152,21 @@ const ARG_SPAN: [number, number] = [128, 232];
  * 開くときは、まず輪と回る弧が反時計回りに描かれて広がり、そのあと引き出し線・名前・目盛り・引数の弧を出す。
  * 閉じるときは広がりながら消える(diagram.css)。
  */
-function Reticle({ data, w, h, closing }: { data: DiagramNodeData; w: number; h: number; closing: boolean }) {
+function reticleGeometry(w: number, h: number) {
   const r = Math.max(w, h) / 2 + 30;
   const pad = 140;
   const size = 2 * (r + pad);
   const c = size / 2;
-  const ticks = Array.from({ length: 36 }, (_, i) => i * 10);
   const [lx0, ly0] = polar(c, c, r, LEADER_DEG);
+  // 引き出し線の折れ目
   const lx1 = lx0 + 26;
   const ly1 = ly0 - 26;
+  return { r, size, c, lx0, ly0, lx1, ly1 };
+}
+
+function Reticle({ data, w, h, closing }: { data: DiagramNodeData; w: number; h: number; closing: boolean }) {
+  const { r, size, c, lx0, ly0, lx1, ly1 } = reticleGeometry(w, h);
+  const ticks = Array.from({ length: 36 }, (_, i) => i * 10);
   const term = TERMS[KIND_TERM[data.kind]];
   const isProcess = data.kind === "process" || data.kind === "containerProcess";
   // 引き出し線の長さ。伸びるアニメーションの破線の長さに使う
@@ -212,6 +227,67 @@ function Reticle({ data, w, h, closing }: { data: DiagramNodeData; w: number; h:
         {term.ja} "{data.name}"
       </text>
     </svg>
+  );
+}
+
+/** 輪が開ききった後に名前の下へ出すボタン。処理・容器処理は呼びだし・部分拘束・削除、容器は削除 */
+function ReticleMenu({
+  nodeId,
+  data,
+  w,
+  h,
+  closing,
+}: {
+  nodeId: string;
+  data: DiagramNodeData;
+  w: number;
+  h: number;
+  closing: boolean;
+}) {
+  const actions = useContext(DiagramActionsContext);
+  // 削除は取り消せないので、1 度目の押下で確かめる(3 秒で元に戻す)
+  const [confirming, setConfirming] = useState(false);
+  useEffect(() => {
+    if (!confirming) return;
+    const id = window.setTimeout(() => setConfirming(false), 3000);
+    return () => window.clearTimeout(id);
+  }, [confirming]);
+  if (!actions) return null;
+  const isProcess = data.kind === "process" || data.kind === "containerProcess";
+  if (!isProcess && data.kind !== "container") return null;
+  const { c, lx1, ly1 } = reticleGeometry(w, h);
+  const items: { label: string; onClick: () => void; danger?: boolean }[] = [
+    ...(isProcess
+      ? [
+          { label: "呼びだし", onClick: () => actions.call(nodeId) },
+          { label: "部分拘束", onClick: () => actions.partialApply(nodeId) },
+        ]
+      : []),
+    confirming
+      ? { label: "もう一度押すと削除", danger: true, onClick: () => actions.remove(nodeId) }
+      : { label: "削除", danger: true, onClick: () => setConfirming(true) },
+  ];
+  return (
+    <div
+      className={`reticle-menu nodrag nopan${closing ? " closing" : ""}`}
+      style={{ left: w / 2 - c + lx1 + 4, top: h / 2 - c + ly1 + 4 }}
+      // 図の上のクリック(選び直し・選択解除)にしない
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      {items.map((item, i) => (
+        <button
+          key={item.label}
+          type="button"
+          className={`reticle-menu-button${item.danger ? " danger" : ""}${confirming && item.danger ? " confirming" : ""}`}
+          style={{ animationDelay: `${RETICLE_MENU_DELAY_MS + i * 70}ms` }}
+          disabled={closing}
+          onClick={item.onClick}
+        >
+          {item.label}
+        </button>
+      ))}
+    </div>
   );
 }
 

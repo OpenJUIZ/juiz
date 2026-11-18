@@ -103,6 +103,7 @@ export class JuizClient {
 
   /**
    * 処理・容器処理を呼ぶ(PATCH /api/process/call など、#197)。
+   * fn が call_partial なら一部の引数だけで呼び(省いた引数は拘束値か既定値)、p_apply なら引数を拘束する。
    * 戻り値が画像なら Blob、それ以外は JSON の値。エラーなら応答の message を持つ JuizApiError
    */
   async call(
@@ -110,8 +111,9 @@ export class JuizClient {
     identifier: string,
     args: Record<string, unknown>,
     signal?: AbortSignal,
+    fn: "call" | "call_partial" | "p_apply" = "call",
   ): Promise<{ value: unknown } | { image: Blob }> {
-    const path = kind === "process" ? "/api/process/call" : "/api/container_process/call";
+    const path = `/api/${kind}/${fn}`;
     let res: Response;
     try {
       res = await fetch(`${this.baseUrl}${path}?${new URLSearchParams({ identifier })}`, {
@@ -144,6 +146,67 @@ export class JuizClient {
   async systemProfile(recursive: boolean, signal?: AbortSignal): Promise<SystemProfile> {
     const query = recursive ? { recursive: "true" } : undefined;
     return (await this.getProfile("system", query, signal)) as SystemProfile;
+  }
+
+  /**
+   * 接続を作る(POST /api/connection/create)。source の出力を destination の引数 argName へつなぐ。
+   * 型が合わないなどで作れなければ、応答の message を持つ JuizApiError
+   */
+  async connectionCreate(
+    source: string,
+    destination: string,
+    argName: string,
+    connectionType: "push" | "pull",
+  ): Promise<ConnectionProfile> {
+    return (await this.send("POST", "/api/connection/create", undefined, {
+      __manifest__: {
+        connection_type: connectionType,
+        source_process_id: source,
+        destination_process_id: destination,
+        arg_name: argName,
+      },
+    })) as ConnectionProfile;
+  }
+
+  /** 接続を外す(DELETE /api/connection/destroy、識別子は connection://送り元|引数|送り先) */
+  async connectionDestroy(identifier: string): Promise<ConnectionProfile> {
+    return (await this.send("DELETE", "/api/connection/destroy", { identifier })) as ConnectionProfile;
+  }
+
+  /** 処理・容器処理・容器を消す(DELETE /api/<kind>/destroy) */
+  async destroy(kind: "process" | "container_process" | "container", identifier: string): Promise<unknown> {
+    return await this.send("DELETE", `/api/${kind}/destroy`, { identifier });
+  }
+
+  /** GET 以外の API を呼ぶ。エラーなら応答の message(無ければ状態コード)を持つ JuizApiError */
+  private async send(
+    method: "POST" | "DELETE",
+    path: string,
+    query?: Record<string, string>,
+    body?: unknown,
+  ): Promise<unknown> {
+    const qs = query ? `?${new URLSearchParams(query)}` : "";
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl}${path}${qs}`, {
+        method,
+        headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    } catch (e) {
+      throw new JuizApiError(`接続できません: ${(e as Error).message}`);
+    }
+    if (!res.ok) {
+      let message = `${path} が ${res.status} を返しました`;
+      try {
+        const b = (await res.json()) as { message?: string };
+        if (b.message) message = b.message;
+      } catch {
+        // 本文が JSON でなければ状態コードだけ
+      }
+      throw new JuizApiError(message, res.status);
+    }
+    return await res.json();
   }
 
   /** 接続の識別子の一覧 */
