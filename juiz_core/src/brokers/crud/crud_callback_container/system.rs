@@ -25,6 +25,14 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
             Ok(value_to_capsule(cb.lock()?.system_profile()?))
         }
     });
+    // つながった System の木 (UUID だけ、issue #559)。通ってきた System は CRUDBroker が置いている
+    system_callbacks.insert("walk", |cb, _args| {
+        log::debug!("[READ  ] system/walk called");
+        Ok(value_to_capsule(
+            cb.lock()?
+                .system_walk_via(&crate::brokers::walk::current_via())?,
+        ))
+    });
     system_callbacks.insert("uuid", |cb, _args| {
         log::debug!("[READ  ] system/uuid called");
         Ok(value_to_capsule(cb.lock()?.system_uuid()?))

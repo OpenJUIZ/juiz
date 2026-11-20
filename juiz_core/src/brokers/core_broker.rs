@@ -82,6 +82,38 @@ impl crate::transformations::PoseStateFetcher for CoreBrokerPoseStateFetcher {
     }
 }
 
+/// 再帰の一覧の計画 (issue #559)
+pub(crate) struct WalkPlan {
+    /// たどる相手 (つながった System の木の子) と、それぞれに渡す via
+    pub(crate) targets: Vec<(SubSystemProxy, Vec<Uuid>)>,
+    /// 木と通ってきた System の UUID 全部
+    pub(crate) all: Vec<Uuid>,
+    /// つながった System への BrokerProxy の (type_name, name)
+    pub(crate) connected: Vec<(String, String)>,
+}
+
+impl WalkPlan {
+    /// System の API (CLI が使う System::process_list など) が、ストアの BrokerProxy へ問い合わせるときの via。
+    /// 木の子ならその via、木の子でないつながった System (ほかの子の下で出る) なら None (問い合わせない)、
+    /// つながった System でない BrokerProxy (CLI からサーバーへなど) なら全部
+    pub(crate) fn via_for(&self, bp: &dyn BrokerProxy) -> Option<Vec<Uuid>> {
+        let key = (bp.type_name().to_owned(), bp.name().to_owned());
+        for (ssp, via) in self.targets.iter() {
+            let target = ssp.broker_proxy();
+            let same = juiz_borrow(&target)
+                .map(|t| t.type_name() == key.0 && t.name() == key.1)
+                .unwrap_or(false);
+            if same {
+                return Some(via.clone());
+            }
+        }
+        if self.connected.contains(&key) {
+            return None;
+        }
+        Some(self.all.clone())
+    }
+}
+
 impl CoreBrokerPtr {
     pub fn new(core_broker: CoreBroker) -> Self {
         let ptr = Arc::new(RwLock::new(core_broker));
@@ -270,32 +302,60 @@ impl CoreBroker {
         )?)
     }
 
-    /// 再帰の一覧でたどる相手と、相手に渡す via (issue #559)。
+    /// 再帰の一覧でたどる相手と、それぞれに渡す via (issue #559)。
     ///
-    /// マスターシステムもサブシステムもたどる。通ってきた System (いま置かれている via) と自分は除き、
-    /// 同じ System が両方に居れば 1 度だけにする。相手に渡す via には自分と、自分がたどる相手を全部入れる。
-    /// 相手どうしがつながっていても、そちらからは辿らずに済む (同じものが 2 度出にくい)
-    fn list_walk_targets(&self) -> JuizResult<(Vec<SubSystemProxy>, Vec<Uuid>)> {
-        let mut next_via = crate::brokers::walk::current_via();
-        let my_uuid = self.my_uuid()?;
-        if !next_via.contains(&my_uuid) {
-            next_via.push(my_uuid);
-        }
-        let mut targets: Vec<SubSystemProxy> = Vec::new();
-        for ssp in self.connected_systems() {
-            if next_via.contains(ssp.uuid()) || targets.iter().any(|t| t.uuid() == ssp.uuid()) {
-                continue;
-            }
-            targets.push(ssp.clone());
-        }
-        next_via.extend(targets.iter().map(|t| t.uuid().clone()));
-        Ok((targets, next_via))
+    /// 先に [`SystemBrokerProxy::system_walk_via`] でつながった System の木 (深さ優先、同じ System は 1 度だけ) を作り、
+    /// 木の子だけをたどる。子に渡す via は「木と通ってきた System の全部」から「その子の下の木」を除いたもの。
+    /// 子はその via で自分の下の木だけをたどるので、輪があっても同じ System の一覧は 1 度しか出ない
+    fn list_walk_targets(&self) -> JuizResult<Vec<(SubSystemProxy, Vec<Uuid>)>> {
+        Ok(self.walk_plan()?.targets)
     }
 
-    /// System の API (CLI が使う System::process_list など) が BrokerProxy へ問い合わせるときの via。
-    /// 自分とつながった System を全部入れる (issue #559)
-    pub(crate) fn walk_via(&self) -> JuizResult<Vec<Uuid>> {
-        Ok(self.list_walk_targets()?.1)
+    /// recursive のときだけ [`Self::walk_plan`] を作る。そうでなければ空の計画 (via は空)
+    pub(crate) fn walk_plan_if(&self, recursive: bool) -> JuizResult<WalkPlan> {
+        if recursive {
+            self.walk_plan()
+        } else {
+            Ok(WalkPlan {
+                targets: Vec::new(),
+                all: Vec::new(),
+                connected: Vec::new(),
+            })
+        }
+    }
+
+    /// 再帰の一覧の計画 (issue #559)。[`Self::list_walk_targets`] を参照
+    pub(crate) fn walk_plan(&self) -> JuizResult<WalkPlan> {
+        let via = crate::brokers::walk::current_via();
+        let tree = self.system_walk_via(&via)?;
+        let mut all = via.clone();
+        crate::brokers::walk::collect_tree_uuids(&tree, &mut all);
+        let mut targets = Vec::new();
+        for child in tree["children"].as_array().into_iter().flatten() {
+            let Some(uuid) = child["uuid"].as_str().and_then(|u| Uuid::parse_str(u).ok()) else {
+                continue;
+            };
+            let Some(ssp) = self.connected_systems().find(|s| s.uuid() == &uuid) else {
+                continue;
+            };
+            let mut below = Vec::new();
+            crate::brokers::walk::collect_tree_uuids(child, &mut below);
+            let next_via = all.iter().filter(|u| !below.contains(u)).cloned().collect();
+            targets.push((ssp.clone(), next_via));
+        }
+        let connected = self
+            .connected_systems()
+            .map(|s| -> JuizResult<(String, String)> {
+                let bp = s.broker_proxy();
+                let bp = juiz_borrow(&bp)?;
+                Ok((bp.type_name().to_owned(), bp.name().to_owned()))
+            })
+            .collect::<JuizResult<Vec<_>>>()?;
+        Ok(WalkPlan {
+            targets,
+            all,
+            connected,
+        })
     }
 
     /// 再帰の一覧で、相手 1 つ分を取る。via を置いて問い合わせ、失敗は警告にして空にする
@@ -380,6 +440,36 @@ impl SystemBrokerProxy for CoreBroker {
         log::trace!("【呼出】system_profile() called");
         let result = self.profile_full();
         result
+    }
+
+    fn system_walk_via(&self, via: &[Uuid]) -> JuizResult<Value> {
+        log::trace!("【呼出】system_walk_via({via:?}) called");
+        let my_uuid = self.my_uuid()?;
+        let mut visited: Vec<Uuid> = via.to_vec();
+        if !visited.contains(&my_uuid) {
+            visited.push(my_uuid);
+        }
+        let mut children: Vec<Value> = Vec::new();
+        for ssp in self.connected_systems() {
+            if visited.contains(ssp.uuid()) {
+                continue;
+            }
+            visited.push(ssp.uuid().clone());
+            let bp = ssp.broker_proxy();
+            let child = match juiz_borrow(&bp).and_then(|bp| bp.system_walk_via(&visited)) {
+                Ok(tree) => {
+                    crate::brokers::walk::collect_tree_uuids(&tree, &mut visited);
+                    tree
+                }
+                Err(e) => {
+                    // 答えない System や、system/walk の無い古い juiz は、下をたどらない葉にする
+                    log::debug!("【system_walk_via】つながった System({ssp})の木を取得できませんでした。エラーは({e})");
+                    jvalue!({ "uuid": ssp.uuid().to_string(), "children": [] })
+                }
+            };
+            children.push(child);
+        }
+        Ok(jvalue!({ "uuid": my_uuid.to_string(), "children": children }))
     }
 
     fn system_profile_recursive_via(&self, via: &[Uuid]) -> JuizResult<Value> {
@@ -1042,8 +1132,7 @@ impl ProcessBrokerProxy for CoreBroker {
         }
 
         // マスターシステムもたどる。通ってきた System へは戻らない (issue #559)
-        let (targets, next_via) = self.list_walk_targets()?;
-        for ssp in targets.iter() {
+        for (ssp, next_via) in self.list_walk_targets()?.iter() {
             log::debug!("【process_list】つながった System({ssp:})にあるprocessも調べます。");
             let plist = Self::list_from(ssp, &next_via, "process_list", |bp| {
                 let mut ids = bp.process_list(recursive, None)?;
@@ -1247,8 +1336,7 @@ impl ContainerBrokerProxy for CoreBroker {
             .collect::<Vec<ContainerIdentifier>>();
         if recursive {
             // マスターシステムもたどる (issue #559)
-            let (targets, next_via) = self.list_walk_targets()?;
-            for ssp in targets.iter() {
+            for (ssp, next_via) in self.list_walk_targets()?.iter() {
                 // 副系のものは、副系へのブローカーを指す識別子にする (process_list と同じ。issue #112)
                 ids.extend(Self::list_from(ssp, &next_via, "container_list", |p| {
                     let mut ids = p.container_list(recursive, None)?;
@@ -1340,8 +1428,7 @@ impl ContainerProcessBrokerProxy for CoreBroker {
         let mut ids = self.worker().store().container_processes_id();
         if recursive {
             // マスターシステムもたどる (issue #559)
-            let (targets, next_via) = self.list_walk_targets()?;
-            for ssp in targets.iter() {
+            for (ssp, next_via) in self.list_walk_targets()?.iter() {
                 // 副系のものは、副系へのブローカーを指す識別子にする (process_list と同じ。issue #112)
                 ids.extend(Self::list_from(ssp, &next_via, "container_process_list", |p| {
                     let mut ids = p.container_process_list(recursive, None)?;
@@ -1532,8 +1619,7 @@ impl BrokerBrokerProxy for CoreBroker {
         if recursive {
             log::trace!("【broker_list】サブシステムのBrokerも調べます。");
             // マスターシステムもたどる (issue #559)
-            let (targets, next_via) = self.list_walk_targets()?;
-            for ssp in targets.iter() {
+            for (ssp, next_via) in self.list_walk_targets()?.iter() {
                 ids.extend(Self::list_from(ssp, &next_via, "broker_list", |p| {
                     p.broker_list(recursive)
                 }));
@@ -1739,8 +1825,7 @@ impl ExecutionContextBrokerProxy for CoreBroker {
         let ids_arr = ids.as_array_mut().unwrap();
         if recursive {
             // マスターシステムもたどる (issue #559)
-            let (targets, next_via) = self.list_walk_targets()?;
-            for ssp in targets.iter() {
+            for (ssp, next_via) in self.list_walk_targets()?.iter() {
                 ids_arr.extend(Self::list_from(ssp, &next_via, "ec_list", |p| {
                     Ok(get_array(&p.ec_list(recursive)?)?.clone())
                 }));
@@ -1820,8 +1905,7 @@ impl ConnectionBrokerProxy for CoreBroker {
             .collect();
         if recursive {
             // マスターシステムもたどる (issue #559)
-            let (targets, next_via) = self.list_walk_targets()?;
-            for ssp in targets.iter() {
+            for (ssp, next_via) in self.list_walk_targets()?.iter() {
                 ids_arr.extend(Self::list_from(ssp, &next_via, "connection_list", |p| {
                     p.connection_list(recursive)
                 }));

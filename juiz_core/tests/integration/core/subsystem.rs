@@ -715,3 +715,32 @@ fn recursive_walk_over_mutual_subsystems_ipc() -> JuizResult<()> {
         })
     })
 }
+
+/// 4 つの輪 (A → B → C → D → A) と、さらに対角 (A → C) を足した形でも、
+/// 再帰の一覧に同じ System の Process が 2 度出ない (issue #559)。
+/// 直接の相手を via に入れるだけでは、A から B 経由と D 経由の両方で C が数えられてしまう
+#[cfg(all(test, feature = "ipc-broker"))]
+#[test]
+fn recursive_walk_over_ring_of_four_ipc() -> JuizResult<()> {
+    crate::common::logger::init();
+    let d = ipc_system("subsystem_walk_ring4", "d", &[]);
+    let c = ipc_system("subsystem_walk_ring4", "c", &["d"]);
+    let b = ipc_system("subsystem_walk_ring4", "b", &["c"]);
+    let a = ipc_system("subsystem_walk_ring4", "a", &["b"]);
+    let a_ipc = a["brokers"][0]["name"].as_str().unwrap().to_owned();
+    let c_ipc = c["brokers"][0]["name"].as_str().unwrap().to_owned();
+    System::new(d)?.setup()?.run_and_do_once(|d| {
+        System::new(c)?.setup()?.run_and_do_once(|c| {
+            System::new(b)?.setup()?.run_and_do_once(|b| {
+                System::new(a)?.setup()?.run_and_do_once(|a| {
+                    d.core_broker()
+                        .system_add_subsystem(jvalue!({ "type_name": "ipc", "name": a_ipc }))?;
+                    check_walks_all(&[a, b, c, d], 4)?;
+                    a.core_broker()
+                        .system_add_subsystem(jvalue!({ "type_name": "ipc", "name": c_ipc }))?;
+                    check_walks_all(&[a, b, c, d], 4)
+                })
+            })
+        })
+    })
+}

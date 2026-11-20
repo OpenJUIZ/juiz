@@ -663,6 +663,14 @@ impl SystemBrokerProxy for CRUDBrokerProxyHolder {
         )?)?)
     }
 
+    fn system_walk_via(&self, via: &[Uuid]) -> JuizResult<Value> {
+        let mut param = HashMap::new();
+        if !via.is_empty() {
+            param.insert("via".to_owned(), crate::topics::via_to_param(via));
+        }
+        capsule_value(self.broker.read("system", "walk", param)?)
+    }
+
     fn system_profile_recursive_via(&self, via: &[Uuid]) -> JuizResult<Value> {
         let mut param = HashMap::from([("recursive".to_owned(), "true".to_owned())]);
         if !via.is_empty() {

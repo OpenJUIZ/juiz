@@ -307,6 +307,14 @@ impl SystemBrokerProxy for MessengerBrokerProxy {
         capsule_value(self.read("system", "profile")?)
     }
 
+    fn system_walk_via(&self, via: &[Uuid]) -> JuizResult<Value> {
+        let mut param = Vec::new();
+        if !via.is_empty() {
+            param.push(("via".to_owned(), crate::topics::via_to_param(via)));
+        }
+        capsule_value(self.read_with_param("system", "walk", &param)?)
+    }
+
     fn system_profile_recursive_via(&self, via: &[Uuid]) -> JuizResult<Value> {
         let mut param = vec![("recursive".to_owned(), "true".to_owned())];
         if !via.is_empty() {
