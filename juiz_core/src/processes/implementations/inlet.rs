@@ -1,4 +1,5 @@
-use std::cell::{Cell, RefCell};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, MutexGuard};
 
 use crate::prelude::*;
 use juiz_sdk::{connection_identifier::ConnectionIdentifier, connections::ConnectionProfile};
@@ -11,9 +12,14 @@ pub struct Inlet {
     name: String,
     source_connections: Vec<Box<dyn SourceConnection>>,
     default_value: CapsulePtr,
-    buffer: RefCell<Option<CapsulePtr>>,
+    /// p_apply で拘束した値か、push で届いた値。
+    ///
+    /// ProcessPtr は RwLock なので、読み取りロックのまま別々のスレッドから同時に触られる
+    /// (EC の周期実行・接続先からの push・profile の取得など)。RefCell だと二重借用で panic するので
+    /// Mutex にする (issue #566)
+    buffer: Mutex<Option<CapsulePtr>>,
     /// bind (p_apply) で値が設定されてから、まだ collect_value で読まれていないとき true
-    updated: Cell<bool>,
+    updated: AtomicBool,
 }
 
 impl std::fmt::Debug for Inlet {
@@ -32,9 +38,14 @@ impl Inlet {
             name: name.to_owned(),
             default_value: default_value.into(),
             source_connections: Vec::new(),
-            buffer: RefCell::new(None),
-            updated: Cell::new(false),
+            buffer: Mutex::new(None),
+            updated: AtomicBool::new(false),
         }
+    }
+
+    /// buffer のロック。中身は Option の差し替えだけなので、毒されていても中身をそのまま使う
+    fn lock_buffer(&self) -> MutexGuard<'_, Option<CapsulePtr>> {
+        self.buffer.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn name(&self) -> &String {
@@ -71,21 +82,20 @@ impl Inlet {
     /// 次の実行で使われる値 (p_apply で拘束した値か、push で届いた値)。
     /// まだ無いときと、値型でない (画像など) ときは None (issue #112)
     pub fn current_value(&self) -> Option<Value> {
-        self.buffer
-            .borrow()
-            .as_ref()
-            .and_then(|c| c.lock_as_value(|v| v.clone()).ok())
+        // Capsule のロックを buffer のロックの中で取らないよう、先に複製して放す
+        let buffered = self.lock_buffer().clone();
+        buffered.and_then(|c| c.lock_as_value(|v| v.clone()).ok())
     }
 
     /// 今バッファにある値 (p_apply で拘束した値か、push で届いた値)。
     ///
     /// current_value と違い画像なども返す。pull せず、updated フラグにも触らない (issue #83 の call_partial 用)
     pub fn buffered_value(&self) -> Option<CapsulePtr> {
-        self.buffer.borrow().clone()
+        self.lock_buffer().clone()
     }
 
     pub fn is_updated(&self) -> JuizResult<bool> {
-        if self.updated.get() {
+        if self.updated.load(Ordering::Acquire) {
             return Ok(true);
         }
         //self.source_connections.iter().find_map(|sc| { if sc.is_source_updated() })
@@ -107,7 +117,7 @@ impl Inlet {
     /// bufferにデータが残っていればそれを返す。
     pub fn collect_value(&self) -> CapsulePtr {
         log::trace!("Inlet({})::collect_value() called", self.name());
-        self.updated.set(false);
+        self.updated.store(false, Ordering::Release);
         for sc in self.source_connections.iter() {
             if sc.connection_type() == ConnectionType::Pull {
                 match sc.pull() {
@@ -115,17 +125,16 @@ impl Inlet {
                         log::error!("Pull data via Connection({}) in Inlet({})::collect_value() failed. Error: {:}", sc.identifier(), self.name(), e);
                     }
                     Ok(output) => {
-                        self.buffer.replace(Some(output.clone()));
-                        //return self.buffer.borrow().unwrap().clone();
+                        // pull の間は buffer のロックを持たない (上流の実行は時間がかかることがある)
+                        *self.lock_buffer() = Some(output);
                     }
                 }
             }
         }
-        if self.buffer.borrow().is_none() {
-            self.default_value.clone()
-        } else {
-            self.buffer.borrow().clone().unwrap()
-        }
+        // 一度のロックで読む (確かめてから読むまでの間に別スレッドが書いても食い違わない)
+        self.lock_buffer()
+            .clone()
+            .unwrap_or_else(|| self.default_value.clone())
     }
 
     pub(crate) fn insert(&mut self, con: Box<dyn SourceConnection + 'static>) {
@@ -146,13 +155,13 @@ impl Inlet {
     /// p_apply と同じバッファに書くので、後から来た値が次の execute で使われる (issue #70)。
     /// 届いた値ですぐ計算するため、updated フラグは立てない。
     pub fn store(&self, value: CapsulePtr) {
-        self.buffer.replace(Some(value));
+        *self.lock_buffer() = Some(value);
     }
 
     pub fn bind(&mut self, value: CapsulePtr) -> JuizResult<CapsulePtr> {
         // 後から設定した値で上書きし、次の invoke でメモを使わずに再計算させる (issue #18)
-        self.buffer.replace(Some(value.clone()));
-        self.updated.set(true);
+        *self.lock_buffer() = Some(value.clone());
+        self.updated.store(true, Ordering::Release);
         Ok(value)
     }
 }
