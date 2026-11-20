@@ -3,6 +3,10 @@
 hsjuiz の版は juiz(crates.io の juiz_app、PyPI の pyjuiz / juiz-cli)と同じ番号にそろえています。
 使う libjuiz_sdk も同じ版にしてください。
 
+## 0.3.1
+
+- hsjuiz の API は 0.3.0 から変えていない(juiz 本体の URDF / SDF の取り込み juiz import #388 と、実行中のモデルの差し替え #389 の公開に版をそろえた)。C ABI からのモデルの差し替えは juiz#564 で予定。
+
 ## 0.3.0
 
 - hsjuiz の API は 0.2.11 から変えていない(juiz 本体の .juizapp の使い勝手 #390 と、つながった System を全部たどる再帰の一覧・管理画面 #559 の公開に版をそろえた)。
