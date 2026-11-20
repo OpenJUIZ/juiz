@@ -255,6 +255,12 @@ pub trait ContainerBrokerProxy {
     /// モデルが無ければ `ContainerHasNoModelError`。
     /// バイト列にするには [`crate::models::ContainerModelData::from_value`] を使う
     fn container_model(&self, identifier: &str) -> JuizResult<Value>;
+
+    /// Container `identifier` (ID か名前) の 3D モデルを実行中に差し替える (§13.2、issue #389)。
+    /// `model` は `{"data": "<base64>", "format", "file_name", "scale", "origin", "up_axis", "color"}`、
+    /// `null` ならモデルを外す。戻り値は差し替えた後のモデル情報 (外したら `Null`)。
+    /// 別 System の Container (ブローカー付きの ID) なら、その System に回す
+    fn container_set_model(&self, identifier: &str, model: &Value) -> JuizResult<Value>;
 }
 
 pub trait ContainerProcessBrokerProxy {

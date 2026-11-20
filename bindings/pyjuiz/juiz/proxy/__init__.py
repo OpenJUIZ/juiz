@@ -420,6 +420,27 @@ class SystemProxy():
         """Container のモデルの中身 (bytes)。モデルが無ければ例外 (ContainerHasNoModelError、HTTP では NotFoundError)"""
         return self.crud.read_model(_id_str(container))
 
+    def set_model(self, container: str, data, format: str = None, **options):
+        """Container の 3D モデルを実行中に差し替える (issue #389、docs/spec/container-model.md §13.2)。
+        data はモデルの中身 (bytes)、format は glb・gltf・stl・sdf・other (省けば file_name の拡張子から)。
+        options は scale・origin・up_axis・color・file_name。差し替えた後のモデル情報 (dict) を返す。
+        data に None を渡すとモデルを外す (None を返す)"""
+        if data is None:
+            model = None
+        else:
+            if isinstance(data, str):
+                data = data.encode('utf-8')
+            model = {k: _to_value(v) for k, v in options.items() if v is not None}
+            if format is not None:
+                model['format'] = format
+            model['data'] = base64.b64encode(bytes(data)).decode('ascii')
+        return self.crud.update('container', 'set_model', {'model': model},
+                                {'identifier': self._ref(container)})
+
+    def clear_model(self, container: str):
+        """Container の 3D モデルを外す (issue #389)"""
+        return self.set_model(container, None)
+
     def _ref(self, v):
         """別 System の ObjectProxy は、その System へのブローカー付きの ID にする"""
         if isinstance(v, ObjectProxy) and v.system is not None and v.system is not self:
@@ -846,6 +867,14 @@ class ContainerProxy(ObjectProxy):
         """この Container のモデルの中身 (bytes、issue #382)。info の sha256 で中身を確かめるには
         hashlib.sha256(data).hexdigest() と model_info()['sha256'] を比べる"""
         return self.system.model(self.identifier())
+
+    def set_model(self, data, format: str = None, **options):
+        """この Container の 3D モデルを差し替える (bytes、issue #389)。差し替えた後のモデル情報を返す"""
+        return self.system.set_model(self.identifier(), data, format, **options)
+
+    def clear_model(self):
+        """この Container の 3D モデルを外す (issue #389)"""
+        return self.system.clear_model(self.identifier())
 
     def processes(self):
         # Container の profile の processes は空のことがあるので、

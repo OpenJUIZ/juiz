@@ -141,7 +141,7 @@ fn construct_url(
     // このサーバー自身を指す ID はサーバー側で core の ID に直す (localize_identifier、transformations.md §19.8)
     // container/model・model_info も同じ (別 System の Container を中継する、container-model.md §6.1)
     let keep_identifier = class_name == "container"
-        && matches!(function_name, "pose" | "set_pose" | "model" | "model_info");
+        && matches!(function_name, "pose" | "set_pose" | "model" | "model_info" | "set_model");
     let m = param.iter().map(|(k, v)| {
         if keep_identifier && k == "identifier" {
             k.clone() + "=" + v.as_str()

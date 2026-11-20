@@ -162,6 +162,13 @@ pub(crate) fn container_read_callbacks(cbs: &mut CallbackContainerType) {
 }
 
 pub(crate) fn container_update_callbacks(cbs: &mut CallbackContainerType) {
+    // 3D モデルの差し替え (docs/spec/container-model.md §13.2、issue #389)。ボディ `model` (null で外す)
+    cbs.insert("set_model", |cb, args| {
+        log::debug!("[UPDATE] container/set_model called");
+        let id = param(&args, "identifier")?;
+        let model = body_value(&args, "model")?.ok_or_else(|| missing("model"))?;
+        Ok(crate::brokers::ContainerBrokerProxy::container_set_model(&*cb.lock()?, &id, &model)?.into())
+    });
     cbs.insert("set_pose", |cb, args| {
         log::debug!("[UPDATE] container/set_pose called");
         let id = param(&args, "identifier")?;

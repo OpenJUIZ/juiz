@@ -874,7 +874,7 @@ export interface paths {
                     since?: string | null;
                     /** @description 前回受け取った system (相手の UUID)。今の UUID と違えば since を無視する */
                     system?: string | null;
-                    /** @description 取りに来た System の UUID (container/profile_full の remote_children に出る) */
+                    /** @description 取りに来た System の UUID (container/profile の remote_children に出る) */
                     subscriber?: string | null;
                     /** @description 取りに来た System での終点の ID (複数なら `,` 区切り) */
                     destination?: string | null;
@@ -981,6 +981,56 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/container/set_model": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: {
+                    /** @description Container の ID か名前 (根のネームスペースから解決する)。パスは受け付けない */
+                    identifier?: string | null;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /** @description {"model": {"data": <base64>, "format", "file_name", "scale", "origin", "up_axis", "color"}} か {"model": null} (外す)。path は受け付けない */
+            requestBody: {
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            responses: {
+                /** @description 差し替えた後のモデル情報 (juiz_std.model.ContainerModelInfo)。外したら null */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["juiz_std.model.ContainerModelInfo"] | null;
+                    };
+                };
+                /** @description 値の誤り・上限超え・形式に合わない (ContainerModelInvalidError) */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
         trace?: never;
     };
     "/api/container/set_pose": {

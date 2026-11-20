@@ -383,7 +383,7 @@
       "name": "MIT OR Apache-2.0"
     },
     "title": "juiz_core",
-    "version": "0.2.10"
+    "version": "0.3.0"
   },
   "openapi": "3.0.3",
   "paths": {
@@ -1051,7 +1051,7 @@
             }
           },
           {
-            "description": "取りに来た System の UUID (container/profile_full の remote_children に出る)",
+            "description": "取りに来た System の UUID (container/profile の remote_children に出る)",
             "in": "query",
             "name": "subscriber",
             "required": false,
@@ -1171,6 +1171,57 @@
               }
             },
             "description": "Container"
+          }
+        },
+        "tags": [
+          "universal.container"
+        ]
+      }
+    },
+    "/api/container/set_model": {
+      "patch": {
+        "operationId": "set_model_dummy",
+        "parameters": [
+          {
+            "description": "Container の ID か名前 (根のネームスペースから解決する)。パスは受け付けない",
+            "in": "query",
+            "name": "identifier",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          },
+          "description": "{\"model\": {\"data\": <base64>, \"format\", \"file_name\", \"scale\", \"origin\", \"up_axis\", \"color\"}} か {\"model\": null} (外す)。path は受け付けない",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/juiz_std.model.ContainerModelInfo"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "差し替えた後のモデル情報 (juiz_std.model.ContainerModelInfo)。外したら null"
+          },
+          "400": {
+            "description": "値の誤り・上限超え・形式に合わない (ContainerModelInvalidError)"
           }
         },
         "tags": [

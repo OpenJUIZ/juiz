@@ -49,6 +49,10 @@ impl Drop for CoreStore {
 
 impl CoreStore {
     pub fn new(manifest: Value) -> CoreStore {
+        let transformations = crate::transformations::Transformations::new();
+        let models = crate::models::ContainerModels::new();
+        // ContainerProcess からの 3D モデルの差し替えは Transformations の口を通る (container-model.md §13.2)
+        let _ = transformations.set_models(&models);
         CoreStore {
             manifest,
             brokers_manifests: Vec::new(),
@@ -63,8 +67,8 @@ impl CoreStore {
             //container_processes: RwObjectCollection::new("container_process"),
             container_processes: ObjectCollection::new("container_process"),
             ecs: MutexObjectCollection::new("ecs"),
-            transformations: crate::transformations::Transformations::new(),
-            models: crate::models::ContainerModels::new(),
+            transformations,
+            models,
         }
     }
 

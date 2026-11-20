@@ -49,6 +49,19 @@ pub trait TransformationsRegistry: Send + Sync {
         destination: &str,
         value: &Transform,
     ) -> JuizResult<TransformStamped>;
+
+    /// Container `container` の 3D モデルを差し替える (docs/spec/container-model.md §13.2、issue #389)。
+    /// `model` は `{"data": "<base64>", "format", "file_name", "scale", "origin", "up_axis", "color"}`、
+    /// `null` ならモデルを外す。戻り値は差し替えた後のモデル情報 (外したら `Null`)。
+    /// 既定の実装は対応していないエラー (C ABI のプラグインの口など)
+    fn set_model(&self, container: &ContainerIdentifier, model: &Value) -> JuizResult<Value> {
+        let _ = model;
+        Err(anyhow!(JuizError::ContainerModelInvalidError {
+            message: format!(
+                "replacing the model of Container({container}) from this kind of container process is not supported"
+            ),
+        }))
+    }
 }
 
 type RegistrySlot = Arc<RwLock<Option<Weak<dyn TransformationsRegistry>>>>;
@@ -204,6 +217,50 @@ impl ContainerPoseHandle {
         let value = value.normalized()?;
         let registry = self.registry()?;
         registry.set_transform(&self.identifier, source, destination, &value)
+    }
+
+    /// この Container の 3D モデルを差し替える (docs/spec/container-model.md §13.2、issue #389)。
+    /// `model` は `{"data": "<base64>", "format", ...}`、`null` ならモデルを外す。
+    /// 戻り値は差し替えた後のモデル情報 (外したら `Null`)。中身をバイト列で渡すなら [`Self::set_model_bytes`]
+    ///
+    /// このスレッドでこの Container の readonly ContainerProcess を呼び出し中なら `ContainerModelInvalidError` (§14)
+    pub fn set_model(&self, model: &Value) -> JuizResult<Value> {
+        if super::readonly::in_readonly_call(self) {
+            return Err(anyhow!(JuizError::ContainerModelInvalidError {
+                message: format!(
+                    "the model of Container({}) can not be replaced from a readonly container process",
+                    self.identifier
+                ),
+            }));
+        }
+        let registry = self.registry()?;
+        registry.set_model(&self.identifier, model)
+    }
+
+    /// [`Self::set_model`] の、中身をバイト列で渡すもの。`format` は `glb`・`gltf`・`stl`・`sdf`・`other`。
+    /// `options` は `scale`・`origin`・`up_axis`・`color`・`file_name` の辞書 (無ければ `Value::Null`)
+    pub fn set_model_bytes(&self, data: &[u8], format: &str, options: &Value) -> JuizResult<Value> {
+        use base64::Engine;
+        let mut v = match options {
+            Value::Object(o) => o.clone(),
+            Value::Null => serde_json::Map::new(),
+            other => {
+                return Err(anyhow!(JuizError::ContainerModelInvalidError {
+                    message: format!("model options must be a dictionary, but {other}"),
+                }))
+            }
+        };
+        v.insert("format".to_owned(), jvalue!(format));
+        v.insert(
+            "data".to_owned(),
+            jvalue!(base64::engine::general_purpose::STANDARD.encode(data)),
+        );
+        self.set_model(&Value::Object(v))
+    }
+
+    /// この Container の 3D モデルを外す ([`Self::set_model`] に `null`)
+    pub fn clear_model(&self) -> JuizResult<Value> {
+        self.set_model(&Value::Null)
     }
 
     /// 読み出しだけの口 (§14)

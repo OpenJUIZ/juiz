@@ -79,6 +79,31 @@ pub(crate) enum ContSubCommands {
         output: Option<String>,
     },
 
+    /// Replace the 3D model of a running Container with a local file, or remove it with --clear (issue #389)
+    #[clap(arg_required_else_help = true)]
+    SetModel {
+        #[arg(help = "Container: ID or name (ex., pantilt0, robot1/pantilt0)")]
+        identifier: String,
+
+        #[arg(help = "Model file to send (.glb / .gltf / .stl / .sdf). Its content is sent, not the path")]
+        file: Option<String>,
+
+        #[arg(long = "clear", help = "Remove the model of the Container", conflicts_with = "file")]
+        clear: bool,
+
+        #[arg(long = "format", help = "Format: glb, gltf, stl, sdf or other (default: from the extension)")]
+        format: Option<String>,
+
+        #[arg(long = "scale", help = "Meters per unit of the file (default: 1.0)")]
+        scale: Option<f64>,
+
+        #[arg(long = "up-axis", help = "Up axis in the file: y or z (default: y for glTF, z for others)")]
+        up_axis: Option<String>,
+
+        #[arg(long = "color", help = "Display color for formats without colors (#RRGGBB or #RRGGBBAA)")]
+        color: Option<String>,
+    },
+
     /// Destroy a container (CompositeContainer included)
     #[clap(arg_required_else_help = true)]
     Destroy {
@@ -152,6 +177,28 @@ pub(crate) fn on_container_inner(
             info,
             output,
         } => crate::model::on_container_model(manifest, working_dir, args, identifier, info, output),
+        ContSubCommands::SetModel {
+            identifier,
+            file,
+            clear,
+            format,
+            scale,
+            up_axis,
+            color,
+        } => crate::model::on_container_set_model(
+            manifest,
+            working_dir,
+            args,
+            identifier,
+            crate::model::SetModelOptions {
+                file,
+                clear,
+                format,
+                scale,
+                up_axis,
+                color,
+            },
+        ),
         ContSubCommands::Destroy { identifier } => {
             let server = args.server;
             System::new(manifest)?

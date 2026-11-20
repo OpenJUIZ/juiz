@@ -79,6 +79,19 @@ impl CoreBroker {
         }
     }
 
+    /// `container/set_model` (§13.2、issue #389)。`model` が `null` ならモデルを外す
+    pub(crate) fn container_set_model_impl(&self, identifier: &str, model: &Value) -> JuizResult<Value> {
+        log::trace!("【呼出】container_set_model({identifier})");
+        match self.model_target(identifier)? {
+            ModelTarget::Local(id) => self.worker().store().models.replace(&id, model),
+            ModelTarget::Remote(c) => {
+                let bp = self.proxy_of(&c)?;
+                let r = juiz_borrow(&bp)?.container_set_model(&core_form(&c).to_string(), model);
+                r.map_err(|e| proxy_error_context(e, &c))
+            }
+        }
+    }
+
     /// `container/model` の JSON の経路の形 `{info, data: <base64>}` (§6.3)。16 MiB 超なら WARN (§5.4)
     pub(crate) fn container_model_json(&self, identifier: &str) -> JuizResult<Value> {
         let d = self.container_model_data(identifier)?;

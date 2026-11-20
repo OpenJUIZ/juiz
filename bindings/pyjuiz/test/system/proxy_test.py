@@ -241,6 +241,22 @@ def check_model(port, model_path):
     except NotFoundError as e:
         assert "model" in str(e), e
 
+    # 実行中の差し替え (issue #389)。中身を送り、外すと元のファイルのモデルにも戻らない
+    sdf = b'<sdf version="1.9"><model name="m"><link name="l"/></model></sdf>'
+    info2 = r1.set_model(sdf, "sdf", color="#ff8000")
+    assert info2["format"] == "sdf" and info2["file_name"] == "model.sdf", info2
+    assert info2["sha256"] == hashlib.sha256(sdf).hexdigest(), info2
+    assert r1.model() == sdf
+    assert r1.model_info()["color"] == "#ff8000"
+    assert r1.clear_model() is None
+    assert r1.model_info() is None
+    try:
+        r1.set_model(b"not a glb", "glb")
+        raise AssertionError("set_model with a broken glb must fail")
+    except Exception as e:
+        assert "glTF" in str(e), e
+    assert r1.model_info() is None
+
 
 def main():
     port = int(sys.argv[1])

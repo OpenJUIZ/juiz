@@ -88,6 +88,34 @@ impl PyContainerPoseHandle {
         Ok(value_to_pyany(py, &v))
     }
 
+    /// この Container の 3D モデルを差し替える (container-model.md §13.2、issue #389)。
+    /// `model` は `{"data": bytes か base64 の文字列, "format", ...}` の辞書か None (外す)。
+    /// 差し替えた後のモデル情報の辞書 (外したら None) を返す
+    fn set_model(&self, py: Python<'_>, model: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+        use base64::Engine;
+        let value = if model.is_none() {
+            Value::Null
+        } else {
+            // bytes の data は base64 にしてから値にする (pyany_to_value は bytes を読まない)
+            let dict = model.cast::<pyo3::types::PyDict>().map_err(|_| {
+                to_py_error(anyhow::anyhow!(JuizError::ContainerModelInvalidError {
+                    message: "model must be a dict or None".to_owned()
+                }))
+            })?;
+            let copy = dict.copy()?;
+            if let Some(d) = copy.get_item("data")? {
+                if let Ok(b) = d.cast::<pyo3::types::PyBytes>() {
+                    let s = base64::engine::general_purpose::STANDARD.encode(b.as_bytes());
+                    copy.set_item("data", s)?;
+                }
+            }
+            pyany_to_value(copy.as_any())?
+        };
+        let r = py.detach(|| self.handle.set_model(&value));
+        let v: Value = r.map_err(to_py_error)?;
+        Ok(value_to_pyany(py, &v))
+    }
+
     fn __repr__(&self) -> String {
         format!("ContainerPoseHandle({})", self.handle.identifier())
     }
