@@ -172,3 +172,42 @@ def set_transform(container, source, destination, value):
     v = _call(h.set_transform, _reference(source, "source"), _reference(destination, "destination"),
               _transform_value(value))
     return TransformStamped.from_value(v)
+
+
+class ContainerModelInvalidError(TransformationsError):
+    """set_model の値の誤り (形式に合わない・上限超え・path を渡した)、readonly の ContainerProcess からの差し替え
+    (docs/spec/container-model.md §13.2、#389)"""
+
+
+_ERRORS[ContainerModelInvalidError.__name__] = ContainerModelInvalidError
+
+
+def set_model(container, data, format=None, **options):
+    """Container (ContainerProcess の第 1 引数) の 3D モデルを実行中に差し替える
+    (docs/spec/container-model.md §13.2、#389)。
+
+    data はモデルの中身 (bytes)。format は ``glb``・``gltf``・``stl``・``sdf``・``other``
+    (省けば file_name の拡張子から)。options には ``scale``・``origin``・``up_axis``・``color``・``file_name``
+    を conf の ``model:`` と同じ形で書ける。差し替えた後のモデル情報 (dict) を返す。
+
+        set_model(arm, open("gripper_closed.glb", "rb").read(), "glb")
+        set_model(cloud, sdf_text.encode(), "sdf", color="#ff8000")
+    """
+    h = _handle(container)
+    if isinstance(data, str):
+        data = data.encode("utf-8")
+    if not isinstance(data, (bytes, bytearray, memoryview)):
+        raise TypeError("data にはモデルの中身 (bytes) を渡してください: {!r}".format(type(data).__name__))
+    value = {k: v for k, v in options.items() if v is not None}
+    if "origin" in value and hasattr(value["origin"], "to_value"):
+        value["origin"] = value["origin"].to_value()
+    if format is not None:
+        value["format"] = format
+    value["data"] = bytes(data)
+    return _call(h.set_model, value)
+
+
+def clear_model(container):
+    """Container の 3D モデルを外す (§13.2、#389)。None を返す"""
+    h = _handle(container)
+    return _call(h.set_model, None)

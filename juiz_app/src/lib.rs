@@ -12,6 +12,7 @@ mod container;
 mod container_process;
 mod default_juiz_conf;
 mod execution_context;
+mod import;
 mod launched;
 mod model;
 mod namespace;
@@ -268,6 +269,13 @@ enum SubCommands {
     Model {
         #[clap(subcommand)]
         subcommand: model::ModelSubCommands,
+    },
+
+    /// Import a URDF / SDF robot as a conf (Containers, Transforms and models, issue #388)
+    #[clap(arg_required_else_help = true)]
+    Import {
+        #[clap(subcommand)]
+        subcommand: import::ImportSubCommands,
     },
 
     /// Generate schemas and code from juiz IDL (.jidl) files (same as juiz-idl, issue #191)
@@ -776,6 +784,10 @@ where
             }
         };
     }
+    // juiz import も系を作らない (docs/spec/container-model.md §13.1)
+    if let Some(SubCommands::Import { subcommand }) = &args.subcommand {
+        return import::run_import_command(subcommand);
+    }
     // juiz model check も系を作らない (docs/spec/container-model.md §9.2)
     if let Some(SubCommands::Model { subcommand }) = &args.subcommand {
         return model::run_model_command(subcommand);
@@ -1024,6 +1036,7 @@ fn run(args: Args) -> JuizResult<()> {
         SubCommands::Anchor { subcommand } => on_anchor(manifest, working_dir, subcommand, args),
         SubCommands::Idl { .. }
         | SubCommands::Model { .. }
+        | SubCommands::Import { .. }
         | SubCommands::Pkg { .. }
         | SubCommands::Sdk { .. }
         | SubCommands::Pack { .. }

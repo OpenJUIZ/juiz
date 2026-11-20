@@ -6,7 +6,7 @@ from .decorators import juiz_process, juiz_container, juiz_container_process, ju
 from .decorators import PyJuizMissingTypeAnnotationError
 from . import datatype
 # Python の ContainerProcess から ContainerPose を読み書きする (issue #371)
-from .transformations import pose, set_pose, lookup, set_transform, TransformationsError, NoCommonAnchorError, PoseNotWritableError, InvalidPoseValueError, TransformationsNotAttachedError, TransformNotWritableError, TransformNotFoundError
+from .transformations import pose, set_pose, lookup, set_transform, set_model, clear_model, ContainerModelInvalidError, TransformationsError, NoCommonAnchorError, PoseNotWritableError, InvalidPoseValueError, TransformationsNotAttachedError, TransformNotWritableError, TransformNotFoundError
 from .datatype import ValueDoesNotMatchTypeError
 # from .decorators import JuizContainer, JuizContainerProcess, JuizProcess
 

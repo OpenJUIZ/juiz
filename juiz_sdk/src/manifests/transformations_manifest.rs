@@ -18,6 +18,9 @@ use crate::prelude::*;
 pub const PERIODIC_ANCHOR_TYPE_NAME: &str = "periodic_anchor";
 /// StaticAnchor の type_name
 pub const STATIC_ANCHOR_TYPE_NAME: &str = "static_anchor";
+/// 座標系だけの組み込みの Container (Frame) の type_name。状態も ContainerProcess も持たず、
+/// Transform の端点とモデルの置き場所になる (URDF・SDF の取り込みの link、docs/spec/container-model.md §13.1)
+pub const FRAME_TYPE_NAME: &str = "frame";
 /// PeriodicExecutionAnchor の `rate` の既定値 [Hz] (§4.3)
 pub const DEFAULT_ANCHOR_RATE: f64 = 10.0;
 /// System をまたぐ Transform の取り込みの `rate` の既定値 [Hz] (§19.4)
@@ -64,6 +67,11 @@ impl AnchorKind {
 /// type_name が Anchor のものか
 pub fn is_anchor_type_name(type_name: &str) -> bool {
     AnchorKind::from_type_name(type_name).is_some()
+}
+
+/// type_name が System に組み込みの Container (Anchor と Frame) のものか。どちらも Factory を持たない
+pub fn is_builtin_container_type_name(type_name: &str) -> bool {
+    is_anchor_type_name(type_name) || type_name == FRAME_TYPE_NAME
 }
 
 /// Anchor の設定 (§4)。Periodic なら周期 `rate` [Hz] を持つ

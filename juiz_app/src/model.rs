@@ -85,6 +85,79 @@ pub(crate) fn on_container_model(
     ))
 }
 
+/// `juiz container set-model` の引数 (issue #389)
+pub(crate) struct SetModelOptions {
+    pub file: Option<String>,
+    pub clear: bool,
+    pub format: Option<String>,
+    pub scale: Option<f64>,
+    pub up_axis: Option<String>,
+    pub color: Option<String>,
+}
+
+/// `juiz container set-model` の送る値 (`container/set_model` の `model`、container-model.md §13.2)。
+/// ファイルの中身を base64 にして送る (パスは送らない)
+pub(crate) fn set_model_value(o: &SetModelOptions) -> JuizResult<Value> {
+    use base64::Engine;
+    if o.clear {
+        return Ok(Value::Null);
+    }
+    let Some(file) = o.file.as_deref() else {
+        return Err(anyhow!("give a model file, or --clear to remove the model"));
+    };
+    let path = Path::new(file);
+    let data = std::fs::read(path)
+        .map_err(|e| anyhow!("can not read the model file '{file}': {e}"))?;
+    let mut v = serde_json::Map::new();
+    v.insert(
+        "data".to_owned(),
+        jvalue!(base64::engine::general_purpose::STANDARD.encode(&data)),
+    );
+    if let Some(name) = path.file_name() {
+        v.insert("file_name".to_owned(), jvalue!(name.to_string_lossy()));
+    }
+    if let Some(f) = &o.format {
+        v.insert("format".to_owned(), jvalue!(f));
+    }
+    if let Some(s) = o.scale {
+        v.insert("scale".to_owned(), jvalue!(s));
+    }
+    if let Some(a) = &o.up_axis {
+        v.insert("up_axis".to_owned(), jvalue!(a));
+    }
+    if let Some(c) = &o.color {
+        v.insert("color".to_owned(), jvalue!(c));
+    }
+    Ok(Value::Object(v))
+}
+
+/// `juiz container set-model` (issue #389)。差し替えた後のモデル情報を表示する
+pub(crate) fn on_container_set_model(
+    manifest: Value,
+    working_dir: &Path,
+    args: Args,
+    identifier: String,
+    options: SetModelOptions,
+) -> JuizResult<()> {
+    let value = match set_model_value(&options) {
+        Ok(v) => v,
+        Err(e) => {
+            println!("Error: {e:#}");
+            return Ok(());
+        }
+    };
+    crate::transformations::print_error(crate::transformations::run_with_proxy(
+        manifest,
+        working_dir,
+        &args,
+        |proxy| {
+            let v = proxy.container_set_model(&identifier, &value)?;
+            println!("{}", serde_json::to_string_pretty(&v)?);
+            Ok(())
+        },
+    ))
+}
+
 /// 取り出したモデルを書き出す。`out` がディレクトリなら `<file_name>` で書く。書いた先を返す
 pub(crate) fn write_model(d: &ContainerModelData, out: &Path) -> JuizResult<PathBuf> {
     let sha = juiz_core::models::sha256_hex(&d.data);
@@ -650,7 +723,7 @@ fn sdf_check(text: &str, dir: &Path, warnings: &mut Vec<String>) -> Option<Bound
     if joints > 0 {
         warnings.push(format!(
             "{joints} <joint> found. Links are drawn fixed at their <pose>. \
-             Split moving parts into Containers connected by Transforms, or use the import (Step 9 #388)"
+             Split moving parts into Containers connected by Transforms, or use `juiz import sdf` (docs/spec/container-model.md §13.1)"
         ));
     }
     if shapes == 0 {

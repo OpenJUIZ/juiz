@@ -9,6 +9,9 @@ mod anchor;
 mod registry;
 mod tree;
 
-pub use anchor::{anchor_container_new, AnchorContainer, AnchorState};
+pub use anchor::{
+    anchor_container_new, frame_container_new, AnchorContainer, AnchorState, FrameContainer,
+    FrameState,
+};
 pub use registry::{PoseStateFetcher, Transformations, TransformationsPtr};
 pub mod api_types;

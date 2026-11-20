@@ -2028,6 +2028,7 @@ name = "juiz_app"
 version = "0.3.0"
 dependencies = [
  "assert_cmd",
+ "base64 0.22.1",
  "clap",
  "flate2",
  "globset",

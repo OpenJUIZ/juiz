@@ -175,6 +175,27 @@ impl<S: 'static> ContainerImpl<S> {
         self.pose.set_transform(source, destination, &value)
     }
 
+    /// この Container の 3D モデルを実行中に差し替える (docs/spec/container-model.md §13.2、issue #389)。
+    /// `data` はモデルの中身、`format` は `glb`・`gltf`・`stl`・`sdf`・`other`。`options` は conf の `model:` と
+    /// 同じ形の `scale`・`origin`・`up_axis`・`color` と `file_name` の辞書 (無ければ `Value::Null`)。
+    /// 戻り値は差し替えた後のモデル情報 (`juiz_std.model.ContainerModelInfo` の形)。書き込みなので `&mut self` (§14)。
+    ///
+    /// ```ignore
+    /// #[juiz_container_process(container_type = "gripper")]
+    /// fn close(c: &mut ContainerImpl<Gripper>) -> JuizResult<Capsule> {
+    ///     let info = c.set_model(include_bytes!("models/closed.glb"), "glb", &Value::Null)?;
+    ///     Ok(info.into())
+    /// }
+    /// ```
+    pub fn set_model(&mut self, data: &[u8], format: &str, options: &Value) -> JuizResult<Value> {
+        self.pose.set_model_bytes(data, format, options)
+    }
+
+    /// この Container の 3D モデルを外す (§13.2、issue #389)
+    pub fn clear_model(&mut self) -> JuizResult<Value> {
+        self.pose.clear_model()
+    }
+
     /// ContainerPose の読み出しだけの口 (§14)
     pub fn pose_reader(&self) -> ContainerPoseReader {
         self.pose.reader()

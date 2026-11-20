@@ -411,6 +411,7 @@ pose_listeners:
   - Anchor の `rate` は `ContainerManifest.rate: Option<f64>`(Anchor 以外では使わず、`None` なら直列化しない)。`ContainerManifest::anchor_manifest()` が `AnchorManifest { kind: AnchorKind, rate: Option<f64> }` を返す(Anchor でなければ `None`)。§4.3 の既定値と検査、§4.1 の `processes:` の禁止はここで行い、不備は `ContainerManifestInvalidError`。Static に `rate` を書くと WARN を出して使わない。`AnchorManifest::to_profile_value()` が §4.1 の `anchor` の値を返す。定数 `PERIODIC_ANCHOR_TYPE_NAME`・`STATIC_ANCHOR_TYPE_NAME`・`DEFAULT_ANCHOR_RATE`。
   - `TransformManifest { source, destination, translation, rotation }`、`PoseListenerManifest { container, process, arg, reference, on_update, initial }`(`initial` は `false` なら直列化しない)。`list_from_conf(&conf)` で conf 全体から `transforms:` / `pose_listeners:` を読む(なければ空)。1 項目だけで分かる不備(端点が空・同じ名前、`on_update` で `reference` なし など)はここで検査し、名前の解決・木の規則・引数の型は core(Step 2)が検査する。Transform の回転はここで正規化する。
   - ID は `transform_identifier(src, dst)`・`pose_listener_identifier(x, y, arg)` で作る。
+- 状態を持たない座標系だけの Container には組み込みの type_name `frame` を使える(プラグイン不要、ContainerProcess は付けられない。URDF・SDF の取り込みの link に使う、container-model.md §13.1、#388)。
 - `transforms:` は `containers:` の後、`pose_listeners:` は `processes:`・`containers:` の後に読む。
 - 名前の解決は §5.4。
 - `transforms:` の端点が見つからない、木の規則(§5.2)を破る、`pose_listeners:` の Process が見つからない、はどれも conf の読み込みエラーとする(他のエラーと同じく ERROR を出す。起動を止めるかは他の conf のエラーと同じ扱い)。

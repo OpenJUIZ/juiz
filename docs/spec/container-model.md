@@ -2,7 +2,7 @@
 
 - 状態: 確定(Step 0、issue #380、2026-11-14)
 - 親 issue: #379。計画と経緯はプロジェクトの計画書 model-plan.md(2026-11-02 確定)にある
-- この文書は Step 1〜8(#381〜#387、site#65)の実装の基準になる。実装で仕様を変えるときは、同じ PR でこの文書を直す
+- この文書は Step 1〜10(#381〜#389、site#65)の実装の基準になる。実装で仕様を変えるときは、同じ PR でこの文書を直す
 - 「しなければならない」「エラーにする」は必須の規則、「してよい」は任意を表す。「(Step n で決める)」と書いた所は、その Step の PR でこの文書に書き足す
 - 位置姿勢・Transform・Anchor の言葉と計算規則は [transformations.md](transformations.md) に従う
 
@@ -77,13 +77,13 @@ SDF(SDFormat、Gazebo の XML)を、テキストで簡単に書ける形式と�
 
 - `<pose>` は「x y z roll pitch yaw」の 6 つの数(m、rad)。回転は固定軸の roll(x)→ pitch(y)→ yaw(z)の順、つまり R = Rz(yaw)·Ry(pitch)·Rx(roll)(SDF と ROS の RPY と同じ)。属性 `degrees="true"` があれば角度は度。`relative_to` 属性は、空か「すぐ上の要素(visual なら自分の link、link なら model)」だけを受け付け、それ以外は警告して無視する。
 - `<collision>`・`<inertial>`・`<sensor>`・`<plugin>`・`<light>`・`<frame>`・`<include>`・`<static>` などは読み飛ばす。
-- `<link>` が複数あれば、各 link をその `<pose>` の位置に**固定で**置く(全体を 1 つの剛体として描く)。`<joint>` があれば「動く部分は Container を分けるか、取り込み(Step 9 #388)を使う」と警告する。
+- `<link>` が複数あれば、各 link をその `<pose>` の位置に**固定で**置く(全体を 1 つの剛体として描く)。`<joint>` があれば「動く部分は Container を分けるか、取り込み(§13.1、`juiz import sdf`)を使う」と警告する。
 - `<world>` を最上位に置いたもの、`<model>` が 2 つ以上、`<model>` の入れ子は、この部分集合に入らない。core は `<sdf>` の直下の `<model>` が 1 つでないときに作成をエラーにする。入れ子の `<model>` は警告して読み飛ばす。
 
 #### 3.2.1 SDF の `<mesh>`
 
 - `<mesh><uri>` は .sdf からの相対パスの .glb / .stl だけを想定する。`model://`・`package://`・URL は対応しない(取り込み Step 9 で扱う)。
-- 今の API(§6)は 1 Container につき 1 ファイルしか配らないので、`<mesh>` の指す先は管理画面から取り出せない。**`<mesh>` は書いてよいが、最初の版では表示しない**(表示側は大きさの分からない箱ではなく座標軸だけ出す)。`juiz model check`(§9.2)は `<mesh>` を見つけたら警告する。複数ファイルの配信は将来(§13)。
+- 今の API(§6)は 1 Container につき 1 ファイルしか配らないので、`<mesh>` の指す先は管理画面から取り出せない。**`<mesh>` は書いてよいが、最初の版では表示しない**(表示側は大きさの分からない箱ではなく座標軸だけ出す)。`juiz model check`(§9.2)は `<mesh>` を見つけたら警告する。複数ファイルの配信は将来(§14)。
 
 #### 3.2.2 SDF を解釈する所
 
@@ -97,7 +97,7 @@ SDF の要素を形に直すのは**表示する側**(管理画面が XML を読
 
 ### 3.4 URDF
 
-URDF は Container のモデルではなく「複数の Container と Transform とモデルの組」の記述なので、`model:` には書けない(拡張子 `.urdf` は `other` になるが、作成時に「URDF は取り込み(Step 9 #388)を使う」と警告する)。将来「URDF・複数 link の SDF を読んで conf(containers / transforms / model)を作る」取り込みを別 Step にする。
+URDF は Container のモデルではなく「複数の Container と Transform とモデルの組」の記述なので、`model:` には書けない(拡張子 `.urdf` は `other` になるが、作成時に「URDF は取り込み(Step 9 #388)を使う」と警告する)。URDF・複数 link の SDF は取り込み `juiz import urdf|sdf`(§13.1)で conf(containers / transforms / model)にする。
 
 ## 4. 単位と座標
 
@@ -207,7 +207,7 @@ Container の作成時(conf の読み込み)に次を順に確かめ、満たさ
 
 ### 5.5 API からの作成
 
-`model` は **conf でだけ書ける**(ほかにプラグインの manifest に型の既定を書ける、§5.6)。ブローカー越しの `container/create`(HTTP・qmp・IPC・メッセンジャー、pyjuiz の `SystemProxy`)の manifest に `model` があれば `ContainerModelInvalidError` にする。理由: 遠くの利用者が任意のパスを指して、juiz を動かす機械の上のファイルを読み出せてしまうため。API での作成・差し替えは将来(§13)。
+`model` は **conf でだけ書ける**(ほかにプラグインの manifest に型の既定を書ける、§5.6)。ブローカー越しの `container/create`(HTTP・qmp・IPC・メッセンジャー、pyjuiz の `SystemProxy`)の manifest に `model` があれば `ContainerModelInvalidError` にする。理由: 遠くの利用者が任意のパスを指して、juiz を動かす機械の上のファイルを読み出せてしまうため。API での差し替えは中身(バイト列)を送る形で行う(§13.2、#389)。パスは今も受け付けない。
 
 Step 1 で決めたこと: 断るのは `container/create` の `__manifest__` の中と外(引数の `model`)、`composite_container/create`、Rust の `CoreBroker::container_create` に `ContainerManifest::model` を付けたとき。どれも Container を作る前に断る。
 
@@ -469,16 +469,78 @@ Step 4 で決めたこと(#384):
 - 面の法線が 0 の STL(書き出す道具によくある)は形から法線を求め直す。バイナリ STL の面の色があればそれを使う。
 - 右側の容器の詳細に「3D モデル」の節(ファイル名・形式・大きさ・縮尺・上の軸・取り付け位置・色・SHA-256 の先頭)を足した。
 
-## 13. 範囲の外(将来)
+## 13. 取り込みと実行中の差し替え(Step 9・10)
+
+### 13.1 URDF・SDF の取り込み `juiz import`(Step 9 #388)
+
+```
+juiz import urdf <file> [-o <conf>] [--anchor <名前>] [--namespace <ns>]
+                 [--package-path <パッケージ>=<ディレクトリ>]... [--model-path <ディレクトリ>]...
+                 [--models-dir <ディレクトリ>] [--copy-meshes] [--force]
+juiz import sdf  <file> (引数は urdf と同じ)
+```
+
+ロボットの記述(URDF、複数の link と joint を持つ SDF)を読み、「Container と Transform とモデルの組」の conf を書き出す。System は起動しない(`juiz model check` と同じ)。書き出した conf はそのまま `juiz -f` で起動でき、`.juizapp` の entry にも使える。
+
+| ロボットの記述 | conf |
+|---|---|
+| link | Container。type_name は組み込みの `frame`(下)。根の link(どの joint の child でもないもの)は `static_anchor` |
+| joint | Transform(始点は parent、終点は child)。値は**関節の値が 0 のときの位置**(URDF は `<origin>`、SDF は `pose(parent)⁻¹ ∘ pose(child)`)。種類・軸・範囲は Transform の上のコメント `# joint "<名前>": <種類>, axis [x, y, z], limit [下, 上]` に残す |
+| visual | `model:`。visual が 1 つで、軸ごとの倍率がそろったメッシュならそのファイルを指す(`origin` に visual の位置、`scale` に倍率、STL なら `color` に material の色)。それ以外(基本形・複数の visual)は link ごとに §3.2 の SDF の部分集合を `<models-dir>/<link>.sdf` に書き出して指す |
+| `<material>` の色 | SDF の `<diffuse>`(RGBA)。URDF は visual の中の `<color rgba>` か、`<robot>` の直下の名前付きの `<material>` |
+
+- **組み込みの Container `frame`**: 座標系だけの Container。状態を持たず、プラグインは要らない(Anchor と同じく Factory を持たず、`CoreWorker` が type_name を見て直接作る)。Transform の端点になり、モデルを持てる。Anchor ではないので自分の木は持たない。ContainerProcess は付けられない(conf の `processes:` を書くとエラー)。取り込んだ後で、動かしたい link を利用者の Container の型に書き換えてよい(Transform と model はそのまま使える)。
+- **根**: `--anchor <名前>` があれば、その名前の `static_anchor` を足し、すべての link を `frame` にして、Anchor → 根の link の Transform を足す(URDF は単位、SDF は model の `<pose>` ∘ 根の link の位置)。無ければ根の link をそのまま `static_anchor` にする。根が 2 つ以上あれば(SDF で joint の無い link があるときなど)、model の名前の `static_anchor` を足して、その下に根の link を model の座標の位置で付け、警告する。
+- **名前**: link の名前を Container の名前にする。juiz の名前に使えない `/`・`:`・`|` は `_` に置き換えて警告する(重なれば `_1`… を足す)。`--namespace` を付けると全部の Container にネームスペースを付け、Transform の端点は `<ns>/<名前>` と書く。
+- **関節を動かす**: joint の値は Transform の値として書き出すので、関節の角度は Transform を書き換えて表す(`set_pose`・`transform/update`・ContainerProcess の `set_transform`、transformations.md §7)。回転軸 `axis` まわりに角度 q だけ回すときは、値を `origin ∘ R(axis, q)`(直動なら `origin ∘ (axis × q の移動)`)にする。juiz は関節の種類・軸・範囲を持たない(コメントに残すだけ)。
+- **URI の解決**(見つからなければ警告して、そのメッシュは使わない):
+  - `package://<pkg>/<path>`: `--package-path <pkg>=<dir>`、`ROS_PACKAGE_PATH` の各ディレクトリの `<dir>/<pkg>`、`AMENT_PREFIX_PATH` の各ディレクトリの `<prefix>/share/<pkg>` の順。
+  - `model://<名前>/<path>`: `--model-path` と `GZ_SIM_RESOURCE_PATH`・`IGN_GAZEBO_RESOURCE_PATH`・`SDF_PATH` の各ディレクトリの `<dir>/<名前>`。
+  - `file://<絶対パス>`、相対パス(読んだファイルのディレクトリから)。それ以外の `://`(http など)は対応しない。
+- **出力**: `-o` が無ければ conf を標準出力に書き、モデルのファイルはカレントディレクトリを起点に書く。`model.path` は conf のディレクトリからの相対パス(根が違えば絶対パス)。`--models-dir` の既定は `models/<ロボットの名前>`(conf のディレクトリからの相対)。書き出す先のファイルが 1 つでもあれば、何も書かずにエラーにする(`--force` で上書き)。
+- **`--copy-meshes`**: 使うメッシュのファイルを `<models-dir>/meshes/` に写し、そこを指す(同じ名前のファイルは `_1`… を足す)。conf とモデルが 1 つのディレクトリにそろうので `.juizapp` にできる(§10)。.gltf の外部ファイルは写さない(警告)。
+- 表示の注意(警告する): .dae・.obj などのメッシュは指すことはできるが管理画面では表示しない(.glb に変換する)。メッシュと他の visual を持つ link は SDF の `<mesh>` になり、今の版では表示しない(§3.2.1)。軸ごとに違う倍率のメッシュも SDF の `<mesh>` にする。
+- 読まないもの: `<collision>`・`<inertial>`・`<sensor>`・`<plugin>`・`<transmission>`・`<gazebo>`・URDF の `<mimic>`(警告)・SDF の `<frame>`(警告)・入れ子の `<model>` と `<include>`(警告して読み飛ばす)。xacro は先に `xacro` で URDF にしておく(xacro らしいファイルは警告)。
+- SDF の `<pose relative_to>`: link は空・model の名前・別の link の名前を解く(それ以外は警告して model の座標)。visual は空か自分の link だけ。`degrees="true"` を読む。`<world>` の中の model は 1 つだけなら取り込む。parent が `world` の joint は書かない(child は根になる)。
+- エラー(終了コード 1): XML として読めない、最上位が `<robot>` / `<sdf>` でない、link が無い、joint が知らない link を指す、1 つの link が 2 つの joint の child になる、joint が輪になる、SDF の model が 0 個か 2 個以上、`--anchor` が link と同じ名前。警告は標準エラーに `warning: …` で出す(終了コード 0)。
+
+### 13.2 実行中のモデルの差し替え(Step 10 #389)
+
+把持で形が変わる、点群など動く形を表すため、実行中に Container のモデルを差し替える。
+
+| 種類 | クラス / 関数 | 引数 | 戻り値 |
+|---|---|---|---|
+| update | `container/set_model` | param `identifier`、ボディ `model` | 差し替えた後のモデル情報(§8)。`model` が `null` なら外して `null` |
+
+```json
+{"model": {"data": "<base64>", "format": "glb", "file_name": "closed.glb",
+           "scale": 1.0, "origin": {...}, "up_axis": "y", "color": "#808080"}}
+```
+
+- **送るのは中身**(`data`、§6.3 と同じ base64)。**パス(`path`)は受け付けない**(§5.5 と同じ理由。`path` があれば `ContainerModelInvalidError`)。`format` が無ければ `file_name` の拡張子から決め、どちらも無ければエラー。`file_name` は名前だけ(`/`・`\` を含めない)で、省けば `model.<format>`(`other` なら `model`)。`scale`・`origin`・`up_axis`・`color` は conf の `model:` と同じ検査(§5.1)。
+- 確かめるのは §5.2 の 1・3・4(値の形、上限 `option.model.max_bytes`、先頭の確かめ)。通らなければ `ContainerModelInvalidError` にし、**今のモデルは変えない**。HTTP では 400。
+- 差し替えたモデルは中身をメモリに持つ(conf のモデルのようにファイルを見に行かない)。SHA-256 が変わるので `container/model` の `ETag` も変わり、管理画面は次に `system/profile` を取ったとき(既定の更新の間隔)に新しい SHA-256 を見て取り直す(§12)。
+- `null` で外すと、conf や型の既定のモデルにも戻らない(モデルの無い Container になる)。Container を消すと差し替えたモデルも消える。差し替えは System を止めると残らない(conf は書き換えない)。
+- `identifier` の解き方と別 System への転送は §6.1 と同じ(サブシステム・写しの Container も、その System で差し替える)。
+- HTTP は `PATCH /api/container/set_model?identifier=…`(JSON の本文)。他のブローカーと BrokerProxy は同じ値で `ContainerBrokerProxy::container_set_model(identifier, model)`。
+- **ContainerProcess から**(Step 10 で決めたこと): Container の ContainerPose の口(transformations.md §9.1 の `ContainerPoseHandle`)を通す。登録所(`TransformationsRegistry::set_model`)は CoreStore のモデルの登録所につながっている。
+  - Rust: `ContainerImpl::set_model(&mut self, data: &[u8], format: &str, options: &Value)`・`clear_model()`。`options` は `scale`・`origin`・`up_axis`・`color`・`file_name` の辞書(無ければ `Value::Null`)。`ContainerPoseHandle::set_model(&Value)`(上の JSON の `model` の値)・`set_model_bytes`・`clear_model` もある。
+  - Python: `juiz.set_model(container, data: bytes, format=None, **options)`・`juiz.clear_model(container)`。値の誤りは `juiz.ContainerModelInvalidError`。
+  - readonly ContainerProcess(transformations.md §14)の中からは差し替えられない(`ContainerModelInvalidError`)。
+  - C ABI(C++・Haskell・Rust の C ABI プラグイン)の口はまだ無い(別 issue)。既定の実装は「対応していない」エラーを返す。
+- **CLI**: `juiz container set-model <id> <file> [--format] [--scale] [--up-axis] [--color]` はファイルの中身を送り、差し替えた後のモデル情報を表示する。`juiz container set-model <id> --clear` で外す。
+- **pyjuiz のクライアント**: `SystemProxy.set_model(container, data, format=None, **options)`・`clear_model(container)`、`ContainerProxy.set_model(data, format=None, **options)`・`clear_model()`。
+- **押し出し配信(SSE)は入れない**(Step 10 で検討した結果)。管理画面はもともと `system/profile` を数秒ごとに取っていて、SHA-256 が変われば取り直すので、形の変わり目は問い合わせで足りる。秒間何回も形が変わる使い方(点群の動画など)はモデルではなく Topic で流す。
+
+## 14. 範囲の外(将来)
 
 - core でのメッシュの読み込み・変換・当たり判定。
 - 複数ファイルのモデル(外部参照の .gltf、SDF の `<mesh>`)の配信。
-- API からのモデルの指定・実行中の差し替え・動く形(点群など)。Step 10 #389。
-- URDF・複数 link の SDF の取り込み(`juiz import urdf|sdf`、link → Container、joint → Transform、`package://`・`model://` の解決)。Step 9 #388。
-- 位置の押し出し配信。
+- 位置とモデルの押し出し配信(SSE / WebSocket)。
 - 1 Container に複数のモデル(見た目用・当たり判定用など、§2 の 2)。
+- 関節(種類・軸・範囲)を juiz の値として持つこと(今は取り込みでコメントに残すだけ、§13.1)。
 
-## 14. 他の機能との関係
+## 15. 他の機能との関係
 
 - **Transformations**: モデルの置き場所は ContainerPose。3D 表示の位置の出どころは `transformations/tree`。座標の約束は transformations.md §3.1 と同じ。
 - **Composition**: CompositeContainer も Container なのでモデルを持てる(全体の外形)。スロットの Container はそれぞれ自分のモデル。
@@ -486,7 +548,7 @@ Step 4 で決めたこと(#384):
 - **データ型**: モデル情報は `juiz_std.model.ContainerModelInfo`。中身には型を付けない(バイト列)。
 - **.juizapp**: §10。
 
-## 15. Step と担当する節
+## 16. Step と担当する節
 
 | Step | issue | 節 |
 |---|---|---|
@@ -500,3 +562,5 @@ Step 4 で決めたこと(#384):
 | 7 リリース | #386 | |
 | 8 Factory の既定のモデル | #387 | §5.6(Rust・Python) |
 | 8 の続き C++・Haskell | #509 | §5.6 |
+| 9 URDF・SDF の取り込み | #388 | §13.1 |
+| 10 実行中の差し替え | #389 | §13.2 |

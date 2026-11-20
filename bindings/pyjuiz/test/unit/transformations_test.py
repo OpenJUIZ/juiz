@@ -1,4 +1,4 @@
-"""juiz.pose / juiz.set_pose / juiz.lookup / juiz.set_transform (issue #371、#409、#410) の Python 側のテスト
+"""juiz.pose / juiz.set_pose / juiz.lookup / juiz.set_transform / juiz.set_model (issue #371、#409、#410、#389) の Python 側のテスト
 
 ホストの口 (属性 __juiz_pose__) の代わりに偽物を付け、値の変換とエラーの振り分けを確かめる。
 ホストとつないだ確認は juiz_core の tests/integration/python_transformations_test.rs。
@@ -53,6 +53,15 @@ class FakeHandle:
         self.transform_written = (source, destination, value)
         return {'header': {'stamp': {'sec': 5, 'nanosec': 6}, 'frame_id': source},
                 'child_frame_id': destination, 'transform': value}
+
+
+    def set_model(self, value):
+        if self.error:
+            raise RuntimeError(self.error, 'message')
+        self.model_written = value
+        if value is None:
+            return None
+        return {'format': value.get('format', 'other'), 'size': len(value['data'])}
 
 
 class Part:
@@ -185,5 +194,25 @@ except juiz.TransformationsError:
     raise AssertionError('plain RuntimeError must not be converted')
 except RuntimeError as e:
     assert e.args == ('plain',)
+
+# set_model: 中身は bytes のままホストに渡す (base64 にするのはホスト)。None で外す (#389)
+c = part()
+info = juiz.set_model(c, b'glTF....', 'glb', scale=0.5, color=None)
+assert info == {'format': 'glb', 'size': 8}, info
+assert c.__juiz_pose__.model_written == {'format': 'glb', 'scale': 0.5, 'data': b'glTF....'}
+juiz.set_model(c, '<sdf/>', file_name='a.sdf')
+assert c.__juiz_pose__.model_written == {'file_name': 'a.sdf', 'data': b'<sdf/>'}
+assert juiz.clear_model(c) is None
+assert c.__juiz_pose__.model_written is None
+try:
+    juiz.set_model(c, 123, 'glb')
+    raise AssertionError('should fail')
+except TypeError:
+    pass
+try:
+    juiz.set_model(part('ContainerModelInvalidError'), b'x', 'glb')
+    raise AssertionError('should fail')
+except juiz.ContainerModelInvalidError as e:
+    assert e.kind == 'ContainerModelInvalidError'
 
 print('transformations_test: ok')

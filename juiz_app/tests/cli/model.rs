@@ -319,3 +319,94 @@ transforms:
     assert!(map.stop() || cfg!(not(unix)), "{}", map.log_text());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+const IMPORT_PORT: u16 = 8034;
+
+/// juiz import urdf (issue #388、container-model.md §13.1) で作った conf をそのまま起動し、
+/// 実行中のモデルの差し替え juiz container set-model (issue #389、§13.2) も試す
+#[test]
+fn import_urdf_and_set_model() {
+    let dir = temp_dir("model_import_cli_test");
+    std::fs::create_dir_all(dir.join("meshes")).unwrap();
+    let mut stl = vec![0u8; 80];
+    stl.extend_from_slice(&1u32.to_le_bytes());
+    stl.extend(std::iter::repeat(0u8).take(50));
+    std::fs::write(dir.join("meshes/head.stl"), &stl).unwrap();
+    std::fs::write(
+        dir.join("robot.urdf"),
+        r#"<robot name="arm">
+  <link name="base_link"><visual><geometry><box size="0.2 0.2 0.1"/></geometry></visual></link>
+  <link name="head"><visual><geometry><mesh filename="meshes/head.stl" scale="0.001 0.001 0.001"/></geometry></visual></link>
+  <joint name="neck" type="revolute"><parent link="base_link"/><child link="head"/>
+    <origin xyz="0 0 0.3"/><axis xyz="0 0 1"/></joint>
+</robot>"#,
+    )
+    .unwrap();
+    let urdf = dir.join("robot.urdf");
+    let conf = dir.join("app/robot.conf");
+    let out = run(&["import", "urdf", path_str(&urdf), "-o", path_str(&conf), "--copy-meshes"]);
+    assert!(out.status.success(), "{out:?}");
+    assert!(dir.join("app/models/arm/base_link.sdf").is_file());
+    assert_eq!(std::fs::read(dir.join("app/models/arm/meshes/head.stl")).unwrap(), stl);
+    // 2 回目は --force が要る
+    let out = run(&["import", "urdf", path_str(&urdf), "-o", path_str(&conf), "--copy-meshes"]);
+    assert_eq!(out.status.code(), Some(1), "{out:?}");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("--force"), "{out:?}");
+    // -o が無ければ標準出力に
+    let out = run(&["import", "urdf", path_str(&urdf), "--models-dir", path_str(&dir.join("stdout_models"))]);
+    assert!(out.status.success(), "{out:?}");
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("type_name: frame") && text.contains("# joint \"neck\": revolute"), "{text}");
+
+    // 作った conf にポートだけ足して起動する
+    let generated = std::fs::read_to_string(&conf).unwrap();
+    std::fs::write(
+        &conf,
+        format!("name: imported\noption:\n  http_broker:\n    start: true\n    port: {IMPORT_PORT}\n{generated}"),
+    )
+    .unwrap();
+    let client_conf = dir.join("client.conf");
+    std::fs::write(&client_conf, "name: client\n").unwrap();
+    let server = format!("http://127.0.0.1:{IMPORT_PORT}");
+    let mut robot = Daemon::spawn(&["-f", path_str(&conf), "-d"], dir.join("robot.log"));
+    let client = |args: &[&str]| -> String {
+        let mut all = vec!["-f", path_str(&client_conf), "-s", server.as_str()];
+        all.extend_from_slice(args);
+        let out = run(&all);
+        assert!(out.status.success(), "{args:?}: {out:?}");
+        String::from_utf8(out.stdout).unwrap()
+    };
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let table = loop {
+        let out = run(&["-f", path_str(&client_conf), "-s", &server, "container", "list", "--long"]);
+        let s = String::from_utf8_lossy(&out.stdout).into_owned();
+        if s.contains("head::frame") {
+            break s;
+        }
+        if Instant::now() > deadline {
+            panic!("juiz did not start. log:\n{}", robot.log_text());
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    };
+    assert!(table.contains("base_link::static_anchor"), "{table}");
+    assert!(table.contains("model: stl"), "{table}");
+    assert!(table.contains("model: sdf"), "{table}");
+    let transforms = client(&["transform", "list"]);
+    assert!(transforms.contains("base_link::static_anchor|core://core/container/head::frame"), "{transforms}");
+
+    // set-model: ファイルの中身を送る。--clear で外す
+    let info = json_of(&client(&["container", "set-model", "head", path_str(&dir.join("app/models/arm/base_link.sdf"))]));
+    assert_eq!(info["format"], "sdf", "{info}");
+    assert_eq!(info["file_name"], "base_link.sdf");
+    let info = json_of(&client(&["container", "model", "head"]));
+    assert_eq!(info["format"], "sdf", "{info}");
+    let out = client(&["container", "set-model", "head", "--clear"]);
+    assert_eq!(out.trim(), "null");
+    assert_eq!(client(&["container", "model", "head"]).trim(), "null");
+    // 形式に合わない中身はエラー (終了コードは 0、他の container のコマンドと同じ)
+    let out = client(&["container", "set-model", "head", path_str(&urdf), "--format", "glb"]);
+    assert!(out.contains("Error"), "{out}");
+
+    assert!(robot.stop() || cfg!(not(unix)), "{}", robot.log_text());
+    let _ = std::fs::remove_dir_all(&dir);
+}

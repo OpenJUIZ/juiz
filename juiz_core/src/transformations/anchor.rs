@@ -36,3 +36,22 @@ pub fn anchor_container_new(
     container.set_profile_anchor(Some(manifest.to_profile_value()));
     Ok(ContainerPtr::new(container))
 }
+
+/// Frame (座標系だけの組み込みの Container、type_name `frame`) の中身。何も持たない
+/// (docs/spec/container-model.md §13.1、URDF・SDF の取り込みの link に使う)
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FrameState;
+
+/// Frame の実体の型
+pub type FrameContainer = ContainerImpl<FrameState>;
+
+/// Frame を作る
+pub fn frame_container_new(name: &str, namespace: &str) -> JuizResult<ContainerPtr> {
+    let type_name = juiz_sdk::manifests::FRAME_TYPE_NAME;
+    let container_manifest = ContainerManifest::new(type_name)
+        .name(name)
+        .namespace(namespace)
+        .factory(type_name);
+    let container = FrameContainer::new(container_manifest, Box::new(FrameState))?;
+    Ok(ContainerPtr::new(container))
+}

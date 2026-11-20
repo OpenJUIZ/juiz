@@ -228,8 +228,15 @@ pub async fn object_patch_handler(
     let v = tokio::task::spawn_blocking(move || {
         // ロックは dispatcher を取り出す間だけ握り、Process の実行中は外しておく (issue #356)
         let dispatcher = juiz_lock(&crud_broker).unwrap().dispatcher();
+        // container/set_model の値の誤り (ContainerModelInvalidError) は作成時と同じく 400
+        // (docs/spec/container-model.md §11・§13.2、issue #389)
+        let wrap = if class_name == "container" && function_name == "set_model" {
+            json_output_wrap_create
+        } else {
+            json_output_wrap
+        };
         // 応答 (画像の PNG 化など) もワーカーの外で作る (issue #363)
-        json_output_wrap((|| {
+        wrap((|| {
             dispatcher.update_class(
                 class_name.as_str(),
                 function_name.as_str(),

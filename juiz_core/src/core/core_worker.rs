@@ -653,6 +653,10 @@ impl CoreWorker {
         if is_anchor_type_name(type_name) {
             return self.create_anchor_ref(type_name, name, &args);
         }
+        // Frame も組み込みで Factory を持たない (docs/spec/container-model.md §13.1)
+        if type_name == juiz_sdk::manifests::FRAME_TYPE_NAME {
+            return self.create_frame_ref(name, &args);
+        }
         let arc_pf = match self.store().containers.factory(type_name)
             .with_context(||{format!("store.container_processes.factory({}) in create_container_process_ref() in core_worker.rs", type_name)}) {
             Ok(v) => Ok(v),
@@ -720,6 +724,39 @@ impl CoreWorker {
         }
         self.store().transformations.add_container(&p, None)?;
         Ok(p)
+    }
+
+    /// Frame (座標系だけの組み込みの Container、type_name `frame`) を作って登録する
+    /// (docs/spec/container-model.md §13.1)。ContainerProcess は付けられない
+    fn create_frame_ref(&mut self, name: &str, args: &CapsuleMap) -> JuizResult<ContainerPtr> {
+        let type_name = juiz_sdk::manifests::FRAME_TYPE_NAME;
+        let id = container_identifier_from_args(type_name, name, args)?;
+        id.validate()?;
+        self.store()
+            .containers
+            .check_not_registered(&id.to_string())?;
+        if let Ok(processes) = args.get("processes") {
+            let has_processes = processes
+                .lock_as_value(|v| v.as_array().is_some_and(|a| !a.is_empty()))
+                .unwrap_or(false);
+            if has_processes {
+                return Err(anyhow!(JuizError::ContainerManifestInvalidError {
+                    message: format!("Frame ({type_name}) can not have processes."),
+                }));
+            }
+        }
+        let c = crate::transformations::frame_container_new(&id.name, &id.namespace)?;
+        log::info!("【作成】Frame({})", id);
+        let c = self
+            .store_mut()
+            .containers
+            .register(&id.to_string(), c)?
+            .clone();
+        if let Err(e) = self.store().transformations.add_container(&c, None) {
+            let _ = self.store_mut().containers.deregister_by_id(&id.to_string());
+            return Err(e);
+        }
+        Ok(c)
     }
 
     /// Anchor (`periodic_anchor` / `static_anchor`) を作って登録する (docs/spec/transformations.md §4)
@@ -814,7 +851,7 @@ impl CoreWorker {
             .deregister_by_id(&identifier.to_string())?;
         // CompositeContainer と Anchor は Factory を持たない。CompositeContainer は消すとスロットの参照を放す (参照先は消さない)
         if cont.identifier().type_name == COMPOSITE_CONTAINER_TYPE_NAME
-            || is_anchor_type_name(&cont.identifier().type_name)
+            || juiz_sdk::manifests::is_builtin_container_type_name(&cont.identifier().type_name)
         {
             let profile = cont.lock()?.profile()?;
             log::trace!("container_destroy({}) exit", identifier);

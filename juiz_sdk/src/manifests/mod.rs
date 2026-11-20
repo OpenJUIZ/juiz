@@ -52,8 +52,8 @@ pub use process_profile::ProcessProfile;
 pub use topic_manifest::TopicManifest;
 pub use topic_profile::TopicProfile;
 pub use transformations_manifest::{
-    is_anchor_type_name, pose_listener_identifier, transform_identifier, AnchorKind,
-    AnchorManifest, PoseListenerManifest, TransformManifest, DEFAULT_ANCHOR_RATE,
-    DEFAULT_REMOTE_RATE, DEFAULT_REMOTE_TIMEOUT, PERIODIC_ANCHOR_TYPE_NAME,
-    STATIC_ANCHOR_TYPE_NAME,
+    is_anchor_type_name, is_builtin_container_type_name, pose_listener_identifier,
+    transform_identifier, AnchorKind, AnchorManifest, PoseListenerManifest, TransformManifest,
+    DEFAULT_ANCHOR_RATE, DEFAULT_REMOTE_RATE, DEFAULT_REMOTE_TIMEOUT, FRAME_TYPE_NAME,
+    PERIODIC_ANCHOR_TYPE_NAME, STATIC_ANCHOR_TYPE_NAME,
 };

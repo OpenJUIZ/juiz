@@ -127,6 +127,9 @@ pub struct Transformations {
     me: Weak<Transformations>,
     /// 相手の System の `container/pose_state` を呼ぶ口 (§19.4)。System が作るときに置く
     fetcher: Mutex<Option<Arc<dyn PoseStateFetcher>>>,
+    /// 3D モデルの登録所 (ContainerProcess からの差し替え、container-model.md §13.2、issue #389)。
+    /// CoreStore が作るときに置く
+    models: Mutex<Option<Weak<crate::models::ContainerModels>>>,
 }
 
 impl std::fmt::Debug for Transformations {
@@ -775,7 +778,14 @@ impl Transformations {
             inner: Mutex::new(Inner::default()),
             me: me.clone(),
             fetcher: Mutex::new(None),
+            models: Mutex::new(None),
         })
+    }
+
+    /// 3D モデルの登録所をつなぐ (ContainerProcess からの差し替え、container-model.md §13.2)
+    pub fn set_models(&self, models: &Arc<crate::models::ContainerModels>) -> JuizResult<()> {
+        *self.models.lock().map_err(|_| lock_error())? = Some(Arc::downgrade(models));
+        Ok(())
     }
 
     fn lock(&self) -> JuizResult<MutexGuard<'_, Inner>> {
@@ -1387,5 +1397,20 @@ impl TransformationsRegistry for Transformations {
         value: &Transform,
     ) -> JuizResult<TransformStamped> {
         self.set_transform_by(caller, source, destination, value)
+    }
+
+    fn set_model(&self, container: &ContainerIdentifier, model: &Value) -> JuizResult<Value> {
+        let models = self
+            .models
+            .lock()
+            .map_err(|_| lock_error())?
+            .as_ref()
+            .and_then(|w| w.upgrade())
+            .ok_or_else(|| {
+                anyhow!(JuizError::TransformationsNotAttachedError {
+                    container: container.to_string()
+                })
+            })?;
+        models.replace(&container.to_string(), model)
     }
 }

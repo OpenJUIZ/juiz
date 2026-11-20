@@ -5,6 +5,7 @@ use axum::{
     extract::{Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode, Uri},
     response::{IntoResponse, Response},
+    Json,
 };
 use utoipa::OpenApi;
 
@@ -168,6 +169,22 @@ pub fn model_info_dummy(_query: Query<ModelQuery>) {}
 )]
 pub fn model_dummy(_query: Query<ModelQuery>) {}
 
+#[allow(unused)]
+#[utoipa::path(
+    patch,
+    path = "/api/container/set_model",
+    params(
+        ModelQuery
+    ),
+    request_body(content = Value, description = "{\"model\": {\"data\": <base64>, \"format\", \"file_name\", \"scale\", \"origin\", \"up_axis\", \"color\"}} か {\"model\": null} (外す)。path は受け付けない"),
+    responses(
+        (status = 200, description = "差し替えた後のモデル情報 (juiz_std.model.ContainerModelInfo)。外したら null"),
+        (status = 400, description = "値の誤り・上限超え・形式に合わない (ContainerModelInvalidError)"),
+    ),
+    tag = "universal.container",
+)]
+pub fn set_model_dummy(_query: Query<ModelQuery>, Json(_body): Json<Value>) {}
+
 const CONTAINER_MODEL_INFO: &str = "juiz_std.model.ContainerModelInfo";
 
 /// OpenAPI 定義の `container/model_info` と `container/profile` の `model` に
@@ -195,6 +212,9 @@ pub fn add_container_model_schemas(api: &mut Value) {
         ]
     });
     if let Some(r) = api.pointer_mut("/paths/~1api~1container~1model_info/get/responses/200") {
+        r["content"] = jvalue!({ "application/json": { "schema": info.clone() } });
+    }
+    if let Some(r) = api.pointer_mut("/paths/~1api~1container~1set_model/patch/responses/200") {
         r["content"] = jvalue!({ "application/json": { "schema": info.clone() } });
     }
     if let Some(r) = api.pointer_mut("/paths/~1api~1container~1profile/get/responses/200") {
@@ -249,7 +269,7 @@ pub fn delete_dummy(_query: Query<IdentifierQuery>) {}
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(profile_handler_dummy, list_dummy, delete_dummy, model_info_dummy, model_dummy,),
+    paths(profile_handler_dummy, list_dummy, delete_dummy, model_info_dummy, model_dummy, set_model_dummy,),
     components(schemas())
 )]
 pub struct ApiDoc;

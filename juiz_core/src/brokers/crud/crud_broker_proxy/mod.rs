@@ -403,6 +403,17 @@ impl ContainerBrokerProxy for CRUDBrokerProxyHolder {
         )?)
     }
 
+    fn container_set_model(&self, identifier: &str, model: &Value) -> JuizResult<Value> {
+        let mut args = CapsuleMap::new();
+        args.insert("model".to_owned(), model.clone().into());
+        capsule_value(self.broker.update(
+            "container",
+            "set_model",
+            args,
+            param(&[("identifier", identifier)]),
+        )?)
+    }
+
     fn container_profile(&self, id: &ContainerIdentifier) -> JuizResult<ContainerProfile> {
         let value = capsule_value(self.modify_profile(self.read_profile(
             "container",

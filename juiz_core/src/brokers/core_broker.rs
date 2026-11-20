@@ -1316,6 +1316,10 @@ impl ContainerBrokerProxy for CoreBroker {
         self.container_model_json(identifier)
     }
 
+    fn container_set_model(&self, identifier: &str, model: &Value) -> JuizResult<Value> {
+        self.container_set_model_impl(identifier, model)
+    }
+
     fn container_list(
         &self,
         recursive: bool,

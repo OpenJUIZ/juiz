@@ -63,6 +63,16 @@ pub fn reject_model_from_api(manifest: &Value) -> JuizResult<()> {
     Ok(())
 }
 
+/// エラーの文に載せる値 (長い base64 などは切る)
+fn short(v: &Value) -> String {
+    let s = v.to_string();
+    if s.len() > 80 {
+        format!("{}…", &s[..s.char_indices().take(80).last().map(|(i, _)| i).unwrap_or(0)])
+    } else {
+        s
+    }
+}
+
 fn invalid(message: String) -> juiz_sdk::anyhow::Error {
     anyhow!(JuizError::ContainerModelInvalidError { message })
 }
@@ -109,7 +119,17 @@ fn read_head(path: &Path, n: usize) -> std::io::Result<Vec<u8>> {
     Ok(buf)
 }
 
-/// 先頭の確かめ (§3.1)。合わなければ `ContainerModelInvalidError`。
+/// 先頭の確かめ (§3.1) に読むバイト数。`None` ならファイル全体
+fn head_len(format: ModelFormat) -> Option<usize> {
+    match format {
+        ModelFormat::Glb => Some(8),
+        ModelFormat::Stl => Some(84),
+        ModelFormat::Gltf | ModelFormat::Sdf => None,
+        ModelFormat::Other => Some(0),
+    }
+}
+
+/// ファイルの先頭の確かめ (§3.1)。合わなければ `ContainerModelInvalidError`。
 /// `warn` は作成時にだけ出す警告 (外部参照の .gltf、§3.3) を出すか
 fn check_format(
     path: &Path,
@@ -119,10 +139,27 @@ fn check_format(
     warn: bool,
 ) -> JuizResult<()> {
     let io = |e: std::io::Error| not_found(format!("can not read model file '{file_name}': {e}"));
+    let bytes = match head_len(format) {
+        Some(0) => Vec::new(),
+        Some(n) => read_head(path, n).map_err(io)?,
+        None => std::fs::read(path).map_err(io)?,
+    };
+    check_format_bytes(&bytes, file_name, format, size, warn)
+}
+
+/// 先頭の確かめ (§3.1) をバイト列にする。`bytes` は [`head_len`] の分 (か全体)、`size` は全体の大きさ。
+/// API から受け取った中身 (§13.2、issue #389) にも使う
+fn check_format_bytes(
+    bytes: &[u8],
+    file_name: &str,
+    format: ModelFormat,
+    size: u64,
+    warn: bool,
+) -> JuizResult<()> {
     let mismatch = |why: String| invalid(format!("model file '{file_name}' is not {format}: {why}"));
     match format {
         ModelFormat::Glb => {
-            let head = read_head(path, 8).map_err(io)?;
+            let head = bytes;
             if head.len() < 8 || &head[0..4] != b"glTF" {
                 return Err(mismatch("the first 4 bytes are not 'glTF'".to_owned()));
             }
@@ -132,7 +169,7 @@ fn check_format(
             }
         }
         ModelFormat::Stl => {
-            let head = read_head(path, 84).map_err(io)?;
+            let head = &bytes[..bytes.len().min(84)];
             let binary = head.len() == 84 && {
                 let n = u32::from_le_bytes([head[80], head[81], head[82], head[83]]) as u64;
                 size == 84 + 50 * n
@@ -145,8 +182,7 @@ fn check_format(
             }
         }
         ModelFormat::Gltf => {
-            let bytes = std::fs::read(path).map_err(io)?;
-            let v: Value = serde_json::from_slice(&bytes)
+            let v: Value = serde_json::from_slice(bytes)
                 .map_err(|e| mismatch(format!("not a JSON ({e})")))?;
             let version = v
                 .pointer("/asset/version")
@@ -174,8 +210,7 @@ fn check_format(
             }
         }
         ModelFormat::Sdf => {
-            let bytes = std::fs::read(path).map_err(io)?;
-            let text = std::str::from_utf8(&bytes)
+            let text = std::str::from_utf8(bytes)
                 .map_err(|e| mismatch(format!("not a UTF-8 text ({e})")))?;
             let doc = roxmltree::Document::parse(text)
                 .map_err(|e| mismatch(format!("not an XML ({e})")))?;
@@ -210,11 +245,14 @@ struct FileState {
     sha256: String,
 }
 
-/// Container 1 つのモデル。中身は持たず、取り出すたびにファイルから読む
+/// Container 1 つのモデル。conf のモデルは中身を持たず、取り出すたびにファイルから読む。
+/// API・ContainerProcess から差し替えたモデル (§13.2、issue #389) は中身をメモリに持つ
 #[derive(Debug, Clone)]
 pub struct ContainerModel {
-    /// 解決した絶対パス (外には出さない)
+    /// 解決した絶対パス (外には出さない)。メモリのモデルでは空
     path: PathBuf,
+    /// 差し替えで受け取った中身 (§13.2)。`Some` ならファイルを見ない
+    memory: Option<Arc<Vec<u8>>>,
     file_name: String,
     format: ModelFormat,
     up_axis: String,
@@ -252,7 +290,7 @@ impl ContainerModel {
         {
             log::warn!(
                 "model '{}' is a URDF. URDF describes several Containers and Transforms; \
-                 use the import (Step 9 #388) instead. It is served as 'other'",
+                 use `juiz import urdf` (docs/spec/container-model.md §13.1) instead. It is served as 'other'",
                 manifest.path
             );
         }
@@ -272,6 +310,7 @@ impl ContainerModel {
                 sha256: String::new(),
             },
             path,
+            memory: None,
         };
         model.state = model
             .check(max_bytes, true)
@@ -309,8 +348,124 @@ impl ContainerModel {
         })
     }
 
-    /// 大きさか更新時刻が変わっていれば確かめ直す (§5.3)。`force` なら変わっていなくても
+    /// 差し替えの値 (§13.2、issue #389) から作る。値の形は
+    /// `{"data": "<base64>", "format", "file_name", "scale", "origin", "up_axis", "color"}`。
+    /// `path` は受け付けない (§5.5 と同じ理由)。`format` が無ければ `file_name` の拡張子から決め、
+    /// どちらも無ければエラー。確かめるのは §5.2 の 1・3・4 (上限と先頭の確かめ) で、SHA-256 を計算する
+    pub fn from_value(v: &Value, max_bytes: u64) -> JuizResult<ContainerModel> {
+        let obj = v
+            .as_object()
+            .ok_or_else(|| invalid(format!("model must be a dictionary or null, but {v}")))?;
+        if obj.contains_key("path") {
+            return Err(invalid(
+                "'model.path' can not be given through the API; send the content as 'data' (base64) \
+                 (docs/spec/container-model.md §5.5・§13.2)"
+                    .to_owned(),
+            ));
+        }
+        let data = match obj.get("data") {
+            Some(Value::String(s)) => base64::engine::general_purpose::STANDARD
+                .decode(s)
+                .map_err(|e| invalid(format!("model.data is not a valid base64 ({e})")))?,
+            Some(other) => {
+                return Err(invalid(format!(
+                    "model.data must be a base64 string, but {}",
+                    short(other)
+                )))
+            }
+            None => return Err(invalid("model.data (base64) is required".to_owned())),
+        };
+        let file_name = match obj.get("file_name").filter(|f| !f.is_null()) {
+            Some(Value::String(s)) if !s.is_empty() => {
+                // パスの区切りは使わない (名前だけ)
+                if s.contains('/') || s.contains('\\') {
+                    return Err(invalid(format!(
+                        "model.file_name must be a file name without directories, but '{s}'"
+                    )));
+                }
+                Some(s.clone())
+            }
+            Some(other) => {
+                return Err(invalid(format!(
+                    "model.file_name must be a non-empty string, but {other}"
+                )))
+            }
+            None => None,
+        };
+        let format = match obj.get("format").filter(|f| !f.is_null()) {
+            Some(f) => {
+                let name = f
+                    .as_str()
+                    .ok_or_else(|| invalid(format!("model.format must be a string, but {f}")))?;
+                ModelFormat::from_name(name).ok_or_else(|| {
+                    invalid(format!(
+                        "model.format must be one of glb, gltf, stl, sdf, other, but '{name}'"
+                    ))
+                })?
+            }
+            None => match &file_name {
+                Some(n) => ModelFormat::from_path(Path::new(n)),
+                None => {
+                    return Err(invalid(
+                        "model.format (or model.file_name with an extension) is required".to_owned(),
+                    ))
+                }
+            },
+        };
+        let file_name = file_name.unwrap_or_else(|| match format {
+            ModelFormat::Other => "model".to_owned(),
+            f => format!("model.{}", f.name()),
+        });
+        // scale・origin・up_axis・color の検査は conf の model: と同じ (§5.1)
+        let mut conf = serde_json::Map::new();
+        conf.insert("path".to_owned(), jvalue!(file_name));
+        conf.insert("format".to_owned(), jvalue!(format.name()));
+        for (k, val) in obj.iter() {
+            if !matches!(k.as_str(), "data" | "file_name" | "format") {
+                conf.insert(k.clone(), val.clone());
+            }
+        }
+        let manifest = ModelManifest::from_value(&Value::Object(conf))?;
+        let size = data.len() as u64;
+        if size > max_bytes {
+            return Err(invalid(format!(
+                "model '{file_name}' is too large ({size} bytes > {max_bytes} bytes). \
+                 Raise option.model.max_bytes"
+            )));
+        }
+        check_format_bytes(&data, &file_name, format, size, true)?;
+        let sha256 = sha256_hex(&data);
+        Ok(ContainerModel {
+            path: PathBuf::new(),
+            memory: Some(Arc::new(data)),
+            file_name,
+            format,
+            up_axis: manifest
+                .up_axis
+                .clone()
+                .unwrap_or_else(|| format.default_up_axis().to_owned()),
+            scale: manifest.scale.unwrap_or(1.0),
+            origin: manifest.origin.unwrap_or_default(),
+            color: manifest.color.clone(),
+            state: FileState {
+                size,
+                modified: None,
+                sha256,
+            },
+        })
+    }
+
+    /// 差し替えで受け取ったモデル (中身をメモリに持つ) か
+    pub fn is_memory(&self) -> bool {
+        self.memory.is_some()
+    }
+
+    /// 大きさか更新時刻が変わっていれば確かめ直す (§5.3)。`force` なら変わっていなくても。
+    /// メモリのモデルは変わらないので何もしない
     fn refresh(&mut self, max_bytes: u64, force: bool) -> JuizResult<()> {
+        if self.memory.is_some() {
+            return Ok(());
+        }
         let meta = std::fs::metadata(&self.path).map_err(|e| {
             not_found(format!("model file '{}' can not be opened: {e}", self.file_name))
         })?;
@@ -487,6 +642,28 @@ impl ContainerModels {
         Ok(())
     }
 
+    /// 実行中の差し替え (§13.2、issue #389)。`value` が `null` ならモデルを外す。
+    /// 戻り値は差し替えた後のモデル情報 (外したら `Null`)。値の誤りは `ContainerModelInvalidError` で、
+    /// そのときは今のモデルを変えない
+    pub fn replace(&self, container_id: &str, value: &Value) -> JuizResult<Value> {
+        if value.is_null() {
+            self.remove(container_id)?;
+            log::info!("ContainerModel of Container({container_id}) is removed");
+            return Ok(Value::Null);
+        }
+        let max = self.max_bytes()?;
+        let model = ContainerModel::from_value(value, max)?;
+        let info = model.info();
+        log::debug!(
+            "ContainerModel of Container({container_id}) is replaced: {} {} bytes sha256={}",
+            model.format,
+            model.state.size,
+            model.state.sha256
+        );
+        self.insert(container_id, model)?;
+        Ok(info)
+    }
+
     pub fn remove(&self, container_id: &str) -> JuizResult<Option<ContainerModel>> {
         let mut inner = self.lock()?;
         inner.json_warned.remove(container_id);
@@ -575,6 +752,12 @@ impl ContainerModels {
                 let Some(m) = inner.models.get_mut(container_id) else {
                     return Ok(None);
                 };
+                if let Some(data) = &m.memory {
+                    return Ok(Some(ContainerModelData {
+                        info: m.info(),
+                        data: data.as_ref().clone(),
+                    }));
+                }
                 m.refresh(max, force)?;
                 (m.path.clone(), m.file_name.clone(), m.info(), m.state.size)
             };

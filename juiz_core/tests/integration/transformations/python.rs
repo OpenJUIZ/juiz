@@ -11,7 +11,7 @@ use juiz_sdk::process_identifier::ProcessIdentifier;
 const EPS: f64 = 1e-9;
 const H: f64 = std::f64::consts::FRAC_1_SQRT_2;
 
-const PROCESSES: [&str; 10] = [
+const PROCESSES: [&str; 11] = [
     "py_part_pose",
     "py_part_set_pose",
     "py_part_try",
@@ -22,6 +22,7 @@ const PROCESSES: [&str; 10] = [
     "py_part_try_readonly",
     "py_part_lookup",
     "py_part_set_transform",
+    "py_part_set_model",
 ];
 
 fn part(name: &str) -> Value {
@@ -344,6 +345,28 @@ fn python_container_process_sets_transforms() -> JuizResult<()> {
         );
         let p = call(system, "camera0", "py_part_pose", jvalue!({"reference": "map"}))?;
         assert_pose(&p, "map", &pose(2.0, 0.2, 0.3, z90()));
+        Ok(())
+    })
+}
+
+/// juiz.set_model (#389、container-model.md §13.2): Python の ContainerProcess から 3D モデルを差し替える
+#[test]
+fn python_container_process_sets_models() -> JuizResult<()> {
+    crate::common::logger::init();
+    System::new(conf())?.setup()?.run_and_do_once(|system| {
+        let sdf = r#"<sdf version="1.9"><model name="m"><link name="l"/></model></sdf>"#;
+        let info = call(system, "camera0", "py_part_set_model", jvalue!({"text": sdf}))?;
+        assert_eq!(info["format"], "sdf", "{info}");
+        assert_eq!(info["color"], "#00ff00");
+        assert_eq!(info["sha256"], juiz_core::models::sha256_hex(sdf.as_bytes()));
+        let cb = system.core_broker().lock()?;
+        assert_eq!(cb.container_model_info("camera0")?, info);
+        drop(cb);
+        let e = call(system, "camera0", "py_part_set_model", jvalue!({"text": "x", "format": "glb"}))?;
+        assert_eq!(e, jvalue!({"error": "ContainerModelInvalidError"}));
+        let r = call(system, "camera0", "py_part_set_model", jvalue!({"text": ""}))?;
+        assert_eq!(r, jvalue!({"cleared": true}));
+        assert_eq!(system.core_broker().lock()?.container_model_info("camera0")?, Value::Null);
         Ok(())
     })
 }

@@ -603,6 +603,17 @@ impl ContainerBrokerProxy for MessengerBrokerProxy {
         capsule_value(self.read_by_id("container", "model", &identifier.to_owned())?)
     }
 
+    fn container_set_model(&self, identifier: &str, model: &Value) -> JuizResult<Value> {
+        let mut cm = CapsuleMap::new();
+        cm.insert("model".to_owned(), model.clone().into());
+        capsule_value(self.update(
+            "container",
+            "set_model",
+            cm,
+            &system_params(identifier, "", None),
+        )?)
+    }
+
     fn container_list(
         &self,
         recursive: bool,
