@@ -114,6 +114,8 @@ export interface SystemModel extends ElementBase {
   topics: TopicElement[];
   brokers: BrokerElement[];
   subsystems: SystemModel[];
+  /** この系を subsystem にしている系(#559)。どの系から開いても、つながった系が全部出るように */
+  masters: SystemModel[];
 }
 
 export type Element =
@@ -228,11 +230,16 @@ export function nameOfIdentifier(identifier: string): string {
   return m?.[1] ?? identifier;
 }
 
-/** UUID の系を、表示中の系(最上位と副系)から探す */
+/** この系につながった系(親系と副系)。親系が先 */
+export function childSystems(s: SystemModel): SystemModel[] {
+  return [...s.masters, ...s.subsystems];
+}
+
+/** UUID の系を、表示中の系(最上位と、つながった系)から探す */
 export function findSystemByUuid(model: Model, uuid: string | null | undefined): SystemModel | undefined {
   if (!uuid) return undefined;
   const walk = (s: SystemModel): SystemModel | undefined =>
-    s.uuid === uuid ? s : s.subsystems.map(walk).find((x) => x !== undefined);
+    s.uuid === uuid ? s : childSystems(s).map(walk).find((x) => x !== undefined);
   return walk(model.root);
 }
 
@@ -603,12 +610,25 @@ function buildSystem(
     topics: byName(topics),
     brokers: byName(brokers),
     subsystems: [],
+    masters: [],
   });
   index.push({ system, findProcess, connections });
 
-  system.subsystems = (profile.subsystems ?? []).map((s, i) =>
-    buildSystem(s, `${systemKey}.${s.system_store?.uuid ?? i}`, null, s.connections ?? null, elements, index),
-  );
+  // ほかの所で中身を出した系(visited)は出さない。親系は中身があるもの(recursive=true の新しい juiz)と
+  // 取れなかったもの(error)だけを出す。古い juiz の親系は仲介の profile だけなので出さない(#559)
+  const child = (s: SystemProfile, i: number, tag: string) =>
+    buildSystem(
+      s,
+      `${systemKey}.${s.system_store?.uuid ?? s.system_uuid ?? `${tag}${i}`}`,
+      null,
+      s.connections ?? null,
+      elements,
+      index,
+    );
+  system.masters = (profile.mastersystem ?? [])
+    .filter((s) => !s.visited && (s.core_store || s.error))
+    .map((s, i) => child(s, i, "m"));
+  system.subsystems = (profile.subsystems ?? []).filter((s) => !s.visited).map((s, i) => child(s, i, ""));
   return system;
 }
 

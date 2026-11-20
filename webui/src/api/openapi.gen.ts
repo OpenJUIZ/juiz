@@ -2287,7 +2287,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description System. recursive=true ならサブシステムの中身と各 System の接続 (connections) も入れる */
+                /** @description System. recursive=true ならつながった System (サブシステムとマスターシステム) の中身と各 System の接続 (connections) も入れる */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -2323,7 +2323,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description System. recursive=true ならサブシステムの中身と各 System の接続 (connections) も入れる */
+                /** @description System. recursive=true ならつながった System (サブシステムとマスターシステム) の中身と各 System の接続 (connections) も入れる */
                 200: {
                     headers: {
                         [name: string]: unknown;

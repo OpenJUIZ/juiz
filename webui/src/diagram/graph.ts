@@ -3,7 +3,7 @@
 // 実行文脈は状態付きの長方形、話題は長方形)。
 // 副系があるときは、系ごとに破線枠でまとめ、別の系どうしの接続は枠をまたいで描く(#116)。
 
-import type { ProcessElement, SystemModel } from "../model.ts";
+import { childSystems, type ProcessElement, type SystemModel } from "../model.ts";
 
 /**
  * 容器処理の上下の取っ手の id。容器からの道具リンク(instrument)は、容器が上にあれば上、下にあれば下につなぐ。
@@ -76,6 +76,8 @@ export interface DiagramGroup {
   name: string;
   /** 「系」か「副系」か */
   isRoot: boolean;
+  /** 親系(たどってきた系を subsystem にしている系、#559)か */
+  isMaster: boolean;
   /** 副系へ経由する仲介の種類(http, qmp など) */
   via: string | null;
   error: string | null;
@@ -111,9 +113,9 @@ function fitWidth(name: string, typeName: string, pad: number, min: number, max:
   return Math.min(max, Math.max(min, Math.max(textWidth(name), textWidth(typeName) * 0.8) + pad));
 }
 
-/** 系とその副系を、親から順に並べる */
+/** 系とそれにつながった系(親系・副系)を、たどった順に並べる(#559) */
 function allSystems(sys: SystemModel): SystemModel[] {
-  return [sys, ...sys.subsystems.flatMap(allSystems)];
+  return [sys, ...childSystems(sys).flatMap(allSystems)];
 }
 
 export function buildGraph(root: SystemModel | null): DiagramGraph {
@@ -122,6 +124,7 @@ export function buildGraph(root: SystemModel | null): DiagramGraph {
   const edges: DiagramEdge[] = [];
   const groups: DiagramGroup[] = [];
   const systems = allSystems(root);
+  const masterKeys = new Set(systems.flatMap((s) => s.masters.map((m) => m.key)));
   for (const sys of systems) {
     const first = nodes.length;
     addSystem(sys, nodes, edges);
@@ -129,6 +132,7 @@ export function buildGraph(root: SystemModel | null): DiagramGraph {
       id: sys.key,
       name: sys.name,
       isRoot: sys === root,
+      isMaster: masterKeys.has(sys.key),
       via: sys.via?.typeName ?? null,
       error: sys.error,
       members: nodes.slice(first).map((n) => n.id),

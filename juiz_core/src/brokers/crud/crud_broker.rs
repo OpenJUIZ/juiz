@@ -454,7 +454,9 @@ impl CRUDDispatcher {
         .and_then(|cbs| { cbs.get(function_name)})
         .ok_or(anyhow!(JuizError::CRUDBrokerCanNotFindFunctionError { class_name: class_name.to_owned(), function_name: function_name.to_owned()}))
         .and_then(|cb|{
-            cb(self.core_broker.clone(), args)
+            // 再帰の一覧で通ってきた System (issue #559)。CoreBroker が相手へ問い合わせるときに読む
+            let via = crate::brokers::walk::via_from_args(&args)?;
+            crate::brokers::walk::with_via(&via, || cb(self.core_broker.clone(), args))
         }).or_else(|e| {
             log::error!("CRUDBrokerクラスのコールバック(call_callback({class_name}, {function_name}))関数内でエラーが発生。エラーは({e})です。");
             Err(e)

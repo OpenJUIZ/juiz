@@ -335,6 +335,7 @@ function ArgArcs({ args, outputConnected, c, r }: { args: ArgInfo[]; outputConne
 export interface SystemFrameData extends Record<string, unknown> {
   name: string;
   isRoot: boolean;
+  isMaster?: boolean;
   via: string | null;
   error: string | null;
 }
@@ -343,7 +344,7 @@ export type SystemFrameNode = Node<SystemFrameData, "systemFrame">;
 
 /** 系の破線枠(#116)。見出しだけがクリックを受け、枠の中は下の要素や背景へ通す */
 export function SystemFrameView({ data, width, height, selected }: NodeProps<SystemFrameNode>) {
-  const term = TERMS[data.isRoot ? "system" : "subsystem"];
+  const term = TERMS[data.isRoot ? "system" : data.isMaster ? "mastersystem" : "subsystem"];
   return (
     <div
       className={`dframe${data.isRoot ? " root" : ""}${data.error ? " error" : ""}${selected ? " selected" : ""}`}

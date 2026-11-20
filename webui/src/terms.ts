@@ -2,6 +2,7 @@
 export const TERMS = {
   system: { ja: "系", en: "System" },
   subsystem: { ja: "副系", en: "Subsystem" },
+  mastersystem: { ja: "親系", en: "Master system" },
   broker: { ja: "仲介", en: "Broker" },
   process: { ja: "処理", en: "Process" },
   container: { ja: "容器", en: "Container" },

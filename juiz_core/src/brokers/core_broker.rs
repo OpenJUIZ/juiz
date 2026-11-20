@@ -261,6 +261,64 @@ impl CoreBroker {
             .chain(self.subsystem_proxies.iter())
     }
 
+    /// この System の UUID
+    fn my_uuid(&self) -> JuizResult<Uuid> {
+        Ok(Uuid::parse_str(
+            self.system_uuid()?
+                .as_str()
+                .ok_or_else(|| anyhow!("system uuid is not a string"))?,
+        )?)
+    }
+
+    /// 再帰の一覧でたどる相手と、相手に渡す via (issue #559)。
+    ///
+    /// マスターシステムもサブシステムもたどる。通ってきた System (いま置かれている via) と自分は除き、
+    /// 同じ System が両方に居れば 1 度だけにする。相手に渡す via には自分と、自分がたどる相手を全部入れる。
+    /// 相手どうしがつながっていても、そちらからは辿らずに済む (同じものが 2 度出にくい)
+    fn list_walk_targets(&self) -> JuizResult<(Vec<SubSystemProxy>, Vec<Uuid>)> {
+        let mut next_via = crate::brokers::walk::current_via();
+        let my_uuid = self.my_uuid()?;
+        if !next_via.contains(&my_uuid) {
+            next_via.push(my_uuid);
+        }
+        let mut targets: Vec<SubSystemProxy> = Vec::new();
+        for ssp in self.connected_systems() {
+            if next_via.contains(ssp.uuid()) || targets.iter().any(|t| t.uuid() == ssp.uuid()) {
+                continue;
+            }
+            targets.push(ssp.clone());
+        }
+        next_via.extend(targets.iter().map(|t| t.uuid().clone()));
+        Ok((targets, next_via))
+    }
+
+    /// System の API (CLI が使う System::process_list など) が BrokerProxy へ問い合わせるときの via。
+    /// 自分とつながった System を全部入れる (issue #559)
+    pub(crate) fn walk_via(&self) -> JuizResult<Vec<Uuid>> {
+        Ok(self.list_walk_targets()?.1)
+    }
+
+    /// 再帰の一覧で、相手 1 つ分を取る。via を置いて問い合わせ、失敗は警告にして空にする
+    /// (止まっている System があっても一覧は出す、issue #559)
+    fn list_from<T>(
+        ssp: &SubSystemProxy,
+        next_via: &[Uuid],
+        what: &str,
+        f: impl FnOnce(&dyn BrokerProxy) -> JuizResult<Vec<T>>,
+    ) -> Vec<T> {
+        let bp = ssp.broker_proxy();
+        let result = juiz_borrow(&bp).and_then(|bp| {
+            crate::brokers::walk::with_via(next_via, || f(&*bp))
+        });
+        match result {
+            Ok(v) => v,
+            Err(e) => {
+                log::warn!("【{what}】つながった System({ssp})の一覧を取得できませんでした。エラーは({e})");
+                Vec::new()
+            }
+        }
+    }
+
     fn find_subsystem_by_uuid(&self, uuid: Uuid) -> Option<SubSystemProxy> {
         self.connected_systems()
             .find(|ssp| ssp.uuid() == &uuid)
@@ -324,8 +382,8 @@ impl SystemBrokerProxy for CoreBroker {
         result
     }
 
-    fn system_profile_recursive(&self) -> JuizResult<Value> {
-        log::trace!("【呼出】system_profile_recursive() called");
+    fn system_profile_recursive_via(&self, via: &[Uuid]) -> JuizResult<Value> {
+        log::trace!("【呼出】system_profile_recursive_via({via:?}) called");
         let mut v = self.profile_full()?;
         // この System が持つ接続。両端が別の System の接続は、両方の System に現れる
         let connections = self
@@ -340,28 +398,53 @@ impl SystemBrokerProxy for CoreBroker {
                 Ok(cv)
             })
             .collect::<JuizResult<Vec<Value>>>()?;
-        // サブシステムは中身を取りに行く。取れなければ BrokerProxy の profile に error を添える
+        // つながった System は、マスターシステムもサブシステムも中身を取りに行く (issue #559)。
+        // 通ってきた System と、ここまでに中身を取った System には問い合わせない (輪で止まらないように)。
+        // 取れなければ BrokerProxy の profile に error を添える
+        let my_uuid = self.my_uuid()?;
+        let mut visited: Vec<Uuid> = via.to_vec();
+        if !visited.contains(&my_uuid) {
+            visited.push(my_uuid);
+        }
+        let mut walk = |ssp: &SubSystemProxy| -> JuizResult<Value> {
+            let bp = ssp.broker_proxy();
+            let bp = juiz_borrow(&bp)?;
+            let proxy_profile = bp.profile_full()?;
+            if visited.contains(ssp.uuid()) {
+                return obj_merge(
+                    proxy_profile,
+                    &jvalue!({ "visited": true, "system_uuid": ssp.uuid().to_string() }),
+                );
+            }
+            visited.push(ssp.uuid().clone());
+            Ok(match bp.system_profile_recursive_via(&visited) {
+                Ok(mut sub) => {
+                    crate::brokers::walk::collect_system_uuids(&sub, &mut visited);
+                    get_hashmap_mut(&mut sub)?.insert("broker_proxy".to_owned(), proxy_profile);
+                    sub
+                }
+                Err(e) => {
+                    log::error!("【system_profile_recursive】つながった System({ssp})の profile を取得できませんでした。エラーは({e})");
+                    obj_merge(
+                        proxy_profile,
+                        &jvalue!({ "error": e.to_string(), "system_uuid": ssp.uuid().to_string() }),
+                    )?
+                }
+            })
+        };
+        let masters = self
+            .master_system_proxies
+            .iter()
+            .map(&mut walk)
+            .collect::<JuizResult<Vec<Value>>>()?;
         let subsystems = self
             .subsystem_proxies
             .iter()
-            .map(|ssp| -> JuizResult<Value> {
-                let bp = ssp.broker_proxy();
-                let bp = juiz_borrow(&bp)?;
-                let proxy_profile = bp.profile_full()?;
-                Ok(match bp.system_profile_recursive() {
-                    Ok(mut sub) => {
-                        get_hashmap_mut(&mut sub)?.insert("broker_proxy".to_owned(), proxy_profile);
-                        sub
-                    }
-                    Err(e) => {
-                        log::error!("【system_profile_recursive】サブシステム({ssp})の profile を取得できませんでした。エラーは({e})");
-                        obj_merge(proxy_profile, &jvalue!({ "error": e.to_string() }))?
-                    }
-                })
-            })
+            .map(&mut walk)
             .collect::<JuizResult<Vec<Value>>>()?;
         let map = get_hashmap_mut(&mut v)?;
         map.insert("connections".to_owned(), connections.into());
+        map.insert("mastersystem".to_owned(), masters.into());
         map.insert("subsystems".to_owned(), subsystems.into());
         Ok(v)
     }
@@ -958,29 +1041,21 @@ impl ProcessBrokerProxy for CoreBroker {
             return Ok(ids);
         }
 
-        for ssp in self.subsystem_proxies.iter() {
-            log::debug!("【process_list】Subsystem({ssp:})にあるprocessも調べます。");
-            let plist = juiz_borrow(&ssp.broker_proxy())?.process_list(recursive, None)?;
-
+        // マスターシステムもたどる。通ってきた System へは戻らない (issue #559)
+        let (targets, next_via) = self.list_walk_targets()?;
+        for ssp in targets.iter() {
+            log::debug!("【process_list】つながった System({ssp:})にあるprocessも調べます。");
+            let plist = Self::list_from(ssp, &next_via, "process_list", |bp| {
+                let mut ids = bp.process_list(recursive, None)?;
+                // つながった System のものは、その System へのブローカーを指す識別子にする
+                for id in ids.iter_mut() {
+                    id.broker_name = bp.name().to_owned();
+                    id.broker_type_name = bp.type_name().to_owned();
+                }
+                Ok(ids)
+            });
             log::debug!("【process_list】Subsystem({ssp:})にあるprocessは{plist:?}");
-            for v in plist.into_iter() {
-                let mut mut_pi = v.clone();
-                match ssp.broker_proxy().read().and_then(|bp| {
-                    mut_pi.broker_name = bp.name().to_owned();
-                    mut_pi.broker_type_name = bp.type_name().to_owned();
-                    Ok(())
-                }) {
-                    Ok(_) => Ok(()),
-                    Err(_e) => {
-                        log::error!("【process_list】BrokerProxyをlockするのに失敗しました。");
-                        Err(anyhow!(JuizError::ObjectLockError {
-                            target: format!("BrokerProxy")
-                        }))
-                    }
-                }?;
-                log::debug!("【process_list】Process({mut_pi})を追加します。");
-                ids.push(mut_pi);
-            }
+            ids.extend(plist);
         }
         Ok(ids)
     }
@@ -1171,16 +1246,18 @@ impl ContainerBrokerProxy for CoreBroker {
             .map(|(_k, c)| c.identifier())
             .collect::<Vec<ContainerIdentifier>>();
         if recursive {
-            //for (_id, proxy) in self.store().broker_proxies.objects().iter() {
-            for ssp in self.subsystem_proxies.iter() {
-                let proxy = ssp.broker_proxy();
-                let p = juiz_borrow(&proxy)?;
+            // マスターシステムもたどる (issue #559)
+            let (targets, next_via) = self.list_walk_targets()?;
+            for ssp in targets.iter() {
                 // 副系のものは、副系へのブローカーを指す識別子にする (process_list と同じ。issue #112)
-                for mut id in p.container_list(recursive, None)?.into_iter() {
-                    id.broker_name = p.name().to_owned();
-                    id.broker_type_name = p.type_name().to_owned();
-                    ids.push(id);
-                }
+                ids.extend(Self::list_from(ssp, &next_via, "container_list", |p| {
+                    let mut ids = p.container_list(recursive, None)?;
+                    for id in ids.iter_mut() {
+                        id.broker_name = p.name().to_owned();
+                        id.broker_type_name = p.type_name().to_owned();
+                    }
+                    Ok(ids)
+                }));
             }
         }
         Ok(ids)
@@ -1262,15 +1339,18 @@ impl ContainerProcessBrokerProxy for CoreBroker {
     ) -> JuizResult<Vec<ProcessIdentifier>> {
         let mut ids = self.worker().store().container_processes_id();
         if recursive {
-            for ssp in self.subsystem_proxies.iter() {
-                let proxy = ssp.broker_proxy();
-                let p = juiz_borrow(&proxy)?;
+            // マスターシステムもたどる (issue #559)
+            let (targets, next_via) = self.list_walk_targets()?;
+            for ssp in targets.iter() {
                 // 副系のものは、副系へのブローカーを指す識別子にする (process_list と同じ。issue #112)
-                for mut id in p.container_process_list(recursive, None)?.into_iter() {
-                    id.broker_name = p.name().to_owned();
-                    id.broker_type_name = p.type_name().to_owned();
-                    ids.push(id);
-                }
+                ids.extend(Self::list_from(ssp, &next_via, "container_process_list", |p| {
+                    let mut ids = p.container_process_list(recursive, None)?;
+                    for id in ids.iter_mut() {
+                        id.broker_name = p.name().to_owned();
+                        id.broker_type_name = p.type_name().to_owned();
+                    }
+                    Ok(ids)
+                }));
             }
         }
         Ok(ids)
@@ -1451,10 +1531,12 @@ impl BrokerBrokerProxy for CoreBroker {
         let mut ids = self.worker().store().brokers_list_ids()?;
         if recursive {
             log::trace!("【broker_list】サブシステムのBrokerも調べます。");
-            for ssp in self.subsystem_proxies.iter() {
-                let proxy = ssp.broker_proxy();
-                let mut plist = juiz_borrow(&proxy)?.broker_list(recursive)?;
-                ids.append(&mut plist);
+            // マスターシステムもたどる (issue #559)
+            let (targets, next_via) = self.list_walk_targets()?;
+            for ssp in targets.iter() {
+                ids.extend(Self::list_from(ssp, &next_via, "broker_list", |p| {
+                    p.broker_list(recursive)
+                }));
             }
         } else {
             log::trace!("【broker_list】サブシステムのBrokerは調べません。");
@@ -1656,15 +1738,12 @@ impl ExecutionContextBrokerProxy for CoreBroker {
         let mut ids = self.worker().store().ecs.list_ids()?;
         let ids_arr = ids.as_array_mut().unwrap();
         if recursive {
-            //for (_, proxy) in self.store().broker_proxies.objects().iter() {
-            for ssp in self.subsystem_proxies.iter() {
-                let proxy = ssp.broker_proxy();
-
-                let plist = juiz_borrow(&proxy)?.ec_list(recursive)?;
-                for v in get_array(&plist)?.iter() {
-                    let id = v.as_str().unwrap();
-                    ids_arr.push(id.into());
-                }
+            // マスターシステムもたどる (issue #559)
+            let (targets, next_via) = self.list_walk_targets()?;
+            for ssp in targets.iter() {
+                ids_arr.extend(Self::list_from(ssp, &next_via, "ec_list", |p| {
+                    Ok(get_array(&p.ec_list(recursive)?)?.clone())
+                }));
             }
         }
         Ok(ids)
@@ -1740,12 +1819,12 @@ impl ConnectionBrokerProxy for CoreBroker {
             })
             .collect();
         if recursive {
-            for subsystem_proxy in self.subsystem_proxies.iter() {
-                let plist =
-                    juiz_borrow(&subsystem_proxy.broker_proxy())?.connection_list(recursive)?;
-                for v in plist.into_iter() {
-                    ids_arr.push(v);
-                }
+            // マスターシステムもたどる (issue #559)
+            let (targets, next_via) = self.list_walk_targets()?;
+            for ssp in targets.iter() {
+                ids_arr.extend(Self::list_from(ssp, &next_via, "connection_list", |p| {
+                    p.connection_list(recursive)
+                }));
             }
         }
         Ok(ids_arr)
