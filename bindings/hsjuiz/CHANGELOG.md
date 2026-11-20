@@ -3,9 +3,9 @@
 hsjuiz の版は juiz(crates.io の juiz_app、PyPI の pyjuiz / juiz-cli)と同じ番号にそろえています。
 使う libjuiz_sdk も同じ版にしてください。
 
-## 0.2.12
+## 0.3.0
 
-- hsjuiz の API は 0.2.11 から変えていない(juiz 本体の、つながった System を全部たどる再帰の一覧・管理画面 #559 の公開に版をそろえた)。
+- hsjuiz の API は 0.2.11 から変えていない(juiz 本体の .juizapp の使い勝手 #390 と、つながった System を全部たどる再帰の一覧・管理画面 #559 の公開に版をそろえた)。
 
 ## 0.2.11
 
