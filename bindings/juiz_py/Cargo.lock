@@ -904,6 +904,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "filetime"
+version = "0.2.30"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1255e7a9f1902190d4c10a75f2f7f495d3d3ce13e9ba26e6c48683a0f4dbed7"
+dependencies = [
+ "cfg-if",
+ "libc",
+]
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1762,9 +1772,10 @@ dependencies = [
 
 [[package]]
 name = "juiz_app"
-version = "0.2.11"
+version = "0.3.0"
 dependencies = [
  "clap",
+ "flate2",
  "globset",
  "home",
  "juiz_core",
@@ -1774,16 +1785,19 @@ dependencies = [
  "juiz_sdk",
  "juiz_zenoh_broker",
  "pyo3",
+ "reqwest",
  "roxmltree",
  "semver",
  "sha2",
+ "tar",
+ "windows-sys 0.61.2",
  "yaml-rust2",
  "zip 9.1.3",
 ]
 
 [[package]]
 name = "juiz_core"
-version = "0.2.11"
+version = "0.3.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -1813,7 +1827,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_idl"
-version = "0.2.11"
+version = "0.3.0"
 dependencies = [
  "base64 0.22.1",
  "clap",
@@ -1825,7 +1839,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_macro"
-version = "0.2.11"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "litrs",
@@ -1837,7 +1851,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_pkg"
-version = "0.2.11"
+version = "0.3.0"
 dependencies = [
  "clap",
  "juiz_idl",
@@ -1849,7 +1863,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_py"
-version = "0.2.11"
+version = "0.3.0"
 dependencies = [
  "juiz_app",
  "juiz_core",
@@ -1858,7 +1872,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_qmp_broker"
-version = "0.2.11"
+version = "0.3.0"
 dependencies = [
  "juiz_core",
  "juiz_sdk",
@@ -1874,7 +1888,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_sdk"
-version = "0.2.11"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -1893,7 +1907,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_std_types"
-version = "0.2.11"
+version = "0.3.0"
 dependencies = [
  "juiz_idl",
  "juiz_sdk",
@@ -1901,7 +1915,7 @@ dependencies = [
 
 [[package]]
 name = "juiz_types"
-version = "0.2.11"
+version = "0.3.0"
 dependencies = [
  "base64 0.22.1",
  "regex",
@@ -1913,14 +1927,14 @@ dependencies = [
 
 [[package]]
 name = "juiz_webui"
-version = "0.2.11"
+version = "0.3.0"
 dependencies = [
  "rust-embed",
 ]
 
 [[package]]
 name = "juiz_zenoh_broker"
-version = "0.2.11"
+version = "0.3.0"
 dependencies = [
  "juiz_core",
  "juiz_sdk",
@@ -3768,6 +3782,16 @@ name = "talc"
 version = "4.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a3ae828aa394de34c7de08f522d1b86bd1c182c668d27da69caadda00590f26d"
+
+[[package]]
+name = "tar"
+version = "0.4.46"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f6221d9a6003c78398e3b239969f352578258df48c8eb051caadae0015bc840"
+dependencies = [
+ "filetime",
+ "libc",
+]
 
 [[package]]
 name = "target-lexicon"
