@@ -54,6 +54,14 @@ pub trait SystemBrokerProxy {
     /// こちらは各サブシステムの system_profile_recursive() を入れ子にし、
     /// 各 System が持つ接続の profile を connections に加える。
     fn system_profile_recursive(&self) -> JuizResult<Value> {
+        self.system_profile_recursive_via(&[])
+    }
+
+    /// [`Self::system_profile_recursive`] の、通ってきた System の UUID (`via`) を渡す形 (issue #559)。
+    ///
+    /// サブシステムとマスターシステムの両方をたどる。via にある System へは問い合わせず、
+    /// `{"visited": true, "system_uuid": ...}` を添えた BrokerProxy の profile だけを入れる。
+    fn system_profile_recursive_via(&self, _via: &[Uuid]) -> JuizResult<Value> {
         self.system_profile()
     }
 

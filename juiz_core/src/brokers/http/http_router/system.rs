@@ -12,7 +12,7 @@ use axum::{extract::Query, response::IntoResponse, Json};
         RecursiveQuery
     ),
     responses(
-        (status = 200, description = "System. recursive=true ならサブシステムの中身と各 System の接続 (connections) も入れる")
+        (status = 200, description = "System. recursive=true ならつながった System (サブシステムとマスターシステム) の中身と各 System の接続 (connections) も入れる")
     ),
     tag = "universal.system",
 )]

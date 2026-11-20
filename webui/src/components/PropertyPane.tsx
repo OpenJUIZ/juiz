@@ -694,6 +694,7 @@ function SystemBody({ element: e, model, onSelect }: BodyProps<SystemModel>) {
             [<Term k="ec" />, e.ecs.length],
             [<Term k="connection" />, e.connections?.length ?? null],
             [<Term k="topic" />, e.topics.length],
+            [<Term k="mastersystem" />, e.masters.length],
             [<Term k="subsystem" />, e.subsystems.length],
           ]}
         />

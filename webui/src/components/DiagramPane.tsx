@@ -168,7 +168,7 @@ function Diagram({ model, serverUrl, selectedKey, onSelect, onChanged }: Props) 
           width: box.width,
           height: box.height,
           measured: { width: box.width, height: box.height },
-          data: { name: g.name, isRoot: g.isRoot, via: g.via, error: g.error },
+          data: { name: g.name, isRoot: g.isRoot, isMaster: g.isMaster, via: g.via, error: g.error },
           selected: g.id === selectedKey,
           draggable: false,
           // 枠の中のクリックは下の要素や背景へ通す(見出しだけが受ける。diagram.css)

@@ -177,6 +177,11 @@ function SystemNode({
           )}
         </>
       )}
+      {system.masters.length > 0 && (
+        <Category {...p} k={ck("mastersystem")} term="mastersystem" items={system.masters}>
+          {(s) => s.kind === "system" && <SystemNode {...p} system={s} depth={depth + 1} rootModel={rootModel} />}
+        </Category>
+      )}
       {system.subsystems.length > 0 && (
         <Category {...p} k={ck("subsystem")} term="subsystem" items={system.subsystems}>
           {(s) => s.kind === "system" && <SystemNode {...p} system={s} depth={depth + 1} rootModel={rootModel} />}

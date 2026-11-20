@@ -13,6 +13,7 @@ use std::sync::{
 use std::time::{self, Duration};
 
 use crate::brokers::broker_ptr::BrokerPtr;
+use crate::brokers::walk;
 use crate::plugin::replace_target_in_plugin_paths;
 use crate::prelude::*;
 
@@ -558,6 +559,8 @@ impl System {
     }
 
     pub fn process_list(&self, recursive: bool) -> JuizResult<Vec<ProcessIdentifier>> {
+        // 相手から自分やほかのつながった System へ戻らないように via を渡す (issue #559)
+        let via = self.core_broker().lock()?.walk_via()?;
         log::trace!("【呼出】System::process_list({recursive})が呼ばれました。");
         let mut local_processes = self.core_broker().lock()?.worker().store().processes_id();
         log::debug!("【process_list】ローカルなプロセスのリストは {local_processes:?}");
@@ -573,7 +576,7 @@ impl System {
             {
                 // log::trace!("process_list for proxy ()");
                 log::debug!("BrokerProxyに対してprocess_listを試みます。");
-                for v in juiz_borrow(proxy)?.process_list(recursive, None)?.iter() {
+                for v in walk::with_via(&via, || juiz_borrow(proxy)?.process_list(recursive, None))?.iter() {
                     log::debug!(" - {v} が追加されます");
                     local_processes.push(v.clone());
                 }
@@ -584,6 +587,8 @@ impl System {
     }
 
     pub fn container_list(&self, recursive: bool) -> JuizResult<Vec<ContainerIdentifier>> {
+        // 相手から自分やほかのつながった System へ戻らないように via を渡す (issue #559)
+        let via = self.core_broker().lock()?.walk_via()?;
         log::trace!("【呼出】System::container_list() called");
         let mut local_containers = self.core_broker().lock()?.worker().store().containers_id();
         if recursive {
@@ -596,7 +601,7 @@ impl System {
                 .objects()
                 .iter()
             {
-                for c in juiz_borrow(proxy)?.container_list(recursive, None)?.iter() {
+                for c in walk::with_via(&via, || juiz_borrow(proxy)?.container_list(recursive, None))?.iter() {
                     local_containers.push(c.clone());
                 }
             }
@@ -606,6 +611,8 @@ impl System {
     }
 
     pub fn container_process_list(&self, recursive: bool) -> JuizResult<Vec<ProcessIdentifier>> {
+        // 相手から自分やほかのつながった System へ戻らないように via を渡す (issue #559)
+        let via = self.core_broker().lock()?.walk_via()?;
         log::trace!("【呼出】System::container_process_list() called");
         let mut local_processes = self
             .core_broker()
@@ -622,9 +629,10 @@ impl System {
             .objects()
             .iter()
         {
-            for v in juiz_borrow(proxy)?
-                .container_process_list(recursive, None)?
-                .iter()
+            for v in walk::with_via(&via, || {
+                juiz_borrow(proxy)?.container_process_list(recursive, None)
+            })?
+            .iter()
             {
                 local_processes.push(v.clone());
             }
@@ -642,6 +650,8 @@ impl System {
     }
 
     pub fn ec_list(&self, recursive: bool) -> JuizResult<Vec<Value>> {
+        // 相手から自分やほかのつながった System へ戻らないように via を渡す (issue #559)
+        let via = self.core_broker().lock()?.walk_via()?;
         log::trace!("【呼出】System::ec_list() called");
         let mut local_ecs = self
             .core_broker()
@@ -661,7 +671,7 @@ impl System {
                 .iter()
             {
                 log::trace!("ec_list for proxy ()");
-                for v in get_array(&juiz_borrow(proxy)?.ec_list(recursive)?)?.iter() {
+                for v in get_array(&walk::with_via(&via, || juiz_borrow(proxy)?.ec_list(recursive))?)?.iter() {
                     local_ecs.push(v.clone());
                 }
             }

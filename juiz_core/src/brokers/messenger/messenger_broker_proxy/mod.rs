@@ -307,12 +307,12 @@ impl SystemBrokerProxy for MessengerBrokerProxy {
         capsule_value(self.read("system", "profile")?)
     }
 
-    fn system_profile_recursive(&self) -> JuizResult<Value> {
-        capsule_value(self.read_with_param(
-            "system",
-            "profile",
-            &[("recursive".to_owned(), "true".to_owned())],
-        )?)
+    fn system_profile_recursive_via(&self, via: &[Uuid]) -> JuizResult<Value> {
+        let mut param = vec![("recursive".to_owned(), "true".to_owned())];
+        if !via.is_empty() {
+            param.push(("via".to_owned(), crate::topics::via_to_param(via)));
+        }
+        capsule_value(self.read_with_param("system", "profile", &param)?)
     }
 
     fn system_filesystem_list(&self, path_buf: std::path::PathBuf) -> JuizResult<Value> {
@@ -445,7 +445,7 @@ impl ProcessBrokerProxy for MessengerBrokerProxy {
             self.read_with_param(
                 "process",
                 "list",
-                &[("recursive".to_owned(), recursive.to_string())],
+                &crate::brokers::walk::list_params(recursive),
             )?
             .extract_value()?,
         )?)
@@ -604,7 +604,7 @@ impl ContainerBrokerProxy for MessengerBrokerProxy {
             self.read_with_param(
                 "container",
                 "list",
-                &[("recursive".to_owned(), recursive.to_string())],
+                &crate::brokers::walk::list_params(recursive),
             )?,
         )?)?)
     }
@@ -640,7 +640,7 @@ impl ContainerProcessBrokerProxy for MessengerBrokerProxy {
         let value = capsule_value(self.read_with_param(
             "container_process",
             "list",
-            &[("recursive".to_owned(), recursive.to_string())],
+            &crate::brokers::walk::list_params(recursive),
         )?)?;
         Ok(serde_json::from_value(value)?)
     }
@@ -739,7 +739,7 @@ impl ExecutionContextBrokerProxy for MessengerBrokerProxy {
         capsule_value(self.read_with_param(
             "execution_context",
             "list",
-            &[("recursive".to_owned(), recursive.to_string())],
+            &crate::brokers::walk::list_params(recursive),
         )?)
     }
 
@@ -772,7 +772,7 @@ impl BrokerBrokerProxy for MessengerBrokerProxy {
         let vs = capsule_value(self.read_with_param(
             "broker",
             "list",
-            &[("recursive".to_owned(), recursive.to_string())],
+            &crate::brokers::walk::list_params(recursive),
         )?)?;
         vs.as_array()
             .ok_or(JuizError::InvalidArgumentError {
@@ -875,7 +875,7 @@ impl ConnectionBrokerProxy for MessengerBrokerProxy {
         let val = capsule_value(self.read_with_param(
             "connection",
             "list",
-            &[("recursive".to_owned(), recursive.to_string())],
+            &crate::brokers::walk::list_params(recursive),
         )?)?;
         get_array(&val)?
             .into_iter()

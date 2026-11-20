@@ -18,6 +18,7 @@ pub mod ipc;
 pub mod local;
 pub mod messenger;
 pub mod port_policy;
+pub(crate) mod walk;
 // pub mod _http_;
 
 pub use broker::Broker;

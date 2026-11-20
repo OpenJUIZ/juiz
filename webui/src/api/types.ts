@@ -270,14 +270,21 @@ export interface SystemProfile extends ObjectProfile {
   core_store?: CoreStore;
   system_store?: { uuid?: string } & Record<string, unknown>;
   subsystems?: SystemProfile[];
-  /** この系を subsystem にしている系。星形につなぐと複数になる(#478) */
-  mastersystem?: ObjectProfile[];
+  /**
+   * この系を subsystem にしている系。星形につなぐと複数になる(#478)。
+   * recursive=true なら subsystems と同じく中身ごと入る(#559)
+   */
+  mastersystem?: SystemProfile[];
   /** この系が持つ接続。両端が別の系の接続は、両方の系に入る(recursive=true のときだけ) */
   connections?: ConnectionProfile[];
   /** 親の系から副系へ経由する仲介の profile(recursive=true のときだけ) */
   broker_proxy?: ObjectProfile;
   /** 副系の中身を取れなかったときの理由 */
   error?: string;
+  /** ほかの所で中身を出した系(輪や、両向きにつながった系)。仲介の profile だけが入る(#559) */
+  visited?: boolean;
+  /** visited・error のときの、その系の UUID(#559) */
+  system_uuid?: string;
 }
 
 /** GET /api/connection/profile */

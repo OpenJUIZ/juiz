@@ -623,3 +623,95 @@ fn recursive_list_over_two_levels_ipc() -> JuizResult<()> {
         })
     })
 }
+
+/// system/profile?recursive=true の答えに入っている System の UUID (重複も数える)。
+/// visited (ほかの所で中身を出した System) は数えない
+fn walked_uuids(profile: &Value, out: &mut Vec<String>) {
+    if let Some(u) = profile["system_store"]["uuid"].as_str() {
+        out.push(u.to_owned());
+    }
+    for key in ["mastersystem", "subsystems"] {
+        for c in profile[key].as_array().into_iter().flatten() {
+            assert!(c.get("error").is_none(), "{c}");
+            walked_uuids(c, out);
+        }
+    }
+}
+
+/// 再帰の一覧と profile が、どこから問い合わせても 3 つの System を 1 度ずつ出すことを確かめる
+fn check_walks_all(systems: &[&System], count: usize) -> JuizResult<()> {
+    for s in systems {
+        let started = std::time::Instant::now();
+        let procs = s.core_broker().lock()?.process_list(true, None)?;
+        assert_eq!(procs.len(), count, "{procs:?}");
+        let profile = s.core_broker().lock()?.system_profile_recursive()?;
+        let mut uuids = Vec::new();
+        walked_uuids(&profile, &mut uuids);
+        assert_eq!(uuids.len(), count, "{profile}");
+        uuids.sort();
+        uuids.dedup();
+        assert_eq!(uuids.len(), count, "{profile}");
+        // 輪で戻ると IPC の応答待ちの時間切れ (約 10 秒) まで止まる
+        assert!(started.elapsed() < std::time::Duration::from_secs(5), "{:?}", started.elapsed());
+    }
+    Ok(())
+}
+
+/// 星形 (A の subsystems = [B]、C の subsystems = [B]) では、B から見ると A と C はマスターシステム。
+/// 再帰の一覧と system/profile?recursive=true はマスターシステムもたどるので、A・B・C のどこから
+/// 問い合わせても 3 つの System が全部出る (issue #559。juiz run の基礎とアプリの形)
+#[cfg(all(test, feature = "ipc-broker"))]
+#[test]
+fn recursive_walk_over_mastersystems_ipc() -> JuizResult<()> {
+    crate::common::logger::init();
+    let b = ipc_system("subsystem_walk_star", "b", &[]);
+    let a = ipc_system("subsystem_walk_star", "a", &["b"]);
+    let c = ipc_system("subsystem_walk_star", "c", &["b"]);
+    System::new(b)?.setup()?.run_and_do_once(|b| {
+        System::new(a)?.setup()?.run_and_do_once(|a| {
+            System::new(c)?.setup()?.run_and_do_once(|c| {
+                check_walks_all(&[a, b, c], 3)?;
+                // B から見た profile では、A と C はマスターシステムに中身ごと入る
+                let profile = b.core_broker().lock()?.system_profile_recursive()?;
+                let masters = profile["mastersystem"].as_array().unwrap();
+                assert_eq!(masters.len(), 2, "{profile}");
+                assert!(masters.iter().all(|m| m.get("core_store").is_some()), "{profile}");
+                // A から見ると B はサブシステムで、B のマスターシステムのうち A 自身は visited になる
+                let profile = a.core_broker().lock()?.system_profile_recursive()?;
+                let b_masters = profile["subsystems"][0]["mastersystem"].as_array().unwrap();
+                assert_eq!(
+                    b_masters.iter().filter(|m| m["visited"] == jvalue!(true)).count(),
+                    1,
+                    "{profile}"
+                );
+                Ok(())
+            })
+        })
+    })
+}
+
+/// 互いに subsystem の輪 (A の subsystems = [B] に加えて、B に add_subsystem で A を足す) でも、
+/// 再帰の一覧と profile が戻って止まらない (issue #559)
+#[cfg(all(test, feature = "ipc-broker"))]
+#[test]
+fn recursive_walk_over_mutual_subsystems_ipc() -> JuizResult<()> {
+    crate::common::logger::init();
+    let b = ipc_system("subsystem_walk_ring", "b", &[]);
+    let a = ipc_system("subsystem_walk_ring", "a", &["b"]);
+    let c = ipc_system("subsystem_walk_ring", "c", &["a"]);
+    let a_ipc = a["brokers"][0]["name"].as_str().unwrap().to_owned();
+    let c_ipc = c["brokers"][0]["name"].as_str().unwrap().to_owned();
+    System::new(b)?.setup()?.run_and_do_once(|b| {
+        System::new(a)?.setup()?.run_and_do_once(|a| {
+            b.core_broker()
+                .system_add_subsystem(jvalue!({ "type_name": "ipc", "name": a_ipc }))?;
+            check_walks_all(&[a, b], 2)?;
+            // 3 つで輪 (C → A → B → C) になっても同じ
+            System::new(c)?.setup()?.run_and_do_once(|c| {
+                b.core_broker()
+                    .system_add_subsystem(jvalue!({ "type_name": "ipc", "name": c_ipc }))?;
+                check_walks_all(&[a, b, c], 3)
+            })
+        })
+    })
+}

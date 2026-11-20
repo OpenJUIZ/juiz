@@ -17,7 +17,9 @@ pub(crate) fn create_read_callbacks() -> CallbackContainerType {
         let recursive = args.get_param("recursive").is_some_and(|v| v == "true");
         if recursive {
             Ok(value_to_capsule(
-                cb.lock()?.system_profile_recursive()?,
+                // 通ってきた System は CRUDBroker が置いている (issue #559)
+                cb.lock()?
+                    .system_profile_recursive_via(&crate::brokers::walk::current_via())?,
             ))
         } else {
             Ok(value_to_capsule(cb.lock()?.system_profile()?))
