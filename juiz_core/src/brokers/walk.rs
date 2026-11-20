@@ -73,6 +73,27 @@ pub(crate) fn collect_system_uuids(profile: &Value, out: &mut Vec<Uuid>) {
     }
 }
 
+/// `system/walk` の木 (`{"uuid", "children"}`) に入っている UUID を全部集める
+pub(crate) fn collect_tree_uuids(tree: &Value, out: &mut Vec<Uuid>) {
+    if let Some(u) = tree
+        .get("uuid")
+        .and_then(|u| u.as_str())
+        .and_then(|u| Uuid::parse_str(u).ok())
+    {
+        if !out.contains(&u) {
+            out.push(u);
+        }
+    }
+    for c in tree
+        .get("children")
+        .and_then(|c| c.as_array())
+        .into_iter()
+        .flatten()
+    {
+        collect_tree_uuids(c, out);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

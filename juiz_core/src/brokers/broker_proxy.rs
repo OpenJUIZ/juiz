@@ -65,6 +65,14 @@ pub trait SystemBrokerProxy {
         self.system_profile()
     }
 
+    /// つながった System をたどった木 (UUID だけ、issue #559)。`{"uuid": 自分, "children": [木, ...]}`。
+    ///
+    /// マスターシステム・サブシステムを深さ優先でたどり、via にある System とすでに木に入った System は入れない。
+    /// 再帰の一覧は、この木に沿って集める (同じ System を 2 度数えないため)
+    fn system_walk_via(&self, _via: &[Uuid]) -> JuizResult<Value> {
+        Err(juiz_sdk::anyhow::anyhow!("system_walk_via is not supported by this broker proxy"))
+    }
+
     /// 古い名前。[`Self::system_profile`] を使う (docs/spec/manifest-profile.md §7)
     #[deprecated(since = "0.2.11", note = "use system_profile")]
     fn system_profile_full(&self) -> JuizResult<Value> {

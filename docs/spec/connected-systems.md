@@ -32,13 +32,28 @@ issue #559。関係: #116(副系の表示)、#449(Topic の輪)、#478(マスタ
 
 `process`・`container`・`container_process`・`any_process`・`execution_context`・`broker`・`connection` の `list`。
 
-- 相手に渡す `via` は、受けた `via` + 自分 + 自分がたどる相手全部。相手どうしがつながっていても、
-  そちらからはたどらない。長い輪(4 つ以上)では同じものが 2 度出ることがある。
+- まず `system/walk`(§4.1)でつながった System の木を作り、木の子だけに問い合わせる。
+- 子に渡す `via` は「木の UUID 全部 + 受けた `via`」から「その子の下の木の UUID」を除いたもの。
+  子はその `via` で自分の木を作り直すと、自分の下の木の System だけが残る。なので輪がいくつあっても、
+  同じ System の一覧は 1 度しか出ない(#559 の追加修正。直接の相手を `via` に入れるだけでは、4 つ以上の輪で 2 度出た)。
 - 相手が答えないときは警告にして、その相手の分を空にして続ける(以前は一覧全体がエラーだった)。
 - 識別子のブローカー部分は、以前と同じく直接つながった相手へのブローカーに書き換える。
-- CLI の `System::process_list` なども、自分とつながった System を `via` に入れて問い合わせる。
+- CLI の `System::process_list` なども同じ木を使う。ストアの BrokerProxy が木の子ならその `via` で、
+  木の子でないつながった System(ほかの子の下で出る)なら問い合わせず、つながった System でない
+  BrokerProxy(CLI からサーバーへなど)なら木の UUID 全部を `via` にして問い合わせる。
 
 実装では、一覧の BrokerProxy の引数を変えずに済むよう `via` をスレッドローカルで運ぶ(`juiz_core::brokers::walk`)。
+
+### 4.1 `system/walk`
+
+`GET /api/system/walk?via=...`。つながった System の木を UUID だけで返す。
+
+```json
+{ "uuid": "<自分>", "children": [ { "uuid": "...", "children": [ ... ] } ] }
+```
+
+たどり方は `system/profile?recursive=true`(§3)と同じ(深さ優先、マスターシステムが先、`via` と木に入った System は入れない)。
+答えない System と `system/walk` の無い古い juiz は、下をたどらない葉(`children` が空)にする。
 
 ## 5. 管理画面
 
