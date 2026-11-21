@@ -15,12 +15,15 @@ zigjuiz は `build.zig.zon` の `dependencies` に、リポジトリの `binding
 | `src/example_container_zig_get.zig` | Container の値を返す ContainerProcess。状態を `*const` で受けるので readonly |
 | `src/mismatched_container_process_zig.zig` | 状態を別の型で受ける ContainerProcess(型違いのエラー -1104 を確かめるテスト用) |
 | `src/zig_part*.zig` | ContainerPose を読み書きする Container `zig_part` と ContainerProcess(`juiz.pose` / `setPose` / `lookup` / `setTransform`) |
+| `src/example_component_zig.zig` | Process 2 つ・Container・ContainerProcess 2 つを 1 つのライブラリにまとめた Component(`juiz.exportComponent`、issue #575) |
 | `increment_process.conf` | increment_process_zig を読み込む設定ファイル |
 | `example_container.conf` | example_container_zig と ContainerProcess を読み込む設定ファイル |
+| `example_component.conf` | Component example_component_zig を読み込む設定ファイル |
 
 juiz のテスト(`juiz_core/tests/integration/plugins/zig/`、`juiz_core/tests/integration/transformations/zig.rs`)は、
 これらを読み込んで値の読み書き・Container の状態・ContainerPose・エラーを確かめます。
-1 ライブラリに複数入れる Component は issue #575 で足すので、いまは ContainerProcess ごとに別のライブラリです。
+Component 以外の例は、Process・Container・ContainerProcess ごとに別のライブラリです。
+Component の間違い(型名の重なりなど)はコンパイルエラーになるので、`bindings/zigjuiz/tests/compile_errors/check.sh` で確かめています。
 
 ## ビルド
 
@@ -54,5 +57,15 @@ Container は `examples/zig/example_container.conf` で起動し、ContainerProc
 ```terminal
 cargo run -- -d -f examples/zig/example_container.conf
 cargo run -- container-process call -p 'http://127.0.0.1:8000/container_process/ziginc0::example_container_zig_increment:zigcont0' '{"arg0": 3}'
+# CapsulePtr((value:Value(18), option: []))
+```
+
+Component は `examples/zig/example_component.conf` で起動します。
+
+```terminal
+cargo run -- -d -f examples/zig/example_component.conf
+cargo run -- process call -p 'http://127.0.0.1:8000/process/zigcompinc0::example_component_zig_increment' '{"arg0": 41}'
+# CapsulePtr((value:Value(42), option: []))
+cargo run -- container-process call -p 'http://127.0.0.1:8000/container_process/zigcompcinc0::example_component_zig_counter_increment:zigcompcont0' '{"arg0": 3}'
 # CapsulePtr((value:Value(18), option: []))
 ```

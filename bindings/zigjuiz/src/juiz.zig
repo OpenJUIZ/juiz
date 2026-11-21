@@ -1,4 +1,4 @@
-//! zigjuiz: Zig で juiz の Process・Container・ContainerProcess を書くためのライブラリ (issue #573、#574)。利用者は `@import("juiz")` で使う。
+//! zigjuiz: Zig で juiz の Process・Container・ContainerProcess・Component を書くためのライブラリ (issue #573、#574、#575)。利用者は `@import("juiz")` で使う。
 //!
 //! ```zig
 //! const juiz = @import("juiz");
@@ -19,6 +19,7 @@
 //! SPDX-License-Identifier: MIT OR Apache-2.0
 const process = @import("process.zig");
 const container = @import("container.zig");
+const component = @import("component.zig");
 const pose_ = @import("pose.zig");
 const value = @import("value.zig");
 const errors = @import("errors.zig");
@@ -28,6 +29,12 @@ pub const Context = process.Context;
 pub const exportProcess = process.exportProcess;
 pub const exportContainer = container.exportContainer;
 pub const exportContainerProcess = container.exportContainerProcess;
+
+// Component (1 つのライブラリに複数の Process・Container・ContainerProcess をまとめる、issue #575)
+pub const exportComponent = component.exportComponent;
+pub const processPart = component.processPart;
+pub const containerPart = component.containerPart;
+pub const containerProcessPart = component.containerProcessPart;
 
 // ContainerPose (docs/spec/transformations.md §12.3)。ContainerProcess の中から self を渡して使う
 pub const Pose = pose_.Pose;

@@ -39,21 +39,25 @@ pub fn ProcessEntry(comptime f: anytype, comptime options: anytype) type {
     if (Payload != void) types.check(Payload, what ++ ": return type");
 
     return struct {
+        /// Component (component.zig) が要素の種類と名前を見るための印
+        pub const part_kind: entry.PartKind = .process;
+        pub const part_type_name = type_name;
+
         fn manifestEntryPoint(ptr: ?*c.capsule_ptr) callconv(.c) i64 {
-            var arena = std.heap.ArenaAllocator.init(std.heap.c_allocator);
-            defer arena.deinit();
-            const a = arena.allocator();
-            const manifest = buildManifest(a) catch return c.JUIZ_VALUE_CONVERTER_ERROR;
-            value.writeCapsulePtr(a, ptr, manifest) catch return c.JUIZ_VALUE_CONVERTER_ERROR;
-            return c.JUIZ_OK;
+            return entry.writeManifest(ptr, buildManifest);
         }
 
         fn buildManifest(a: std.mem.Allocator) !Value {
+            return manifest(a, "process_factory");
+        }
+
+        /// マニフェスト。factory は juiz が <factory>_entry_point を探すときのシンボル名
+        pub fn manifest(a: std.mem.Allocator, comptime factory: []const u8) !Value {
             const members = try a.dupe(Value.Member, &.{
                 .{ .key = "type_name", .value = .{ .string = type_name } },
                 .{ .key = "language", .value = .{ .string = "zig" } },
                 .{ .key = "description", .value = .{ .string = description } },
-                .{ .key = "factory", .value = .{ .string = "process_factory" } },
+                .{ .key = "factory", .value = .{ .string = factory } },
                 .{ .key = "use_memo", .value = .{ .bool = use_memo } },
                 .{ .key = "arguments", .value = .{ .array = try Sig.manifestArguments(a) } },
             });
@@ -64,7 +68,7 @@ pub fn ProcessEntry(comptime f: anytype, comptime options: anytype) type {
             return callWith(Sig, type_name, {}, cm, out);
         }
 
-        fn processFactoryEntryPoint() callconv(.c) *const fn (?*c.capsule_map, ?*c.capsule) callconv(.c) i64 {
+        pub fn processFactoryEntryPoint() callconv(.c) *const fn (?*c.capsule_map, ?*c.capsule) callconv(.c) i64 {
             return &call;
         }
     };

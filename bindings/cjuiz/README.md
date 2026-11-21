@@ -149,4 +149,5 @@ hsjuiz で書いた例が `examples/haskell` にあります。
 - Container の `void*` には、zigjuiz は先頭に目印(zigjuiz の印と状態の型から作った値)を置いた領域を渡します。zigjuiz の ContainerProcess は、目印が無い(別の言語の Container)か
   状態の型が違うときに `JUIZ_ZIG_CONTAINER_TYPE_ERROR`(-1104)を返します(issue #574)。
 
-利用者向けのライブラリ zigjuiz([bindings/zigjuiz](../zigjuiz/README.md))を使うと、これらの関数は `juiz.exportProcess`・`juiz.exportContainer`・`juiz.exportContainerProcess` が comptime に生成します。zigjuiz で書いた例が `examples/zig` にあります。
+利用者向けのライブラリ zigjuiz([bindings/zigjuiz](../zigjuiz/README.md))を使うと、これらの関数は `juiz.exportProcess`・`juiz.exportContainer`・`juiz.exportContainerProcess`・`juiz.exportComponent` が comptime に生成します。
+Component の要素の関数の名前は、C++ / Haskell の関数名ではなく型名から付けます(`<型名>_factory_entry_point`、issue #575)。zigjuiz で書いた例が `examples/zig` にあります。

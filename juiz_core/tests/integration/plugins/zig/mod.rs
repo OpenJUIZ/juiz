@@ -3,6 +3,7 @@
 //! zig が無い環境では scripts/test.sh がビルドを飛ばすので、ライブラリが無ければテストも飛ばす。
 //! CI では JUIZ_REQUIRE_ZIG=1 にして、飛ばさずに失敗させる。
 
+mod component;
 mod container;
 mod process;
 

@@ -1,4 +1,4 @@
-//! juiz の Zig の例 (examples/zig) のビルド (issue #573、#574)。zigjuiz (bindings/zigjuiz) を使う。
+//! juiz の Zig の例 (examples/zig) のビルド (issue #573、#574、#575)。zigjuiz (bindings/zigjuiz) を使う。
 //!
 //!   zig build --release -Djuiz-sdk-lib=<libjuiz_sdk のあるディレクトリの絶対パス>
 //!
@@ -27,6 +27,8 @@ const examples = [_][]const u8{
     "zig_part_sleep",
     "zig_part_lookup",
     "zig_part_set_transform",
+    // Process・Container・ContainerProcess を 1 つのライブラリにまとめた Component (issue #575)
+    "example_component_zig",
 };
 
 pub fn build(b: *std.Build) void {
