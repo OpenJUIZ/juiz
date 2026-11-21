@@ -29,7 +29,7 @@ cd "$here"
 # --release で ReleaseSafe (範囲外アクセスなどの安全検査を残す、build.zig の preferred_optimize_mode) にする
 $zig build --release -Djuiz-sdk-lib="$sdk_dir"
 
-for name in increment_process_zig; do
+for name in increment_process_zig greet_process_zig echo_types_process_zig fail_process_zig; do
     lib="zig-out/$lib_dir/$prefix$name.$ext"
     if [[ ! -f "$lib" ]]; then
         echo "error: $lib がありません" >&2

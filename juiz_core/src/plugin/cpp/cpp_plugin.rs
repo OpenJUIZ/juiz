@@ -66,17 +66,32 @@ const HASKELL_INIT_SYMBOL: &str = "juiz_hs_init";
 const JUIZ_CPP_EXCEPTION_ERROR: i64 = -1001;
 const JUIZ_CPP_UNKNOWN_EXCEPTION_ERROR: i64 = -1002;
 
-/// C++ / Haskell のプラグインの関数が負の値を返したときのエラー。
-/// 例外のコード (#400) なら、entry point が戻り値の capsule に入れたエラー文 (what()) を読む
+/// zigjuiz の entry point が返すコード (juiz_sdk.h の JUIZ_ZIG_*、#573)。どれも戻り値の capsule にエラー文を入れる
+const JUIZ_ZIG_ERROR_RETURNED: i64 = -1101;
+const JUIZ_ZIG_ARGUMENT_ERROR: i64 = -1102;
+const JUIZ_ZIG_RESULT_ERROR: i64 = -1103;
+
+/// entry point が戻り値の capsule に入れたエラー文
+fn error_message_in(result: Option<&Capsule>) -> String {
+    result
+        .and_then(|c| c.as_value())
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_owned())
+        .unwrap_or_else(|| "(no message; see the standard error of juiz)".to_owned())
+}
+
+/// C++ / Haskell / Zig のプラグインの関数が負の値を返したときのエラー。
+/// 例外のコード (#400) や zigjuiz のコード (#573) なら、entry point が戻り値の capsule に入れたエラー文を読む
 fn cpp_call_error(function_name: String, return_value: i64, result: Option<&Capsule>) -> anyhow::Error {
     if return_value == JUIZ_CPP_EXCEPTION_ERROR || return_value == JUIZ_CPP_UNKNOWN_EXCEPTION_ERROR {
-        let message = result
-            .and_then(|c| c.as_value())
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_owned())
-            .unwrap_or_else(|| "(no message; see the standard error of juiz)".to_owned());
+        let message = error_message_in(result);
         log::error!("C++ plugin function ({function_name}) threw an exception: {message}");
         return anyhow::Error::from(JuizError::CppPluginExceptionError { function_name, message });
+    }
+    if matches!(return_value, JUIZ_ZIG_ERROR_RETURNED | JUIZ_ZIG_ARGUMENT_ERROR | JUIZ_ZIG_RESULT_ERROR) {
+        let message = error_message_in(result);
+        log::error!("Zig plugin function ({function_name}) failed ({return_value}): {message}");
+        return anyhow::Error::from(JuizError::ZigPluginError { function_name, return_value, message });
     }
     anyhow::Error::from(JuizError::CppPluginFunctionCallError { function_name, return_value })
 }

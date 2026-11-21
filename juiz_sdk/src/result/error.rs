@@ -274,6 +274,14 @@ pub enum JuizError {
         function_name: String,
         message: String,
     },
+    /// Zig のプラグイン (zigjuiz) の関数が失敗した (#573)。return_value は juiz_sdk.h の JUIZ_ZIG_* (-1101〜-1103)、
+    /// message は zigjuiz が戻り値に入れたエラー文 ("<型名> returned error.Foo"、引数の名前と理由など)
+    #[error("Zig plugin function ({function_name}) failed (return_value={return_value}): {message}")]
+    ZigPluginError {
+        function_name: String,
+        return_value: i64,
+        message: String,
+    },
 
     #[error("ArgumentType parse string failed (target={target}")]
     UnknownArgumentTypeStringError { target: String },

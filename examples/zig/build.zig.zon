@@ -1,10 +1,12 @@
 .{
-    // zigjuiz を使わず、build.zig の addTranslateC で bindings/cjuiz/include/juiz_sdk.h を読む最小の例 (issue #572)
+    // zigjuiz (bindings/zigjuiz) で書いた Zig の例 (issue #573)。リポジトリの zigjuiz を path で使う
     .name = .juiz_zig_examples,
     .version = "0.0.0",
     .fingerprint = 0x6a31ec595103d5f2,
     .minimum_zig_version = "0.17.0",
-    .dependencies = .{},
+    .dependencies = .{
+        .zigjuiz = .{ .path = "../../bindings/zigjuiz" },
+    },
     .paths = .{
         "build.zig",
         "build.zig.zon",
