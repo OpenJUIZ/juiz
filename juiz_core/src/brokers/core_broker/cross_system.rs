@@ -63,6 +63,21 @@ pub(super) fn proxy_error_context(
     e.context(format!("in the System of Container({target})"))
 }
 
+/// 別 System から返ってきた木の `identifier` のうち、その System の core の ID (`core://core/...`) を
+/// その System へのブローカー付きの ID にする。写しなど、もともとブローカー付きの ID はそのまま (§19.15)
+fn with_broker_ids(node: &mut Value, broker_type_name: &str, broker_name: &str) {
+    if let Some(id) = node.get("identifier").and_then(|v| v.as_str()) {
+        if let Some(rest) = id.strip_prefix("core://core/") {
+            node["identifier"] = Value::from(format!("{broker_type_name}://{broker_name}/{rest}"));
+        }
+    }
+    if let Some(children) = node.get_mut("children").and_then(|v| v.as_array_mut()) {
+        for c in children.iter_mut() {
+            with_broker_ids(c, broker_type_name, broker_name);
+        }
+    }
+}
+
 /// 回した先の答えの `frame_id` (相手の写しの ID) を、自分の System での基準の名前にする (§5.4)
 fn with_local_frame(mut p: PoseStamped, reference_id: &str) -> PoseStamped {
     if let Ok(r) = ContainerIdentifier::try_from(reference_id.to_owned()) {
@@ -299,6 +314,23 @@ impl CoreBroker {
             )));
         }
         t.set_pose_by_name(identifier, reference, "", pose)
+    }
+
+    /// `transformations/tree` (§13.1・§19.15、issue #567)。
+    /// `anchor` が自分の System の Anchor (写しを含む) でなく、別 System の Container の ID なら、その System に回す。
+    /// 返ってきた木の ID (相手の core の ID) は、その System へのブローカー付きの ID にする
+    pub(super) fn tree_across(&self, anchor: &str) -> JuizResult<Value> {
+        let t = self.transformations();
+        if !t.knows(anchor, "")? {
+            if let Some(a) = remote_container_id(anchor) {
+                let bp = self.proxy_of(&a)?;
+                let result = juiz_borrow(&bp)?.transformations_tree(&core_form(&a).to_string());
+                let mut tree = result.map_err(|e| proxy_error_context(e, &a))?;
+                with_broker_ids(&mut tree, &a.broker_type_name, &a.broker_name);
+                return Ok(tree);
+            }
+        }
+        t.tree(anchor, "")
     }
 
     /// 回すときの基準。自分の System の Container でなければならない (§19.8)

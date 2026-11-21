@@ -954,3 +954,12 @@ API・CLI・pyjuiz で決めたこと。
 - **副系の容器の位置姿勢**: 副系の木は取り込まない(§19.3)ので変換木・変換は今までどおり最上位の系だけ。ただし副系がまたぐ Transform で最上位の系の容器 P を取り込んでいれば(P の `remote_children` にその副系の UUID がある)、P と P が入っている木の Anchor を基準の候補にして、最上位の系の `container/pose`(§19.8 の回し方)で副系の容器の位置姿勢を出す。候補がなければ出さない。
 - 時刻は手元の時計の表記(年-月-日 時:分:秒.ミリ秒)。stamp は相手の System の時計の値のまま(§19.11)。
 - 用語: 写し = Replica、別系の子 = Remote child。
+
+### 19.15 つながった System の Anchor の木(#567)
+
+管理画面の 3D 表示(container-model.md §12)で、副系・親系の Anchor の木を最上位の系越しに見るために決めたこと。
+
+- **`transformations/tree` を回す**: `anchor` が自分の System の Anchor(写しを含む)に当たらず、ブローカー付きの別 System の Container の ID(`http://127.0.0.1:8001/container/world::static_anchor`、`ipc://mobile_sim/container/world::static_anchor`)なら、そのブローカーの System に core の ID で回す(`container/model_info` と同じ回し方)。相手のエラーには「どの System で起きたか」を添える。
+- **返す木の ID**: 相手の core の ID(`core://core/...`)は、そのブローカー付きの ID にして返す。`container/list?recursive=true` と管理画面の副系の容器の識別子と同じ形になる。写しなど、もともとブローカー付きの ID はそのまま。
+- **`anchor/list` は変えない**: 管理画面は `system/profile?recursive=true` の副系・親系の容器の `anchor` から Anchor を知るので、`anchor/list?recursive=true` は作らなかった。写しの Anchor と孫の System の Anchor の ID を一覧の中で見分けられない(どちらもブローカー付き)ため。
+- 管理画面の変換木(ツリー)・性質欄の位置姿勢は今までどおり最上位の系だけ(§19.14)。

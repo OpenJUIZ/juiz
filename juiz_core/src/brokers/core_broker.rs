@@ -2109,7 +2109,8 @@ impl TransformationsBrokerProxy for CoreBroker {
     }
 
     fn transformations_tree(&self, anchor: &str) -> JuizResult<Value> {
-        self.transformations().tree(anchor, "")
+        // 別 System の Anchor なら、その System に回す (§19.15、issue #567)
+        self.tree_across(anchor)
     }
 
     fn pose_listener_list(&self) -> JuizResult<Vec<String>> {

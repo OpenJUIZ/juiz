@@ -213,6 +213,32 @@ export function anchorContainers(model: Model): ContainerElement[] {
   return model.root.containers.filter((c) => !!c.profile.anchor);
 }
 
+/** 最上位の系と、つながった系(親系・副系)の全部。最上位が先、続いて深さ優先 */
+export function allSystems(model: Model): SystemModel[] {
+  const out: SystemModel[] = [];
+  const walk = (s: SystemModel) => {
+    out.push(s);
+    childSystems(s).forEach(walk);
+  };
+  walk(model.root);
+  return out;
+}
+
+/** 表示中のすべての系の容器(識別子 → 容器)。識別子は最上位の系から見た形 */
+export function containersById(model: Model): Map<string, ContainerElement> {
+  return new Map(allSystems(model).flatMap((s) => s.containers.map((c) => [c.identifier, c] as const)));
+}
+
+/**
+ * つながった系(最上位の系でない、親系・副系)の Anchor の容器(#567)。
+ * 最上位の系に `transformations/tree` を頼むと、その系に回して木を返す(transformations.md §19.15)
+ */
+export function connectedAnchorContainers(model: Model): { system: SystemModel; container: ContainerElement }[] {
+  return allSystems(model)
+    .slice(1)
+    .flatMap((system) => system.containers.filter((c) => !!c.profile.anchor).map((container) => ({ system, container })));
+}
+
 /** 識別子が最上位の系の容器を指すか(写しや別の系の容器でないか) */
 export function isLocalContainer(model: Model, identifier: string): boolean {
   return model.root.containers.some((c) => c.identifier === identifier);

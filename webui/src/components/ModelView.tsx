@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { JuizClient } from "../api/client.ts";
 import type { ContainerModelInfo, TransformationsTreeNode } from "../api/types.ts";
-import { nameOfIdentifier, type Model } from "../model.ts";
+import { connectedAnchorContainers, containersById, nameOfIdentifier, type Model } from "../model.ts";
 import { ModelCache } from "../three/loaders.ts";
 import { ModelScene, type SceneNode } from "../three/scene.ts";
 import "../three/model-view.css";
@@ -25,12 +25,16 @@ interface AnchorChoice {
   label: string;
 }
 
+/**
+ * 最上位の系の Anchor の木と写しの Anchor の木、続いてつながった系(親系・副系)の Anchor(「系の名前/Anchor 名」、#567)。
+ * 最上位の系に Anchor が無ければ、先頭(既定)はつながった系の最初の Anchor になる
+ */
 function anchorChoices(model: Model | null): AnchorChoice[] {
   const t = model?.transformations;
   if (!t) return [];
   const name = (key: string | null, identifier: string) =>
     (key ? model.elements.get(key)?.fullName : undefined) ?? nameOfIdentifier(identifier);
-  return [
+  const own: AnchorChoice[] = [
     ...t.trees.map((tree) => ({
       identifier: tree.anchorIdentifier,
       label: `${name(tree.anchorKey, tree.anchorIdentifier)}${tree.replica ? "(写し)" : ""}`,
@@ -40,6 +44,14 @@ function anchorChoices(model: Model | null): AnchorChoice[] {
       label: `${name(e.anchorKey, e.anchorIdentifier)}${e.replica ? "(写し)" : ""}`,
     })),
   ];
+  const seen = new Set(own.map((c) => c.identifier));
+  const connected = connectedAnchorContainers(model)
+    .filter(({ container }) => !seen.has(container.identifier))
+    .map(({ system, container }) => ({
+      identifier: container.identifier,
+      label: `${system.name}/${container.fullName}`,
+    }));
+  return [...own, ...connected];
 }
 
 export default function ModelView({ model, serverUrl, selectedKey, onSelect }: Props) {
@@ -119,7 +131,8 @@ export default function ModelView({ model, serverUrl, selectedKey, onSelect }: P
   // 木のノードを場面の形にする
   const nodes = useMemo<SceneNode[] | null>(() => {
     if (!tree || tree.anchor !== anchor || !model) return null;
-    const keyOf = new Map(model.root.containers.map((c) => [c.identifier, c]));
+    // つながった系の Anchor の木なら、ノードはその系の容器(#567)
+    const keyOf = containersById(model);
     const out: SceneNode[] = [];
     const walk = (n: TransformationsTreeNode, parent: string | null) => {
       const c = keyOf.get(n.identifier);
@@ -142,7 +155,7 @@ export default function ModelView({ model, serverUrl, selectedKey, onSelect }: P
   // system/profile にモデル情報の無い容器(写し・古い juiz)は container/model_info で取る
   const missing = useMemo(() => {
     if (!nodes || !model) return [];
-    const local = new Map(model.root.containers.map((c) => [c.identifier, c]));
+    const local = containersById(model);
     return nodes
       .map((n) => n.identifier)
       .filter((id) => {

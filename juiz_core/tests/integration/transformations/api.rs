@@ -399,3 +399,72 @@ fn transformations_api() -> JuizResult<()> {
     })
     .expect("Error in System::run_and_do()"))
 }
+
+/// サブシステムの Anchor の木を、親の System 越しに取る (§19.15、issue #567)。
+/// 親は Anchor を持たない (teleop_twist と mobile_sim の形)
+#[test]
+fn transformations_tree_of_subsystem() -> JuizResult<()> {
+    crate::common::logger::init();
+    const MASTER_PORT: i64 = 8100;
+    let master = jvalue!({
+        "name": "tree_sub_master",
+        "option": { "http_broker": { "start": true, "port": MASTER_PORT } },
+    });
+    // 同じポートを指定すると次のポートで待ち受け、先の juiz のサブシステムとして登録される
+    let sub = jvalue!({
+        "name": "tree_sub_sub",
+        "option": { "http_broker": { "start": true, "port": MASTER_PORT } },
+        "containers": [
+            { "type_name": "static_anchor", "name": "world" },
+            { "type_name": "frame", "name": "robot0" },
+            { "type_name": "frame", "name": "lidar0" },
+        ],
+        "transforms": [
+            { "source": "world", "destination": "robot0", "translation": {"x": 1.0} },
+            { "source": "robot0", "destination": "lidar0", "translation": {"z": 0.5} },
+        ],
+    });
+    System::new(master)?.setup()?.run_and_do_once(|master| {
+        System::new(sub.clone())?.setup()?.run_and_do_once(|_sub| {
+            assert_eq!(master.core_broker().lock()?.anchor_list()?, Vec::<String>::new());
+            let ids = master.core_broker().lock()?.container_list(true, None)?;
+            let id_of = |name: &str| {
+                ids.iter()
+                    .find(|id| id.name == name)
+                    .unwrap_or_else(|| panic!("{name} not in {ids:?}"))
+                    .to_string()
+            };
+            let world = id_of("world");
+            assert!(world.starts_with("http://"), "{world}");
+
+            // CoreBroker 越し: 木の ID は container/list?recursive=true と同じ、サブシステムへのブローカー付き
+            let check = |tree: &Value| {
+                assert_eq!(tree["identifier"], jvalue!(world), "{tree}");
+                let robot = &tree["children"][0];
+                assert_eq!(robot["identifier"], jvalue!(id_of("robot0")), "{tree}");
+                assert_eq!(robot["pose"]["position"]["x"], jvalue!(1.0), "{tree}");
+                let lidar = &robot["children"][0];
+                assert_eq!(lidar["identifier"], jvalue!(id_of("lidar0")), "{tree}");
+                assert_eq!(lidar["pose"]["position"]["z"], jvalue!(0.5), "{tree}");
+            };
+            check(&master.core_broker().lock()?.transformations_tree(&world)?);
+
+            // 親の HTTP から
+            let client = reqwest::blocking::Client::new();
+            let r = client
+                .get(format!("http://localhost:{MASTER_PORT}/api/transformations/tree"))
+                .query(&[("anchor", world.as_str())])
+                .send()?;
+            assert_eq!(r.status(), 200);
+            check(&r.json()?);
+
+            // サブシステムに無い Anchor は、どの System で起きたかを添えたエラー
+            let missing = world.replace("/world::", "/nothing::");
+            let e = error_text(master.core_broker().lock()?.transformations_tree(&missing));
+            assert!(e.contains("in the System of Container"), "{e}");
+            // 自分の System の名前は今までどおり (回さない)
+            assert!(master.core_broker().lock()?.transformations_tree("world").is_err());
+            Ok(())
+        })
+    })
+}
