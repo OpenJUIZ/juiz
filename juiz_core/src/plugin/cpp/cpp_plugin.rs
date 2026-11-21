@@ -66,10 +66,11 @@ const HASKELL_INIT_SYMBOL: &str = "juiz_hs_init";
 const JUIZ_CPP_EXCEPTION_ERROR: i64 = -1001;
 const JUIZ_CPP_UNKNOWN_EXCEPTION_ERROR: i64 = -1002;
 
-/// zigjuiz の entry point が返すコード (juiz_sdk.h の JUIZ_ZIG_*、#573)。どれも戻り値の capsule にエラー文を入れる
+/// zigjuiz の entry point が返すコード (juiz_sdk.h の JUIZ_ZIG_*、#573・#574)。どれも戻り値の capsule にエラー文を入れる
 const JUIZ_ZIG_ERROR_RETURNED: i64 = -1101;
 const JUIZ_ZIG_ARGUMENT_ERROR: i64 = -1102;
 const JUIZ_ZIG_RESULT_ERROR: i64 = -1103;
+const JUIZ_ZIG_CONTAINER_TYPE_ERROR: i64 = -1104;
 
 /// entry point が戻り値の capsule に入れたエラー文
 fn error_message_in(result: Option<&Capsule>) -> String {
@@ -88,7 +89,7 @@ fn cpp_call_error(function_name: String, return_value: i64, result: Option<&Caps
         log::error!("C++ plugin function ({function_name}) threw an exception: {message}");
         return anyhow::Error::from(JuizError::CppPluginExceptionError { function_name, message });
     }
-    if matches!(return_value, JUIZ_ZIG_ERROR_RETURNED | JUIZ_ZIG_ARGUMENT_ERROR | JUIZ_ZIG_RESULT_ERROR) {
+    if matches!(return_value, JUIZ_ZIG_ERROR_RETURNED | JUIZ_ZIG_ARGUMENT_ERROR | JUIZ_ZIG_RESULT_ERROR | JUIZ_ZIG_CONTAINER_TYPE_ERROR) {
         let message = error_message_in(result);
         log::error!("Zig plugin function ({function_name}) failed ({return_value}): {message}");
         return anyhow::Error::from(JuizError::ZigPluginError { function_name, return_value, message });

@@ -110,7 +110,8 @@ ContainerProcess の中から、呼び出し元 Container の位置姿勢(Contai
 C++ では `bindings/cppjuiz/include/juiz/pose.h` の `juiz::pose(container, "map")` / `juiz::set_pose(...)` / `juiz::lookup(container, "lidar0", "robot0")` /
 `juiz::set_transform(container, "map", "odom", juiz::make_transform(...))`、
 Haskell では hsjuiz の `Juiz.Pose` の `containerPose "map"` / `setContainerPose ...` / `lookupContainerPose "lidar0" "robot0"` /
-`setTransform "map" "odom" ...` がこれらを使います。
+`setTransform "map" "odom" ...`、Zig では zigjuiz の `juiz.pose(self, "map")` / `juiz.setPose(...)` / `juiz.lookup(self, "lidar0", "robot0")` /
+`juiz.setTransform(self, "map", "odom", ...)` がこれらを使います。
 
 ## Haskell のプラグイン(`language: "haskell"`)
 
@@ -145,5 +146,7 @@ hsjuiz で書いた例が `examples/haskell` にあります。
 
 - zigjuiz の entry point は、失敗したときに `JUIZ_ZIG_ERROR_RETURNED`(-1101、関数が Zig のエラーを返した)、`JUIZ_ZIG_ARGUMENT_ERROR`(-1102、引数が読めない)、
   `JUIZ_ZIG_RESULT_ERROR`(-1103、戻り値を書けない)を返し、戻り値の capsule にエラー文を入れます。juiz はそれを読んで `ZigPluginError` の message にします(issue #573)。
+- Container の `void*` には、zigjuiz は先頭に目印(zigjuiz の印と状態の型から作った値)を置いた領域を渡します。zigjuiz の ContainerProcess は、目印が無い(別の言語の Container)か
+  状態の型が違うときに `JUIZ_ZIG_CONTAINER_TYPE_ERROR`(-1104)を返します(issue #574)。
 
-利用者向けのライブラリ zigjuiz([bindings/zigjuiz](../zigjuiz/README.md))を使うと、これらの関数は `juiz.exportProcess` が comptime に生成します。zigjuiz で書いた例が `examples/zig` にあります。
+利用者向けのライブラリ zigjuiz([bindings/zigjuiz](../zigjuiz/README.md))を使うと、これらの関数は `juiz.exportProcess`・`juiz.exportContainer`・`juiz.exportContainerProcess` が comptime に生成します。zigjuiz で書いた例が `examples/zig` にあります。

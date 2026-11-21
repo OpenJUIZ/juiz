@@ -1,4 +1,4 @@
-//! juiz の Zig の例 (examples/zig) のビルド (issue #573)。zigjuiz (bindings/zigjuiz) を使う。
+//! juiz の Zig の例 (examples/zig) のビルド (issue #573、#574)。zigjuiz (bindings/zigjuiz) を使う。
 //!
 //!   zig build --release -Djuiz-sdk-lib=<libjuiz_sdk のあるディレクトリの絶対パス>
 //!
@@ -13,6 +13,20 @@ const examples = [_][]const u8{
     "greet_process_zig",
     "echo_types_process_zig",
     "fail_process_zig",
+    // Container と ContainerProcess (issue #574)。状態の型は example_container_state.zig
+    "example_container_zig",
+    "example_container_zig_increment",
+    "example_container_zig_get",
+    "mismatched_container_process_zig",
+    // ContainerPose を読み書きする例 (issue #574)。状態の型は zig_part_state.zig
+    "zig_part",
+    "zig_part_pose",
+    "zig_part_set_pose",
+    "zig_part_try",
+    "zig_part_peek",
+    "zig_part_sleep",
+    "zig_part_lookup",
+    "zig_part_set_transform",
 };
 
 pub fn build(b: *std.Build) void {

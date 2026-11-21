@@ -6,4 +6,4 @@ mod haskell;
 mod image;
 mod python;
 mod rust;
-mod zig;
+pub(crate) mod zig;
