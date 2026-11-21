@@ -173,12 +173,13 @@ pub(crate) fn pack(opts: &PackOptions) -> Result<Packed> {
             bail!("'languages' in juizapp.yaml is {written:?}, but the plugins in the entry conf use {languages:?}");
         }
     }
-    if languages.iter().any(|l| l == "c++" || l == "haskell") {
+    // C ABI のプラグイン (C++ / Haskell / Zig) は libjuiz_sdk を隣に置く必要がある (§12.2)
+    if languages.iter().any(|l| l == "c++" || l == "haskell" || l == "zig") {
         for t in &targets {
             let sdk = format!("plugins/{t}/{}", plugin_file_name(t, "juiz_sdk"));
             if !files.contains_key(&sdk) {
                 warn(&format!(
-                    "C++ / Haskell plugins are in the package, but {sdk} is not"
+                    "C++ / Haskell / Zig plugins are in the package, but {sdk} is not"
                 ));
             }
         }
@@ -981,5 +982,23 @@ plugins:
         assert_eq!(get("cont_get").language, "c++");
         assert_eq!(get("timer_ec").language, "rust");
         assert_eq!(ps.len(), 6);
+    }
+
+    /// language: zig のプラグインはネイティブ (C ABI) として数える (issue #572)
+    #[test]
+    fn lists_zig_plugins_as_native() {
+        let conf = yaml::parse(
+            r#"
+plugins:
+  process_factories:
+    increment_process_zig: { language: zig, path: "plugins/{target}" }
+"#,
+        )
+        .unwrap();
+        let ps = list_plugins(&conf).unwrap();
+        assert_eq!(ps.len(), 1);
+        assert_eq!(ps[0].language, "zig");
+        assert!(ps[0].native);
+        assert!(ps[0].rust_abi_reason.is_none());
     }
 }

@@ -38,6 +38,8 @@ env:
   # 入れた GHC はキャッシュするので、キャッシュのキーが変わらないよう版は細かく固定する
   GHC_VERSION: "9.6.7"
   CABAL_VERSION: "3.18.1.0"
+  # Zig の例(examples/zig)のビルドに使う Zig の版。juiz が対応する Zig は 1 つの版に固定する(issue #572、#571)
+  ZIG_VERSION: "0.17.1"
 
 jobs:
   # Rust のビルドとテスト(juiz_core / juiz_app / brokers など)
@@ -47,7 +49,7 @@ jobs:
   # setup-python の python3 が PATH の先頭に来るので、PYO3_PYTHON の python3 はその版になる。
   # 全テストを走らせるのは最新の版(scope: all)だけ。下限の版(scope: python)では、版で結果が変わり得る
   # 埋め込み Python に関わるテスト(名前に python・pyjuiz を含むもの、python-entry)だけを走らせる(#524)。
-  # 外のビルドを呼ぶ遅いテスト(slow::)と Haskell は scope: all でだけ走る。
+  # 外のビルドを呼ぶ遅いテスト(slow::)と Haskell・Zig は scope: all でだけ走る。
   # ジョブ名は必須チェックの名前になっているかもしれないので変えない
   rust:
     name: Rust build & test (Python ${{ matrix.python }})
@@ -125,6 +127,12 @@ jobs:
           path: ${{ steps.ghcup.outputs.dir }}/ghc/${{ env.GHC_VERSION }}
           key: ${{ steps.ghc-cache.outputs.cache-primary-key }}
 
+      # Zig の例(examples/zig)のビルドに使う Zig を入れる(issue #572)。setup-zig は入れた Zig をキャッシュする
+      - uses: mlugg/setup-zig@v2
+        if: matrix.scope == 'all'
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
       # Python 連携の feature の組み合わせがビルドできることを確かめる(issue #88)
       - name: Check feature combinations
         run: |
@@ -137,8 +145,9 @@ jobs:
       - name: Build & test
         if: matrix.scope == 'all'
         env:
-          # GHC が入っているので、Haskell の例とテストを飛ばさない
+          # GHC と Zig が入っているので、Haskell・Zig の例とテストを飛ばさない
           JUIZ_REQUIRE_HASKELL: "1"
+          JUIZ_REQUIRE_ZIG: "1"
         run: scripts/test.sh --verbose
 
       # 埋め込み Python に関わるテストだけ(テスト名に python か pyjuiz を含むもの)。

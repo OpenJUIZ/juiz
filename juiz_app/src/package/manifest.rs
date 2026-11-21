@@ -72,7 +72,7 @@ const KNOWN_KEYS: &[&str] = &[
 const PACK_KEYS: &[&str] = &["languages", "targets", "rust", "files"];
 
 /// 言語の名前(§4.1 languages)
-pub(crate) const LANGUAGES: &[&str] = &["rust", "python", "c++", "haskell"];
+pub(crate) const LANGUAGES: &[&str] = &["rust", "python", "c++", "haskell", "zig"];
 
 fn opt_str<'a>(m: &'a Map<String, Value>, key: &str) -> Result<Option<&'a str>> {
     match m.get(key) {
@@ -512,6 +512,13 @@ exclude: ["*.log"]
             let e = Manifest::parse_str(text, "t").unwrap_err().to_string();
             assert!(e.contains(expect), "{text}: {e}");
         }
+    }
+
+    /// languages に zig を書ける (issue #572)
+    #[test]
+    fn languages_accept_zig() {
+        let m = Manifest::parse_str("format: 1\nname: a\nversion: 0.1.0\nlanguages: [zig]", "t").unwrap();
+        assert!(m.has_language("zig"));
     }
 
     #[test]

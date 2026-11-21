@@ -6,3 +6,4 @@ mod haskell;
 mod image;
 mod python;
 mod rust;
+mod zig;
