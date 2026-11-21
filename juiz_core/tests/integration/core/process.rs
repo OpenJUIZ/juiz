@@ -159,3 +159,41 @@ fn invoke_uses_p_applied_argument() -> JuizResult<()> {
     assert_eq!(iv, 3);
     Ok(())
 }
+
+/// 同じ Process に、別々のスレッドから push と実行・profile の取得を同時に行っても panic しない。
+///
+/// ProcessPtr は RwLock で、どれも読み取りロックのまま入るので、Inlet のバッファが RefCell だと
+/// 「RefCell already borrowed」で panic していた (issue #566)
+#[cfg(test)]
+#[test]
+fn concurrent_push_and_execute_do_not_panic() -> JuizResult<()> {
+    let p = ProcessPtr::new(common::new_increment_process("increment")?);
+    let mut handles = Vec::new();
+    for t in 0..4 {
+        let p = p.clone();
+        handles.push(std::thread::spawn(move || -> JuizResult<()> {
+            for i in 0..2000 {
+                let guard = p.lock()?;
+                match t % 4 {
+                    0 => {
+                        guard.push_by("arg1", jvalue!(i).into())?;
+                    }
+                    1 => {
+                        guard.invoke()?;
+                    }
+                    2 => {
+                        guard.execute()?;
+                    }
+                    _ => {
+                        guard.profile()?;
+                    }
+                }
+            }
+            Ok(())
+        }));
+    }
+    for h in handles {
+        h.join().expect("thread panicked")?;
+    }
+    Ok(())
+}
