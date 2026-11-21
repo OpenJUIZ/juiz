@@ -74,6 +74,9 @@ extern "C" {
 #define JUIZ_ZIG_ARGUMENT_ERROR                            INT64_C(-1102)
 /* 戻り値を capsule に書けなかった (メモリ不足など) */
 #define JUIZ_ZIG_RESULT_ERROR                              INT64_C(-1103)
+/* ContainerProcess に、期待する状態の型の zigjuiz の Container ではないもの (別の言語の Container、
+ * 別の型の状態) が渡された (#574)。エラー文は Container の状態の型と、期待する型 */
+#define JUIZ_ZIG_CONTAINER_TYPE_ERROR                      INT64_C(-1104)
 
 /* ---- 不透明な型 ----
  * 中身は Rust 側の CapsulePtr / Capsule / CapsuleMap / Value。ポインタとしてだけ使う。 */

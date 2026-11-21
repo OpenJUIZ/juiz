@@ -236,6 +236,7 @@ ContainerProcess の中から、呼び出し元 Container C 以外の Container 
 | C | `juiz_container_pose_lookup(cm, "lidar0", "robot0", &out)` |
 | C++ | `juiz::lookup(slam, "lidar0", "robot0")`(`const T*` でも呼べる) |
 | Haskell | `lookupContainerPose "lidar0" "robot0"` |
+| Zig | `juiz.lookup(self, "lidar0", "robot0")`(`self` は ContainerProcess の第 1 引数。`*const` でも呼べる、#574) |
 
 C ABI の口 `JuizPosePort` には関数 `lookup(ctx, target, reference, out, frame_id, error)` を後ろに足した(表の版は 1 のまま)。プラグインの側は `struct_size` が `lookup` を含むときだけ使い、含まない古いホストの口では `JUIZ_TRANSFORMATIONS_ERROR`(読み書きは今まで通り使える)。口の表の最小の大きさは `lookup` を足す前の大きさ(`POSE_PORT_MIN_STRUCT_SIZE`)。
 
@@ -278,6 +279,7 @@ transforms:
 | C | `juiz_container_transform_set(cm, "map", "odom", &t, &out)`(`juiz_transform` / `juiz_transform_stamped`、並びは `juiz_pose` / `juiz_pose_stamped` と同じ) |
 | C++ | `juiz::set_transform(slam, "map", "odom", juiz::make_transform(x, y, z, qx, qy, qz, qw))`、平面は `juiz::make_transform_2d(x, y, yaw)`。辞書にするのは `juiz::transform_to_value` |
 | Haskell | `setTransform "map" "odom" (ContainerTransform (x, y, z) (qx, qy, qz, qw))`、辞書にするのは `transformStampedToValue` |
+| Zig | `juiz.setTransform(self, "map", "odom", juiz.makeTransform(x, y, z, q))`、平面は `juiz.makeTransform2d(x, y, yaw)`。辞書にするのは `juiz.transformStampedToValue`(#574) |
 
 C ABI の口 `JuizPosePort` には `lookup` の後ろに関数 `set_transform(ctx, source, destination, value, out, frame_id, child_frame_id, error)` を足した(表の版は 1 のまま)。プラグインの側は `struct_size` が `set_transform` を含むときだけ使い、含まない古いホストの口では `JUIZ_TRANSFORMATIONS_ERROR`。エラーコードに `JUIZ_TRANSFORM_NOT_WRITABLE_ERROR`(-906)と `JUIZ_TRANSFORM_NOT_FOUND_ERROR`(-907)を足した。
 
@@ -470,7 +472,7 @@ Step 4(#371)で決めたこと:
 - エラーは §17 の名前の例外: `juiz.NoCommonAnchorError`・`PoseNotWritableError`・`InvalidPoseValueError`・`TransformationsNotAttachedError`、基底は `juiz.TransformationsError`(`RuntimeError` の子、`kind` に種類の名前)。ホストは `RuntimeError(種類, メッセージ)` を投げ、pyjuiz が振り分ける。
 - あわせて、Python の Container の Factory だけを読むときにも `pythonpath` を足すようにした(以前は ContainerProcess を先に読んでいないと `import juiz` できなかった)。
 
-### 12.3 C ABI(C++・Haskell・Rust C ABI プラグイン)
+### 12.3 C ABI(C++・Haskell・Zig・Rust C ABI プラグイン)
 
 - **今の入口の関数の形は変えない**(C++ の `entry_point(cobj, CapsuleMap*, Capsule*)`、Rust C ABI の frame_in / frame_out)。
 - ホストは ContainerProcess を呼ぶとき、呼び出しに渡している引数(C++・Haskell は CapsuleMap、Rust C ABI は frame_in)に、呼び出し元 Container の口(PoseState と登録所への不透明なハンドル)を隠して載せる。利用者から見える引数は増えない。
@@ -526,9 +528,14 @@ Step 5(#372)で決めたこと:
 - 古い組み合わせ: C++・Haskell は libjuiz_sdk の版がホストと同じでなければ読み込まれない(#136)ので、口を知らない libjuiz_sdk との
   組み合わせは起きない。古いプラグイン(関数を呼ばない)はそのまま動く。Rust の C ABI プラグインは、古いグルーは `pose_port` を無視し
   (読み書きは今まで通り `TransformationsNotAttachedError`)、新しいグルーは古いホスト(`pose_port` なし)で同じエラーになる。
-- 全言語のテストで §3.5 の値を確かめた: `juiz_core/tests/integration/transformations/{cpp,haskell,rust}.rs`
+- zigjuiz(`juiz.pose` など、#574): cppjuiz と同じく、ContainerProcess の entry point(`juiz.exportContainerProcess` が生成)が
+  呼び出しの間 (状態のポインタ `self`, `cm`) をスレッドごとに積み、`juiz.pose(self, "map")` / `juiz.setPose(self, "map", p)` /
+  `juiz.lookup(self, T, R)` / `juiz.setTransform(self, S, D, t)` は渡された `self` で探す。値は `juiz_sdk.h` の構造体そのもの
+  (`juiz.Pose` = `juiz_pose` など)、失敗は Zig のエラー `juiz.PoseError`(`error.NoCommonAnchor` など、-901〜-907 に対応)。
+  関数がそのまま返すと entry point が -1101 にし、エラー文に `juiz_container_pose_last_error()` の理由を足す。
+- 全言語のテストで §3.5 の値を確かめた: `juiz_core/tests/integration/transformations/{cpp,haskell,rust,zig}.rs`
   (例は examples/cpp/component/cpp_pose_component、examples/haskell の pose_component_hs、
-  juiz_sdk/test_packages/pose_part_component。Rust は C ABI と Rust ABI の両方)。
+  juiz_sdk/test_packages/pose_part_component、examples/zig の zig_part と zig_part_*。Rust は C ABI と Rust ABI の両方)。
 
 ## 13. API・CLI・管理画面
 
@@ -654,6 +661,7 @@ readonly の ContainerProcess(#377)は、Container を**読み出しロック**�
 | Python | `@juiz_container_process(container_type="...", readonly=True)` | 止められない(書き手が守る)。`juiz.set_pose` は `PoseNotWritableError` |
 | C++ | manifest に `.readonly()`、関数は Container を `const T*` で受け取る | `const T*` で受ければ型で止まる(`T*` のままでも動くが、書き換えないのは書き手が守る)。`juiz::set_pose` に const の Container を渡すと `static_assert` で止まる |
 | Haskell | manifest に `& readonly True` | 止められない(書き手が守る)。`setContainerPose` は `juizPoseNotWritableError` |
+| Zig | 状態を `*const State` で受けると zigjuiz が readonly にする(#574) | 型で止める(`*const` なので状態を書き換えられず、`juiz.setPose` / `juiz.setTransform` はコンパイルエラー) |
 
 ```rust
 #[juiz_container_process(container_type = "mobile_base")]

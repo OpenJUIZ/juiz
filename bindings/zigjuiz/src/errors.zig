@@ -10,3 +10,5 @@ pub const zig_error_returned: i64 = c.JUIZ_ZIG_ERROR_RETURNED;
 pub const zig_argument_error: i64 = c.JUIZ_ZIG_ARGUMENT_ERROR;
 /// 戻り値を capsule に書けなかった (メモリ不足など)
 pub const zig_result_error: i64 = c.JUIZ_ZIG_RESULT_ERROR;
+/// ContainerProcess に、期待する状態の型の zigjuiz の Container ではないもの (別の言語の Container、別の型の状態) が渡された (#574)
+pub const zig_container_type_error: i64 = c.JUIZ_ZIG_CONTAINER_TYPE_ERROR;
