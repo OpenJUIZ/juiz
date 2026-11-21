@@ -127,7 +127,7 @@ files:
 | `python.version` | 文字列 | | なし | 作る人 | 要る Python の版。PEP 440 の指定(`>=3.10`) |
 | `base.http_port` | 整数 | | なし | 作る人 | `kind: base` のみ。基礎の HTTP ブローカーの固定ポート(§10.1) |
 | `exclude` | glob の列 | | なし | 作る人 | `juiz pack` で入れないファイル(§6.2)。パッケージ内では意味を持たない |
-| `languages` | 列 | ○(パッケージ内) | — | pack | `rust` / `python` / `c++` / `haskell` のうち使っているもの |
+| `languages` | 列 | ○(パッケージ内) | — | pack | `rust` / `python` / `c++` / `haskell` / `zig` のうち使っているもの |
 | `targets` | 列 | ○(パッケージ内) | — | pack | 入っているターゲット(§5)。ネイティブのプラグインが無ければ `[any]` |
 | `rust.juiz_sdk` | 文字列 | Rust を含むとき | — | pack | Rust のプラグインをビルドした juiz_sdk の版 |
 | `rust.abi` | 整数 | C ABI の Rust のプラグインを含むとき | — | pack | Rust のプラグインの C ABI の版(rust-plugin-abi.md §9) |
@@ -234,7 +234,7 @@ pack は次を順に行い、どれかが満たされなければエラーにし
 2. `entry` の conf があり、YAML として読める。
 3. entry の conf の `plugins` を読み、各プラグインについて:
    - `path` は相対パスで、`{target}` を置き換えた結果がパッケージの中を指していなければならない(`..` で外に出てはならない)。
-   - ネイティブのプラグイン(`language` が `rust`(省略時)・`c++`・`haskell` のもの、と `broker_factories`・`ec_factories`)は `path` に `{target}` を含まなければならない。
+   - ネイティブのプラグイン(`language` が `rust`(省略時)・`c++`・`haskell`・`zig` のもの、と `broker_factories`・`ec_factories`)は `path` に `{target}` を含まなければならない。
    - 集めた各ターゲットのディレクトリに、そのプラグインのファイル(`lib<name>.so` / `lib<name>.dylib` / `<name>.dll`)がなければならない。
    - Python のプラグインは `<path>/<name>.py` がなければならない。
 4. `languages` を 3 から求めて書く。作る人が書いてあれば、求めたものと一致しなければならない。

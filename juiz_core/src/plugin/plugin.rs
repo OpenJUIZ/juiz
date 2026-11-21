@@ -17,7 +17,7 @@ use super::{
 pub enum JuizObjectPlugin {
     Rust(Rc<RustPlugin>),
     Python(Rc<PythonPlugin>),
-    /// C ABI で読み込むプラグイン (language: "c++" と "haskell")
+    /// C ABI で読み込むプラグイン (language: "c++"、"haskell"、"zig")
     Cpp(Rc<CppPlugin>),
 }
 
@@ -117,6 +117,10 @@ impl JuizObjectPlugin {
                 cpp_plugin_path(name, v, working_dir)?,
                 manifest_entry_point,
             )?))),
+            "zig" => Ok(JuizObjectPlugin::Cpp(Rc::new(CppPlugin::new_zig(
+                cpp_plugin_path(name, v, working_dir)?,
+                manifest_entry_point,
+            )?))),
             _ => {
                 log::error!("In setup_container_factories() function, unknown language option ({:}) detected", language);
                 Err(anyhow::Error::from(JuizError::InvalidSettingError{message: format!("In setup_container_factories() function, unknown language option ({:}) detected", language)}))
@@ -146,6 +150,13 @@ impl JuizObjectPlugin {
         manifest_entry_point: &str,
     ) -> JuizResult<JuizObjectPlugin> {
         Ok(JuizObjectPlugin::Cpp(Rc::new(CppPlugin::new_haskell(
+            filepath,
+            manifest_entry_point,
+        )?)))
+    }
+
+    pub fn new_zig(filepath: PathBuf, manifest_entry_point: &str) -> JuizResult<JuizObjectPlugin> {
+        Ok(JuizObjectPlugin::Cpp(Rc::new(CppPlugin::new_zig(
             filepath,
             manifest_entry_point,
         )?)))

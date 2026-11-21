@@ -103,6 +103,14 @@ Haskell のサンプル(`examples/haskell`)は cabal でビルドします。GHC
 examples/haskell/build.sh
 ```
 
+Zig のサンプル(`examples/zig`)は `zig build` でビルドします。Zig は 0.17.x だけに対応します(版を 1 つに固定しています、issue #571)。
+Haskell と同じく、先に `cargo build` を済ませてから実行すると、できた共有ライブラリが `target/` に置かれます。
+zig コマンドの名前は環境変数 `ZIG` で変えられます(pip の `ziglang` パッケージなら `ZIG="python3 -m ziglang"`)。
+
+```terminal
+examples/zig/build.sh
+```
+
 ### OpenCV のコンポーネントをビルドする
 
 `examples/rust/component/juiz_opencv` は OpenCV を使うため、通常の `cargo build` には含まれません(`default-members` の外)。
@@ -143,7 +151,7 @@ HTTP ブローカーの 8000 番ポートはホストに転送されるので、
 
 ### テストを実行する
 
-`scripts/test.sh` が、テストの前提になる準備(ワークスペースの `cargo build`、C++ の例の cmake ビルド、Haskell の例の cabal ビルド、Python の例が使うパッケージの確認と `PYTHONPATH=bindings/pyjuiz` の設定)を済ませてから `cargo test -- --test-threads=1` を実行します。CI(`.github/workflows/test-linux.yml` など)も同じスクリプトを使います。
+`scripts/test.sh` が、テストの前提になる準備(ワークスペースの `cargo build`、C++ の例の cmake ビルド、Haskell の例の cabal ビルド、Zig の例の zig build、Python の例が使うパッケージの確認と `PYTHONPATH=bindings/pyjuiz` の設定)を済ませてから `cargo test -- --test-threads=1` を実行します。CI(`.github/workflows/test-linux.yml` など)も同じスクリプトを使います。
 
 ```terminal
 scripts/test.sh                              # すべてのテスト
@@ -154,7 +162,7 @@ scripts/test.sh --prepare-only               # 準備だけ行う
 ```
 
 必要なものは Rust、CMake と C++ コンパイラ、Python 3 と pyjuiz の依存パッケージ(`python3 -m pip install pyyaml httpx pillow numpy`)です。足りないものがあれば、スクリプトがその旨と入れ方を表示して止まります。
-GHC と cabal は任意で、無ければ Haskell の例のビルドとテスト(`plugins::haskell::process`)を飛ばします(CI では `JUIZ_REQUIRE_HASKELL=1` にして飛ばしません)。`juiz pkg create -b haskell` の雛形を作ってパッケージにするテスト(juiz_app の `cli` の `pkg::`)は、Linux では patchelf も使い、無ければ飛ばします。
+GHC と cabal は任意で、無ければ Haskell の例のビルドとテスト(`plugins::haskell::process`)を飛ばします(CI では `JUIZ_REQUIRE_HASKELL=1` にして飛ばしません)。Zig 0.17 も任意で、無ければ Zig の例のビルドとテスト(`plugins::zig`)を飛ばします(CI では `JUIZ_REQUIRE_ZIG=1`)。`juiz pkg create -b haskell` の雛形を作ってパッケージにするテスト(juiz_app の `cli` の `pkg::`)は、Linux では patchelf も使い、無ければ飛ばします。
 `cargo test` だけを実行すると、例のプラグインを読み込むテスト(`core::system` や `brokers::*_api` など)は失敗します。そのときのエラーには、見つからなかったプラグインのパスや足りない Python モジュールと、必要な準備が表示されます。
 
 テストは `--test-threads=1` で 1 件ずつ走らせます。統合テストや CLI のテストが固定のポート(8000 番台)を使うため、並列にするとポートがぶつかって落ちます。
@@ -193,7 +201,7 @@ juiz_core/tests/integration/
     cross_system.rs
   composition/ ...
   plugins/                # 言語の読み込みそのもの
-    cpp/  haskell/  python/  rust/
+    cpp/  haskell/  python/  rust/  zig.rs
   bench/
     image_transfer.rs  composite.rs ...
 ```
@@ -245,6 +253,7 @@ juiz_core/tests/integration/
 scripts/test.sh -p juiz_core --test integration -- transformations::          # Transformations の統合テストすべて
 scripts/test.sh -p juiz_core --test integration -- transformations::python    # その Python の分だけ
 scripts/test.sh -p juiz_core --test integration -- plugins::haskell::         # Haskell の読み込み
+scripts/test.sh -p juiz_core --test integration -- plugins::zig::             # Zig の読み込み
 scripts/test.sh -p juiz_app --test cli -- package::                           # juiz コマンドの .juizapp の分だけ
 scripts/test.sh -p juiz_app --test cli -- --skip slow::                       # 外のビルドを呼ぶ遅いものを外す
 scripts/test.sh -- --skip slow::                                              # 全体から遅いものを外す
@@ -253,7 +262,7 @@ scripts/test.sh -p juiz_core -p juiz_app --tests -- python pyjuiz             # 
 
 ### CI のジョブ
 
-`test-linux.yml` の rust ジョブは、埋め込む Python の下限(3.10)と最新(3.14)の 2 版で走ります。版で結果が変わり得るのは埋め込み Python に関わるテストだけなので、全テスト(slow と Haskell を含む)を走らせるのは 3.14 だけにし、3.10 では名前に `python` か `pyjuiz` を含むテストと python-entry のテストだけを走らせます(#524)。
+`test-linux.yml` の rust ジョブは、埋め込む Python の下限(3.10)と最新(3.14)の 2 版で走ります。版で結果が変わり得るのは埋め込み Python に関わるテストだけなので、全テスト(slow と Haskell・Zig を含む)を走らせるのは 3.14 だけにし、3.10 では名前に `python` か `pyjuiz` を含むテストと python-entry のテストだけを走らせます(#524)。
 
 Python を使うのに名前に `python` も `pyjuiz` も入っていないテストは、3.10 で確かめられません。足したテストが Python を使うか分からないときは、Python を起動できない状態で走らせて確かめられます(Python を使うテストは `Fatal Python error` で落ちる)。
 
@@ -364,7 +373,7 @@ Hackage への公開には、Hackage のアカウント(アップロード権限
 | `brokers` | 追加のブローカー実装 (QUIC の `juiz_qmp_broker`、Zenoh の `juiz_zenoh_broker`) |
 | `ecs` | 実行コンテキスト (TimerEC, OneShotEC, MainLoopEC) |
 | `bindings` | C (`cjuiz`: libjuiz_sdk の C の関数の宣言 `juiz_sdk.h`)、C++ (`cppjuiz`)、Haskell (`hsjuiz`)、Python (`pyjuiz`、pip で入れる `juiz` コマンドの `juiz_py`)、JavaScript 向けバインディング |
-| `examples` | Rust / C++ / Python / Haskell のサンプル |
+| `examples` | Rust / C++ / Python / Haskell / Zig のサンプル |
 | `webui` | ブラウザで系を確認する管理画面 (TypeScript + React)。[webui/README.md](webui/README.md) |
 | `docs/spec` | 実装の基準にする仕様書 (下の「仕様書」) |
 

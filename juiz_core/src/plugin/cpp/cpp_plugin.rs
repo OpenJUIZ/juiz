@@ -26,11 +26,13 @@ type ContainerDestroyFunction = unsafe extern "C" fn(*mut c_void);
 type ContainerProcessFunction =
     unsafe extern "C" fn(*mut c_void, *mut CapsuleMap, *mut Capsule) -> i64;
 
-/// C ABI で読み込むプラグインの言語。読み込み方は同じで、Haskell は RTS の初期化が加わる
+/// C ABI で読み込むプラグインの言語。読み込み方は同じで、Haskell は RTS の初期化が加わる。
+/// Zig はランタイムが無いので C++ と同じ読み込み方で、言語の表示だけが違う (issue #572)
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CAbiLanguage {
     Cpp,
     Haskell,
+    Zig,
 }
 
 impl CAbiLanguage {
@@ -38,6 +40,7 @@ impl CAbiLanguage {
         match self {
             CAbiLanguage::Cpp => "c++",
             CAbiLanguage::Haskell => "haskell",
+            CAbiLanguage::Zig => "zig",
         }
     }
 
@@ -48,6 +51,9 @@ impl CAbiLanguage {
                        after `cargo build`). For juiz's own tests, `scripts/test.sh` builds all the examples.",
             CAbiLanguage::Haskell => "Build the Haskell plugin first with cabal (juiz's own examples: \
                        `examples/haskell/build.sh` after `cargo build`). \
+                       For juiz's own tests, `scripts/test.sh` builds all the examples.",
+            CAbiLanguage::Zig => "Build the Zig plugin first with `zig build` (juiz's own examples: \
+                       `examples/zig/build.sh` after `cargo build`). \
                        For juiz's own tests, `scripts/test.sh` builds all the examples.",
         }
     }
@@ -135,6 +141,11 @@ impl CppPlugin {
     /// RTS のスレッドが動いているコードを外さないよう、ライブラリも閉じない。
     pub fn new_haskell(path: PathBuf, manifest_entry_point: &str) -> JuizResult<CppPlugin> {
         Self::open(path, manifest_entry_point, CAbiLanguage::Haskell)
+    }
+
+    /// Zig のプラグインを開く。Zig にはランタイムが無いので、C++ と同じく初期化の関数は呼ばない
+    pub fn new_zig(path: PathBuf, manifest_entry_point: &str) -> JuizResult<CppPlugin> {
+        Self::open(path, manifest_entry_point, CAbiLanguage::Zig)
     }
 
     fn open(

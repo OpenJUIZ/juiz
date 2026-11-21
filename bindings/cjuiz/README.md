@@ -2,7 +2,7 @@
 
 `include/juiz_sdk.h` は、libjuiz_sdk(`juiz_sdk` クレートの cdylib)が公開している C の関数とエラーコードの宣言です。
 C++ のヘッダ(`bindings/cppjuiz/include/juiz/`)もこのファイルを include しています。
-C の関数を呼べて、C の関数を公開できる言語(C、C++、Haskell の FFI など)なら、このヘッダを元に juiz のプラグインを書けます。
+C の関数を呼べて、C の関数を公開できる言語(C、C++、Haskell の FFI、Zig など)なら、このヘッダを元に juiz のプラグインを書けます。
 
 ## libjuiz_sdk の入手
 
@@ -66,7 +66,7 @@ libjuiz_sdk の Capsule などの構造体は juiz と同じでなければな�
 
 ## プラグインが公開する関数
 
-juiz は設定ファイルの `language: "c++"` または `language: "haskell"` のプラグイン(共有ライブラリ)を開き、次の名前の関数を探します。
+juiz は設定ファイルの `language: "c++"`、`language: "haskell"`、`language: "zig"` のプラグイン(共有ライブラリ)を開き、次の名前の関数を探します。
 どれも C の呼出規約(`extern "C"`)で公開してください。`<シンボル名>` は、単体の Process / Container なら下の表の名前、
 Component の中の要素ならマニフェストの `factory` に書いた名前です。
 
@@ -132,3 +132,15 @@ Haskell のライブラリ hsjuiz(`bindings/hsjuiz`)を使うと、これらの�
 - Container の `void*` には、hsjuiz は先頭に目印を置いた領域(中身は `StablePtr`)を渡します。hsjuiz の ContainerProcess は、目印が無い(別の言語の Container)か状態の型が違うときに `JUIZ_HASKELL_CONTAINER_TYPE_ERROR`(-602)を返します。
 
 hsjuiz で書いた例が `examples/haskell` にあります。
+
+## Zig のプラグイン(`language: "zig"`)
+
+読み込み方は C++ と同じで、上の関数のほかに要るものはありません(Zig にはランタイムが無いので、Haskell の `juiz_hs_init` に当たる関数も呼びません)。
+`language` は管理画面や CLI の表示と、言語ごとの振る舞いを分けるためにあります(issue #572)。
+
+- このヘッダは Zig の translate-c(build.zig の `b.addTranslateC`)でそのまま読めます(Zig 0.17.1 で確認)。エラーコードのマクロ(`INT64_C(...)`)、関数ポインタの引数、構造体(`juiz_image`、`juiz_pose_stamped` など)もそのまま使えます。
+- 公開する関数は `export fn`(呼出規約は C)で書きます。Process の関数のように関数ポインタで返すものは `callconv(.c)` を付けます。
+- Zig の panic は C の呼び出し元で捕まえられず、juiz ごと落ちます。公開する関数の中ではエラーをエラーコードにして返してください。
+- Windows では、Rust が作るインポートライブラリ `juiz_sdk.dll.lib` を Zig のリンカは探さないので、`juiz_sdk.lib` という名前で置いてリンクします(Haskell と同じ)。
+
+利用者向けのライブラリ zigjuiz(`bindings/zigjuiz`)は issue #573 以降で用意します。それまでの手書きの例が `examples/zig` にあります。

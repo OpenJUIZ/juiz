@@ -8,7 +8,9 @@
 #   3. Python の例: pyyaml httpx pillow numpy と PYTHONPATH=bindings/pyjuiz
 #   4. Haskell の例: examples/haskell の cabal ビルドで ../target にできる(GHC と cabal が無ければ飛ばし、
 #      Haskell のテストも飛ばす。JUIZ_REQUIRE_HASKELL=1 なら飛ばさずにエラーにする)
-# このスクリプトは 1〜4 を済ませてから cargo test -- --test-threads=1 を実行する。
+#   5. Zig の例: examples/zig の zig build で ../target にできる(zig が無いか版が 0.17 でなければ飛ばし、
+#      Zig のテストも飛ばす。JUIZ_REQUIRE_ZIG=1 なら飛ばさずにエラーにする)
+# このスクリプトは 1〜5 を済ませてから cargo test -- --test-threads=1 を実行する。
 #
 # 使い方:
 #   scripts/test.sh                      # すべてのテスト
@@ -19,6 +21,8 @@
 # 環境変数:
 #   PYO3_PYTHON  埋め込み Python と依存パッケージの確認に使う python(既定: python3)
 #   JUIZ_REQUIRE_HASKELL  1 なら GHC / cabal が無いときにエラーにする(CI 用)
+#   ZIG  zig コマンド(既定: zig。pip の ziglang なら ZIG="python3 -m ziglang")
+#   JUIZ_REQUIRE_ZIG  1 なら Zig 0.17 が無いときにエラーにする(CI 用)
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -99,6 +103,27 @@ elif [[ "${JUIZ_REQUIRE_HASKELL:-0}" == "1" ]]; then
     exit 1
 else
     echo "skip: $haskell_skip_reason" >&2
+fi
+
+step "Zig の例をビルドする (examples/zig)"
+# juiz が対応する Zig は 1 つの版に固定している (issue #572)。版が違うと build.zig がエラーにする
+zig_series="0.17"
+zig_cmd="${ZIG:-zig}"
+zig_version="$($zig_cmd version 2>/dev/null || true)"
+if [[ -z "$zig_version" ]]; then
+    zig_skip_reason="zig が見つかりません。Zig の例とテストを動かすには Zig $zig_series.x を入れてください (https://ziglang.org/download/)"
+elif [[ "$zig_version" != "$zig_series."* ]]; then
+    zig_skip_reason="zig の版が $zig_version です。Zig の例とテストは Zig $zig_series.x でだけ動かします"
+else
+    zig_skip_reason=""
+fi
+if [[ -z "$zig_skip_reason" ]]; then
+    ZIG="$zig_cmd" examples/zig/build.sh
+elif [[ "${JUIZ_REQUIRE_ZIG:-0}" == "1" ]]; then
+    echo "error: $zig_skip_reason" >&2
+    exit 1
+else
+    echo "skip: $zig_skip_reason" >&2
 fi
 
 step "Python の例が使うパッケージを確認する ($python)"
