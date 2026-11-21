@@ -86,7 +86,7 @@ juiz の呼び出しは `ZigPluginError`(`Zig plugin function (...) failed (retu
 ## Container と ContainerProcess
 
 Container の状態は利用者の Zig の値(ふつうは struct)です。状態を作る関数を `juiz.exportContainer` で、
-状態を読み書きする関数を `juiz.exportContainerProcess` で公開します。どちらも 1 ライブラリに 1 つです(複数入れる Component は #575)。
+状態を読み書きする関数を `juiz.exportContainerProcess` で公開します。どちらも 1 ライブラリに 1 つです(複数入れるときは [Component](#component1-つのライブラリにまとめる) にします)。
 
 ```zig
 // counter.zig: Container と ContainerProcess の両方が @import する
@@ -168,6 +168,61 @@ ContainerProcess を呼ぶ前に比べます。目印は zigjuiz の印と、状
 - 別の型の状態や、別の言語(C++・Haskell など)の Container が渡されると、関数を呼ばずに -1104(`JUIZ_ZIG_CONTAINER_TYPE_ERROR`)を返します。juiz は落ちません。
 - Container を作る関数が失敗したとき(引数が読めない・エラーを返した)は、エラー文を標準エラーに出し、juiz は Container を作るのをエラーにします
   (Container を作る関数には、エラー文を入れる戻り値の欄が無いため)。
+
+## Component(1 つのライブラリにまとめる)
+
+`juiz.exportComponent` で、1 つのライブラリに複数の Process・Container・ContainerProcess をまとめられます(issue #575)。
+要素は `juiz.processPart`・`juiz.containerPart`・`juiz.containerProcessPart` で書き、`.parts` に並べます。
+それぞれの引数(関数とオプション)は `exportProcess`・`exportContainer`・`exportContainerProcess` と同じです。
+
+```zig
+const Counter = struct { value: i64 };
+
+fn increment(args: struct { arg0: i64 = 1 }) !i64 { return std.math.add(i64, args.arg0, 1); }
+fn createCounter(args: struct { value: i64 = 0 }) Counter { return .{ .value = args.value }; }
+fn counterGet(self: *const Counter) i64 { return self.value; }
+
+comptime {
+    juiz.exportComponent(.{
+        .type_name = "example_component_zig",
+        .description = "Processes and a container in one library.",
+        .parts = .{
+            juiz.processPart(increment, .{ .type_name = "example_component_zig_increment", .args = .{ .arg0 = "value to be incremented" } }),
+            juiz.containerPart(createCounter, .{ .type_name = "example_component_zig_counter", .args = .{ .value = "initial value" } }),
+            juiz.containerProcessPart(counterGet, .{
+                .type_name = "example_component_zig_counter_get",
+                .container_type = "example_component_zig_counter", // 同じ Component の Container
+            }),
+        },
+    });
+}
+```
+
+```yaml
+plugins:
+  components:
+    example_component_zig:     # ライブラリの名前 (libexample_component_zig.so など)
+      language: "zig"
+      path: "./zig-out/lib"
+processes:
+  - type_name: "example_component_zig_increment"
+    name: "inc0"
+containers:
+  - type_name: "example_component_zig_counter"
+    name: "c0"
+    processes:
+      - type_name: "example_component_zig_counter_get"
+        name: "get0"
+```
+
+- オプションは `.type_name`(必須、Component の名前)・`.description`・`.parts`(必須)です。
+- zigjuiz は `component_manifest_entry_point` と、要素ごとに `<型名>_factory_entry_point`(Container は `<型名>_factory_destroy_entry_point` も)を作ります。
+  C++ / Haskell は関数名からシンボル名を付けますが、Zig は comptime に関数名が取れないので**型名**から付けます(マニフェストの `factory` は `<型名>_factory`)。
+- Container と ContainerProcess が同じライブラリなので、状態の型を別のファイルに分けなくてかまいません。
+- 次の間違いは**コンパイルエラー**になります(C++ / Haskell では juiz が読み込むときのエラーです)。
+  - 型名が Component の中で重なっている
+  - ContainerProcess の `.container_type` が同じ Component の Container でない(別のライブラリの Container の ContainerProcess は Component に入れられません)
+  - ContainerProcess の `self` の型が、その Container の状態の型と違う
 
 ## ContainerPose(位置姿勢)
 

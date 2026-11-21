@@ -161,6 +161,19 @@ pub fn Signature(comptime f: anytype, comptime what: []const u8, comptime with_s
     };
 }
 
+/// Component (juiz.exportComponent) に入れる要素の種類。juiz.processPart などが返す型が part_kind に持つ
+pub const PartKind = enum { process, container, container_process };
+
+/// manifest_entry_point などの中身。build で作ったマニフェストを ptr に書く
+pub fn writeManifest(ptr: ?*c.capsule_ptr, comptime build: fn (std.mem.Allocator) anyerror!Value) i64 {
+    var arena = std.heap.ArenaAllocator.init(std.heap.c_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const manifest = build(a) catch return c.JUIZ_VALUE_CONVERTER_ERROR;
+    value.writeCapsulePtr(a, ptr, manifest) catch return c.JUIZ_VALUE_CONVERTER_ERROR;
+    return c.JUIZ_OK;
+}
+
 /// 関数が返した Zig のエラーのエラー文。ContainerPose の読み書きのエラー (juiz.PoseError) なら、juiz が返した理由も足す
 pub fn errorReturnedMessage(buf: []u8, type_name: []const u8, e: anyerror) []const u8 {
     if (pose.isPoseError(e)) {

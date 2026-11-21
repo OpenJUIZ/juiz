@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# zigjuiz の exportProcess・exportContainer・exportContainerProcess が、間違った書き方をコンパイルエラーにすることを
-# 確かめる (issue #573、#574)。
+# zigjuiz の exportProcess・exportContainer・exportContainerProcess・exportComponent が、間違った書き方を
+# コンパイルエラーにすることを確かめる (issue #573、#574、#575)。
 # 書き方ごとに src/case.zig を書いてビルドし、期待するエラー文が出るかを見る。最後に正しい書き方がビルドできることも見る。
 #
 #   bindings/zigjuiz/tests/compile_errors/check.sh <libjuiz_sdk のあるディレクトリの絶対パス>
@@ -65,6 +65,24 @@ expect_error "juiz.setPose can not be called from a readonly container process" 
     'const S = struct { v: i64 }; fn f(self: *const S) !i64 { _ = try juiz.setPose(self, "map", juiz.makePose(0, 0, 0, juiz.quaternion_identity)); return self.v; } comptime { juiz.exportContainerProcess(f, .{ .type_name = "x", .container_type = "c" }); }'
 expect_error "juiz.setTransform can not be called from a readonly container process" \
     'const S = struct { v: i64 }; fn f(self: *const S) !i64 { _ = try juiz.setTransform(self, "a", "b", juiz.makeTransform2d(0, 0, 0)); return self.v; } comptime { juiz.exportContainerProcess(f, .{ .type_name = "x", .container_type = "c" }); }'
+
+# Component (issue #575)。壊れた Component は C++ / Haskell では読み込むときのエラーだが、zigjuiz ではコンパイルエラー
+component_parts='const S = struct { v: i64 }; const T = struct { w: i64 }; fn p() i64 { return 1; } fn mk() S { return .{ .v = 1 }; } fn get(self: *const S) i64 { return self.v; } fn getT(self: *const T) i64 { return self.w; }'
+expect_error 'the type name "a" is used twice in the component' \
+    "$component_parts"' comptime { juiz.exportComponent(.{ .type_name = "comp", .parts = .{ juiz.processPart(p, .{ .type_name = "a" }), juiz.containerPart(mk, .{ .type_name = "a" }) } }); }'
+expect_error 'the container process "g" belongs to the container "no_such", which is not in the component' \
+    "$component_parts"' comptime { juiz.exportComponent(.{ .type_name = "comp", .parts = .{ juiz.containerPart(mk, .{ .type_name = "c" }), juiz.containerProcessPart(get, .{ .type_name = "g", .container_type = "no_such" }) } }); }'
+expect_error 'the container process "g" receives *const case.T, but the container "c" holds case.S' \
+    "$component_parts"' comptime { juiz.exportComponent(.{ .type_name = "comp", .parts = .{ juiz.containerPart(mk, .{ .type_name = "c" }), juiz.containerProcessPart(getT, .{ .type_name = "g", .container_type = "c" }) } }); }'
+expect_error ".parts[0] is not juiz.processPart / juiz.containerPart / juiz.containerProcessPart" \
+    "$component_parts"' comptime { juiz.exportComponent(.{ .type_name = "comp", .parts = .{ p } }); }'
+expect_error ".parts is required" \
+    "$component_parts"' comptime { juiz.exportComponent(.{ .type_name = "comp" }); }'
+expect_error ".parts is empty" \
+    "$component_parts"' comptime { juiz.exportComponent(.{ .type_name = "comp", .parts = .{} }); }'
+# 要素の間違いは exportProcess などと同じ文で出る
+expect_error "argument 'a' has no description in .args" \
+    'fn f(args: struct { a: i64 }) i64 { return args.a; } comptime { juiz.exportComponent(.{ .type_name = "comp", .parts = .{ juiz.processPart(f, .{ .type_name = "x" }) } }); }'
 
 # 引数なし・戻り値なし・juiz.Context だけ、もビルドできる
 printf 'const juiz = @import("juiz");\n%s\n' \
