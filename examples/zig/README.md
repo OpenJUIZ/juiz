@@ -9,9 +9,18 @@ zigjuiz は `build.zig.zon` の `dependencies` に、リポジトリの `binding
 | `src/greet_process_zig.zig` | `juiz.Context` の arena で文字列を組み立てて返す Process |
 | `src/echo_types_process_zig.zig` | zigjuiz で使える引数の型を全部受け取り、辞書(`juiz.Value`)にして返す Process |
 | `src/fail_process_zig.zig` | 自分で定義したエラーを返す Process |
+| `src/example_container_state.zig` | Container の状態の型 `Counter`(Container と ContainerProcess の両方が `@import` する、issue #574) |
+| `src/example_container_zig.zig` | 整数を一つ保持する Container。`Counter.deinit` は Container を削除するときに呼ばれる |
+| `src/example_container_zig_increment.zig` | Container の値に arg0 を足す ContainerProcess |
+| `src/example_container_zig_get.zig` | Container の値を返す ContainerProcess。状態を `*const` で受けるので readonly |
+| `src/mismatched_container_process_zig.zig` | 状態を別の型で受ける ContainerProcess(型違いのエラー -1104 を確かめるテスト用) |
+| `src/zig_part*.zig` | ContainerPose を読み書きする Container `zig_part` と ContainerProcess(`juiz.pose` / `setPose` / `lookup` / `setTransform`) |
 | `increment_process.conf` | increment_process_zig を読み込む設定ファイル |
+| `example_container.conf` | example_container_zig と ContainerProcess を読み込む設定ファイル |
 
-juiz のテスト(`juiz_core/tests/integration/plugins/zig.rs`)は、これらを読み込んで値の読み書きとエラーを確かめます。
+juiz のテスト(`juiz_core/tests/integration/plugins/zig/`、`juiz_core/tests/integration/transformations/zig.rs`)は、
+これらを読み込んで値の読み書き・Container の状態・ContainerPose・エラーを確かめます。
+1 ライブラリに複数入れる Component は issue #575 で足すので、いまは ContainerProcess ごとに別のライブラリです。
 
 ## ビルド
 
@@ -38,4 +47,12 @@ cargo run -- -d -f examples/zig/increment_process.conf
 ```terminal
 cargo run -- process call -p 'http://127.0.0.1:8000/process/ziginc0::increment_process_zig' '{"arg1": 41}'
 # CapsulePtr((value:Value(42), option: []))
+```
+
+Container は `examples/zig/example_container.conf` で起動し、ContainerProcess を呼びます。
+
+```terminal
+cargo run -- -d -f examples/zig/example_container.conf
+cargo run -- container-process call -p 'http://127.0.0.1:8000/container_process/ziginc0::example_container_zig_increment:zigcont0' '{"arg0": 3}'
+# CapsulePtr((value:Value(18), option: []))
 ```

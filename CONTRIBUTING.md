@@ -202,7 +202,7 @@ juiz_core/tests/integration/
     cross_system.rs
   composition/ ...
   plugins/                # 言語の読み込みそのもの
-    cpp/  haskell/  python/  rust/  zig.rs
+    cpp/  haskell/  python/  rust/  zig/
   bench/
     image_transfer.rs  composite.rs ...
 ```

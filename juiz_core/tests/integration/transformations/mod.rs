@@ -7,3 +7,4 @@ mod cross_system;
 mod haskell;
 mod python;
 mod rust;
+mod zig;

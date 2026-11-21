@@ -1,36 +1,14 @@
-//! language: "zig" のプラグインを読み込んで呼べることを確かめるテスト (issue #572)。
+//! language: "zig" の Process を読み込んで呼べることを確かめるテスト (issue #572)。
 //! Zig の例は zigjuiz (bindings/zigjuiz) で書いてあり、zigjuiz の値の読み書き・エラーのコード化も確かめる (issue #573)。
-//!
-//! Zig の例 (examples/zig) は scripts/test.sh (CI も同じ) で ../target にビルドされている前提。
-//! zig が無い環境では scripts/test.sh がビルドを飛ばすので、ライブラリが無ければテストも飛ばす。
-//! CI では JUIZ_REQUIRE_ZIG=1 にして、飛ばさずに失敗させる。
 
 use juiz_core::prelude::*;
 use juiz_sdk::process_identifier::ProcessIdentifier;
 
-fn plugin_file(name: &str) -> std::path::PathBuf {
-    #[cfg(target_os = "macos")]
-    let file = format!("lib{name}.dylib");
-    #[cfg(target_os = "linux")]
-    let file = format!("lib{name}.so");
-    #[cfg(target_os = "windows")]
-    let file = format!("{name}.dll");
-    std::path::PathBuf::from("../target").join(file)
-}
+use super::skip_without_zig_examples as skip_without;
 
-/// Zig の例がビルドされていなければ true (テストを飛ばす)
+/// Zig の Process の例がビルドされていなければ true (テストを飛ばす)
 fn skip_without_zig_examples() -> bool {
-    let path = plugin_file("increment_process_zig");
-    if path.exists() {
-        return false;
-    }
-    if std::env::var("JUIZ_REQUIRE_ZIG").map_or(false, |v| v == "1") {
-        panic!("Zig の例がビルドされていません: {path:?}");
-    }
-    eprintln!(
-        "skip: Zig の例がビルドされていません ({path:?})。Zig 0.17 を入れて scripts/test.sh を実行してください。"
-    );
-    true
+    skip_without(&["increment_process_zig", "greet_process_zig", "echo_types_process_zig", "fail_process_zig"])
 }
 
 fn system_manifest() -> Value {

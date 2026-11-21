@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# zigjuiz の exportProcess が、間違った書き方をコンパイルエラーにすることを確かめる (issue #573)。
+# zigjuiz の exportProcess・exportContainer・exportContainerProcess が、間違った書き方をコンパイルエラーにすることを
+# 確かめる (issue #573、#574)。
 # 書き方ごとに src/case.zig を書いてビルドし、期待するエラー文が出るかを見る。最後に正しい書き方がビルドできることも見る。
 #
 #   bindings/zigjuiz/tests/compile_errors/check.sh <libjuiz_sdk のあるディレクトリの絶対パス>
@@ -47,6 +48,23 @@ expect_error ".type_name is required" \
     'fn f() i64 { return 1; } comptime { juiz.exportProcess(f, .{ .description = "x" }); }'
 expect_error "u128 is too large" \
     'fn f(args: struct { a: u128 }) u128 { return args.a; } comptime { juiz.exportProcess(f, .{ .type_name = "x", .args = .{ .a = "d" } }); }'
+
+# Container と ContainerProcess (issue #574)
+expect_error ".container_type (the type name of the container) is required" \
+    'const S = struct { v: i64 }; fn f(self: *S) i64 { return self.v; } comptime { juiz.exportContainerProcess(f, .{ .type_name = "x" }); }'
+expect_error "the first parameter must be a pointer to the container state" \
+    'fn f(args: struct { a: i64 }) i64 { return args.a; } comptime { juiz.exportContainerProcess(f, .{ .type_name = "x", .container_type = "c", .args = .{ .a = "d" } }); }'
+expect_error "the function must receive the container state first" \
+    'fn f() i64 { return 1; } comptime { juiz.exportContainerProcess(f, .{ .type_name = "x", .container_type = "c" }); }'
+expect_error "the function must return the container state" \
+    'fn f() void {} comptime { juiz.exportContainer(f, .{ .type_name = "x" }); }'
+expect_error "unknown option .container_type" \
+    'const S = struct { v: i64 }; fn f() S { return .{ .v = 1 }; } comptime { juiz.exportContainer(f, .{ .type_name = "x", .container_type = "c" }); }'
+# readonly (状態を *const で受ける) の ContainerProcess からは書けない
+expect_error "juiz.setPose can not be called from a readonly container process" \
+    'const S = struct { v: i64 }; fn f(self: *const S) !i64 { _ = try juiz.setPose(self, "map", juiz.makePose(0, 0, 0, juiz.quaternion_identity)); return self.v; } comptime { juiz.exportContainerProcess(f, .{ .type_name = "x", .container_type = "c" }); }'
+expect_error "juiz.setTransform can not be called from a readonly container process" \
+    'const S = struct { v: i64 }; fn f(self: *const S) !i64 { _ = try juiz.setTransform(self, "a", "b", juiz.makeTransform2d(0, 0, 0)); return self.v; } comptime { juiz.exportContainerProcess(f, .{ .type_name = "x", .container_type = "c" }); }'
 
 # 引数なし・戻り値なし・juiz.Context だけ、もビルドできる
 printf 'const juiz = @import("juiz");\n%s\n' \
