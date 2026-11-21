@@ -1,0 +1,11 @@
+.{
+    // zigjuiz の comptime の検査を確かめるためのパッケージ (check.sh、issue #573)
+    .name = .zigjuiz_compile_errors,
+    .version = "0.0.0",
+    .fingerprint = 0xdd819a7dde1196f6,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        .zigjuiz = .{ .path = "../.." },
+    },
+    .paths = .{""},
+}

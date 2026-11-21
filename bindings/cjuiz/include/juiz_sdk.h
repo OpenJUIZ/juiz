@@ -67,6 +67,13 @@ extern "C" {
 #define JUIZ_CPP_EXCEPTION_ERROR                           INT64_C(-1001)
 /* std::exception の子ではない例外 (catch (...) で捕まえたもの) */
 #define JUIZ_CPP_UNKNOWN_EXCEPTION_ERROR                   INT64_C(-1002)
+/* Zig のプラグイン (zigjuiz の entry point、#573)。どれも戻り値の capsule にエラー文 (文字列) を入れる */
+/* Process の関数が Zig のエラー (error.Foo) を返した。エラー文は "error.Foo" */
+#define JUIZ_ZIG_ERROR_RETURNED                            INT64_C(-1101)
+/* 引数が無いか、引数の struct のフィールドの型で読めない。エラー文は引数の名前と理由 */
+#define JUIZ_ZIG_ARGUMENT_ERROR                            INT64_C(-1102)
+/* 戻り値を capsule に書けなかった (メモリ不足など) */
+#define JUIZ_ZIG_RESULT_ERROR                              INT64_C(-1103)
 
 /* ---- 不透明な型 ----
  * 中身は Rust 側の CapsulePtr / Capsule / CapsuleMap / Value。ポインタとしてだけ使う。 */

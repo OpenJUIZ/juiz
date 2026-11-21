@@ -103,12 +103,13 @@ Haskell のサンプル(`examples/haskell`)は cabal でビルドします。GHC
 examples/haskell/build.sh
 ```
 
-Zig のサンプル(`examples/zig`)は `zig build` でビルドします。Zig は 0.17.x だけに対応します(版を 1 つに固定しています、issue #571)。
+Zig のサンプル(`examples/zig`)は、Zig 向けのライブラリ zigjuiz(`bindings/zigjuiz`、issue #573)を使って `zig build` でビルドします。Zig は 0.17.x だけに対応します(版を 1 つに固定しています、issue #571)。
 Haskell と同じく、先に `cargo build` を済ませてから実行すると、できた共有ライブラリが `target/` に置かれます。
 zig コマンドの名前は環境変数 `ZIG` で変えられます(pip の `ziglang` パッケージなら `ZIG="python3 -m ziglang"`)。
 
 ```terminal
 examples/zig/build.sh
+bindings/zigjuiz/tests/compile_errors/check.sh "$PWD/target/debug"   # zigjuiz の comptime の検査 (scripts/test.sh も実行する)
 ```
 
 ### OpenCV のコンポーネントをビルドする
@@ -336,6 +337,7 @@ cargo test --release -p juiz_zenoh_broker --test broker -- bench:: --ignored --n
 - `Cargo.toml`(`[workspace.dependencies]`)、`Cargo.lock`、`juiz_types` / `juiz_idl` / `juiz_pkg` / `juiz_macro` / `juiz_sdk` / `juiz_std_types` / `juiz_webui` / `juiz_core` / `juiz_app` / `brokers/qmp_broker` の `Cargo.toml`
 - `bindings/pyjuiz/setup.py`、`bindings/juiz_py/pyproject.toml`(`version` と `pyjuiz==`)、`bindings/juiz_py/Cargo.toml`、`bindings/juiz_py/Cargo.lock`
 - `bindings/hsjuiz/hsjuiz.cabal` の `version`(と `bindings/hsjuiz/CHANGELOG.md`)
+- `bindings/zigjuiz/build.zig.zon` の `version`
 
 libjuiz_sdk のアーカイブは `scripts/package-juiz-sdk.sh` で作り、利用者は `juiz sdk install`(`juiz_app/src/sdk.rs`、#548)か、juiz を入れずに `scripts/install-juiz-sdk.sh <版>`(Windows は `scripts/install-juiz-sdk.ps1 <版>`)で取得します。アーカイブの名前・置き場所を変えるときは、この 3 つをそろえます。
 アーカイブには CMake の `find_package(juiz_sdk)` 用の `lib/cmake/juiz_sdk/juiz_sdkConfig.cmake`(元は `bindings/cppjuiz/cmake/juiz_sdkConfig.cmake`)が入り、
@@ -372,7 +374,7 @@ Hackage への公開には、Hackage のアカウント(アップロード権限
 | `juiz_app` | `juiz` コマンド |
 | `brokers` | 追加のブローカー実装 (QUIC の `juiz_qmp_broker`、Zenoh の `juiz_zenoh_broker`) |
 | `ecs` | 実行コンテキスト (TimerEC, OneShotEC, MainLoopEC) |
-| `bindings` | C (`cjuiz`: libjuiz_sdk の C の関数の宣言 `juiz_sdk.h`)、C++ (`cppjuiz`)、Haskell (`hsjuiz`)、Python (`pyjuiz`、pip で入れる `juiz` コマンドの `juiz_py`)、JavaScript 向けバインディング |
+| `bindings` | C (`cjuiz`: libjuiz_sdk の C の関数の宣言 `juiz_sdk.h`)、C++ (`cppjuiz`)、Haskell (`hsjuiz`)、Zig (`zigjuiz`)、Python (`pyjuiz`、pip で入れる `juiz` コマンドの `juiz_py`)、JavaScript 向けバインディング |
 | `examples` | Rust / C++ / Python / Haskell / Zig のサンプル |
 | `webui` | ブラウザで系を確認する管理画面 (TypeScript + React)。[webui/README.md](webui/README.md) |
 | `docs/spec` | 実装の基準にする仕様書 (下の「仕様書」) |

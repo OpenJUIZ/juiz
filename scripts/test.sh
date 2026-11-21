@@ -8,7 +8,7 @@
 #   3. Python の例: pyyaml httpx pillow numpy と PYTHONPATH=bindings/pyjuiz
 #   4. Haskell の例: examples/haskell の cabal ビルドで ../target にできる(GHC と cabal が無ければ飛ばし、
 #      Haskell のテストも飛ばす。JUIZ_REQUIRE_HASKELL=1 なら飛ばさずにエラーにする)
-#   5. Zig の例: examples/zig の zig build で ../target にできる(zig が無いか版が 0.17 でなければ飛ばし、
+#   5. Zig の例: examples/zig の zig build(zigjuiz を使う)で ../target にできる(zig が無いか版が 0.17 でなければ飛ばし、
 #      Zig のテストも飛ばす。JUIZ_REQUIRE_ZIG=1 なら飛ばさずにエラーにする)
 # このスクリプトは 1〜5 を済ませてから cargo test -- --test-threads=1 を実行する。
 #
@@ -119,6 +119,8 @@ else
 fi
 if [[ -z "$zig_skip_reason" ]]; then
     ZIG="$zig_cmd" examples/zig/build.sh
+    # zigjuiz の exportProcess が間違った書き方をコンパイルエラーにすること (issue #573)
+    ZIG="$zig_cmd" bindings/zigjuiz/tests/compile_errors/check.sh "$repo_root/target/debug"
 elif [[ "${JUIZ_REQUIRE_ZIG:-0}" == "1" ]]; then
     echo "error: $zig_skip_reason" >&2
     exit 1

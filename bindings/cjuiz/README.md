@@ -143,4 +143,7 @@ hsjuiz で書いた例が `examples/haskell` にあります。
 - Zig の panic は C の呼び出し元で捕まえられず、juiz ごと落ちます。公開する関数の中ではエラーをエラーコードにして返してください。
 - Windows では、Rust が作るインポートライブラリ `juiz_sdk.dll.lib` を Zig のリンカは探さないので、`juiz_sdk.lib` という名前で置いてリンクします(Haskell と同じ)。
 
-利用者向けのライブラリ zigjuiz(`bindings/zigjuiz`)は issue #573 以降で用意します。それまでの手書きの例が `examples/zig` にあります。
+- zigjuiz の entry point は、失敗したときに `JUIZ_ZIG_ERROR_RETURNED`(-1101、関数が Zig のエラーを返した)、`JUIZ_ZIG_ARGUMENT_ERROR`(-1102、引数が読めない)、
+  `JUIZ_ZIG_RESULT_ERROR`(-1103、戻り値を書けない)を返し、戻り値の capsule にエラー文を入れます。juiz はそれを読んで `ZigPluginError` の message にします(issue #573)。
+
+利用者向けのライブラリ zigjuiz([bindings/zigjuiz](../zigjuiz/README.md))を使うと、これらの関数は `juiz.exportProcess` が comptime に生成します。zigjuiz で書いた例が `examples/zig` にあります。

@@ -1,17 +1,21 @@
 # Zig の例
 
-`language: "zig"` のプラグインの例です(issue #572)。利用者向けのライブラリ zigjuiz(issue #573 以降)を使わず、
-C ヘッダ `bindings/cjuiz/include/juiz_sdk.h` を build.zig の `addTranslateC` で Zig のモジュール `c` にして、
-juiz が探す C の関数(`manifest_entry_point`、`process_factory_entry_point`)を手で書いています。
+`language: "zig"` のプラグインの例です。Zig 向けのライブラリ zigjuiz([bindings/zigjuiz](../../bindings/zigjuiz/README.md)、issue #573)で書いています。
+zigjuiz は `build.zig.zon` の `dependencies` に、リポジトリの `bindings/zigjuiz` を `.path` で入れています。
 
 | ファイル | 内容 |
 |---|---|
-| `src/increment_process_zig.zig` | arg1 に 1 を足す Process |
-| `increment_process.conf` | この例を読み込む設定ファイル |
+| `src/increment_process_zig.zig` | arg1 に 1 を足す Process(i64 の最大値なら error.Overflow をエラーで返す) |
+| `src/greet_process_zig.zig` | `juiz.Context` の arena で文字列を組み立てて返す Process |
+| `src/echo_types_process_zig.zig` | zigjuiz で使える引数の型を全部受け取り、辞書(`juiz.Value`)にして返す Process |
+| `src/fail_process_zig.zig` | 自分で定義したエラーを返す Process |
+| `increment_process.conf` | increment_process_zig を読み込む設定ファイル |
+
+juiz のテスト(`juiz_core/tests/integration/plugins/zig.rs`)は、これらを読み込んで値の読み書きとエラーを確かめます。
 
 ## ビルド
 
-Zig 0.17.x が必要です(juiz が対応する Zig は 1 つの版に固定しています。違う版では build.zig がエラーにします)。
+Zig 0.17.x が必要です(juiz が対応する Zig は 1 つの版に固定しています。違う版では zigjuiz の build.zig がエラーにします)。
 先にリポジトリの直下で `cargo build` を実行して `target/debug` に libjuiz_sdk を作ってから、次を実行します。
 
 ```sh
