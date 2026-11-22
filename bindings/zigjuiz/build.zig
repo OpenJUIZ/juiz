@@ -153,16 +153,31 @@ pub const Juiz = struct {
         });
         if (self.sdk_lib_dir) |dir| {
             const path: std.Build.LazyPath = .{ .cwd_relative = dir };
-            module.addLibraryPath(path);
-            module.linkSystemLibrary("juiz_sdk", .{});
             switch (self.target.result.os.tag) {
-                // Windows は DLL を隣か PATH から探すので rpath は無い (Windows の確認は issue #579)
-                .windows => {},
+                // Windows: Rust (MSVC) が作るインポートライブラリは juiz_sdk.dll.lib という名前で、
+                // linkSystemLibrary は juiz_sdk.lib / libjuiz_sdk.a しか探さないので、ファイルを直に渡す (issue #579)。
+                // DLL は rpath が無く、juiz がプラグインを LOAD_WITH_ALTERED_SEARCH_PATH で開くので
+                // プラグインの隣 (init が zig-out/bin に、installBundle が zig-out/plugins に写す) か PATH から読み込まれる
+                .windows => {
+                    // ファイルを見るので、ビルドの設定のキャッシュを使わない
+                    b.graph.poisonCache();
+                    const implib = b.pathJoin(&.{ dir, "juiz_sdk.dll.lib" });
+                    if (std.Io.Dir.accessAbsolute(b.graph.io, implib, .{})) |_| {
+                        module.addObjectFile(.{ .cwd_relative = implib });
+                    } else |_| {
+                        module.addLibraryPath(path);
+                        module.linkSystemLibrary("juiz_sdk", .{});
+                    }
+                },
                 .macos, .ios => {
+                    module.addLibraryPath(path);
+                    module.linkSystemLibrary("juiz_sdk", .{});
                     module.addRPathSpecial("@loader_path");
                     module.addRPath(path);
                 },
                 else => {
+                    module.addLibraryPath(path);
+                    module.linkSystemLibrary("juiz_sdk", .{});
                     module.addRPathSpecial("$ORIGIN");
                     module.addRPath(path);
                 },
@@ -196,24 +211,27 @@ pub const Juiz = struct {
             .h_dir = .disabled,
         });
         b.getInstallStep().dependOn(&install_lib.step);
-        const sdk_dir = self.sdk_lib_dir orelse return; // 見つからなければ missing_sdk のステップが失敗させる
-        const runtime = switch (self.target.result.os.tag) {
-            .windows => "juiz_sdk.dll",
-            .macos, .ios => "libjuiz_sdk.dylib",
-            else => "libjuiz_sdk.so",
-        };
-        // Windows のアーカイブは DLL を bin/ に置く (lib/ にはインポートライブラリ。cargo build の target/debug は同じ所。
-        // Windows の確認は issue #579)
-        var runtime_path = b.pathJoin(&.{ sdk_dir, runtime });
-        if (self.target.result.os.tag == .windows) {
-            if (std.Io.Dir.accessAbsolute(b.graph.io, runtime_path, .{})) |_| {} else |_| {
-                runtime_path = b.pathJoin(&.{ sdk_dir, "..", "bin", runtime });
-            }
-        }
+        const runtime_path = sdkRuntimePath(b, self.target, self.sdk_lib_dir orelse return) orelse return; // 見つからなければ missing_sdk のステップが失敗させる
+        const runtime = std.fs.path.basename(runtime_path);
         const install_sdk = b.addInstallFileWithDir(.{ .cwd_relative = runtime_path }, dir, runtime);
         b.getInstallStep().dependOn(&install_sdk.step);
     }
 };
+
+/// libjuiz_sdk の実行時のファイル (libjuiz_sdk.so / libjuiz_sdk.dylib / juiz_sdk.dll) の絶対パス。
+/// Windows のアーカイブは DLL を bin/ に置く (lib/ にはインポートライブラリ)。cargo build の target/debug は同じ所にある。
+/// Windows で見つからなければ null
+fn sdkRuntimePath(b: *std.Build, target: std.Build.ResolvedTarget, sdk_lib_dir: []const u8) ?[]const u8 {
+    if (target.result.os.tag == .windows) b.graph.poisonCache(); // ファイルを見るので、ビルドの設定のキャッシュを使わない
+    return switch (target.result.os.tag) {
+        .windows => for ([_][]const u8{ sdk_lib_dir, b.pathJoin(&.{ sdk_lib_dir, "..", "bin" }) }) |d| {
+            const path = b.pathJoin(&.{ d, "juiz_sdk.dll" });
+            if (std.Io.Dir.accessAbsolute(b.graph.io, path, .{})) |_| break path else |_| {}
+        } else null,
+        .macos, .ios => b.pathJoin(&.{ sdk_lib_dir, "libjuiz_sdk.dylib" }),
+        else => b.pathJoin(&.{ sdk_lib_dir, "libjuiz_sdk.so" }),
+    };
+}
 
 pub const BundleOptions = struct {
     /// 置き場所 (zig-out からの相対)。既定は zig-out/plugins
@@ -243,6 +261,18 @@ pub fn init(b: *std.Build, options: InitOptions) Juiz {
         missing = &b.addFail(msg).step;
         break :blk null;
     };
+
+    // Windows には rpath が無いので、installArtifact が DLL を置く zig-out/bin に juiz_sdk.dll も置く (issue #579)。
+    // juiz はプラグインを LOAD_WITH_ALTERED_SEARCH_PATH で開くので、プラグインの隣の juiz_sdk.dll が読み込まれる
+    if (options.target.result.os.tag == .windows) {
+        if (sdk_lib_dir) |dir| {
+            if (sdkRuntimePath(b, options.target, dir)) |dll| {
+                b.getInstallStep().dependOn(&b.addInstallBinFile(.{ .cwd_relative = dll }, "juiz_sdk.dll").step);
+            } else if (missing == null) {
+                missing = &b.addFail(b.fmt("juiz_sdk.dll was not found in {s} or {s}\\..\\bin", .{ dir, dir })).step;
+            }
+        }
+    }
 
     return .{
         .b = b,

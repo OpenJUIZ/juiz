@@ -34,12 +34,15 @@ env:
   # 入れた GHC はキャッシュするので、キャッシュのキーが変わらないよう版は細かく固定する
   GHC_VERSION: "9.6.7"
   CABAL_VERSION: "3.18.1.0"
+  # Zig の例(examples/zig)に使う Zig の版(test-linux.yml と同じ、issue #579)
+  ZIG_VERSION: "0.17.1"
 
 jobs:
   # macOS での Haskell のプラグインのビルドとテスト(issue #143)。macos-latest は Xcode 26 に
   # Command Line Tools 27 (MacOSX27.0.sdk) が入っていて、GHC のリンクでその SDK を読む組み合わせを確かめる。
   # examples/haskell/build.sh が DEVELOPER_DIR を切り替える。
   # Rust のプラグインの C ABI(#291、rust-plugin-abi.md)のテストも、ここで macOS の dylib について確かめる(#343)。
+  # Zig のプラグイン(zigjuiz、issue #579)も、macOS の dylib(@rpath の install name と @loader_path)について確かめる。
   # それ以外のテストは Linux のジョブで確かめる。
   haskell-macos:
     name: Haskell & Rust C ABI test (macOS)
@@ -98,11 +101,17 @@ jobs:
       # Rust のワークスペースと例(C ABI のテストが読む fake_rustc のプラグインも)、C++ の例、Haskell の例をビルドする。
       # plugins::haskell::container は C++ の Container (example_container_cpp)、datatype::haskell は
       # Rust の native_pose_component・native_pose_reader も読み込む
+      # Zig の例(examples/zig)のビルドに使う Zig を入れる(issue #579)
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
       - name: Prepare tests (build examples, check Python packages)
         id: prepare
         env:
-          # Haskell の例が無いときにテストを飛ばさない
+          # Haskell・Zig の例が無いときにテストを飛ばさない
           JUIZ_REQUIRE_HASKELL: "1"
+          JUIZ_REQUIRE_ZIG: "1"
         run: scripts/test.sh --prepare-only
 
       - name: Test (Haskell)
@@ -112,6 +121,17 @@ jobs:
         run: >-
           cargo test -p juiz_core --no-fail-fast --test integration
           -- --test-threads=1 haskell
+
+      # Zig のプラグイン(issue #579): plugins::zig・datatype::zig・transformations::zig と、Zig の画像の例。
+      # Haskell のテストが失敗しても動かす
+      - name: Test (Zig)
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        env:
+          PYTHONPATH: ${{ github.workspace }}/bindings/pyjuiz
+          JUIZ_REQUIRE_ZIG: "1"
+        run: >-
+          cargo test -p juiz_core --no-fail-fast --test integration
+          -- --test-threads=1 zig
 
       # Rust のプラグインの C ABI(#343): juiz_sdk のフレームと入口、juiz_core の読み込み(別の rustc のプラグインを含む)、
       # .juizapp の pack / run(rust.abi・rust.rustc)。Haskell のテストが失敗しても動かす

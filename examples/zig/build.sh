@@ -15,7 +15,7 @@ zig="${ZIG:-zig}"
 
 case "$(uname -s)" in
     Darwin) ext=dylib; prefix=lib; lib_dir=lib ;;
-    # Windows の DLL は zig-out/bin に置かれる (Windows の確認は issue #579)
+    # Windows の DLL は lib の付かない <名前>.dll で zig-out/bin に置かれる (issue #579)
     MINGW* | MSYS* | CYGWIN*) ext=dll; prefix=""; lib_dir=bin; sdk_dir="$(cygpath -m "$sdk_dir")" ;;
     *) ext=so; prefix=lib; lib_dir=lib ;;
 esac
