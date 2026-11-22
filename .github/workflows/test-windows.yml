@@ -33,11 +33,14 @@ env:
   # Haskell の例(examples/haskell)に使う GHC と cabal の版(test-linux.yml と同じ)
   GHC_VERSION: "9.6.7"
   CABAL_VERSION: "3.18.1.0"
+  # Zig の例(examples/zig)に使う Zig の版(test-linux.yml と同じ、issue #579)
+  ZIG_VERSION: "0.17.1"
 
 jobs:
   # Windows でのビルドとテスト。Python は actions/setup-python で入れ、
   # pyo3(auto-initialize)がその libpython にリンクする。C++ の例は MSVC と cmake でビルドする。
   # Haskell の例は GHC で DLL にする(issue #137、bindings/hsjuiz/README.md の「Windows」)。
+  # Zig の例は Zig 既定の x86_64-windows-gnu で DLL にし、juiz_sdk.dll.lib にリンクする(issue #579、bindings/zigjuiz/README.md の「OS ごとの注意」)。
   windows:
     name: Windows build & test
     runs-on: windows-latest
@@ -92,11 +95,17 @@ jobs:
           path: C:\ghcup\ghc\${{ env.GHC_VERSION }}
           key: ${{ steps.ghc-cache.outputs.cache-primary-key }}
 
+      # Zig の例(examples/zig)のビルドに使う Zig を入れる(issue #579)。setup-zig は入れた Zig をキャッシュする
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
       # Windows で失敗するテストをまとめて把握できるよう --no-fail-fast で最後まで実行する
       - name: Build & test
         env:
-          # GHC が入っていなければ Haskell のテストを飛ばさずにエラーにする
+          # GHC・Zig が入っていなければ Haskell・Zig のテストを飛ばさずにエラーにする
           JUIZ_REQUIRE_HASKELL: "1"
+          JUIZ_REQUIRE_ZIG: "1"
         run: scripts/test.sh --no-fail-fast
 
       - name: Test python-entry

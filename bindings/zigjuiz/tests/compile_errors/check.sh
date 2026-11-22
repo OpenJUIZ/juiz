@@ -14,6 +14,18 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 sdk_dir="${1:?usage: check.sh <libjuiz_sdk dir> [<juiz-idl>]}"
 idl_exe="${2:-}"
 zig="${ZIG:-zig}"
+# Windows (Git Bash) では、Windows の zig に渡すパスを C:/... の形にする (issue #579)
+windows=false
+case "$(uname -s)" in
+    MINGW* | MSYS* | CYGWIN*)
+        windows=true
+        sdk_dir="$(cygpath -m "$sdk_dir")"
+        if [[ -n "$idl_exe" ]]; then
+            idl_exe="$(cygpath -m "$idl_exe")"
+            [[ "$idl_exe" == *.exe ]] || idl_exe="$idl_exe.exe"
+        fi
+        ;;
+esac
 cd "$here"
 mkdir -p src
 trap 'rm -rf src/case.zig skeleton_out' EXIT
@@ -110,6 +122,7 @@ fi
 # juiz-idl -g zig-skeleton の雛形がそのままビルドできる (型は juiz-idl -g zig、issue #576)
 if [[ -n "$idl_exe" ]]; then
     idl="$(cd "$here/../../../../juiz_idl/test_package/idl" && pwd)/geometry.jidl"
+    $windows && idl="$(cygpath -m "$idl")"
     "$idl_exe" -g zig-skeleton -o skeleton_out "$idl"
     cp skeleton_out/robot_geometry_component.zig src/case.zig
     if $zig build -Djuiz-sdk-lib="$sdk_dir" -Djuiz-idl="$idl_exe" -Dtypes-idl="$idl"; then

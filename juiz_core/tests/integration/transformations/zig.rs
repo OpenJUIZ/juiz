@@ -222,6 +222,9 @@ fn zig_readonly_container_process() -> JuizResult<()> {
     }
     crate::common::logger::init();
     System::new(conf())?.setup()?.run_and_do_once(|system| {
+        // 測る前に 1 回ずつ呼んでおく。初回の呼び出しの準備 (macOS の CI では 100ms を超えた、#579) を時間に入れない
+        call(system, "base0", "zig_part_peek", jvalue!({"reference": "map", "sleep_ms": 0}))?;
+        call(system, "base0", "zig_part_sleep", jvalue!({"sleep_ms": 0}))?;
         let sleep = 300;
         let both_readonly = call_two_at_once(
             system,

@@ -15,7 +15,7 @@ zig="${ZIG:-zig}"
 
 case "$(uname -s)" in
     Darwin) ext=dylib; prefix=lib; lib_dir=lib ;;
-    # Windows の DLL は zig-out/bin に置かれる (Windows の確認は issue #579)
+    # Windows の DLL は lib の付かない <名前>.dll で zig-out/bin に置かれる (issue #579)
     MINGW* | MSYS* | CYGWIN*) ext=dll; prefix=""; lib_dir=bin; sdk_dir="$(cygpath -m "$sdk_dir")" ;;
     *) ext=so; prefix=lib; lib_dir=lib ;;
 esac
@@ -30,7 +30,11 @@ cd "$here"
 # 型付きの例 (issue #576) は juiz-idl -g zig で型を作る。cargo build で target/debug にできた juiz-idl を使う
 idl_exe="$repo_root/target/debug/juiz-idl"
 case "$(uname -s)" in
-    MINGW* | MSYS* | CYGWIN*) idl_exe="$(cygpath -m "$idl_exe").exe" ;;
+    # cygpath は juiz-idl.exe があると .exe を付けて返すので、付いていないときだけ足す (issue #579)
+    MINGW* | MSYS* | CYGWIN*)
+        idl_exe="$(cygpath -m "$idl_exe")"
+        [[ "$idl_exe" == *.exe ]] || idl_exe="$idl_exe.exe"
+        ;;
 esac
 $zig build --release -Djuiz-sdk-lib="$sdk_dir" -Djuiz-idl="$idl_exe"
 

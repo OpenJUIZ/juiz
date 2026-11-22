@@ -88,7 +88,7 @@ impl Lang {
         }
     }
 
-    /// Windows 向けの scripts/*.ps1 があるか (Haskell の Windows は #137、Zig の Windows は #579 まで無い、§5.3)
+    /// Windows 向けの scripts/*.ps1 があるか (Haskell の Windows は #137、Zig の Windows は #588 まで無い、§5.3)
     pub fn has_ps1(self) -> bool {
         !matches!(self, Lang::Haskell | Lang::Zig)
     }

@@ -8,7 +8,7 @@ Zig で書いた関数を、comptime に C の関数(juiz が探す `manifest_en
 - 対応する Zig は **0.17.x だけ** です(版を 1 つに固定しています)。違う版では build.zig がコンパイルエラーにします。
 - zigjuiz の版は juiz と同じで、使う juiz・libjuiz_sdk と同じ版を使います。
 - いまできるのは Process・Container・ContainerProcess、1 ライブラリに複数入れる Component、ContainerPose の読み書き、
-  型付きの引数(`juiz-idl -g zig`)と画像です。Windows の確認は #579 で足します。
+  型付きの引数(`juiz-idl -g zig`)と画像です。Linux・macOS・Windows で動きます(OS ごとの違いは「[OS ごとの注意](#os-ごとの注意)」)。
 
 ## 書き方
 
@@ -372,7 +372,8 @@ pub fn build(b: *std.Build) void {
 }
 ```
 
-`zigjuiz.init` は 1 つの build.zig で 1 回だけ呼び、プラグインごとに `addPlugin` を呼びます。できたライブラリは `zig-out/lib` に置かれます。
+`zigjuiz.init` は 1 つの build.zig で 1 回だけ呼び、プラグインごとに `addPlugin` を呼びます。できたライブラリは `zig-out/lib` に置かれます
+(Windows は `zig-out/bin` に `<名前>.dll` と `juiz_sdk.dll`。「[OS ごとの注意](#os-ごとの注意)」)。
 
 `juiz pkg create <名前> -b zig` で、この形の build.zig と Component のソース・conf・`.juizapp` を作る scripts の入った雛形を作れます(issue #577、docs/spec/pkg.md §6.6)。
 
@@ -405,8 +406,10 @@ zig build --release -Dtarget=aarch64-linux-gnu -Djuiz-sdk="$(juiz sdk path --tar
 | `aarch64-unknown-linux-gnu` | `aarch64-linux-gnu` |
 | `x86_64-apple-darwin` | `x86_64-macos` |
 | `aarch64-apple-darwin` | `aarch64-macos` |
+| `x86_64-pc-windows-msvc` | `x86_64-windows` |
 
-Windows 向けは #579 で確かめます。
+Windows 向けは Zig 既定の `x86_64-windows-gnu` でビルドし、libjuiz_sdk(MSVC)の `juiz_sdk.dll.lib` にリンクします。
+プラグインと juiz の間は C の関数だけなので、ABI が gnu と msvc で違っても読み込めます。Linux・macOS から Windows 向けにもビルドできます。
 
 ### libjuiz_sdk の探し方
 
@@ -419,7 +422,30 @@ Windows 向けは #579 で確かめます。
 4. `juiz sdk path --version <版>` の `lib`(`juiz sdk install` の置き場所、既定は `~/.juiz/sdk/<版>`)
 
 rpath は `$ORIGIN`(macOS は `@loader_path`)と、見つけた libjuiz_sdk のディレクトリです。libjuiz_sdk をプラグインの隣に置いても、
-入れた場所のままでも読み込めます。
+入れた場所のままでも読み込めます。Windows には rpath が無いので、`juiz_sdk.dll` をプラグインの隣に写します(下の「Windows」)。
+
+### OS ごとの注意
+
+#### Linux
+
+- ライブラリは `lib<名前>.so` です。rpath(`RUNPATH`)は `$ORIGIN` と libjuiz_sdk のディレクトリ、`installBundle` では `$ORIGIN` だけです。
+
+#### macOS
+
+- ライブラリは `lib<名前>.dylib` で、install name は `@rpath/lib<名前>.dylib` です。libjuiz_sdk(install name `@rpath/libjuiz_sdk.dylib`)を
+  rpath の `@loader_path`(プラグインのあるディレクトリ)と libjuiz_sdk のディレクトリから探します。`installBundle` では `@loader_path` だけです。
+- Apple Silicon は `aarch64-macos`、Intel は `x86_64-macos` です。
+
+#### Windows
+
+- ライブラリは lib の付かない `<名前>.dll` で、`zig-out/bin` に置かれます(`zig-out/lib` には Zig が作るインポートライブラリ `<名前>.lib` が
+  置かれますが、juiz は使いません)。conf の `path` には DLL のあるディレクトリを書きます。
+- Zig 既定の `x86_64-windows-gnu` でビルドし、libjuiz_sdk のアーカイブの `lib/juiz_sdk.dll.lib`(Rust の MSVC のインポートライブラリ)に
+  そのままリンクします。名前を変えて写す必要はありません(Haskell の `juiz_sdk.lib` のような複製は要りません)。
+- Windows には rpath が無いので、`zigjuiz.init` は `zig build` で `juiz_sdk.dll`(アーカイブの `bin/`)を `zig-out/bin` に写します。
+  juiz はプラグインを `LOAD_WITH_ALTERED_SEARCH_PATH` で開くので、プラグインの隣の `juiz_sdk.dll` が読み込まれます。
+  `installBundle` も `zig-out/plugins/` に `juiz_sdk.dll` を並べます。
+- juiz の Windows 版と同じく x86_64 だけです。
 
 ## 対応する Zig の版
 
