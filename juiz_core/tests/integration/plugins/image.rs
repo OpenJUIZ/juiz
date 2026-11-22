@@ -1,16 +1,18 @@
-//! C++ と Haskell のプラグインの画像の引数・戻り値のテスト (issue #253、docs/spec/large-data.md §10)
+//! C++・Haskell・Zig のプラグインの画像の引数・戻り値のテスト (issue #253・#576、docs/spec/large-data.md §10)
 //!
-//! C++ の Component examples/cpp/component/cpp_image_component と、Haskell の Component
-//! examples/haskell/src/ImageComponent.hs (image_component_hs) を読む。どちらも同じ Process と Container を持つ。
+//! C++ の Component examples/cpp/component/cpp_image_component、Haskell の Component
+//! examples/haskell/src/ImageComponent.hs (image_component_hs)、Zig の Component
+//! examples/zig/src/image_component_zig.zig (image_component_zig) を読む。どれも同じ Process と Container を持つ。
 //!
 //! - 形式ごとに、画像の引数が画素を変えずに届き、画像の戻り値が返る (8 bit の形式は反転、それ以外はそのまま)
 //! - BGR8 で返した画像は RGB8 になる
 //! - 画像の後ろに引数が続く Process、Container の ContainerProcess の画像の引数と戻り値
-//! - C++ → Haskell・Haskell → C++・Rust → C++ の接続 (Composite) で画像が渡る
+//! - C++ → Haskell・Haskell → C++・C++ → Zig・Zig → C++ の接続 (Composite) で画像が渡る
 //! - 同じことが IPC ブローカー越し (生バイトのフレーム) でもできる
 //!
 //! C++ と Haskell の例は scripts/test.sh (CI も同じ) でビルドされている前提。GHC が無い環境では
-//! Haskell の例が無いので Haskell の分だけ飛ばす (JUIZ_REQUIRE_HASKELL=1 なら失敗させる)。
+//! Haskell の例が無いので Haskell の分だけ飛ばす (JUIZ_REQUIRE_HASKELL=1 なら失敗させる)。Zig も同じ
+//! (zig が無ければ Zig の分だけ飛ばす。JUIZ_REQUIRE_ZIG=1 なら失敗させる)。
 
 use juiz_core::prelude::*;
 use juiz_sdk::image::{ImageBuffer, Luma, LumaA, Rgb, Rgba};
@@ -41,14 +43,33 @@ fn has_haskell_example() -> bool {
     false
 }
 
-/// 調べる言語の接尾辞 (C++ は "cpp"、Haskell は "hs")
+/// Zig の例がビルドされていれば true
+fn has_zig_example() -> bool {
+    let file = plugin_file("../target", "image_component_zig");
+    if file.exists() {
+        return true;
+    }
+    if std::env::var("JUIZ_REQUIRE_ZIG").map_or(false, |v| v == "1") {
+        panic!("Zig の例がビルドされていません: {file:?}");
+    }
+    eprintln!("skip: Zig の例がビルドされていません ({file:?})。Zig の分は飛ばします。");
+    false
+}
+
+/// 調べる言語の接尾辞 (C++ は "cpp"、Haskell は "hs"、Zig は "zig")
 fn languages() -> Vec<&'static str> {
     let mut v = vec!["cpp"];
     if has_haskell_example() {
         v.push("hs");
     }
+    if has_zig_example() {
+        v.push("zig");
+    }
     v
 }
+
+/// 言語をまたぐ接続 (Composite) の組
+const PAIRS: [(&str, &str); 5] = [("cpp", "hs"), ("hs", "cpp"), ("cpp", "cpp"), ("cpp", "zig"), ("zig", "cpp")];
 
 fn conf(name: &str, ipc_name: Option<&str>, langs: &[&str]) -> Value {
     let mut processes = Vec::new();
@@ -69,7 +90,7 @@ fn conf(name: &str, ipc_name: Option<&str>, langs: &[&str]) -> Value {
     let call = |process: String, args: Value| jvalue!({ "process": process, "args": args });
     let mut composites = Vec::new();
     // 言語をまたぐ接続。invert(invert(bgr)) は bgr と同じ画像になる
-    for (a, b) in [("cpp", "hs"), ("hs", "cpp"), ("cpp", "cpp")] {
+    for (a, b) in PAIRS {
         if langs.contains(&a) && langs.contains(&b) {
             composites.push(jvalue!({
                 "type_name": format!("bgr_{a}_to_{b}"),
@@ -91,6 +112,9 @@ fn conf(name: &str, ipc_name: Option<&str>, langs: &[&str]) -> Value {
     });
     if langs.contains(&"hs") {
         components["image_component_hs"] = jvalue!({ "language": "haskell", "path": "../target" });
+    }
+    if langs.contains(&"zig") {
+        components["image_component_zig"] = jvalue!({ "language": "zig", "path": "../target" });
     }
     let brokers = match ipc_name {
         Some(n) => jvalue!([{ "type_name": "ipc", "name": n }]),
@@ -199,7 +223,7 @@ fn check_language(bp: &dyn BrokerProxy, l: &str, large: bool) -> JuizResult<()> 
 /// 言語をまたぐ接続 (Composite) で画像が渡る
 fn check_composites(bp: &dyn BrokerProxy, langs: &[&str]) -> JuizResult<()> {
     let ids = bp.process_list(false, None)?;
-    for (a, b) in [("cpp", "hs"), ("hs", "cpp"), ("cpp", "cpp")] {
+    for (a, b) in PAIRS {
         if !(langs.contains(&a) && langs.contains(&b)) {
             continue;
         }
@@ -226,7 +250,7 @@ fn plugin_images_in_process() -> JuizResult<()> {
         })
 }
 
-/// IPC ブローカー越しでも、C++ / Haskell の Process に画像が生バイトで届き、返る
+/// IPC ブローカー越しでも、C++ / Haskell / Zig の Process に画像が生バイトで届き、返る
 #[test]
 fn plugin_images_through_ipc() -> JuizResult<()> {
     crate::common::logger::init();

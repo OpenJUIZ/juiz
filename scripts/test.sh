@@ -119,8 +119,9 @@ else
 fi
 if [[ -z "$zig_skip_reason" ]]; then
     ZIG="$zig_cmd" examples/zig/build.sh
-    # zigjuiz の exportProcess が間違った書き方をコンパイルエラーにすること (issue #573)
-    ZIG="$zig_cmd" bindings/zigjuiz/tests/compile_errors/check.sh "$repo_root/target/debug"
+    # zigjuiz の exportProcess が間違った書き方をコンパイルエラーにすること (issue #573)。
+    # juiz-idl -g zig-skeleton の雛形がビルドできることも見る (issue #576)
+    ZIG="$zig_cmd" bindings/zigjuiz/tests/compile_errors/check.sh "$repo_root/target/debug" "$repo_root/target/debug/juiz-idl"
 elif [[ "${JUIZ_REQUIRE_ZIG:-0}" == "1" ]]; then
     echo "error: $zig_skip_reason" >&2
     exit 1

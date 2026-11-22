@@ -34,6 +34,10 @@ pub enum Generator {
     Haskell,
     /// process / container 宣言の Haskell の雛形 (<CamelCase の名前空間>Component.hs)。コピーして本体を書く
     HaskellSkeleton,
+    /// Zig の struct / enum と型の情報 juiz_type (名前空間ごとのファイル <a>/<b>.zig と juiz_idl.zig)
+    Zig,
+    /// process / container 宣言の Zig の雛形 (<名前空間>_component.zig)。コピーして本体を書く
+    ZigSkeleton,
     /// TypeScript の interface・文字列リテラルの union と型参照 (<namespace>.ts と juiz_idl.ts)
     Typescript,
 }
@@ -52,6 +56,8 @@ impl From<Generator> for OutputKind {
             Generator::CppSkeleton => OutputKind::CppSkeleton,
             Generator::Haskell => OutputKind::Haskell,
             Generator::HaskellSkeleton => OutputKind::HaskellSkeleton,
+            Generator::Zig => OutputKind::Zig,
+            Generator::ZigSkeleton => OutputKind::ZigSkeleton,
             Generator::Typescript => OutputKind::TypeScript,
         }
     }

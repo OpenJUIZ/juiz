@@ -367,20 +367,20 @@ ROS 2 の `.msg` / `.srv` / `.idl` を JIDL / .avsc に変換する。juiz の�
 
 各言語の生成コード(Step 2・5・6・7)の型の対応の基準。細部は各 Step で決め、ここを直す。
 
-| juiz | Rust | Python | C++ | Haskell | TypeScript |
-|---|---|---|---|---|---|
-| `boolean` | `bool` | `bool` | `bool` | `Bool` | `boolean` |
-| `int` / `long` | `i32` / `i64` | `int` | `int32_t` / `int64_t` | `Int32` / `Int64` | `number` |
-| `float` / `double` | `f32` / `f64` | `float` | `float` / `double` | `Float` / `Double` | `number` |
-| `string` | `String` | `str` | `std::string` | `Text` | `string` |
-| `bytes` | `Vec<u8>` | `bytes` | `std::vector<uint8_t>` | `ByteString` | `string`(base64) |
-| `array<T>` | `Vec<T>` | `list[T]` | `std::vector<T>` | `[T]` | `T[]` |
-| `map<T>` | `HashMap<String, T>` | `dict[str, T]` | `std::map<std::string, T>` | `Map Text T` | `Record<string, T>` |
-| `T?` | `Option<T>` | `T \| None` | `std::optional<T>` | `Maybe T` | `T \| null` |
-| record | `struct` | `@dataclass` | `struct` | record | `interface` |
-| enum | `enum` | `enum.Enum`(値は記号の文字列) | `enum class` | 直和型 | 文字列リテラルの union |
-| `any` | `Value` | `Any` | `juiz::value` | `Value` | `unknown` |
-| `image` | `DynamicImage` | `PIL.Image.Image` | `juiz::Image`(large-data.md §10) | `Image`(`Juiz.Image`、large-data.md §10) | (扱わない) |
+| juiz | Rust | Python | C++ | Haskell | Zig | TypeScript |
+|---|---|---|---|---|---|---|
+| `boolean` | `bool` | `bool` | `bool` | `Bool` | `bool` | `boolean` |
+| `int` / `long` | `i32` / `i64` | `int` | `int32_t` / `int64_t` | `Int32` / `Int64` | `i32` / `i64` | `number` |
+| `float` / `double` | `f32` / `f64` | `float` | `float` / `double` | `Float` / `Double` | `f32` / `f64` | `number` |
+| `string` | `String` | `str` | `std::string` | `Text` | `[]const u8` | `string` |
+| `bytes` | `Vec<u8>` | `bytes` | `std::vector<uint8_t>` | `ByteString` | `juiz.Bytes` | `string`(base64) |
+| `array<T>` | `Vec<T>` | `list[T]` | `std::vector<T>` | `[T]` | `[]const T` | `T[]` |
+| `map<T>` | `HashMap<String, T>` | `dict[str, T]` | `std::map<std::string, T>` | `Map Text T` | `juiz.Map(T)` | `Record<string, T>` |
+| `T?` | `Option<T>` | `T \| None` | `std::optional<T>` | `Maybe T` | `?T` | `T \| null` |
+| record | `struct` | `@dataclass` | `struct` | record | `struct` | `interface` |
+| enum | `enum` | `enum.Enum`(値は記号の文字列) | `enum class` | 直和型 | `enum`(フィールドは記号の snake_case) | 文字列リテラルの union |
+| `any` | `Value` | `Any` | `juiz::value` | `Value` | `juiz.Value` | `unknown` |
+| `image` | `DynamicImage` | `PIL.Image.Image` | `juiz::Image`(large-data.md §10) | `Image`(`Juiz.Image`、large-data.md §10) | `juiz.Image`(large-data.md §10.5) | (扱わない) |
 
 - 生成コードは型ごとに、スキーマ(§6 の `TypeSchema`)を返す関数と、§4 の辞書との変換(`to_value` / `from_value` に当たるもの)を持つ。
 - Rust の `#[derive(JuizType)]` は、Rust の struct / enum から同じスキーマを作る。名前空間は `#[juiz(namespace = "robot.geometry")]` で書き、省略時はエラー。フィールドの順番は宣言順。JIDL で同じ形に書いた型と指紋が一致しなければならない。derive は Rust の中で閉じ、他の言語へは JIDL(または derive が書き出す .avsc)経由で渡す。
@@ -939,8 +939,8 @@ juiz-idl -I idl -g rust,python idl/ros2/my_msgs/msg/Status.jidl
 | `juiz.minItems` / `juiz.maxItems` | フィールド | 配列の要素の数(`bytes` ならバイト数)。固定長 `T[N]` は両方 N、長さ制限 `T[<=N]` は `maxItems` だけ |
 | `juiz.constants` | record | 定数の並び `[{"name", "type", "value", "doc"?, "ros_type"?}]`。`type` は `boolean`・`int`・`long`・`float`・`double`・`string`。名前は §3.1 の規則で、フィールドと重なってはいけない(読むときに検査する) |
 
-- 制約(`juiz.minimum` など)は、型で辞書を読むとき(`juiz_types::read_value`)に検査する。つまり §8 の呼び出し時の検査、既定値の検査、Rust の生成コードの `from_value` で効く。Python・C++・Haskell・TypeScript の生成コードは見ない。互換性の判定・指紋には使わない。
-- 定数は各言語の生成コードの定数になる: Rust は関連定数(`Sample::MODE_A`)、Python はクラス変数(`Sample.MODE_A`)、C++ は `static constexpr`、Haskell は値 `sampleMODE_A`、TypeScript は `export const SampleConstants = { … } as const`。
+- 制約(`juiz.minimum` など)は、型で辞書を読むとき(`juiz_types::read_value`)に検査する。つまり §8 の呼び出し時の検査、既定値の検査、Rust の生成コードの `from_value` で効く。Python・C++・Haskell・Zig・TypeScript の生成コードは見ない。互換性の判定・指紋には使わない。
+- 定数は各言語の生成コードの定数になる: Rust は関連定数(`Sample::MODE_A`)、Python はクラス変数(`Sample.MODE_A`)、C++ は `static constexpr`、Haskell は値 `sampleMODE_A`、Zig は struct の中の `pub const`(`Sample.MODE_A`)、TypeScript は `export const SampleConstants = { … } as const`。
 - 人が書く JIDL にも同じ属性を書いてよい(§9.2)。
 
 ### 25.4 テスト
@@ -948,3 +948,57 @@ juiz-idl -I idl -g rust,python idl/ros2/my_msgs/msg/Status.jidl
 - `juiz_idl/tests/ros2_test.rs`: `.msg` / `.srv` / `.idl` の読み込み、型と属性・既定値・定数、juiz_std への置き換えと `--no-std-map`、エラー、制約の検査、属性の JIDL での往復、定数の各言語の生成コード、juiz_std に足したフィールドの互換性。入力は `juiz_idl/tests/ros2/` に置いた小さなパッケージ(ROS 2 の標準メッセージを真似たものを含む)。
 - `juiz_idl/test_package/idl/ros2/` に取り込んだ .jidl を置き(`test_package_ros2_idl_is_up_to_date`、`JUIZ_IDL_UPDATE_ROS2_GEN=1` で作り直す)、build.rs で Rust にして `tests/ros2_generated_test.rs` で使う。
 - 書き出し(juiz → ROS 2)と `.action` は対象外(§14)。
+
+## 26. Zig(Zig Step 4 #576 で決めたこと)
+
+### 26.1 生成器の Zig 出力
+
+`juiz-idl -g zig`(`juiz idl` も同じ)は、名前空間 `a.b` ごとにファイル `a/b.zig` と、全部の名前空間を読み込む `juiz_idl.zig` を書き出す。既定の `-g` には入れない。中身は素の `struct` / `enum` と、型の情報の宣言 `pub const juiz_type: juiz.TypeInfo` だけで、辞書との変換は zigjuiz が `@typeInfo` を見て汎用に行う(C++・Haskell のように型ごとの変換コードを生成しない)。zigjuiz(`@import("juiz")`)に依存する。
+
+- 型の対応は §11(`int` は `i32`、`long` は `i64`、`float` は `f32`、`string` は `[]const u8`、`bytes` は `juiz.Bytes`、`array<T>` は `[]const T`、`map<T>` は `juiz.Map(T)`(並びを保った `entries`)、`T?` は `?T`、`any` は `juiz.Value`)。
+- フィールド名は IDL の名前のまま(辞書のキーと同じ)。Zig のキーワード・組み込みの名前(`type`・`u8` など)・識別子にならない名前は `@"..."` で書く。既定値はフィールドの既定値(`= ...`)にする。既定値の無いフィールドは Zig でも既定値なし。
+- enum の記号は snake_case の小文字のフィールドにする(`Idle` → `idle`、`HighSpeed` → `high_speed`)。辞書の記号の文字列は `juiz_type.symbols`(フィールドの順)に持ち、enum の既定値は `pub const juiz_default`。変換した名前が重なる記号・フィールド・定数はエラー。
+- `juiz_type` は `{ .name = 完全名, .fingerprint = 指紋, .avro = .avsc と同じスキーマ, .symbols = enum の記号 }`。マニフェストに載る指紋は zigjuiz が libjuiz_sdk(`juiz_type_new` と `juiz_type_describe`)に計算させたもので、.avsc・Rust・Python・C++・Haskell と一致する。埋め込んだ `fingerprint` は生成したときの値で、表示・検査用。
+- ほかの名前空間の型は、相対パスの `@import` を `const @"a.b" = @import("../a/b.zig");` と置いて `@"a.b".T` で参照する。Zig のファイルは互いに `@import` できるので、名前空間どうしが互いに参照してもよい(C++・Haskell と違う)。親と子の名前空間がどちらもファイルを持つときは、親のファイルが `pub const 子 = @import(...)` で子を読み込む(型名と重なればエラー)。名前空間の要素・型名が `juiz`・`std` ならエラー(生成したファイルが使う名前)。名前空間のない型はエラー。
+- 定数(§25.3 の `juiz.constants`)は struct の中の `pub const`。
+- `process` / `container` 宣言からは何も作らない(雛形は §26.4)。`image` は引数・戻り値の型そのものとしてだけ使える(§3.3)ので、生成器は何も作らない。Zig では `juiz.Image` で受け取り、返す(large-data.md §10.5)。
+- 生成したコードは `zig fmt` を通してもほぼ変わらない形で書く(`@"type"` が `type` になる違いだけ)。
+
+### 26.2 zigjuiz(`datatype.zig`・`types.zig`)
+
+- **型付きの型**は `pub const juiz_type: juiz.TypeInfo` を持つ struct / enum。生成した型のほか、同じ宣言を手で書いた型も型付きになる(IDL を使わないとき。C++ の `JUIZ_TYPE`、Haskell の `unsafeTypeInfo` に当たる)。型付きの型のフィールドに書けるのは §26.1 の型だけで、そのほか(`juiz_type` の無い struct、`*T` など)はコンパイルエラー。enum の `symbols` の数がフィールドの数と違ってもコンパイルエラー。
+- マニフェスト: zigjuiz のマニフェストは関数の型(引数の struct のフィールドと戻り値の型)から作る。型付きの型の引数には `schema`(型参照)と、`juiz_type_describe` が返す `type_name`(§6 の表)を載せ、Zig の既定値を辞書にしたものを `default` にする(既定値の無いフィールドは `null` = 既定値なし)。関数の戻り値(`T` か `!T`)が型付きの型なら、`output_schema` と、古いクライアント向けの `type_name` だけの `outputs` を載せる。Container を作る関数・ContainerProcess の引数にも使える。
+- そのため Haskell のような「関数とマニフェストの型の食い違い」(§22.2)は起きない。スキーマが §3 に合わなければ `juiz_type_new` が失敗し、manifest_entry_point がエラーを返すので juiz は読み込むときに失敗する。
+- 呼び出し時、型付きの引数は libjuiz_sdk が型で読み(`capsule_ptr_read_typed_value`。§4 の規則で、足りないフィールドを既定値で埋め、型にないキーを落とし、知らない記号は列挙の既定値にする。ネイティブ値は encode する)、読んだ辞書を Zig の値にする(文字列・配列は呼び出しの arena)。合わなければ `JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR`(-702、理由は juiz のログ)と、エラー文 `argument 'pose' of <型名>: the value does not match the type <完全名>`。
+- 戻り値は辞書にして返す(すべてのフィールドを出す)。Zig の値をネイティブ値(遅延評価 L1〜L3)で渡すことはしない(Haskell と同じ。効果が出るのは Zig どうしの接続だけなので、必要になってから)。
+- 型ごとの `juiz_type`(libjuiz_sdk の型)は最初に使ったときに 1 度だけ作り、プラグインごとに持つ(atomic な比較交換で、同時に作ったら片方を捨てる)。
+- `juiz.datatype.fromValue` / `toValue` で、型付きの型と `juiz.Value` を手で変換できる。
+
+### 26.3 build.zig(`addTypes`)
+
+zigjuiz の build.zig の `juiz.addTypes(.{ .files, .import_dirs, .depends })` は、ビルドのときに `juiz-idl -g zig` を実行して型を作り、`juiz_idl.zig` を根にしたモジュールを返す(CMake の `juiz_generate_types()` に当たる)。`addPlugin` の `.imports` に `.{ .name = "juiz_types", .module = types }` と渡し、`@import("juiz_types")` で `types.robot.geometry.Pose2D` のように使う。
+
+```zig
+const types = juiz.addTypes(.{ .files = &.{b.path("idl/geometry.jidl")}, .depends = &.{b.path("idl/common.jidl")} });
+const lib = juiz.addPlugin(.{ .name = "my_component", .root_source_file = b.path("src/my_component.zig"),
+    .imports = &.{.{ .name = "juiz_types", .module = types }} });
+```
+
+- `juiz-idl` は `-Djuiz-idl=<パス>`、無ければ PATH から探す。Zig のビルドは入力が変わったときだけ juiz-idl を実行し直す。import した先は `juiz-idl` の引数には要らないが、変わったときに作り直すには `.depends` に書く。
+
+### 26.4 雛形(zig-skeleton)
+
+`juiz-idl -g zig-skeleton` は、宣言のある名前空間ごとに `<名前空間の . を _ にしたもの>_component.zig`(`robot.arm` → `robot_arm_component.zig`)を書き出す(既定の `-g` には入れない)。`juiz pkg create -b zig --idl`(Zig Step 5)は `juiz_idl::zig_skeleton_items` でコンポーネントの名前を指定して作る。
+
+- 中身は `@import("juiz")` と `@import("juiz_types")`(§26.3)、宣言ごとの関数、`container` は状態の空の `pub const <CamelCase>State = struct {}` と `<名前>_create`、最後に `juiz.exportComponent` で 1 つの Component(コンポーネントの名前は名前空間の `.` を `_` にしたもの)にまとめる。
+- 関数の本体は `_ = args;` と `return error.NotImplemented;`(呼ぶと -1101 のエラーになる)。戻り値は `!T`。
+- 引数は 1 つの struct のフィールド: `boolean` → `bool`、`int`・`long` → `i32`・`i64`、`float`・`double` → `f32`・`f64`、`string` → `[]const u8`、`image` → `juiz.Image`、record・enum → `types.<名前空間>.<型>`、`array<T>`・`map<T>`・`any` → 型なしの `juiz.Value`。既定値は §26.1 と同じ書き方(`juiz.Value` は辞書のリテラル)。`T?`・`bytes` はエラー(zigjuiz の引数にならない)。
+- 戻り値: 基本型・record・enum はそのまま、`void` は `void`、`image` は `juiz.Image`、そのほかは `juiz.Value`。
+- 関数名・状態の型の名前が重なる宣言、同じ型名の宣言(exportComponent がコンパイルエラーにするもの)、`juiz`・`types`・`std` と同じ名前はエラー。
+
+### 26.5 テスト
+
+- `examples/zig/src/typed_component_zig.zig`(typed_component_zig。`examples/zig/build.zig` が `juiz.addTypes` で `juiz_idl/test_package/idl/geometry.jidl` から型を作る。手で書いた `handwritten.Odometry` も同じファイル)。
+- `juiz_core/tests/integration/datatype/zig.rs`: manifest の型参照と Rust の指紋の一致、`output_schema`、辞書の引数が型で読まれること、すべての型のフィールドの往復(C++・Haskell と同じ結果)、Zig どうし・Zig ↔ Rust の受け渡し、Container と ContainerProcess の型付きの引数。
+- `juiz_idl/tests/idl_test.rs` の `zig_code`(生成したコードの形、名前空間をまたぐ参照、名前の重なりのエラー)と `zig_skeleton`。
+- `bindings/zigjuiz/tests/compile_errors/check.sh`: 型付きでない struct の引数・型付きの型に書けないフィールド・記号の数の違いのコンパイルエラーと、`juiz-idl -g zig-skeleton` で `geometry.jidl` から作った雛形がそのままビルドできること。

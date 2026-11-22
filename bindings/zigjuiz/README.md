@@ -1,14 +1,14 @@
 # zigjuiz
 
-Zig で juiz の Process・Container・ContainerProcess を書くためのライブラリです(issue #573、#574)。利用者のコードでは `@import("juiz")` で使います。
+Zig で juiz の Process・Container・ContainerProcess・Component を書くためのライブラリです(issue #573〜#576)。利用者のコードでは `@import("juiz")` で使います。
 
 Zig で書いた関数を、comptime に C の関数(juiz が探す `manifest_entry_point` など、[bindings/cjuiz/README.md](../cjuiz/README.md))として公開し、
 共有ライブラリ(`.so` / `.dylib` / `.dll`)にします。juiz は設定ファイルの `language: "zig"` でそれを読み込みます。
 
 - 対応する Zig は **0.17.x だけ** です(版を 1 つに固定しています)。違う版では build.zig がコンパイルエラーにします。
 - zigjuiz の版は juiz と同じで、使う juiz・libjuiz_sdk と同じ版を使います。
-- いまできるのは Process・Container・ContainerProcess(1 ライブラリに 1 つ)と ContainerPose の読み書きです。1 ライブラリに複数入れる Component は #575、
-  型付きの引数(`juiz-idl -g zig`)と画像は #576、Windows の確認は #578 で足します。
+- いまできるのは Process・Container・ContainerProcess、1 ライブラリに複数入れる Component、ContainerPose の読み書き、
+  型付きの引数(`juiz-idl -g zig`)と画像です。Windows の確認は #578 で足します。
 
 ## 書き方
 
@@ -45,6 +45,8 @@ comptime {
 | `bool` | `Bool` | |
 | `[]const u8` | `String` | UTF-8 の文字列。呼び出しの arena に写したものを渡す |
 | `juiz.Value` | `Object` | 辞書・配列・数・文字列などを、そのまま Zig の値(`union(enum)`)で受け渡す |
+| 型付きの struct / enum(`juiz-idl -g zig` の型など) | `Object` / `String` と `schema` | 下の「[型付きの引数](#型付きの引数juiz-idl--g-zig)」 |
+| `juiz.Image` | `Image` | 下の「[画像](#画像juizimage)」 |
 
 `juiz.Value` は次の形です。`get(key)`・`asInt(T)`・`asFloat()`・`asBool()`・`asString()`・`asArray()`・`asObject()` で読めます。
 
@@ -259,6 +261,72 @@ fn moveForward(self: *Robot, ctx: juiz.Context, args: struct { distance: f64 = 0
   関数がこのエラーをそのまま返す(`try`)と、zigjuiz は -1101 のエラー文に juiz が返した理由も入れます
   (`zig_part_pose returned error.NoCommonAnchor: <理由>`)。
 - zigjuiz は ContainerProcess を呼ぶ間だけ、`self` と juiz が渡した口をそのスレッドに覚えておきます。`self` を取っておいて、呼び出しの外や別のスレッドから使うことはできません。
+
+## 型付きの引数(`juiz-idl -g zig`)
+
+`pub const juiz_type: juiz.TypeInfo` を持つ struct / enum を**型付きの型**と呼び、引数・戻り値に使えます(issue #576、仕様 docs/spec/datatype.md §26)。
+ふつうは `juiz-idl -g zig` で .jidl から作ります。build.zig の `juiz.addTypes` がビルドのときに作り、モジュールとして渡します。
+
+```zig
+// build.zig
+const types = juiz.addTypes(.{ .files = &.{b.path("idl/geometry.jidl")} });
+const lib = juiz.addPlugin(.{
+    .name = "my_component",
+    .root_source_file = b.path("src/my_component.zig"),
+    .imports = &.{.{ .name = "juiz_types", .module = types }},
+});
+```
+
+```zig
+// src/my_component.zig
+const juiz = @import("juiz");
+const types = @import("juiz_types");
+const Pose2D = types.robot.geometry.Pose2D; // record Pose2D { Point2D position; double theta = 0.0; string frame = "map"; ... }
+
+fn poseMove(args: struct { pose: Pose2D, dx: f64 = 1 }) Pose2D {
+    var p = args.pose;
+    p.position.x += args.dx;
+    return p;
+}
+```
+
+- マニフェストには型参照(`schema`、結果なら `output_schema`)が載り、指紋は Rust・C++・Haskell・Python の同じ型と一致します。
+- 引数は juiz が型で読みます(足りないフィールドは既定値、型にないキーは無視、知らない記号は列挙の既定値)。型に合わなければ
+  `JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR`(-702)です。戻り値は辞書にして返します。
+- 型の対応: `boolean`・`int`・`long`・`float`・`double` は `bool`・`i32`・`i64`・`f32`・`f64`、`string` は `[]const u8`、`bytes` は `juiz.Bytes`、
+  `array<T>` は `[]const T`、`map<T>` は `juiz.Map(T)`、`T?` は `?T`、`any` は `juiz.Value`。enum の記号は snake_case の小文字(`Idle` → `.idle`)。
+- `juiz-idl` は `-Djuiz-idl=<パス>`、無ければ PATH から探します。`juiz-idl -g zig-skeleton` で、.jidl の `process` / `container` 宣言から雛形も作れます。
+- IDL を使わずに手で書くこともできます。
+
+```zig
+const Odometry = struct {
+    distance: f64,
+    steps: i64 = 0,
+    pub const juiz_type: juiz.TypeInfo = .{
+        .name = "handwritten.Odometry",
+        .avro =
+        \\{"type": "record", "name": "Odometry", "namespace": "handwritten", "fields": [
+        \\  {"name": "distance", "type": "double"}, {"name": "steps", "type": "long", "default": 0}]}
+        ,
+    };
+};
+```
+
+## 画像(`juiz.Image`)
+
+引数・戻り値を `juiz.Image` にすると、juiz の画像を受け取り、返せます(issue #576、仕様 docs/spec/large-data.md §10.5)。
+
+```zig
+fn invert(ctx: juiz.Context, args: struct { img: juiz.Image }) !juiz.Image {
+    const buf = try ctx.allocator.dupe(u8, args.img.data);
+    for (buf) |*b| b.* = 255 - b.*;
+    return juiz.Image.init(args.img.width, args.img.height, args.img.format, buf);
+}
+```
+
+- `juiz.Image` は `width`・`height`・`format`(`juiz.PixelFormat`: `.l8`・`.rgb8`・`.rgba16`・`.rgb32f` など)・`stride`(1 行のバイト数)・`data` です。
+- 受け取った画像は呼び出しの arena に複製したもので、呼び出しが終わると消えます。Container に取っておくときは `img.clone(allocator)` で複製します。
+- 返すときは `.bgr8`・`.bgra8` も使えます(juiz は RGB8 / RGBA8 に並べ替えて持ちます)。
 
 ## ビルド
 

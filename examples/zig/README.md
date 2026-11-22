@@ -16,6 +16,8 @@ zigjuiz は `build.zig.zon` の `dependencies` に、リポジトリの `binding
 | `src/mismatched_container_process_zig.zig` | 状態を別の型で受ける ContainerProcess(型違いのエラー -1104 を確かめるテスト用) |
 | `src/zig_part*.zig` | ContainerPose を読み書きする Container `zig_part` と ContainerProcess(`juiz.pose` / `setPose` / `lookup` / `setTransform`) |
 | `src/example_component_zig.zig` | Process 2 つ・Container・ContainerProcess 2 つを 1 つのライブラリにまとめた Component(`juiz.exportComponent`、issue #575) |
+| `src/typed_component_zig.zig` | 型付きの引数・戻り値の Component(`juiz-idl -g zig` で `juiz_idl/test_package/idl/geometry.jidl` から作った型と、手で書いた型、issue #576) |
+| `src/image_component_zig.zig` | 画像(`juiz.Image`)の引数・戻り値の Component(issue #576) |
 | `increment_process.conf` | increment_process_zig を読み込む設定ファイル |
 | `example_container.conf` | example_container_zig と ContainerProcess を読み込む設定ファイル |
 | `example_component.conf` | Component example_component_zig を読み込む設定ファイル |
@@ -35,7 +37,8 @@ examples/zig/build.sh          # zig build して ../../target に写す
 ```
 
 zig コマンドの名前は環境変数 `ZIG` で変えられます(pip の `ziglang` パッケージなら `ZIG="python3 -m ziglang"`)。
-build.sh を使わずに `zig build --release -Djuiz-sdk-lib=<libjuiz_sdk のあるディレクトリの絶対パス>` でもビルドできます(`zig-out/lib` にできます)。
+build.sh を使わずに `zig build --release -Djuiz-sdk-lib=<libjuiz_sdk のあるディレクトリの絶対パス> -Djuiz-idl=<juiz-idl のパス>` でもビルドできます(`zig-out/lib` にできます)。
+型付きの例は `juiz-idl -g zig` で型を作るので、juiz-idl が要ります(build.sh は `cargo build` でできた `target/debug/juiz-idl` を使います)。
 
 ## 動かす
 

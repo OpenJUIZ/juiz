@@ -16,6 +16,8 @@
 //! | [`OutputKind::PythonSkeleton`] | `<namespace>.skeleton.py` | `process` / `container` 宣言の Python の雛形 (pyjuiz のデコレータ、仕様 §20.6) |
 //! | [`OutputKind::CppSkeleton`] | `<namespace>.skeleton.cpp` | `process` / `container` 宣言の C++ の雛形 (cppjuiz のマニフェストと FACTORY、仕様 §21.6) |
 //! | [`OutputKind::HaskellSkeleton`] | `<CamelCase の名前空間>Component.hs` | `process` / `container` 宣言の Haskell の雛形 (hsjuiz の juizComponent、仕様 §22.4) |
+//! | [`OutputKind::Zig`] | `<a>/<b>.zig` (名前空間 `a.b`)、`juiz_idl.zig` | 素の struct / enum と型の情報 `juiz_type` (zigjuiz が辞書と変換する、仕様 §26) |
+//! | [`OutputKind::ZigSkeleton`] | `<名前空間>_component.zig` | `process` / `container` 宣言の Zig の雛形 (zigjuiz の exportComponent、仕様 §26.4) |
 //!
 //! 型のモデル・指紋は `juiz_types` を使う (juiz_sdk には依存しない)。生成した Rust のコードは juiz_sdk を、
 //! Python のコードは pyjuiz (`juiz.datatype`) を使う。
@@ -46,6 +48,8 @@ mod cpp;
 mod cpp_skeleton;
 mod haskell;
 mod haskell_skeleton;
+mod zig;
+mod zig_skeleton;
 mod jidl;
 mod json_schema;
 mod model;
@@ -67,6 +71,8 @@ pub use cpp::{generate_cpp, CPP_ALL_HEADER};
 pub use cpp_skeleton::{cpp_skeleton_items, generate_cpp_skeleton};
 pub use haskell::generate_haskell;
 pub use haskell_skeleton::{generate_haskell_skeleton, haskell_skeleton_items, haskell_skeleton_module};
+pub use zig::generate_zig;
+pub use zig_skeleton::{generate_zig_skeleton, zig_skeleton_file, zig_skeleton_items};
 pub use jidl::to_jidl;
 pub use json_schema::{json_schema_of, JSON_SCHEMA_DIALECT};
 pub use model::{
@@ -128,11 +134,13 @@ pub enum OutputKind {
     CppSkeleton,
     Haskell,
     HaskellSkeleton,
+    Zig,
+    ZigSkeleton,
     TypeScript,
 }
 
 impl OutputKind {
-    pub const ALL: [OutputKind; 12] = [
+    pub const ALL: [OutputKind; 14] = [
         OutputKind::Avsc,
         OutputKind::JsonSchema,
         OutputKind::Processes,
@@ -144,6 +152,8 @@ impl OutputKind {
         OutputKind::CppSkeleton,
         OutputKind::Haskell,
         OutputKind::HaskellSkeleton,
+        OutputKind::Zig,
+        OutputKind::ZigSkeleton,
         OutputKind::TypeScript,
     ];
 }
@@ -385,6 +395,8 @@ pub fn generate_with(
             OutputKind::CppSkeleton => files.extend(generate_cpp_skeleton(&signatures)?),
             OutputKind::Haskell => files.extend(generate_haskell(&types)?),
             OutputKind::HaskellSkeleton => files.extend(generate_haskell_skeleton(&signatures)?),
+            OutputKind::Zig => files.extend(generate_zig(&types)?),
+            OutputKind::ZigSkeleton => files.extend(generate_zig_skeleton(&signatures)?),
             OutputKind::TypeScript => files.extend(generate_typescript(&types)?),
         }
     }

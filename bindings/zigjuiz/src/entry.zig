@@ -10,6 +10,8 @@ const value = @import("value.zig");
 const types = @import("types.zig");
 const errors = @import("errors.zig");
 const pose = @import("pose.zig");
+const datatype = @import("datatype.zig");
+const image = @import("image.zig");
 const Value = value.Value;
 
 /// 関数が最初の引数 (ContainerProcess では Container の次) で受け取れる、呼び出しの情報
@@ -112,21 +114,14 @@ pub fn Signature(comptime f: anytype, comptime what: []const u8, comptime with_s
         pub fn manifestArguments(a: std.mem.Allocator) ![]Value {
             var arguments = try a.alloc(Value, args_info.field_names.len);
             inline for (args_info.field_names, args_info.field_types, args_info.field_attrs, 0..) |name, T, attrs, i| {
-                const default: Value = if (attrs.defaultValue(T)) |d| types.toValue(T, d) else .null;
                 const doc: []const u8 = @field(arg_docs, name);
-                const members = try a.dupe(Value.Member, &.{
-                    .{ .key = "name", .value = .{ .string = name } },
-                    .{ .key = "type_name", .value = .{ .string = comptime types.typeName(T, "") } },
-                    .{ .key = "description", .value = .{ .string = doc } },
-                    .{ .key = "default", .value = default },
-                });
-                arguments[i] = .{ .object = members };
+                arguments[i] = try argumentManifest(T, a, name, doc, attrs.defaultValue(T));
             }
             return arguments;
         }
 
-        /// 引数を cm から読む。読めなければエラー文を message に入れて null を返す
-        pub fn readArgs(a: std.mem.Allocator, cm: ?*c.capsule_map, comptime type_name: []const u8, message: *[]const u8) ?Args {
+        /// 引数を cm から読む。読めなければエラー文とコードを failure に入れて null を返す
+        pub fn readArgs(a: std.mem.Allocator, cm: ?*c.capsule_map, comptime type_name: []const u8, failure: *Failure) ?Args {
             var args: Args = undefined;
             inline for (args_info.field_names, args_info.field_types, args_info.field_attrs) |name, T, attrs| {
                 var cp: ?*c.capsule_ptr = null;
@@ -135,14 +130,14 @@ pub fn Signature(comptime f: anytype, comptime what: []const u8, comptime with_s
                     if (attrs.defaultValue(T)) |d| {
                         @field(args, name) = d;
                     } else {
-                        message.* = "argument '" ++ name ++ "' of " ++ type_name ++ " is missing";
+                        failure.* = .{ .code = errors.zig_argument_error, .message = "argument '" ++ name ++ "' of " ++ type_name ++ " is missing" };
                         return null;
                     }
                 } else {
-                    @field(args, name) = types.readArg(T, a, cp) catch |e| {
-                        message.* = switch (e) {
+                    @field(args, name) = types.readArg(T, a, cp, name) catch |e| {
+                        failure.* = .{ .code = types.readErrorCode(e), .message = switch (e) {
                             inline else => |err| "argument '" ++ name ++ "' of " ++ type_name ++ ": " ++ comptime types.describeReadError(T, err),
-                        };
+                        } };
                         return null;
                     };
                 }
@@ -159,6 +154,57 @@ pub fn Signature(comptime f: anytype, comptime what: []const u8, comptime with_s
             return @call(.auto, f, fargs);
         }
     };
+}
+
+/// 引数を読めなかったときのエラーのコードとエラー文
+pub const Failure = struct {
+    code: i64 = errors.zig_argument_error,
+    message: []const u8 = "",
+};
+
+/// マニフェストの引数 1 つ。型付きの型は schema (型参照) を載せる (datatype.md §6)。default は Zig の既定値
+pub fn argumentManifest(comptime T: type, a: std.mem.Allocator, name: []const u8, doc: []const u8, default: ?T) !Value {
+    var type_name: []const u8 = comptime types.typeName(T, "");
+    var schema: ?Value = null;
+    var default_value: Value = .null;
+    if (comptime datatype.isTyped(T)) {
+        const d = try datatype.describe(T, a);
+        type_name = d.type_name;
+        schema = d.schema;
+    }
+    if (T == image.Image) {
+        // Rust・C++ の add_image_arg と同じく、画像の引数の既定値は空のオブジェクト (既定値の検査はしない)
+        default_value = .{ .object = &.{} };
+    } else if (default) |d| {
+        default_value = try types.toValue(T, a, d);
+    }
+    const base = [_]Value.Member{
+        .{ .key = "name", .value = .{ .string = name } },
+        .{ .key = "type_name", .value = .{ .string = type_name } },
+        .{ .key = "description", .value = .{ .string = doc } },
+        .{ .key = "default", .value = default_value },
+    };
+    const members = if (schema) |sc|
+        try a.dupe(Value.Member, &(base ++ [_]Value.Member{.{ .key = "schema", .value = sc }}))
+    else
+        try a.dupe(Value.Member, &base);
+    return .{ .object = members };
+}
+
+/// 戻り値が型付きの型なら、マニフェストに足す output_schema と、古いクライアント向けの type_name だけの outputs (datatype.md §6)。
+/// そうでなければ空
+pub fn outputMembers(comptime R: type, a: std.mem.Allocator) ![]const Value.Member {
+    if (comptime !datatype.isTyped(R)) return &.{};
+    const d = try datatype.describe(R, a);
+    const outputs = try a.dupe(Value.Member, &.{
+        .{ .key = "enum_type", .value = .{ .string = "Primitive" } },
+        .{ .key = "type_name", .value = .{ .string = d.type_name } },
+        .{ .key = "default_value", .value = .null },
+    });
+    return try a.dupe(Value.Member, &.{
+        .{ .key = "output_schema", .value = d.schema },
+        .{ .key = "outputs", .value = .{ .object = outputs } },
+    });
 }
 
 /// Component (juiz.exportComponent) に入れる要素の種類。juiz.processPart などが返す型が part_kind に持つ
