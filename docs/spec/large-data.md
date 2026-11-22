@@ -396,7 +396,7 @@ Topic の profile に、送り手と受け手のそれぞれで次の数を出�
 - **HTTP でフレームを使うこと。** 必要になったら、`Content-Type: application/x-juiz-frame` で受け付ける形で足す。
 - **別マシンへの共有メモリ。** qmp は A だけ。
 
-## 10. C++ / Haskell の画像(#253 で決めたこと)
+## 10. C++ / Haskell / Zig の画像(#253・#576 で決めたこと)
 
 C++ / Haskell のプラグインが画像(`Capsule::Image`)を引数で受け取り、戻り値で返せるようにした。プラグインは juiz と同じプロセスで動くので、画像は libjuiz_sdk の C ABI を通る。一度 `Capsule::Image` になれば Rust の画像と同じなので、IPC・qmp のブローカー越しには §3 のフレームの生バイトで渡り、Rust・Python・ほかの言語の Process とも接続できる。
 
@@ -432,6 +432,14 @@ C++ / Haskell のプラグインが画像(`Capsule::Image`)を引数で受け取
 
 - `juiz_core/tests/integration/plugins/image.rs`: C++(`examples/cpp/component/cpp_image_component`)と Haskell(`examples/haskell/src/ImageComponent.hs`)で、10 形式の引数と戻り値、`BGR8` で返した画像が `RGB8` になること、画像の後ろに続く引数、ContainerProcess、C++ ↔ Haskell の接続(Composite)を、同じプロセスの中と IPC ブローカー越し(720p を含む)で確かめる。OpenCV があれば `cpp_image_opencv_component` で `to_mat` / `from_mat` の往復(ROI を含む)も確かめる(無ければ飛ばす)。
 - `juiz_sdk/src/value/image_converter.rs` の単体テスト: 余白のある `BGR8`、16 bit のバイト順、不正な画像。
+
+### 10.5 Zig(zigjuiz、`juiz.Image`、#576)
+
+- `juiz.Image`(`width`・`height`・`format: juiz.PixelFormat`・`stride`・`data: []const u8`)、`juiz.PixelFormat`(`l8` 〜 `rgba32f`、送るときだけの `bgr8`・`bgra8`。値は `JUIZ_IMAGE_FORMAT_*` と同じ)、`juiz.Image.init`(余白なしの画像を作る。バイト数が合わなければ `error.ImageFormat`)・`row`・`clone`、`PixelFormat.bytesPerPixel`。
+- Process / Container を作る関数 / ContainerProcess の引数の struct に `juiz.Image` のフィールドを書くと、マニフェストの `type_name` は `Image`、`default` は空のオブジェクト(Rust・C++ の `add_image_arg` と同じ)。届いた画像は `capsule_ptr_lock_as_image` で借り、呼び出しの arena に 1 度複製して渡す(C++ の `juiz::Image` で受けるときと同じ)。呼び出しの後も持つときは `clone` で自分のアロケータに複製する。画像でない値なら -1102(`expected an image`)。
+- 戻り値を `juiz.Image`(か `!juiz.Image`)にすると、`capsule_set_image` で複製して返す(行の余白は取り除き、`bgr8`・`bgra8` は `rgb8`・`rgba8` に並べ替える)。`stride` が幅より小さいか `data` が足りなければ `JUIZ_IMAGE_FORMAT_ERROR`(-704)。
+- 複製せずに借りる API(C++ の `juiz::with_image`)はまだ無い(必要になってから)。
+- テスト: `examples/zig/src/image_component_zig.zig`(image_component_zig)を §10.4 の `juiz_core/tests/integration/plugins/image.rs` に加え、C++ と同じ Process と Container を同じプロセスの中と IPC ブローカー越しで確かめ、C++ → Zig・Zig → C++ の接続(Composite)も確かめる。
 
 ## 11. 受け手の内訳と、安い対策(#270)
 

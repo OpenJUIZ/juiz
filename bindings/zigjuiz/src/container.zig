@@ -122,8 +122,8 @@ pub fn ContainerEntry(comptime create: anytype, comptime options: anytype) type 
             defer arena.deinit();
             const a = arena.allocator();
 
-            var message: []const u8 = "";
-            const args = Sig.readArgs(a, cm, type_name, &message) orelse return entry.failToStderr(errors.zig_argument_error, message);
+            var failure: entry.Failure = .{};
+            const args = Sig.readArgs(a, cm, type_name, &failure) orelse return entry.failToStderr(failure.code, failure.message);
             const raw = Sig.invoke({}, .{ .allocator = a }, args);
             const state: State = switch (@typeInfo(Sig.ReturnType)) {
                 .error_union => raw catch |e| {
@@ -223,11 +223,8 @@ pub fn ContainerProcessEntry(comptime f: anytype, comptime options: anytype) typ
                 .{ .key = "arguments", .value = .{ .array = try Sig.manifestArguments(a) } },
                 .{ .key = "container_type", .value = .{ .string = container_type } },
             };
-            const members = if (Sig.is_readonly)
-                try a.dupe(Value.Member, &(base ++ [_]Value.Member{.{ .key = "readonly", .value = .{ .bool = true } }}))
-            else
-                try a.dupe(Value.Member, &base);
-            return .{ .object = members };
+            const readonly: []const Value.Member = if (Sig.is_readonly) &.{.{ .key = "readonly", .value = .{ .bool = true } }} else &.{};
+            return .{ .object = try std.mem.concat(a, Value.Member, &.{ &base, readonly, try entry.outputMembers(Payload, a) }) };
         }
 
         fn call(obj: ?*anyopaque, cm: ?*c.capsule_map, out: ?*c.capsule) callconv(.c) i64 {

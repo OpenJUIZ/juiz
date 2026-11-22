@@ -1,6 +1,6 @@
-//! juiz の Zig の例 (examples/zig) のビルド (issue #573、#574、#575)。zigjuiz (bindings/zigjuiz) を使う。
+//! juiz の Zig の例 (examples/zig) のビルド (issue #573、#574、#575、#576)。zigjuiz (bindings/zigjuiz) を使う。
 //!
-//!   zig build --release -Djuiz-sdk-lib=<libjuiz_sdk のあるディレクトリの絶対パス>
+//!   zig build --release -Djuiz-sdk-lib=<libjuiz_sdk のあるディレクトリの絶対パス> -Djuiz-idl=<juiz-idl のパス>
 //!
 //! できた共有ライブラリは zig-out/lib に置かれる。ふだんは build.sh を使う
 //! (リポジトリの target/debug を渡してビルドし、../../target に写す)。
@@ -29,6 +29,13 @@ const examples = [_][]const u8{
     "zig_part_set_transform",
     // Process・Container・ContainerProcess を 1 つのライブラリにまとめた Component (issue #575)
     "example_component_zig",
+    // 画像の引数・戻り値 (issue #576)
+    "image_component_zig",
+};
+
+/// 型付きの引数の例 (issue #576)。juiz-idl -g zig で作った型 (juiz_types) を読み込む
+const typed_examples = [_][]const u8{
+    "typed_component_zig",
 };
 
 pub fn build(b: *std.Build) void {
@@ -41,6 +48,20 @@ pub fn build(b: *std.Build) void {
         const lib = juiz.addPlugin(.{
             .name = name,
             .root_source_file = b.path(b.fmt("src/{s}.zig", .{name})),
+        });
+        b.installArtifact(lib);
+    }
+    // juiz_idl/test_package/idl/geometry.jidl の型 (common.jidl・stamp.avsc を import する)
+    const idl_dir = "../../juiz_idl/test_package/idl";
+    const geometry = juiz.addTypes(.{
+        .files = &.{b.path(idl_dir ++ "/geometry.jidl")},
+        .depends = &.{ b.path(idl_dir ++ "/common.jidl"), b.path(idl_dir ++ "/stamp.avsc") },
+    });
+    for (typed_examples) |name| {
+        const lib = juiz.addPlugin(.{
+            .name = name,
+            .root_source_file = b.path(b.fmt("src/{s}.zig", .{name})),
+            .imports = &.{.{ .name = "juiz_types", .module = geometry }},
         });
         b.installArtifact(lib);
     }

@@ -80,6 +80,17 @@ pub const PluginOptions = struct {
     /// ライブラリの名前 (lib<名前>.so など)。conf の plugins の型名と同じにする
     name: []const u8,
     root_source_file: std.Build.LazyPath,
+    /// プラグインのソースが読み込むモジュール (addTypes の型など)。juiz は常に読み込める
+    imports: []const std.Build.Module.Import = &.{},
+};
+
+pub const TypesOptions = struct {
+    /// 読む .jidl / .avsc (import した先は juiz-idl が読む)
+    files: []const std.Build.LazyPath,
+    /// import の探し先 (juiz-idl の -I)
+    import_dirs: []const std.Build.LazyPath = &.{},
+    /// import した先のファイル。変わったときに作り直すために書く (CMake の juiz_generate_types の DEPENDS と同じ)
+    depends: []const std.Build.LazyPath = &.{},
 };
 
 /// 利用者の build.zig から使う、juiz のプラグインを作る道具
@@ -93,6 +104,26 @@ pub const Juiz = struct {
     sdk_lib_dir: ?[]const u8,
     /// libjuiz_sdk が見つからないときに失敗させるステップ
     missing_sdk: ?*std.Build.Step,
+    /// juiz-idl のコマンド (-Djuiz-idl、無ければ PATH の juiz-idl)
+    idl_exe: []const u8,
+
+    /// .jidl / .avsc から `juiz-idl -g zig` で型を作り (ビルドのたびではなく、入力が変わったときだけ)、
+    /// 全部の名前空間を読み込む juiz_idl.zig を根にしたモジュールを返す (issue #576、docs/spec/datatype.md §26.3)。
+    /// addPlugin の .imports に `.{ .name = "juiz_types", .module = types }` のように渡し、`@import("juiz_types")` で使う
+    pub fn addTypes(self: Juiz, options: TypesOptions) *std.Build.Module {
+        const b = self.b;
+        const run = b.addSystemCommand(&.{ self.idl_exe, "-g", "zig" });
+        const out = run.addPrefixedOutputDirectoryArg("--out-dir=", "juiz_types");
+        for (options.import_dirs) |d| run.addPrefixedDirectoryArg("--import-dir=", d);
+        for (options.files) |f| run.addFileArg(f);
+        for (options.depends) |f| run.addFileInput(f);
+        return b.createModule(.{
+            .root_source_file = out.path(b, "juiz_idl.zig"),
+            .target = self.target,
+            .optimize = self.optimize,
+            .imports = &.{.{ .name = "juiz", .module = self.module }},
+        });
+    }
 
     /// Zig のファイル 1 つから、juiz のプラグイン (共有ライブラリ) を作る。
     /// rpath は $ORIGIN (macOS は @loader_path) と libjuiz_sdk のディレクトリ
@@ -105,6 +136,7 @@ pub const Juiz = struct {
             .link_libc = true,
             .imports = &.{.{ .name = "juiz", .module = self.module }},
         });
+        for (options.imports) |i| module.addImport(i.name, i.module);
         const lib = b.addLibrary(.{
             .name = options.name,
             .linkage = .dynamic,
@@ -136,6 +168,7 @@ pub const Juiz = struct {
 pub fn init(b: *std.Build, options: InitOptions) Juiz {
     const sdk_lib_opt = b.option([]const u8, "juiz-sdk-lib", "Directory that contains libjuiz_sdk (absolute path)");
     const sdk_opt = b.option([]const u8, "juiz-sdk", "Directory of the extracted libjuiz_sdk archive (default: JUIZ_SDK_HOME/<version> or `juiz sdk path`)");
+    const idl_exe = b.option([]const u8, "juiz-idl", "juiz-idl command used by addTypes (default: juiz-idl in PATH)") orelse "juiz-idl";
     const dep = b.dependency(options.dependency_name, .{
         .target = options.target,
         .optimize = options.optimize,
@@ -162,6 +195,7 @@ pub fn init(b: *std.Build, options: InitOptions) Juiz {
         .module = dep.module("juiz"),
         .sdk_lib_dir = sdk_lib_dir,
         .missing_sdk = missing,
+        .idl_exe = idl_exe,
     };
 }
 

@@ -1,4 +1,4 @@
-//! zigjuiz: Zig で juiz の Process・Container・ContainerProcess・Component を書くためのライブラリ (issue #573、#574、#575)。利用者は `@import("juiz")` で使う。
+//! zigjuiz: Zig で juiz の Process・Container・ContainerProcess・Component を書くためのライブラリ (issue #573、#574、#575、#576)。利用者は `@import("juiz")` で使う。
 //!
 //! ```zig
 //! const juiz = @import("juiz");
@@ -23,8 +23,22 @@ const component = @import("component.zig");
 const pose_ = @import("pose.zig");
 const value = @import("value.zig");
 const errors = @import("errors.zig");
+const datatype_ = @import("datatype.zig");
+const image = @import("image.zig");
 
 pub const Value = value.Value;
+
+// 型付きの型 (juiz-idl -g zig の型と、juiz_type を手で書いた型、docs/spec/datatype.md §26、issue #576)
+pub const TypeInfo = datatype_.TypeInfo;
+pub const Bytes = datatype_.Bytes;
+pub const Map = datatype_.Map;
+/// 型付きの型の道具 (辞書との変換 fromValue / toValue、isTyped など)。ふつうは使わない
+pub const datatype = datatype_;
+
+// 画像 (docs/spec/large-data.md §10.5、issue #576)
+pub const Image = image.Image;
+pub const PixelFormat = image.PixelFormat;
+pub const ImageError = image.ImageError;
 pub const Context = process.Context;
 pub const exportProcess = process.exportProcess;
 pub const exportContainer = container.exportContainer;

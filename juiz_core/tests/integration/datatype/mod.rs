@@ -6,3 +6,4 @@ mod haskell;
 mod python;
 mod rust_native;
 mod type_check;
+mod zig;

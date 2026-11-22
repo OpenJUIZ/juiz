@@ -7,9 +7,10 @@
 - `<namespace>.processes.json`: `process` / `container` 宣言のシグネチャ
 - Rust: struct / enum と `juiz_sdk::types::JuizType` の実装
 - Rust の雛形 (`-g rust-skeleton`): `process` / `container` 宣言から、本体が `todo!()` のコンポーネント `<namespace>.skeleton.rs`
-- Python・C++・Haskell の雛形 (`-g python-skeleton`・`cpp-skeleton`・`haskell-skeleton`): 同じく `<namespace>.skeleton.py`・`<namespace>.skeleton.cpp`・`<CamelCase の名前空間>Component.hs` (pyjuiz・cppjuiz・hsjuiz のコンポーネント。型は `-g python`・`cpp`・`haskell` のものを使う)
+- Python・C++・Haskell・Zig の雛形 (`-g python-skeleton`・`cpp-skeleton`・`haskell-skeleton`・`zig-skeleton`): 同じく `<namespace>.skeleton.py`・`<namespace>.skeleton.cpp`・`<CamelCase の名前空間>Component.hs`・`<名前空間の . を _ にしたもの>_component.zig` (pyjuiz・cppjuiz・hsjuiz・zigjuiz のコンポーネント。型は `-g python`・`cpp`・`haskell`・`zig` のものを使う)
 - C++ (`-g cpp`): 名前空間ごとのヘッダ (`robot.geometry.h`) と全部を読み込む `juiz_idl.h` に struct / enum class と cppjuiz の `juiz::type_traits` の特殊化 (ヘッダのみ)
 - Haskell (`-g haskell`): 名前空間ごとのモジュール (`Robot/Geometry.hs`) に record・直和型と hsjuiz の `JuizType` / `FromCapsule` / `ToCapsule` のインスタンス (Template Haskell なし)
+- Zig (`-g zig`): 名前空間ごとのファイル (`robot/geometry.zig`) と全部を読み込む `juiz_idl.zig` に、素の struct / enum と型の情報 `juiz_type` (辞書との変換は zigjuiz が行う)
 - TypeScript (`-g typescript`): 名前空間ごとの `robot.geometry.ts` と `juiz_idl.ts` に interface・文字列リテラルの union と型参照 (管理画面・`bindings/js` 用、実行時の依存なし)
 - Python (`-g python`): 名前空間ごとのパッケージ (`robot/geometry/__init__.py`) に dataclass / enum.Enum と、`process` / `container` 宣言の型付きクライアント (pyjuiz を使う)
 
@@ -52,7 +53,7 @@ include!(concat!(env!("OUT_DIR"), "/juiz_idl.rs"));
 juiz-idl -o src -g rust-skeleton idl/geometry.jidl   # src/robot.geometry.skeleton.rs ができる
 ```
 
-ほかの言語は `-g python-skeleton`・`-g cpp-skeleton`・`-g haskell-skeleton` です。雛形から 1 つのパッケージ (ビルドと `.juizapp` の設定まで) を作るなら `juiz pkg create <name> -b <lang> --idl <file.jidl>` を使います。
+ほかの言語は `-g python-skeleton`・`-g cpp-skeleton`・`-g haskell-skeleton`・`-g zig-skeleton` です。雛形から 1 つのパッケージ (ビルドと `.juizapp` の設定まで) を作るなら `juiz pkg create <name> -b <lang> --idl <file.jidl>` を使います。
 
 できたファイルを `src/lib.rs` などにコピーして `todo!()` の本体を書きます。型は `crate::robot::geometry::Pose2D` のように参照するので、クレートの一番上で `juiz_idl.rs` を読み込んでおきます。雛形は一度作って手で直していくものなので、build.rs では作りません。
 
@@ -120,6 +121,26 @@ moveTo :: Pose2D -> Double -> IO Pose2D   -- output_schema は結果の型から
 ```
 
 フィールドの関数は型名 + フィールド名 (`pose2DPosition`、`point2DX` など)、列挙の構築子は型名 + 記号 (`MotorModeIdle`) です。
+
+## Zig から使う
+
+```sh
+juiz-idl -g zig -o gen idl/geometry.jidl   # gen/robot/geometry.zig と gen/juiz_idl.zig
+```
+
+ふつうは zigjuiz の build.zig の `juiz.addTypes(.{ .files = &.{b.path("idl/geometry.jidl")} })` がビルドのときに作り、
+`juiz_idl.zig` を根にしたモジュールを返します。`addPlugin` の `.imports` に `juiz_types` という名前で渡します (bindings/zigjuiz/README.md)。
+
+```zig
+const types = @import("juiz_types");
+const Pose2D = types.robot.geometry.Pose2D;
+
+fn moveTo(args: struct { target: Pose2D, speed: f64 = 1.0 }) !Pose2D { // output_schema は戻り値の型から載る
+    return args.target;
+}
+```
+
+フィールド名は IDL のまま (`position.x`)、列挙の記号は snake_case の小文字 (`.idle`) です。
 
 ## TypeScript から使う
 

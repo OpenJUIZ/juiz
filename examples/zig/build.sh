@@ -27,14 +27,19 @@ fi
 
 cd "$here"
 # --release で ReleaseSafe (範囲外アクセスなどの安全検査を残す、build.zig の preferred_optimize_mode) にする
-$zig build --release -Djuiz-sdk-lib="$sdk_dir"
+# 型付きの例 (issue #576) は juiz-idl -g zig で型を作る。cargo build で target/debug にできた juiz-idl を使う
+idl_exe="$repo_root/target/debug/juiz-idl"
+case "$(uname -s)" in
+    MINGW* | MSYS* | CYGWIN*) idl_exe="$(cygpath -m "$idl_exe").exe" ;;
+esac
+$zig build --release -Djuiz-sdk-lib="$sdk_dir" -Djuiz-idl="$idl_exe"
 
 # 例の一覧は build.zig の examples と同じ
 names=(
     increment_process_zig greet_process_zig echo_types_process_zig fail_process_zig
     example_container_zig example_container_zig_increment example_container_zig_get mismatched_container_process_zig
     zig_part zig_part_pose zig_part_set_pose zig_part_try zig_part_peek zig_part_sleep zig_part_lookup zig_part_set_transform
-    example_component_zig
+    example_component_zig image_component_zig typed_component_zig
 )
 for name in "${names[@]}"; do
     lib="zig-out/$lib_dir/$prefix$name.$ext"

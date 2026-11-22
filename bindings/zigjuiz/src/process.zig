@@ -53,15 +53,15 @@ pub fn ProcessEntry(comptime f: anytype, comptime options: anytype) type {
 
         /// マニフェスト。factory は juiz が <factory>_entry_point を探すときのシンボル名
         pub fn manifest(a: std.mem.Allocator, comptime factory: []const u8) !Value {
-            const members = try a.dupe(Value.Member, &.{
+            const base = [_]Value.Member{
                 .{ .key = "type_name", .value = .{ .string = type_name } },
                 .{ .key = "language", .value = .{ .string = "zig" } },
                 .{ .key = "description", .value = .{ .string = description } },
                 .{ .key = "factory", .value = .{ .string = factory } },
                 .{ .key = "use_memo", .value = .{ .bool = use_memo } },
                 .{ .key = "arguments", .value = .{ .array = try Sig.manifestArguments(a) } },
-            });
-            return .{ .object = members };
+            };
+            return .{ .object = try std.mem.concat(a, Value.Member, &.{ &base, try entry.outputMembers(Payload, a) }) };
         }
 
         fn call(cm: ?*c.capsule_map, out: ?*c.capsule) callconv(.c) i64 {
@@ -80,8 +80,8 @@ pub fn callWith(comptime Sig: type, comptime type_name: []const u8, self: Sig.Se
     defer arena.deinit();
     const a = arena.allocator();
 
-    var message: []const u8 = "";
-    const args = Sig.readArgs(a, cm, type_name, &message) orelse return entry.fail(out, errors.zig_argument_error, message);
+    var failure: entry.Failure = .{};
+    const args = Sig.readArgs(a, cm, type_name, &failure) orelse return entry.fail(out, failure.code, failure.message);
     const raw = Sig.invoke(self, .{ .allocator = a }, args);
     const result: Sig.PayloadType = switch (@typeInfo(Sig.ReturnType)) {
         .error_union => raw catch |e| {
@@ -90,8 +90,9 @@ pub fn callWith(comptime Sig: type, comptime type_name: []const u8, self: Sig.Se
         },
         else => raw,
     };
-    types.writeResult(Sig.PayloadType, a, out, result) catch {
-        return entry.fail(out, errors.zig_result_error, "failed to write the result of " ++ type_name);
+    types.writeResult(Sig.PayloadType, a, out, result) catch |e| switch (e) {
+        error.ImageFormat => return entry.fail(out, c.JUIZ_IMAGE_FORMAT_ERROR, "the image returned by " ++ type_name ++ " is invalid (the stride or the length of data does not match the size)"),
+        else => return entry.fail(out, errors.zig_result_error, "failed to write the result of " ++ type_name),
     };
     return c.JUIZ_OK;
 }
