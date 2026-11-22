@@ -187,7 +187,7 @@ my_robot/
 └─ LICENSE-MIT  LICENSE-APACHE   (--license mit-apache のときだけ)
 ```
 
-- `.ps1` は Windows で動かせる言語(Rust・Python・C++)にだけ置く。Haskell・Zig には置かない(Haskell の Windows は #137、Zig の Windows は #579)。
+- `.ps1` は Windows で動かせる言語(Rust・Python・C++)にだけ置く。Haskell・Zig には置かない(Haskell の Windows は #137、Zig の Windows は #588)。
 - `.sh` は実行権限(0755)を付けて書く(Unix のみ。Windows では何もしない)。
 - 改行は LF、文字コードは UTF-8(BOM なし)。
 - git のリポジトリは作らない(`git init` しない)。
@@ -490,11 +490,11 @@ src/<name>.zig
 - `src/<name>.zig`: `juiz.exportComponent` の `.parts` に `juiz.processPart`・`juiz.containerPart`・`juiz.containerProcessPart` を並べる(zigjuiz の README の Component)。関数は C++・Haskell と同じく `<name>_add`・`<name>_create`・`<name>_increment`・`<name>_get`、状態の型は `<Name>State`(Haskell と同じ。zigjuiz・Zig の名前と重ならないように)。引数は struct 1 つ(`args: struct { a: i64 = 0, b: i64 = 0 }`)、足し算は `std.math.add` で溢れを `error.Overflow`(呼び出しのエラー -1101)にする。`<name>_get` は状態を `*const` で受けて readonly にする。`#[cfg(test)]` に当たるテストは置かない(`zig build test` に libjuiz_sdk のリンクが要り、雛形が大きくなるため)。
 - scripts/dev.sh: (build.zig.zon に zigjuiz が無ければ `zig fetch --save=zigjuiz <URL>`)→ `zig build [--release] [-Dtarget=…] [-Djuiz-sdk=…]` → `zig-out/plugins/` の中身(プラグインと libjuiz_sdk)を `app/plugins/<ターゲット>/` に写す。
   - zig は環境変数 `ZIG` で変えられる(`ZIG="python3 -m ziglang"`)。`zig version` が 0.17 でなければ止める(zigjuiz の build.zig もコンパイルエラーにする)。
-  - `--target <ターゲット>`: 別の機械向けにクロスビルドする(app-package.md §12.3)。ターゲットは libjuiz_sdk を配っている Linux・macOS の 4 種で、Zig の名前(`aarch64-linux-gnu`・`aarch64-macos` など)に直して `-Dtarget` に渡す。libjuiz_sdk は `JUIZ_SDK_DIR`、無ければ `juiz sdk path --target <ターゲット>`(`juiz sdk install --target`、#577 で足した)。ホストの分は `-Dtarget` を付けずにネイティブでビルドする。Windows のターゲットは #579 までエラー。
+  - `--target <ターゲット>`: 別の機械向けにクロスビルドする(app-package.md §12.3)。ターゲットは libjuiz_sdk を配っている Linux・macOS の 4 種で、Zig の名前(`aarch64-linux-gnu`・`aarch64-macos` など)に直して `-Dtarget` に渡す。libjuiz_sdk は `JUIZ_SDK_DIR`、無ければ `juiz sdk path --target <ターゲット>`(`juiz sdk install --target`、#577 で足した)。ホストの分は `-Dtarget` を付けずにネイティブでビルドする。Windows のターゲットは #588 までエラー。
   - libjuiz_sdk の場所は `JUIZ_SDK_DIR`、無ければ `--juiz-sdk-dir` に指定した場所(dev.sh に書く。省けば行ごと無い)、それも無ければ zigjuiz が探す(`JUIZ_SDK_HOME`・`juiz sdk path`)。
 - scripts/pack.sh: §5.4 と同じ(`--no-build` で無ければ `scripts/dev.sh --release`)。`app/plugins/` の下を全部入れるので、先に `--target` で作った別の機械の分も同じパッケージに入る(README に手順)。
 - .gitignore は `zig/_base/.gitignore.tmpl` で `common/_base` のものを置き換える(`/zig-out`・`/.zig-cache` と、`/app/plugins/`・`/dist/`・`*.juizapp`)。
-- Windows では生成はするが、Windows の Zig は確かめていない(#579)と警告を出す。`.ps1` は置かない。
+- Windows では生成はするが、Zig の雛形は Windows に未対応(#588)と警告を出す。`.ps1` は置かない。
 
 確かめたこと(2026-11-22、#578): 既定の形で生成し、dev.sh の `<URL>` を手元の HTTP サーバーに置いた zigjuiz のアーカイブ(`scripts/package-zigjuiz.sh`)に向けて、dev.sh の zig fetch → ビルド → 起動 → call が通る。
 
@@ -655,7 +655,7 @@ conf の `{target}` は juiz の置換(app-package.md §5.2)で、この書式�
 | 基礎パッケージ(`kind: base`)・`depends` の雛形 | しない(`kind: app` だけ) | `--kind base` など |
 | 複数クレート・複数 Component のワークスペース | しない(1 雛形 = 1 Component) | |
 | Haskell の Windows | 生成するが警告 | #137 の後に `.ps1` と DLL の作り方を足す |
-| Zig の Windows | 生成するが警告。dev.sh の Windows のターゲットはエラー | #579 の後に `.ps1` と DLL の置き方を足す |
+| Zig の Windows | 生成するが警告。dev.sh の Windows のターゲットはエラー | #588 で `.ps1` と DLL の置き方を足す(zigjuiz 自体の Windows 対応は #579) |
 | Zig の zigjuiz の `.hash` | 雛形に書かず、dev.sh の初回の `zig fetch --save` に任せる(#578) | 版ごとのハッシュを juiz_pkg に埋め込む(公開のたびにアーカイブから計算して書き込む仕組みが要る) |
 | CI のワークフロー(.github/workflows)の雛形 | 置かない | 置く場合は `${{ }}` と置換の書式の衝突を決める |
 

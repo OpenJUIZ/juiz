@@ -422,14 +422,16 @@ impl Plan {
         let mut zigjuiz_rel = None;
         if lang == Lang::Zig && windows {
             warnings.push(
-                "Zig plugins on Windows are not supported by this skeleton yet (juiz issue #579): the skeleton is made for Linux and macOS, without .ps1 scripts"
+                "The Zig skeleton does not support Windows yet (juiz issue #588): it is made for Linux and macOS, without .ps1 scripts"
                     .to_owned(),
             );
         }
         if let (Lang::Zig, Some(zigjuiz_dir)) = (lang, &zigjuiz_dir) {
             // build.zig.zon の依存の .path は雛形からの相対パスでなければならない (Zig は絶対パスを受けない)
             let dest = absolute_through_links(&args.output.clone().unwrap_or_else(|| PathBuf::from(&args.name)));
-            zigjuiz_rel = Some(relative_path(&dest, zigjuiz_dir).ok_or_else(|| {
+            // zigjuiz の側も在る一番深い親を正規化してそろえる (Windows の TEMP の RUNNER~1 のような短い名前は
+            // canonicalize で長い名前になるので、片方だけ正規化すると相対パスがずれる、#579)
+            zigjuiz_rel = Some(relative_path(&dest, &absolute_through_links(zigjuiz_dir)).ok_or_else(|| {
                 PkgError::new(format!(
                     "zigjuiz in {} cannot be written as a path relative to {} (build.zig.zon needs a relative path; put them on the same drive)",
                     slash(zigjuiz_dir),
@@ -1178,7 +1180,7 @@ mod tests {
         assert!(Plan::from_args_with(&parse(&["create", "var", "-b", "zig"]), || None, false).is_err());
         // Windows では警告し、.ps1 は置かない
         let (p, w) = Plan::from_args_with(&parse(&["create", "my_robot", "-b", "zig"]), || None, true).unwrap();
-        assert!(w.iter().any(|w| w.contains("#579")), "{w:?}");
+        assert!(w.iter().any(|w| w.contains("#588")), "{w:?}");
         assert!(!paths(&p).iter().any(|f| f.ends_with(".ps1")));
         assert!(p.summary().contains("scripts/dev.sh"));
         // 言語に関係しないオプション
