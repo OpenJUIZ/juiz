@@ -1,0 +1,16 @@
+juiz.containerPart({{name}}_create, .{
+    .type_name = "{{name}}",
+    .description = "Holds an integer value.",
+    .args = .{ .initial_value = "initial value" },
+}),
+juiz.containerProcessPart({{name}}_increment, .{
+    .type_name = "{{name}}_increment",
+    .container_type = "{{name}}",
+    .description = "Adds step to the value and returns it.",
+    .args = .{ .step = "value to add" },
+}),
+juiz.containerProcessPart({{name}}_get, .{
+    .type_name = "{{name}}_get",
+    .container_type = "{{name}}",
+    .description = "Returns the value.",
+}),

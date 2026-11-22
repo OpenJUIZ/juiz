@@ -1,0 +1,22 @@
+//! Builds the juiz plugin lib{{name}} (a shared library) with zigjuiz.
+//!
+//!   zig build --release            puts the plugin and libjuiz_sdk in zig-out/plugins/
+//!   zig build -Djuiz-sdk=<dir>     uses libjuiz_sdk extracted in <dir> (default: `juiz sdk path`)
+//!
+//! scripts/dev.sh runs this and copies zig-out/plugins/ to app/plugins/<target>/.
+const std = @import("std");
+const zigjuiz = @import("zigjuiz");
+
+pub fn build(b: *std.Build) void {
+    const juiz = zigjuiz.init(b, .{
+        .target = b.standardTargetOptions(.{}),
+        // --release builds with ReleaseSafe (keeps the safety checks such as out-of-bounds access)
+        .optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSafe }),
+    });
+    const lib = juiz.addPlugin(.{
+        .name = "{{name}}",
+        .root_source_file = b.path("src/{{name}}.zig"),
+    });
+    // zig-out/plugins/: the plugin and libjuiz_sdk side by side, with the rpath $ORIGIN (@loader_path on macOS)
+    juiz.installBundle(lib, .{});
+}

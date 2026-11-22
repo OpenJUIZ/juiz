@@ -505,6 +505,7 @@ transforms:
 | Rust | `plugins/<target>/` に so / dylib / dll | C ABI のプラグインだけなら、その ABI の版を読める juiz。Rust ABI のプラグイン(EC・ブローカーなど)を含むなら、`juiz` で指定された版で、同じ rustc でビルドされた juiz(§12.1) |
 | C++ | プラグインと libjuiz_sdk(と自分で同梱したいライブラリ) | 対応する版の juiz |
 | Haskell | プラグインと libjuiz_sdk と GHC の共有ライブラリ・libffi・libgmp(§12.2) | 対応する版の juiz |
+| Zig | プラグインと libjuiz_sdk(§12.2)。1 台から複数のターゲットの分を作れる(§12.3) | 対応する版の juiz |
 | Python | `.py` | Python を埋め込める juiz(pip の juiz-cli が楽)と `python.requires` のパッケージ |
 
 ### 12.1 Rust のプラグインと rustc
@@ -534,8 +535,23 @@ C ABI のプラグインは libjuiz_sdk を通して値を受け渡すので、l
 
 - C++(CMake): `find_package(juiz_sdk)` の後で `juiz_sdk_bundle(<target>)` を呼ぶ。`<target>` の rpath を `$ORIGIN` / `@loader_path` だけにし(ビルドした場所でも SDK の絶対パスを書き込まない)、ビルドした `<target>` の隣に libjuiz_sdk(Windows は `juiz_sdk.dll`)を写す。できたディレクトリの中身を `plugins/<ターゲット名>/` に置く。
 - Haskell など、ほかの共有ライブラリにも依存するもの: `scripts/bundle-plugin-deps.sh <プラグイン> <出力ディレクトリ>` で、プラグインと依存するライブラリを 1 つのディレクトリに集め、どれも隣を探すように書き換える(Linux は patchelf で RUNPATH を `$ORIGIN`、macOS は install_name_tool で `@rpath/<名前>` と `@loader_path`、書き換えた後に codesign で署名し直す)。Haskell のプラグインは libjuiz_sdk のほかに GHC の共有ライブラリ(`libHSbase-*`、`libHSrts*` など、cabal の `foreign-library` は base と RTS にも動的リンクする)と libffi・libgmp に依存するので、これで全部を集める。Windows は対象外(Haskell の Windows は #137)。
+- Zig(zigjuiz の build.zig、#577): `juiz.addPlugin` で作ったライブラリを `juiz.installBundle(lib, .{})` に渡す。rpath を `$ORIGIN` / `@loader_path` だけにし(zig がリンクしたライブラリのディレクトリを足す rpath も止める)、`zig build` で `zig-out/plugins/` にプラグインと libjuiz_sdk を並べて置く。C++ の `juiz_sdk_bundle` と同じく、その中身を `plugins/<ターゲット名>/` に置く。zigjuiz は libc のほかに依存しないので、Haskell のような集め直しは要らない。Windows は #579 で確かめる。
 - 写さない「OS の基本のライブラリ」は、Linux は glibc(libc・libm・libdl・libpthread・librt・libutil・libresolv・ld-linux)と libgcc_s・libstdc++、macOS は `/usr/lib/` と `/System/` の下。受け取る側の glibc が作った側より古いと動かないので、Linux 向けは古めの環境(Ubuntu 22.04 など)でビルドする。
 - `juiz pack` は、ホストのターゲットのネイティブのプラグインについて依存するライブラリを調べ(Linux は `ldd`、macOS は `otool -L`)、プラグインの隣にも OS の基本のライブラリにも無いもの(見つからない、またはパッケージの外で見つかった)を警告する。ほかのターゲットのプラグインは調べられないので、`scripts/bundle-plugin-deps.sh --check <プラグイン>` をその OS で使う。
+
+### 12.3 Zig のクロスビルド(#577)
+
+Zig は 1 台から別の OS・CPU 向けにビルドできるので、Zig のプラグインだけのパッケージは、1 台で複数のターゲットの `plugins/<ターゲット名>/` を作れる。
+
+1. そのターゲットの libjuiz_sdk を入れる: `juiz sdk install --target <ターゲット名>`(既定の置き場所は `~/.juiz/sdk/<版>-<ターゲット名>`、`juiz sdk path --target <ターゲット名>` で表示)。ターゲット名は Releases に置いている 5 種(`x86_64-unknown-linux-gnu`、`aarch64-unknown-linux-gnu`、`x86_64-apple-darwin`、`aarch64-apple-darwin`、`x86_64-pc-windows-msvc`)。
+2. `zig build --release -Dtarget=<Zig のターゲット> -Djuiz-sdk=<1 の場所>`。Zig のターゲットは `aarch64-linux-gnu`・`x86_64-linux-gnu`・`aarch64-macos`・`x86_64-macos`。できた `zig-out/plugins/` を `plugins/<ターゲット名>/` に置く。`juiz pkg create -b zig` の雛形では `scripts/dev.sh --release --target <ターゲット名>` が 1〜2 をまとめて行う(pkg.md §6.6)。
+3. 全部のターゲットのディレクトリを置いてから `juiz pack` する。pack はホストのターゲットのプラグインだけ依存するライブラリを調べる(§12.2)。
+
+確かめたこと(2026-11-22、Linux x86_64 の Zig 0.17.1、libjuiz_sdk 0.3.2 の Releases のアーカイブ): `aarch64-unknown-linux-gnu`(RUNPATH `$ORIGIN`、`libjuiz_sdk.so` を NEEDED)と `aarch64-apple-darwin`(LC_RPATH `@loader_path`、`@rpath/libjuiz_sdk.dylib` を読み込む)のプラグインができ、ホストの分と一緒に 1 つの .juizapp(`targets` に 3 つ)にできた。別の機械での読み込みはこのクラウド環境では確かめていない(macOS の CI で確かめるのは #579)。
+
+- Linux 向けは、Zig が持っている glibc の既定の版(ホスト向けのビルドはホストの glibc)にリンクする。受け取る側の glibc がそれより古いと動かない(§12.2 と同じ注意)。古い glibc に合わせるときは `-Dtarget=x86_64-linux-gnu.2.31` のように版を付ける。
+- macOS 向けは Xcode が無くてもリンクできる(Zig が libSystem の定義を持っている)。arm64 は ad-hoc 署名される。
+- Windows 向け(`x86_64-pc-windows-msvc` の libjuiz_sdk に `x86_64-windows-gnu` でリンクする)は #579 で確かめる。
 
 ## 13. 後回しにするもの
 
@@ -563,6 +579,7 @@ format 1 では行わない。足すときは format を上げるか、format 1 
 | 6 サンプルとサイト | #288 | — |
 | conf の ID のつなぎ先 | #425 | §10.4 |
 | `--remap` と `--depend <名前>=none` | #452 | §7、§7.3、§10.2 |
+| Zig の同梱とクロスビルド | #577 | §12.2、§12.3 |
 | Rust プラグインの C ABI(#291 の Step 4) | #332 | §4.1 の `rust.abi`・`rust.rustc`、§4.3、§6.3 の 6、§9 の段 6・10、§12.1(#328 で直し、#332 で実装) |
 | 段 6〜8 を展開の前に行う | #325 | §9 |
 | Container のモデルの検査(ContainerModel Step 3) | #383 | §6.3 の 9 |

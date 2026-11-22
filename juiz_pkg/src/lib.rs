@@ -53,6 +53,8 @@ pub enum Lang {
     #[value(name = "cpp", alias = "c++")]
     Cpp,
     Haskell,
+    /// zigjuiz (issue #577)
+    Zig,
 }
 
 impl Lang {
@@ -63,6 +65,7 @@ impl Lang {
             Lang::Python => "python",
             Lang::Cpp => "cpp",
             Lang::Haskell => "haskell",
+            Lang::Zig => "zig",
         }
     }
 
@@ -73,6 +76,7 @@ impl Lang {
             Lang::Python => "python",
             Lang::Cpp => "c++",
             Lang::Haskell => "haskell",
+            Lang::Zig => "zig",
         }
     }
 
@@ -84,9 +88,14 @@ impl Lang {
         }
     }
 
-    /// Windows 向けの scripts/*.ps1 があるか (Haskell の Windows は #137 まで無い、§5.3)
+    /// Windows 向けの scripts/*.ps1 があるか (Haskell の Windows は #137、Zig の Windows は #579 まで無い、§5.3)
     pub fn has_ps1(self) -> bool {
-        self != Lang::Haskell
+        !matches!(self, Lang::Haskell | Lang::Zig)
+    }
+
+    /// libjuiz_sdk を使う言語か (C ABI のプラグインで、.juizapp に libjuiz_sdk を同梱する、§6.3・§6.4・§6.6)
+    pub fn uses_sdk(self) -> bool {
+        matches!(self, Lang::Cpp | Lang::Haskell | Lang::Zig)
     }
 
     /// ビルドして app/plugins/<target>/ に置く scripts/dev.* があるか

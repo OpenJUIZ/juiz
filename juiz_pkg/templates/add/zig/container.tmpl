@@ -1,0 +1,20 @@
+/// State of the container `{{name}}`.
+const {{Name}}State = struct {
+    value: i64,
+};
+
+/// Makes the state of a container `{{name}}`. initial_value comes from the entry of the container in app.conf
+fn {{name}}_create(args: struct { initial_value: i64 = 0 }) {{Name}}State {
+    return .{ .value = args.initial_value };
+}
+
+/// Adds step to the value and returns it.
+fn {{name}}_increment(self: *{{Name}}State, args: struct { step: i64 = 1 }) !i64 {
+    self.value = try std.math.add(i64, self.value, args.step);
+    return self.value;
+}
+
+/// Returns the value. It takes the state as *const, so it is readonly.
+fn {{name}}_get(self: *const {{Name}}State) i64 {
+    return self.value;
+}

@@ -1,0 +1,17 @@
+.{
+    // {{name}}: a juiz component written in Zig (juiz pkg create of juiz {{juiz_version}})
+    .name = .{{name}},
+    .version = "0.1.0",
+    // A random id of this package (its upper 32 bits are the checksum of .name). Keep it when you copy the project
+    .fingerprint = {{zig_fingerprint}},
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        // zigjuiz {{juiz_version}}: the Zig library of juiz, in the juiz source (a path relative to this directory)
+        .zigjuiz = .{ .path = "{{zigjuiz_path}}" },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

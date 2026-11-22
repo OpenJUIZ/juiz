@@ -8,7 +8,7 @@ Zig で書いた関数を、comptime に C の関数(juiz が探す `manifest_en
 - 対応する Zig は **0.17.x だけ** です(版を 1 つに固定しています)。違う版では build.zig がコンパイルエラーにします。
 - zigjuiz の版は juiz と同じで、使う juiz・libjuiz_sdk と同じ版を使います。
 - いまできるのは Process・Container・ContainerProcess、1 ライブラリに複数入れる Component、ContainerPose の読み書き、
-  型付きの引数(`juiz-idl -g zig`)と画像です。Windows の確認は #578 で足します。
+  型付きの引数(`juiz-idl -g zig`)と画像です。Windows の確認は #579 で足します。
 
 ## 書き方
 
@@ -295,7 +295,7 @@ fn poseMove(args: struct { pose: Pose2D, dx: f64 = 1 }) Pose2D {
   `JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR`(-702)です。戻り値は辞書にして返します。
 - 型の対応: `boolean`・`int`・`long`・`float`・`double` は `bool`・`i32`・`i64`・`f32`・`f64`、`string` は `[]const u8`、`bytes` は `juiz.Bytes`、
   `array<T>` は `[]const T`、`map<T>` は `juiz.Map(T)`、`T?` は `?T`、`any` は `juiz.Value`。enum の記号は snake_case の小文字(`Idle` → `.idle`)。
-- `juiz-idl` は `-Djuiz-idl=<パス>`、無ければ PATH から探します。`juiz-idl -g zig-skeleton` で、.jidl の `process` / `container` 宣言から雛形も作れます。
+- `juiz-idl` は `-Djuiz-idl=<パス>`、無ければ PATH から探し、それも無ければ `juiz idl`(cargo の juiz_app・pip の juiz-cli に入っているもの)を使います。`juiz-idl -g zig-skeleton` で、.jidl の `process` / `container` 宣言から雛形も作れます。
 - IDL を使わずに手で書くこともできます。
 
 ```zig
@@ -330,7 +330,7 @@ fn invert(ctx: juiz.Context, args: struct { img: juiz.Image }) !juiz.Image {
 
 ## ビルド
 
-利用者の `build.zig.zon` の `dependencies` に zigjuiz を入れ(配布のアーカイブと `zig fetch` での取り込みは issue #577 で用意します。
+利用者の `build.zig.zon` の `dependencies` に zigjuiz を入れ(配布のアーカイブと `zig fetch` での取り込みは issue #578 で用意します。
 それまではリポジトリの `bindings/zigjuiz` を `.path` で指します)、`build.zig` を次のように書きます。
 
 ```zig
@@ -351,6 +351,40 @@ pub fn build(b: *std.Build) void {
 ```
 
 `zigjuiz.init` は 1 つの build.zig で 1 回だけ呼び、プラグインごとに `addPlugin` を呼びます。できたライブラリは `zig-out/lib` に置かれます。
+
+`juiz pkg create <名前> -b zig` で、この形の build.zig と Component のソース・conf・`.juizapp` を作る scripts の入った雛形を作れます(issue #577、docs/spec/pkg.md §6.6)。
+
+### .juizapp に入れる(`installBundle`)
+
+`.juizapp` のプラグインは、libjuiz_sdk を隣に置いて配ります(docs/spec/app-package.md §12.2)。`b.installArtifact(lib)` の代わりに
+`juiz.installBundle(lib, .{})` を呼ぶと、`zig build` で `zig-out/plugins/` にプラグインと libjuiz_sdk を並べて置き、
+プラグインの rpath を `$ORIGIN`(macOS は `@loader_path`)だけにします(libjuiz_sdk の絶対パスを書き込まない)。
+その中身をそのまま `.juizapp` の `plugins/<ターゲット名>/` に置けば、libjuiz_sdk を入れていない機械でも読み込めます。
+置き場所は `.dest_dir`(既定 `"plugins"`、`zig-out` からの相対)で変えられます。
+
+```zig
+const lib = juiz.addPlugin(.{ .name = "my_robot", .root_source_file = b.path("src/my_robot.zig") });
+juiz.installBundle(lib, .{}); // zig-out/plugins/libmy_robot.so と libjuiz_sdk.so
+```
+
+### 別の機械向けにビルドする
+
+Zig は 1 台から別の OS・CPU 向けにビルドできます。そのターゲットの libjuiz_sdk を `juiz sdk install --target <ターゲット名>` で入れ、
+`-Dtarget` と `-Djuiz-sdk` を付けます(docs/spec/app-package.md §12.3)。
+
+```sh
+juiz sdk install --target aarch64-unknown-linux-gnu
+zig build --release -Dtarget=aarch64-linux-gnu -Djuiz-sdk="$(juiz sdk path --target aarch64-unknown-linux-gnu)"
+```
+
+| libjuiz_sdk のターゲット名(`plugins/<ターゲット名>/`) | Zig の `-Dtarget` |
+|---|---|
+| `x86_64-unknown-linux-gnu` | `x86_64-linux-gnu` |
+| `aarch64-unknown-linux-gnu` | `aarch64-linux-gnu` |
+| `x86_64-apple-darwin` | `x86_64-macos` |
+| `aarch64-apple-darwin` | `aarch64-macos` |
+
+Windows 向けは #579 で確かめます。
 
 ### libjuiz_sdk の探し方
 

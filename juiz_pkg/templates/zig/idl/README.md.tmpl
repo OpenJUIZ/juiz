@@ -1,0 +1,78 @@
+# {{name}}
+
+A juiz component written in Zig. It was made with `juiz pkg create --idl` of juiz {{juiz_version}},
+from the process / container declarations of `{{idl_main}}`.
+
+License: {{license}}
+
+## What is inside
+
+{{types_table}}
+
+| Path | What it is |
+| --- | --- |
+| `{{idl_main}}` | The types and the declarations (JIDL) |
+| `src/{{name}}.zig` | The Component. Each function is a type, listed in `juiz.exportComponent` at the end. Write the bodies (`return error.NotImplemented`) |
+| `build.zig` | Generates the Zig types of the `.jidl` (`juiz.addTypes`), builds the plugin `lib{{name}}` with zigjuiz, and puts it with libjuiz_sdk in `zig-out/plugins/` |
+| `build.zig.zon` | The Zig package. It points to zigjuiz (the Zig library of juiz) in the juiz source |
+| `app/app.conf` | The configuration to start juiz with. It is also the entry of the `.juizapp` package |
+| `app/juizapp.yaml` | The `.juizapp` manifest (name, version, required juiz version) |
+| `scripts/dev.sh` | Build the plugin and put it with libjuiz_sdk in `app/plugins/<target>/` (`--target` for another machine) |
+| `scripts/pack.sh` | Build in release mode and make `dist/{{name}}-<version>.juizapp` |
+
+## Requirements
+
+Linux or macOS. Zig plugins on Windows are not supported by this skeleton yet (juiz issue #579).
+
+- juiz {{juiz_version}} (`juiz --version`). Install it with `cargo install juiz_app --version {{juiz_version}}` or `pip install juiz-cli=={{juiz_version}}`
+- Zig 0.17.x ([ziglang.org](https://ziglang.org/download/), or `pip install ziglang==0.17.1` and `ZIG="python3 -m ziglang" scripts/dev.sh`).
+  zigjuiz supports only this version of Zig
+- `juiz-idl` or `juiz` in PATH: the build generates the types with `juiz-idl -g zig` (or `juiz idl -g zig`)
+- libjuiz_sdk {{juiz_version}} in `{{juiz_sdk_dir}}`. Install it with `juiz sdk install` (`juiz sdk path` prints where it is)
+- The juiz source of {{juiz_version}} for zigjuiz, in `{{zigjuiz_dir}}`
+
+`build.zig.zon` points to zigjuiz with the path `{{zigjuiz_path}}`, relative to this directory (Zig does not take an absolute path there).
+If you move this project or zigjuiz, change the path in `build.zig.zon`.
+
+zigjuiz and libjuiz_sdk must be the same version as juiz: juiz does not load a plugin that carries another version of libjuiz_sdk.
+`app/juizapp.yaml` requires `juiz: "={{juiz_version}}"` for the same reason.
+When you update juiz, get zigjuiz and libjuiz_sdk of the new version, and change `build.zig.zon` and `app/juizapp.yaml`.
+To use libjuiz_sdk in another directory, run `JUIZ_SDK_DIR=<dir> scripts/dev.sh` (or `zig build -Djuiz-sdk=<dir>`).
+
+## Write, build, run and call
+
+The functions in `src/{{name}}.zig` have the arguments and the return values of the `.jidl`, and their bodies are
+`return error.NotImplemented`: calling one before you write it fails. The example calls below use the default values, or a value of the type.
+
+```sh
+{{next_steps}}
+```
+
+A function returns an error (`error.Overflow` and so on) to fail a call; juiz reports it and keeps running.
+A panic stops juiz, so the release build keeps the safety checks (ReleaseSafe).
+
+## Changing the .jidl
+
+`zig build` generates the Zig types of `{{idl_main}}` again when it changes (the module `juiz_types`).
+When you change the declarations, change the functions and the parts of `juiz.exportComponent` in `src/{{name}}.zig` and `app/app.conf` to match
+(`juiz idl -g zig-skeleton -o <dir> {{idl_main}}` writes the functions of all the declarations again, to copy from).
+When the `.jidl` imports another file, add it to `.depends` of `juiz.addTypes` in `build.zig`.
+
+## Versions
+
+The package version is `0.1.0` in both `build.zig.zon` and `app/juizapp.yaml`. When you release a new version, change both.
+
+## Plugins for several machines in one package
+
+Zig builds for other machines from this one. Install libjuiz_sdk of each target once, build for it, and make the package:
+
+```sh
+juiz sdk install --target aarch64-unknown-linux-gnu
+scripts/dev.sh --release --target aarch64-unknown-linux-gnu   # app/plugins/aarch64-unknown-linux-gnu/
+juiz sdk install --target aarch64-apple-darwin
+scripts/dev.sh --release --target aarch64-apple-darwin        # app/plugins/aarch64-apple-darwin/
+scripts/pack.sh                                               # builds for this machine, packs every app/plugins/<target>/
+```
+
+The targets are x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu, x86_64-apple-darwin and aarch64-apple-darwin.
+Each `app/plugins/<target>/` holds the plugin and libjuiz_sdk of that target.

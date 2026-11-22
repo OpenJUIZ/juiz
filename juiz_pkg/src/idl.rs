@@ -123,6 +123,10 @@ impl IdlPlan {
             Lang::Cpp => {
                 juiz_idl::generate(&model, &[OutputKind::Cpp]).map_err(|e| err(path, e))?;
             }
+            // Zig は build.zig の juiz.addTypes がビルドのときに作る (§6.6)
+            Lang::Zig => {
+                juiz_idl::generate(&model, &[OutputKind::Zig]).map_err(|e| err(path, e))?;
+            }
             Lang::Haskell => {
                 let files = juiz_idl::generate(&model, &[OutputKind::Haskell])
                     .map_err(|e| err(path, e))?;
@@ -206,7 +210,31 @@ impl IdlPlan {
                     .map_err(e)?;
                 (format!("src/{module}.hs"), text)
             }
+            Lang::Zig => {
+                let doc = format!(
+                    "//! {name}: a juiz component made from {main} (juiz pkg create --idl).\n\
+                     //!\n\
+                     //! Write the body of each function (replace the `return error.NotImplemented` lines).\n\
+                     //! The arguments and the return values are typed by the .jidl: the record and enum types are in\n\
+                     //! the module juiz_types, which build.zig generates from {main} (juiz.addTypes).\n\
+                     //! When you change {main}, change the functions and the parts here to match.\n",
+                    main = self.main
+                );
+                let text = juiz_idl::zig_skeleton_items(&self.signatures, name, &doc).map_err(e)?;
+                (format!("src/{name}.zig"), text)
+            }
         })
+    }
+
+    /// Zig の build.zig の addTypes の .depends (渡した .jidl のほかの写しを b.path で並べたもの)
+    pub fn zig_depends(&self) -> String {
+        self.files
+            .iter()
+            .map(|(p, _)| p.as_str())
+            .filter(|p| *p != self.main)
+            .map(|p| format!("b.path(\"{p}\")"))
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 
     /// C++ の juiz_generate_types の DEPENDS (渡した .jidl のほかの写し、空白区切り)。無ければ None
@@ -235,6 +263,7 @@ impl IdlPlan {
             Lang::Python => format!("app/python/{name}.py"),
             Lang::Cpp => format!("src/{name}.cpp"),
             Lang::Haskell => format!("src/{}.hs", names::camel(name)),
+            Lang::Zig => format!("src/{name}.zig"),
         }
     }
 
@@ -245,6 +274,7 @@ impl IdlPlan {
             Lang::Python => "raise NotImplementedError",
             Lang::Cpp => "throw std::runtime_error",
             Lang::Haskell => "error \"…\"",
+            Lang::Zig => "return error.NotImplemented",
         };
         format!(
             "# write the bodies of the functions ({what}) in {}, then",
@@ -558,9 +588,9 @@ record Goal { juiz_std.geometry.Pose2D pose; double tolerance = 0.1; Mode mode; 
     #[test]
     fn errors() {
         let d = temp("errors");
-        // 4 つの言語で読める
+        // 5 つの言語で読める
         let p = write_jidl(&d, "a.jidl", "namespace a; process long f(long x);");
-        for lang in [Lang::Rust, Lang::Python, Lang::Cpp, Lang::Haskell] {
+        for lang in [Lang::Rust, Lang::Python, Lang::Cpp, Lang::Haskell, Lang::Zig] {
             assert!(IdlPlan::load(&p, lang).is_ok(), "{lang:?}");
         }
         // 無いファイル・文法の誤り

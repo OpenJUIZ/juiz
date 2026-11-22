@@ -1,9 +1,13 @@
 //! libjuiz_sdk の取得と場所の表示 (issue #548)
 //!
 //! ```text
-//! juiz sdk install [--version <版>] [--dir <dir>] [--force]
-//! juiz sdk path [--version <版>] [--dir <dir>] [--cmake-dir]
+//! juiz sdk install [--version <版>] [--target <ターゲット>] [--dir <dir>] [--force]
+//! juiz sdk path [--version <版>] [--target <ターゲット>] [--dir <dir>] [--cmake-dir]
 //! ```
+//!
+//! `--target` (issue #577) はホストと別の OS・CPU 向けのアーカイブを入れる。Zig のプラグインを 1 台から
+//! 複数のターゲット向けにクロスビルドするときに使う。既定の置き場所は `<JUIZ_SDK_HOME>/<版>-<ターゲット>`
+//! (ホストのターゲットを書いたときは、省いたときと同じ `<JUIZ_SDK_HOME>/<版>`)。
 //!
 //! C++ / Haskell のプラグインは、juiz と同じ版の libjuiz_sdk とヘッダ (GitHub Releases の
 //! `juiz_sdk-<版>-<ターゲット>.tar.gz`、Windows は `.zip`、#145・#273) を使ってビルドする。
@@ -36,7 +40,13 @@ pub(crate) enum SdkSubCommands {
         #[arg(long = "version")]
         version: Option<String>,
 
-        /// Directory to install into (default: ~/.juiz/sdk/<version>; JUIZ_SDK_HOME changes ~/.juiz/sdk)
+        /// Target triple of the archive, for cross builds (default: this machine; one of
+        /// x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu, x86_64-apple-darwin, aarch64-apple-darwin, x86_64-pc-windows-msvc)
+        #[arg(long = "target")]
+        target: Option<String>,
+
+        /// Directory to install into (default: ~/.juiz/sdk/<version>, or ~/.juiz/sdk/<version>-<target> with --target
+        /// for another machine; JUIZ_SDK_HOME changes ~/.juiz/sdk)
         #[arg(long = "dir")]
         dir: Option<String>,
 
@@ -50,6 +60,10 @@ pub(crate) enum SdkSubCommands {
         /// Version (default: the version of this juiz)
         #[arg(long = "version")]
         version: Option<String>,
+
+        /// Target triple (same as 'juiz sdk install --target')
+        #[arg(long = "target")]
+        target: Option<String>,
 
         /// Directory where it was installed (same as 'juiz sdk install --dir')
         #[arg(long = "dir")]
@@ -66,18 +80,13 @@ pub(crate) fn run_sdk_command(subcommand: &SdkSubCommands) -> i32 {
     let r: Result<()> = match subcommand {
         SdkSubCommands::Install {
             version,
+            target,
             dir,
             force,
         } => (|| -> Result<()> {
             let version = resolve_version(version.as_deref())?;
-            let dest = resolve_dir(&version, dir.as_deref())?;
-            let target = host_target().ok_or_else(|| {
-                anyhow!(
-                    "libjuiz_sdk is not distributed for {} {}. Build it with 'cargo build -p juiz_sdk' in the juiz repository.",
-                    std::env::consts::OS,
-                    std::env::consts::ARCH
-                )
-            })?;
+            let target = resolve_target(target.as_deref())?;
+            let dest = resolve_dir(&version, target, dir.as_deref())?;
             let base_url = std::env::var("JUIZ_SDK_BASE_URL")
                 .ok()
                 .filter(|s| !s.is_empty())
@@ -103,12 +112,14 @@ pub(crate) fn run_sdk_command(subcommand: &SdkSubCommands) -> i32 {
         })(),
         SdkSubCommands::Path {
             version,
+            target,
             dir,
             cmake_dir,
         } => (|| -> Result<()> {
             let version = resolve_version(version.as_deref())?;
-            let dest = resolve_dir(&version, dir.as_deref())?;
-            println!("{}", installed_path(&version, &dest, *cmake_dir)?.display());
+            let target = resolve_target(target.as_deref())?;
+            let dest = resolve_dir(&version, target, dir.as_deref())?;
+            println!("{}", installed_path(&version, target, &dest, *cmake_dir)?.display());
             Ok(())
         })(),
     };
@@ -130,12 +141,53 @@ fn resolve_version(version: Option<&str>) -> Result<String> {
     Ok(v.to_owned())
 }
 
-/// SDK を置くディレクトリ。`--dir` が無ければ `<JUIZ_SDK_HOME>/<版>`
-fn resolve_dir(version: &str, dir: Option<&str>) -> Result<PathBuf> {
+/// 配布しているアーカイブのターゲット (sdk-release.yml の 5 種)
+const RELEASED_TARGETS: &[&str] = &[
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+];
+
+/// `--target` の指定を確かめる。省けばこの juiz が動いている OS・CPU
+fn resolve_target(target: Option<&str>) -> Result<&'static str> {
+    match target {
+        Some(t) => RELEASED_TARGETS
+            .iter()
+            .find(|r| **r == t)
+            .copied()
+            .ok_or_else(|| {
+                anyhow!(
+                    "libjuiz_sdk is not distributed for the target '{t}'. Use one of: {}",
+                    RELEASED_TARGETS.join(", ")
+                )
+            }),
+        None => host_target().ok_or_else(|| {
+            anyhow!(
+                "libjuiz_sdk is not distributed for {} {}. Build it with 'cargo build -p juiz_sdk' in the juiz repository.",
+                std::env::consts::OS,
+                std::env::consts::ARCH
+            )
+        }),
+    }
+}
+
+/// SDK を置くディレクトリ。`--dir` が無ければ `<JUIZ_SDK_HOME>/<版>`、
+/// ホストと別のターゲットなら `<JUIZ_SDK_HOME>/<版>-<ターゲット>`
+fn resolve_dir(version: &str, target: &str, dir: Option<&str>) -> Result<PathBuf> {
     if let Some(d) = dir {
         return Ok(PathBuf::from(d));
     }
-    Ok(sdk_home()?.join(version))
+    Ok(sdk_home()?.join(default_dir_name(version, target, host_target())))
+}
+
+fn default_dir_name(version: &str, target: &str, host: Option<&str>) -> String {
+    if host == Some(target) {
+        version.to_owned()
+    } else {
+        format!("{version}-{target}")
+    }
 }
 
 /// `JUIZ_SDK_HOME`、無ければ `~/.juiz/sdk` (Windows は `%USERPROFILE%\.juiz\sdk`)
@@ -188,15 +240,20 @@ fn cmake_dir(dir: &Path) -> PathBuf {
 }
 
 /// `juiz sdk path` の出力。入っていなければ `juiz sdk install` を案内するエラー
-fn installed_path(version: &str, dir: &Path, want_cmake_dir: bool) -> Result<PathBuf> {
+fn installed_path(version: &str, target: &str, dir: &Path, want_cmake_dir: bool) -> Result<PathBuf> {
     if !marker(dir).is_file() {
         bail!(
-            "libjuiz_sdk {version} is not installed in {}. Run 'juiz sdk install{}'.",
+            "libjuiz_sdk {version} is not installed in {}. Run 'juiz sdk install{}{}'.",
             dir.display(),
             if version == JUIZ_VERSION {
                 String::new()
             } else {
                 format!(" --version {version}")
+            },
+            if host_target() == Some(target) {
+                String::new()
+            } else {
+                format!(" --target {target}")
             }
         );
     }
@@ -486,6 +543,36 @@ mod tests {
         assert_eq!(archive_name("0.2.11", "aarch64-apple-darwin").1, "tar.gz");
     }
 
+    /// `--target` (issue #577): 配布している 5 種だけを受け、ホストと別なら置き場所を `<版>-<ターゲット>` にする
+    #[test]
+    fn other_targets() {
+        for t in RELEASED_TARGETS {
+            assert_eq!(resolve_target(Some(t)).unwrap(), *t);
+        }
+        let e = resolve_target(Some("riscv64gc-unknown-linux-gnu")).unwrap_err();
+        assert!(e.to_string().contains("aarch64-apple-darwin"), "{e}");
+        if let Some(h) = host_target() {
+            assert_eq!(resolve_target(None).unwrap(), h);
+        }
+        for (os, arch) in [("linux", "x86_64"), ("linux", "aarch64"), ("macos", "aarch64"), ("macos", "x86_64"), ("windows", "x86_64")] {
+            assert!(RELEASED_TARGETS.contains(&target_for(os, arch).unwrap()));
+        }
+        let host = Some("x86_64-unknown-linux-gnu");
+        assert_eq!(default_dir_name("1.2.3", "x86_64-unknown-linux-gnu", host), "1.2.3");
+        assert_eq!(
+            default_dir_name("1.2.3", "aarch64-apple-darwin", host),
+            "1.2.3-aarch64-apple-darwin"
+        );
+        assert_eq!(
+            default_dir_name("1.2.3", "aarch64-apple-darwin", None),
+            "1.2.3-aarch64-apple-darwin"
+        );
+        assert_eq!(
+            resolve_dir("1.2.3", "aarch64-apple-darwin", Some("/x/y")).unwrap(),
+            PathBuf::from("/x/y")
+        );
+    }
+
     #[test]
     fn version_is_checked() {
         assert_eq!(resolve_version(None).unwrap(), JUIZ_VERSION);
@@ -510,9 +597,9 @@ mod tests {
                 Outcome::Installed
             );
             assert_eq!(std::fs::read_to_string(marker(&dest)).unwrap(), "// v1\n");
-            assert_eq!(installed_path("1.2.3", &dest, false).unwrap(), dest);
+            assert_eq!(installed_path("1.2.3", target, &dest, false).unwrap(), dest);
             assert_eq!(
-                installed_path("1.2.3", &dest, true).unwrap(),
+                installed_path("1.2.3", target, &dest, true).unwrap(),
                 cmake_dir(&dest)
             );
             assert!(logs.borrow()[0].ends_with(&format!(
@@ -573,9 +660,16 @@ mod tests {
             format!("{e:#}").contains("cannot download libjuiz_sdk 1.2.3"),
             "{e:#}"
         );
-        let e = installed_path("1.2.3", &dest, false).unwrap_err();
+        let e = installed_path("1.2.3", host_target().unwrap_or("x"), &dest, false).unwrap_err();
         assert!(
-            e.to_string().contains("juiz sdk install --version 1.2.3"),
+            e.to_string().contains("juiz sdk install --version 1.2.3'"),
+            "{e}"
+        );
+        // ホストと別のターゲットは --target を付けて案内する (issue #577)
+        let e = installed_path("1.2.3", "no-such-target", &dest, false).unwrap_err();
+        assert!(
+            e.to_string()
+                .contains("juiz sdk install --version 1.2.3 --target no-such-target'"),
             "{e}"
         );
         let _ = std::fs::remove_dir_all(&d);
