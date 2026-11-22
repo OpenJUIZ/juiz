@@ -22,7 +22,7 @@ case "$(uname -s)" in
         sdk_dir="$(cygpath -m "$sdk_dir")"
         if [[ -n "$idl_exe" ]]; then
             idl_exe="$(cygpath -m "$idl_exe")"
-            [[ "$idl_exe" != *.exe && -f "$idl_exe.exe" ]] && idl_exe="$idl_exe.exe"
+            [[ "$idl_exe" == *.exe ]] || idl_exe="$idl_exe.exe"
         fi
         ;;
 esac

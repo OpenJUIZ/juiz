@@ -30,7 +30,11 @@ cd "$here"
 # 型付きの例 (issue #576) は juiz-idl -g zig で型を作る。cargo build で target/debug にできた juiz-idl を使う
 idl_exe="$repo_root/target/debug/juiz-idl"
 case "$(uname -s)" in
-    MINGW* | MSYS* | CYGWIN*) idl_exe="$(cygpath -m "$idl_exe").exe" ;;
+    # cygpath は juiz-idl.exe があると .exe を付けて返すので、付いていないときだけ足す (issue #579)
+    MINGW* | MSYS* | CYGWIN*)
+        idl_exe="$(cygpath -m "$idl_exe")"
+        [[ "$idl_exe" == *.exe ]] || idl_exe="$idl_exe.exe"
+        ;;
 esac
 $zig build --release -Djuiz-sdk-lib="$sdk_dir" -Djuiz-idl="$idl_exe"
 
