@@ -3,6 +3,10 @@
 hsjuiz の版は juiz(crates.io の juiz_app、PyPI の pyjuiz / juiz-cli)と同じ番号にそろえています。
 使う libjuiz_sdk も同じ版にしてください。
 
+## 0.3.3
+
+- hsjuiz の API は 0.3.2 から変えていない(juiz の Zig 対応 #571 の公開に版をそろえた)。
+
 ## 0.3.2
 
 - hsjuiz の API は 0.3.1 から変えていない(juiz 本体の Inlet の並行 push での panic 修正 #566 と、管理画面の 3D に副系・親系の Anchor を出す #567 の公開に版をそろえた)。
