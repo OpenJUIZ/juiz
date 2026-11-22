@@ -12,6 +12,9 @@ name: libjuiz_sdk release
 # 中の juiz_sdkConfig.cmake を find_package で使って小さな C++ のプラグインをビルドして開けることを確かめる(issue #162)。
 # Linux x86_64 と macOS arm64 では、hsjuiz を sdist から(Hackage から入れたときと同じ形で)
 # このアーカイブだけを使ってビルドし、Haskell のプラグインを開けることも確かめる。
+# Zig のライブラリ zigjuiz のアーカイブ zigjuiz-<版>.tar.gz(と .sha256、ターゲットに関係しない)も Linux x86_64 で作って置く(issue #578)。
+# Linux x86_64 と macOS arm64 では、それを利用者と同じ zig fetch --save で取り込み、このアーカイブの libjuiz_sdk で
+# プラグインをビルドして開けることを確かめる。
 on:
   push:
     tags: ["v*"]
@@ -27,6 +30,9 @@ on:
       - "bindings/cjuiz/**"
       - "bindings/cppjuiz/**"
       - "bindings/hsjuiz/**"
+      - "bindings/zigjuiz/**"
+      - "scripts/package-zigjuiz.sh"
+      - "scripts/check-zigjuiz-package.sh"
   workflow_dispatch:
 
 concurrency:
@@ -35,6 +41,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # zigjuiz が対応する Zig の版(test-linux.yml の ZIG_VERSION と同じ。juiz が対応する Zig は 1 つの版に固定する、#571)
+  ZIG_VERSION: "0.17.1"
 
 jobs:
   check-version:
@@ -62,15 +70,19 @@ jobs:
       matrix:
         include:
           # 古い glibc の Linux でも動くよう、Linux は 22.04 でビルドする
+          # zig: zigjuiz を zig fetch で取り込んで確かめる。zigjuiz_upload: zigjuiz のアーカイブを Releases に置く(1 つの行だけ)
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-22.04
             haskell: true
+            zig: true
+            zigjuiz_upload: true
           - target: aarch64-unknown-linux-gnu
             runner: ubuntu-22.04-arm
             haskell: false
           - target: aarch64-apple-darwin
             runner: macos-15
             haskell: true
+            zig: true
           - target: x86_64-apple-darwin
             runner: macos-15-intel
             haskell: false
@@ -231,6 +243,25 @@ jobs:
       - name: Build hsjuiz from its sdist with the packaged libjuiz_sdk
         if: matrix.haskell
         run: scripts/check-hsjuiz-package.sh "$SDK_DIR"
+
+      - uses: mlugg/setup-zig@v2
+        if: matrix.zig
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      # zigjuiz のアーカイブを作り、Releases と同じ配置の手元の HTTP サーバーから zig fetch --save で取り込んで、
+      # このアーカイブの libjuiz_sdk でプラグインをビルドして開けることを確かめる(issue #578)。
+      # アーカイブの中身は同じソースからは同じになる(Zig のパッケージのハッシュが変わらない)ので、置くのは 1 つの行だけ
+      - name: Package zigjuiz and fetch it with zig fetch
+        if: matrix.zig
+        run: |
+          out="$RUNNER_TEMP/zigjuiz-dist"
+          archive=$(scripts/package-zigjuiz.sh "$out")
+          scripts/check-zigjuiz-package.sh "$archive" "$SDK_DIR"
+          if [ "${{ matrix.zigjuiz_upload }}" = true ]; then
+            cp "$out"/zigjuiz-* dist/
+          fi
+          ls -l dist
 
       - uses: actions/upload-artifact@v4
         with:

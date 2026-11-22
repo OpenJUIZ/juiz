@@ -33,6 +33,8 @@ pub const VARIABLES: &[&str] = &[
     "idl_hs_gen_dir",
     "zigjuiz_dir",
     "zigjuiz_path",
+    "zigjuiz_url",
+    "zigjuiz_fetch",
     "zig_fingerprint",
     "idl_zig_depends",
 ];

@@ -47,7 +47,7 @@ comptime {
 }
 
 /// C ヘッダ juiz_sdk.h の場所 (zigjuiz のディレクトリから)。リポジトリでは bindings/cjuiz/include/ を指す。
-/// 配布するアーカイブ (issue #578) では、作るときにヘッダを include/ に写してここを書き換える
+/// 配布するアーカイブ (issue #578) では、scripts/package-zigjuiz.sh がヘッダを include/ に写してここを書き換える
 const header_path = "../cjuiz/include/juiz_sdk.h";
 
 pub fn build(b: *std.Build) void {

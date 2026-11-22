@@ -45,6 +45,11 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+# zigjuiz {{juiz_version}} from the GitHub release of juiz, the first time (zig fetch writes its .url and .hash in build.zig.zon)
+if ! grep -q '^ *\.zigjuiz *=' build.zig.zon; then
+  echo "adding zigjuiz {{juiz_version}} to build.zig.zon: zig fetch --save=zigjuiz {{zigjuiz_url}}"
+  $zig fetch --save=zigjuiz "{{zigjuiz_url}}"
+fi
 host=$(juiz pkg target)
 if [ -z "$target" ]; then
   target=$host

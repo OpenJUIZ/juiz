@@ -14,7 +14,7 @@ License: {{license}}
 | `{{idl_main}}` | The types and the declarations (JIDL) |
 | `src/{{name}}.zig` | The Component. Each function is a type, listed in `juiz.exportComponent` at the end. Write the bodies (`return error.NotImplemented`) |
 | `build.zig` | Generates the Zig types of the `.jidl` (`juiz.addTypes`), builds the plugin `lib{{name}}` with zigjuiz, and puts it with libjuiz_sdk in `zig-out/plugins/` |
-| `build.zig.zon` | The Zig package. It points to zigjuiz (the Zig library of juiz) in the juiz source |
+| `build.zig.zon` | The Zig package. It points to zigjuiz (the Zig library of juiz) |
 | `app/app.conf` | The configuration to start juiz with. It is also the entry of the `.juizapp` package |
 | `app/juizapp.yaml` | The `.juizapp` manifest (name, version, required juiz version) |
 | `scripts/dev.sh` | Build the plugin and put it with libjuiz_sdk in `app/plugins/<target>/` (`--target` for another machine) |
@@ -30,6 +30,8 @@ Linux or macOS. Zig plugins on Windows are not supported by this skeleton yet (j
 - `juiz-idl` or `juiz` in PATH: the build generates the types with `juiz-idl -g zig` (or `juiz idl -g zig`)
 - libjuiz_sdk {{juiz_version}} in `{{juiz_sdk_dir}}`. Install it with `juiz sdk install` (`juiz sdk path` prints where it is)
 - The juiz source of {{juiz_version}} for zigjuiz, in `{{zigjuiz_dir}}`
+- zigjuiz {{juiz_version}}, the Zig library of juiz. `scripts/dev.sh` adds it to `build.zig.zon` the first time (it needs the network once):
+  `zig fetch --save=zigjuiz {{zigjuiz_fetch}}`
 
 `build.zig.zon` points to zigjuiz with the path `{{zigjuiz_path}}`, relative to this directory (Zig does not take an absolute path there).
 If you move this project or zigjuiz, change the path in `build.zig.zon`.
