@@ -346,8 +346,9 @@ zig fetch --save https://github.com/OpenJUIZ/juiz/releases/download/v<版>/zigju
 juiz を上げるときは、新しい版の URL でもう一度 `zig fetch --save` を実行します(同じ名前の依存は置き換わります)。
 アーカイブには `build.zig`・`build.zig.zon`・`src/` と、C のヘッダ `include/juiz_sdk.h` の写しが入っています。
 
-juiz のソース(`git clone`)を使うときは、`zig fetch --save=zigjuiz <juiz のソース>/bindings/zigjuiz` か、
-`.zigjuiz = .{ .path = "<このディレクトリからの相対パス>" }` で `bindings/zigjuiz` を指します(Zig は `.path` に絶対パスを受けません)。
+juiz のソース(`git clone`)を使うときは、`.zigjuiz = .{ .path = "<このディレクトリからの相対パス>" }` で `bindings/zigjuiz` を指します(Zig は `.path` に絶対パスを受けません)。
+`juiz pkg create` では `--zigjuiz-dir <juiz のソース>/bindings/zigjuiz` を付けると、この形で書かれます。
+ソースの `bindings/zigjuiz` を `zig fetch --save=zigjuiz` で取り込む形は使えません。ソースの zigjuiz は C のヘッダを `../cjuiz/include/juiz_sdk.h`(リポジトリの中の相対パス)から読むので、取り込んだ先ではヘッダが見つからず、ビルドに失敗します(アーカイブにはヘッダの写しが入っているので、こちらは失敗しません)。
 
 libjuiz_sdk は別に `juiz sdk install` で入れます([libjuiz_sdk の探し方](#libjuiz_sdk-の探し方))。
 
