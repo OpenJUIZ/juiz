@@ -56,12 +56,11 @@ pub struct Plan {
     pub hsjuiz_missing: bool,
     /// `--hsjuiz-dir` を指定したか
     pub hsjuiz_given: bool,
-    /// Zig の zigjuiz のソースの場所 (§6.6)
-    pub zigjuiz_dir: PathBuf,
+    /// Zig の zigjuiz のソースの場所 (§6.6)。`--zigjuiz-dir` も `--juiz-source` も無ければ None
+    /// (Releases のアーカイブを dev.sh が zig fetch で取る)
+    pub zigjuiz_dir: Option<PathBuf>,
     /// zigjuiz_dir に build.zig.zon が無い (Zig の次の手順に juiz のソースの用意を出す)
     pub zigjuiz_missing: bool,
-    /// `--zigjuiz-dir` か `--juiz-source` を指定したか
-    pub zigjuiz_given: bool,
     /// build.zig.zon に書く zigjuiz の場所 (雛形のディレクトリからの相対パス、/ 区切り)。Zig のときだけ
     pub zigjuiz_rel: Option<String>,
     /// build.zig.zon の .fingerprint (§6.6)
@@ -188,6 +187,11 @@ fn sdk_install_command(dir: &Path, given: bool) -> String {
 /// 既定の場所 (`~/juiz-<版>/bindings/hsjuiz`) なら `~/juiz-<版>` に clone する
 fn hsjuiz_clone_command(hsjuiz_dir: &Path, given: bool) -> String {
     binding_clone_command(hsjuiz_dir, "hsjuiz", given)
+}
+
+/// Releases に置く zigjuiz のアーカイブの URL (§6.6、issue #578、scripts/package-zigjuiz.sh)
+pub fn zigjuiz_url() -> String {
+    format!("https://github.com/OpenJUIZ/juiz/releases/download/v{JUIZ_VERSION}/zigjuiz-{JUIZ_VERSION}.tar.gz")
 }
 
 /// `bindings/<binding>` を含む juiz のソースを取るコマンド (Haskell の hsjuiz、Zig の zigjuiz)
@@ -407,47 +411,45 @@ impl Plan {
             }
         }
 
+        // zigjuiz の場所を指定しなければ、Releases のアーカイブを zig fetch で取る (dev.sh が初回に、§6.6、issue #578)。
+        // 指定したときだけ、そのソースを build.zig.zon に相対パスで書く
         let zigjuiz_dir = match (&args.zigjuiz_dir, &juiz_source) {
-            (Some(d), _) => absolute(d),
-            (None, Some(src)) => src.join("bindings").join("zigjuiz"),
-            (None, None) => home
-                .join(format!("juiz-{JUIZ_VERSION}"))
-                .join("bindings")
-                .join("zigjuiz"),
+            (Some(d), _) => Some(absolute(d)),
+            (None, Some(src)) => Some(src.join("bindings").join("zigjuiz")),
+            (None, None) => None,
         };
-        let zigjuiz_missing = !zigjuiz_dir.join("build.zig.zon").is_file();
-        let zigjuiz_given = args.zigjuiz_dir.is_some() || juiz_source.is_some();
+        let zigjuiz_missing = zigjuiz_dir.as_ref().is_some_and(|d| !d.join("build.zig.zon").is_file());
         let mut zigjuiz_rel = None;
-        if lang == Lang::Zig {
+        if lang == Lang::Zig && windows {
+            warnings.push(
+                "Zig plugins on Windows are not supported by this skeleton yet (juiz issue #579): the skeleton is made for Linux and macOS, without .ps1 scripts"
+                    .to_owned(),
+            );
+        }
+        if let (Lang::Zig, Some(zigjuiz_dir)) = (lang, &zigjuiz_dir) {
             // build.zig.zon の依存の .path は雛形からの相対パスでなければならない (Zig は絶対パスを受けない)
             let dest = absolute_through_links(&args.output.clone().unwrap_or_else(|| PathBuf::from(&args.name)));
-            zigjuiz_rel = Some(relative_path(&dest, &zigjuiz_dir).ok_or_else(|| {
+            zigjuiz_rel = Some(relative_path(&dest, zigjuiz_dir).ok_or_else(|| {
                 PkgError::new(format!(
                     "zigjuiz in {} cannot be written as a path relative to {} (build.zig.zon needs a relative path; put them on the same drive)",
-                    slash(&zigjuiz_dir),
+                    slash(zigjuiz_dir),
                     slash(&dest)
                 ))
             })?);
-            if windows {
-                warnings.push(
-                    "Zig plugins on Windows are not supported by this skeleton yet (juiz issue #579): the skeleton is made for Linux and macOS, without .ps1 scripts"
-                        .to_owned(),
-                );
-            }
             if zigjuiz_missing {
                 warnings.push(format!(
                     "zigjuiz is not in {} (build.zig.zon points there). Get the juiz source of {JUIZ_VERSION}:\n    {}",
-                    slash(&zigjuiz_dir),
-                    binding_clone_command(&zigjuiz_dir, "zigjuiz", zigjuiz_given)
+                    slash(zigjuiz_dir),
+                    binding_clone_command(zigjuiz_dir, "zigjuiz", true)
                 ));
             }
-            if sdk_missing {
-                warnings.push(format!(
-                    "libjuiz_sdk {JUIZ_VERSION} is not in {} (the plugin links it). Install it:\n    {}",
-                    slash(&juiz_sdk_dir),
-                    sdk_install_command(&juiz_sdk_dir, args.juiz_sdk_dir.is_some())
-                ));
-            }
+        }
+        if lang == Lang::Zig && sdk_missing {
+            warnings.push(format!(
+                "libjuiz_sdk {JUIZ_VERSION} is not in {} (the plugin links it). Install it:\n    {}",
+                slash(&juiz_sdk_dir),
+                sdk_install_command(&juiz_sdk_dir, args.juiz_sdk_dir.is_some())
+            ));
         }
         let seed = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -477,7 +479,6 @@ impl Plan {
                 hsjuiz_given,
                 zigjuiz_dir,
                 zigjuiz_missing,
-                zigjuiz_given,
                 zigjuiz_rel,
                 zig_fingerprint: zig_fingerprint(&args.name, seed),
                 year: current_year(),
@@ -649,15 +650,12 @@ impl Plan {
                 lines.push((script("dev"), "# build and put the plugin in app/plugins/<target>/"));
             }
             Lang::Zig => {
-                if self.zigjuiz_missing || !with_cd {
+                if let Some(dir) = self.zigjuiz_dir.as_ref().filter(|_| self.zigjuiz_missing || !with_cd) {
                     lines.push((
-                        format!("# once: get zigjuiz {JUIZ_VERSION} (the juiz source) in {}", slash(&self.zigjuiz_dir)),
+                        format!("# once: get zigjuiz {JUIZ_VERSION} (the juiz source) in {}", slash(dir)),
                         "",
                     ));
-                    lines.push((
-                        binding_clone_command(&self.zigjuiz_dir, "zigjuiz", self.zigjuiz_given),
-                        "",
-                    ));
+                    lines.push((binding_clone_command(dir, "zigjuiz", true), ""));
                 }
                 if self.sdk_missing || !with_cd {
                     lines.push((
@@ -737,8 +735,10 @@ impl Plan {
                 self.juiz_sdk_dir_given.then(|| slash(&self.juiz_sdk_dir)),
             )
             .set("hsjuiz_dir", slash(&self.hsjuiz_dir))
-            .set("zigjuiz_dir", slash(&self.zigjuiz_dir))
-            .set("zigjuiz_path", self.zigjuiz_rel.clone().unwrap_or_default())
+            .set_opt("zigjuiz_dir", self.zigjuiz_dir.as_deref().map(slash))
+            .set_opt("zigjuiz_path", self.zigjuiz_rel.clone())
+            .set("zigjuiz_url", zigjuiz_url())
+            .set_opt("zigjuiz_fetch", self.zigjuiz_dir.is_none().then(zigjuiz_url))
             .set("zig_fingerprint", format!("0x{:016x}", self.zig_fingerprint))
             .set_opt("license", self.license.then(|| "MIT OR Apache-2.0".to_owned()))
             .set_opt("author", self.author.clone())
@@ -1111,6 +1111,60 @@ mod tests {
         let p = plan(&["create", "my_robot", "-b", "zig"]);
         let dev = p.files().unwrap().into_iter().find(|f| f.path == "scripts/dev.sh").unwrap().content;
         assert!(!dev.contains("then sdk_dir=\""), "{dev}");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// Zig で zigjuiz の場所を指定しないとき: Releases のアーカイブを dev.sh が zig fetch で取る (§6.6、issue #578)
+    #[test]
+    fn zig_zigjuiz_from_release() {
+        let sdk = temp("zig_release_sdk_missing");
+        let args = parse(&["create", "my_robot", "-b", "zig", "--juiz-sdk-dir", sdk.to_str().unwrap()]);
+        let (p, w) = Plan::from_args_with(&args, || None, false).unwrap();
+        // zigjuiz のソースは要らないので、警告は libjuiz_sdk だけ
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert!(w[0].contains("juiz sdk install"), "{w:?}");
+        let url = format!(
+            "https://github.com/OpenJUIZ/juiz/releases/download/v{JUIZ_VERSION}/zigjuiz-{JUIZ_VERSION}.tar.gz"
+        );
+        assert_eq!(zigjuiz_url(), url);
+        let files = p.files().unwrap();
+        let get = |n: &str| files.iter().find(|f| f.path == n).unwrap().content.clone();
+        // build.zig.zon には依存を書かない (zig fetch --save が .url と .hash を書く)
+        let zon = get("build.zig.zon");
+        assert!(!zon.contains(".zigjuiz ="), "{zon}");
+        assert!(!zon.contains(".path ="), "{zon}");
+        assert!(zon.contains(&format!("scripts/dev.sh adds it the first time: zig fetch --save=zigjuiz {url}\n")), "{zon}");
+        assert!(zon.contains("    .dependencies = .{\n"), "{zon}");
+        // dev.sh は build.zig.zon に zigjuiz が無ければ zig fetch する
+        let dev = get("scripts/dev.sh");
+        assert!(dev.contains("if ! grep -q '^ *\\.zigjuiz *=' build.zig.zon; then"), "{dev}");
+        assert!(dev.contains(&format!("$zig fetch --save=zigjuiz \"{url}\"")), "{dev}");
+        let readme = get("README.md");
+        assert!(readme.contains(&format!("`zig fetch --save=zigjuiz {url}`")), "{readme}");
+        assert!(!readme.contains("The juiz source of"), "{readme}");
+        assert!(!readme.contains("relative to this directory"), "{readme}");
+        // 次の手順に juiz のソースの clone は無い
+        let s = p.summary();
+        assert!(!s.contains("git clone"), "{s}");
+        assert!(s.contains("scripts/dev.sh"), "{s}");
+        // --idl の雛形も同じ
+        let d = temp("zig_release_idl");
+        let idl = crate::idl::write_jidl(&d, "robot.jidl", "namespace robot;\nprocess long twice(long n = 1);\n");
+        let p = plan(&["create", "my_types", "-b", "zig", "--idl", idl.to_str().unwrap()]);
+        let files = p.files().unwrap();
+        let readme = files.iter().find(|f| f.path == "README.md").unwrap().content.clone();
+        assert!(readme.contains(&format!("`zig fetch --save=zigjuiz {url}`")), "{readme}");
+        let _ = std::fs::remove_dir_all(&d);
+        // juiz のソースを指すときは、README に fetch の行は無い
+        let base = temp("zig_release_src");
+        let zj = base.join("juiz").join("bindings").join("zigjuiz");
+        let out = base.join("my_robot");
+        let p = plan(&["create", "my_robot", "-b", "zig", "--zigjuiz-dir", zj.to_str().unwrap(), "-o", out.to_str().unwrap()]);
+        let files = p.files().unwrap();
+        let get = |n: &str| files.iter().find(|f| f.path == n).unwrap().content.clone();
+        assert!(!get("README.md").contains("zig fetch"));
+        assert!(!get("build.zig.zon").contains("zig fetch"));
+        assert!(get("build.zig.zon").contains(".zigjuiz = .{ .path = \"../juiz/bindings/zigjuiz\" },"));
         let _ = std::fs::remove_dir_all(&base);
     }
 

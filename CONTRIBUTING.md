@@ -329,7 +329,7 @@ cargo test --release -p juiz_zenoh_broker --test broker -- bench:: --ignored --n
 |---|---|---|---|
 | `publish.yml` | crates.io | juiz_types / juiz_idl / juiz_pkg / juiz_macro / juiz_sdk / juiz_std_types / juiz_webui / juiz_core / juiz_qmp_broker / juiz_app | シークレット `CARGO_REGISTRY_TOKEN` |
 | `pypi-publish.yml` | PyPI | pyjuiz、juiz-cli | Trusted Publishing(環境 `pypi`) |
-| `sdk-release.yml` | GitHub Releases | libjuiz_sdk とヘッダのアーカイブ `juiz_sdk-<版>-<ターゲット名>.tar.gz`(Linux x86_64・aarch64、macOS arm64・x86_64)と `.zip`(Windows x86_64) | `GITHUB_TOKEN` |
+| `sdk-release.yml` | GitHub Releases | libjuiz_sdk とヘッダのアーカイブ `juiz_sdk-<版>-<ターゲット名>.tar.gz`(Linux x86_64・aarch64、macOS arm64・x86_64)と `.zip`(Windows x86_64)、Zig の zigjuiz のアーカイブ `zigjuiz-<版>.tar.gz` | `GITHUB_TOKEN` |
 | `hackage-publish.yml` | Hackage | hsjuiz(パッケージとドキュメント) | シークレット `HACKAGE_TOKEN` |
 
 版上げでは次のファイルの版をそろえます。
@@ -337,12 +337,16 @@ cargo test --release -p juiz_zenoh_broker --test broker -- bench:: --ignored --n
 - `Cargo.toml`(`[workspace.dependencies]`)、`Cargo.lock`、`juiz_types` / `juiz_idl` / `juiz_pkg` / `juiz_macro` / `juiz_sdk` / `juiz_std_types` / `juiz_webui` / `juiz_core` / `juiz_app` / `brokers/qmp_broker` の `Cargo.toml`
 - `bindings/pyjuiz/setup.py`、`bindings/juiz_py/pyproject.toml`(`version` と `pyjuiz==`)、`bindings/juiz_py/Cargo.toml`、`bindings/juiz_py/Cargo.lock`
 - `bindings/hsjuiz/hsjuiz.cabal` の `version`(と `bindings/hsjuiz/CHANGELOG.md`)
-- `bindings/zigjuiz/build.zig.zon` の `version`
+- `bindings/zigjuiz/build.zig.zon` の `version`(`scripts/package-zigjuiz.sh` は juiz_sdk の版と違うと止まります)
 
 libjuiz_sdk のアーカイブは `scripts/package-juiz-sdk.sh` で作り、利用者は `juiz sdk install`(`juiz_app/src/sdk.rs`、#548)か、juiz を入れずに `scripts/install-juiz-sdk.sh <版>`(Windows は `scripts/install-juiz-sdk.ps1 <版>`)で取得します。アーカイブの名前・置き場所を変えるときは、この 3 つをそろえます。
 アーカイブには CMake の `find_package(juiz_sdk)` 用の `lib/cmake/juiz_sdk/juiz_sdkConfig.cmake`(元は `bindings/cppjuiz/cmake/juiz_sdkConfig.cmake`)が入り、
 `sdk-release.yml` は `bindings/cppjuiz/tests/find_package` をそのアーカイブでビルドして確かめます。
 `scripts/check-hsjuiz-package.sh <展開したアーカイブ>` は、hsjuiz を sdist から(Hackage から入れたときと同じ形で)そのアーカイブだけを使ってビルドできるか確かめます。
+zigjuiz のアーカイブ(`bindings/zigjuiz` と C のヘッダの写し)は `scripts/package-zigjuiz.sh` で作り、利用者は `zig fetch --save https://github.com/OpenJUIZ/juiz/releases/download/v<版>/zigjuiz-<版>.tar.gz` で取り込みます(issue #578)。
+`juiz pkg create -b zig` の雛形の `scripts/dev.sh` もこの URL を使う(`juiz_pkg` の `zigjuiz_url`)ので、名前・置き場所を変えるときはそろえます。
+`scripts/check-zigjuiz-package.sh <zigjuiz のアーカイブ> <展開した libjuiz_sdk のアーカイブ>` は、そのアーカイブを手元の HTTP サーバーから `zig fetch --save` で取り込み、プラグインをビルドして開けるか確かめます(`sdk-release.yml` が Linux x86_64 と macOS arm64 で実行します)。
+対応する Zig の版は 1 つだけで、`juiz の版 ↔ Zig の版` の表は `bindings/zigjuiz/README.md` の「対応する Zig の版」にあります。Zig の新しい版への移行は 1 件ずつ issue にし、`test-linux.yml`・`sdk-release.yml` の `ZIG_VERSION`、zigjuiz の build.zig・build.zig.zon、雛形(`juiz_pkg/templates/zig`)をそろえて上げます。
 juiz は C++ / Haskell のプラグインを開いたとき、プラグインが読み込んだ libjuiz_sdk の `juiz_sdk_build_info` を自分の juiz_sdk と比べ、版が違えばエラー、Rust コンパイラの版だけが違えば警告にします。
 
 Hackage への公開には、Hackage のアカウント(アップロード権限つき)で作った API トークンを、リポジトリのシークレット `HACKAGE_TOKEN` に登録しておきます。

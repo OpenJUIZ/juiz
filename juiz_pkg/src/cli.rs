@@ -66,8 +66,8 @@ pub struct CreateArgs {
     #[arg(long = "hsjuiz-dir")]
     pub hsjuiz_dir: Option<PathBuf>,
 
-    /// Zig only: zigjuiz source directory (default: ~/juiz-<version>/bindings/zigjuiz).
-    /// build.zig.zon points to it with a path relative to the skeleton
+    /// Zig only: zigjuiz source directory. build.zig.zon points to it with a path relative to the skeleton
+    /// (default: none; scripts/dev.sh gets zigjuiz <version> from the GitHub release with zig fetch)
     #[arg(long = "zigjuiz-dir")]
     pub zigjuiz_dir: Option<PathBuf>,
 

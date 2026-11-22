@@ -59,7 +59,7 @@ juiz pkg create <name> -b <lang> [-t <template> | --idl <file.jidl>] [-o <dir>]
 | `--license <kind>` | `none` | `mit-apache` で LICENSE-MIT・LICENSE-APACHE を置き、各ファイルの license の欄を `MIT OR Apache-2.0` にする(§5.5)。`none` では置かない |
 | `--author <name>` | `git config user.name` | `--license mit-apache` のときの著作権者。省いて git からも取れなければエラー |
 | `--hsjuiz-dir <dir>` | `~/juiz-<版>/bindings/hsjuiz` | Haskell のみ。cabal.project に書く hsjuiz のソースの場所(§6.4) |
-| `--zigjuiz-dir <dir>` | `~/juiz-<版>/bindings/zigjuiz` | Zig のみ。build.zig.zon に書く zigjuiz のソースの場所(§6.6) |
+| `--zigjuiz-dir <dir>` | なし(Releases の zigjuiz を `zig fetch` で取る) | Zig のみ。build.zig.zon に相対パスで書く zigjuiz のソースの場所(§6.6) |
 | `--juiz-sdk-dir <dir>` | `~/.juiz/sdk/<版>` | C++・Haskell・Zig のみ。libjuiz_sdk を展開した場所(§6.3・§6.4・§6.6) |
 | `--juiz-source <dir>` | なし | 開発者向け。juiz のリポジトリのソースを使う(§7.2)。juiz 自身のテストと CI で使う |
 
@@ -478,20 +478,25 @@ build.zig.zon
 src/<name>.zig
 ```
 
-- build.zig.zon: `.name = .<name>`、`.version = "0.1.0"`、`.minimum_zig_version = "0.17.0"`、依存は `.zigjuiz = .{ .path = "<zigjuiz の場所>" }` 1 つ。
+- build.zig.zon: `.name = .<name>`、`.version = "0.1.0"`、`.minimum_zig_version = "0.17.0"`。依存は zigjuiz 1 つで、書き方は zigjuiz の場所を指定したかで変わる(#578)。
+  - 既定(`--zigjuiz-dir` も `--juiz-source` も無い): `.dependencies` は空で、コメントに `zig fetch --save=zigjuiz <URL>` を書く。`<URL>` は Releases の zigjuiz のアーカイブ `https://github.com/OpenJUIZ/juiz/releases/download/v<版>/zigjuiz-<版>.tar.gz`(juiz_pkg の `zigjuiz_url`、CONTRIBUTING の「リリース」)。`.hash` はアーカイブの中身から zig fetch が計算するもので、雛形を作るときには分からないため、scripts/dev.sh が初めての実行のときに `zig fetch --save=zigjuiz <URL>` で `.url` と `.hash` を書き込む(build.zig.zon に `.zigjuiz =` の行が無いとき。ネットワークが要るのはこの 1 回だけ)。juiz のソースは要らない。
+    - `.url` だけを書いて `.hash` を書かない形は採らない。`zig build` は `.hash` が無いとエラーにし、Zig 0.17.1 の `zig fetch --save` はその行を `.hash` を足さずに書き直してしまうため(2026-11-22 確認)。
+  - `--zigjuiz-dir`・`--juiz-source` を付けたとき: `.zigjuiz = .{ .path = "<zigjuiz の場所>" }`。juiz のテスト(pkg_cli_test)と、まだ公開していない版で試すときに使う。
   - Zig は依存の `.path` に絶対パスを受けないので、`<zigjuiz の場所>` は**雛形のディレクトリからの相対パス**で書く(生成時に作り先と zigjuiz の場所から計算する。作り先の在る一番深い親はシンボリックリンクをたどってから比べる)。相対パスにできない(Windows でドライブが違う)ときはエラー。雛形か zigjuiz を動かしたら直す(README に書く)。
-  - zigjuiz の場所は `--zigjuiz-dir`、省けば `--juiz-source` の `bindings/zigjuiz`、それも省けば `~/juiz-<版>/bindings/zigjuiz`(hsjuiz と同じく juiz のソースを clone して使う)。生成時に `build.zig.zon` が無ければ警告し、用意するコマンド(`git clone --depth 1 --branch v<版> … ~/juiz-<版>`)を表示する。Releases の zigjuiz のアーカイブと `zig fetch` で取る形は Step 6(#578)で決める。
+  - zigjuiz の場所は `--zigjuiz-dir`、省けば `--juiz-source` の `bindings/zigjuiz`。生成時にそこに `build.zig.zon` が無ければ警告し、用意するコマンド(`git clone --depth 1 --branch v<版> …`)を表示する。
   - `.fingerprint` は Zig 0.17 が必須にした値で、上位 32 bit が `.name` の CRC-32(IEEE)、下位 32 bit がパッケージごとの乱数(0 と 0xffffffff 以外)。生成時に作る。
   - `.name` は識別子で 32 文字まで(§3 の 8)。
 - build.zig: `zigjuiz.init`(`--release` で ReleaseSafe)→ `juiz.addPlugin(.{ .name = "<name>", .root_source_file = "src/<name>.zig" })` → `juiz.installBundle(lib, .{})`。`installBundle`(zigjuiz、app-package.md §12.2)が `zig-out/plugins/` にプラグインと libjuiz_sdk を並べ、rpath を `$ORIGIN` / `@loader_path` だけにする。
 - `src/<name>.zig`: `juiz.exportComponent` の `.parts` に `juiz.processPart`・`juiz.containerPart`・`juiz.containerProcessPart` を並べる(zigjuiz の README の Component)。関数は C++・Haskell と同じく `<name>_add`・`<name>_create`・`<name>_increment`・`<name>_get`、状態の型は `<Name>State`(Haskell と同じ。zigjuiz・Zig の名前と重ならないように)。引数は struct 1 つ(`args: struct { a: i64 = 0, b: i64 = 0 }`)、足し算は `std.math.add` で溢れを `error.Overflow`(呼び出しのエラー -1101)にする。`<name>_get` は状態を `*const` で受けて readonly にする。`#[cfg(test)]` に当たるテストは置かない(`zig build test` に libjuiz_sdk のリンクが要り、雛形が大きくなるため)。
-- scripts/dev.sh: `zig build [--release] [-Dtarget=…] [-Djuiz-sdk=…]` → `zig-out/plugins/` の中身(プラグインと libjuiz_sdk)を `app/plugins/<ターゲット>/` に写す。
+- scripts/dev.sh: (build.zig.zon に zigjuiz が無ければ `zig fetch --save=zigjuiz <URL>`)→ `zig build [--release] [-Dtarget=…] [-Djuiz-sdk=…]` → `zig-out/plugins/` の中身(プラグインと libjuiz_sdk)を `app/plugins/<ターゲット>/` に写す。
   - zig は環境変数 `ZIG` で変えられる(`ZIG="python3 -m ziglang"`)。`zig version` が 0.17 でなければ止める(zigjuiz の build.zig もコンパイルエラーにする)。
   - `--target <ターゲット>`: 別の機械向けにクロスビルドする(app-package.md §12.3)。ターゲットは libjuiz_sdk を配っている Linux・macOS の 4 種で、Zig の名前(`aarch64-linux-gnu`・`aarch64-macos` など)に直して `-Dtarget` に渡す。libjuiz_sdk は `JUIZ_SDK_DIR`、無ければ `juiz sdk path --target <ターゲット>`(`juiz sdk install --target`、#577 で足した)。ホストの分は `-Dtarget` を付けずにネイティブでビルドする。Windows のターゲットは #579 までエラー。
   - libjuiz_sdk の場所は `JUIZ_SDK_DIR`、無ければ `--juiz-sdk-dir` に指定した場所(dev.sh に書く。省けば行ごと無い)、それも無ければ zigjuiz が探す(`JUIZ_SDK_HOME`・`juiz sdk path`)。
 - scripts/pack.sh: §5.4 と同じ(`--no-build` で無ければ `scripts/dev.sh --release`)。`app/plugins/` の下を全部入れるので、先に `--target` で作った別の機械の分も同じパッケージに入る(README に手順)。
 - .gitignore は `zig/_base/.gitignore.tmpl` で `common/_base` のものを置き換える(`/zig-out`・`/.zig-cache` と、`/app/plugins/`・`/dist/`・`*.juizapp`)。
 - Windows では生成はするが、Windows の Zig は確かめていない(#579)と警告を出す。`.ps1` は置かない。
+
+確かめたこと(2026-11-22、#578): 既定の形で生成し、dev.sh の `<URL>` を手元の HTTP サーバーに置いた zigjuiz のアーカイブ(`scripts/package-zigjuiz.sh`)に向けて、dev.sh の zig fetch → ビルド → 起動 → call が通る。
 
 確かめたこと(2026-11-22): Linux x86_64 で、生成 → `juiz pkg add` → dev.sh → 起動 → call → pack → `juiz run` が通る(pkg_cli_test)。`--target aarch64-unknown-linux-gnu`・`--target aarch64-apple-darwin` で Releases の libjuiz_sdk 0.3.2 にリンクしたプラグインができ、3 ターゲットの .juizapp を作れた(別の機械での読み込みは未確認)。
 
@@ -507,7 +512,7 @@ src/<name>.zig
 | pyproject.toml | `pyjuiz==<版>` | pyjuiz は juiz と同じ版で出している |
 | CMakeLists.txt | `JUIZ_VERSION "<版>"` と `find_package(... EXACT)` | libjuiz_sdk はホストと版が一致しないと読み込めない |
 | cabal.project | hsjuiz・libjuiz_sdk のパスに `<版>` が入る | 同上 |
-| build.zig.zon | zigjuiz のパスに `<版>` が入る(既定の場所のとき) | 同上。zigjuiz も build.zig.zon の版で libjuiz_sdk を探す |
+| build.zig.zon | コメントの zigjuiz の URL に `<版>` が入る(dev.sh の zig fetch も同じ URL、#578) | 同上。zigjuiz も自分の build.zig.zon の版で libjuiz_sdk を探す |
 | app/juizapp.yaml | `juiz: ">=<版>"`(C++・Haskell・Zig は `"=<版>"`、§5.2) | app-package.md §4.3 の pack の既定と同じ。C++・Haskell・Zig は同梱する libjuiz_sdk の版がホストと一致しないと読めないため |
 | README.md | 要る juiz の版 | |
 
@@ -554,7 +559,7 @@ Next steps:
   juiz run dist/my_robot-0.1.0.juizapp
 ```
 
-- 言語ごとに先頭の手順が変わる: Python は `python3 -m venv .venv` → 有効化 → `pip install -e .`、C++ は SDK の用意(無ければ)→ `scripts/dev.sh`、Haskell は hsjuiz・SDK の用意(無ければ)→ `scripts/dev.sh`、Zig は zigjuiz(juiz のソース)・SDK の用意(無ければ)→ `scripts/dev.sh`。
+- 言語ごとに先頭の手順が変わる: Python は `python3 -m venv .venv` → 有効化 → `pip install -e .`、C++ は SDK の用意(無ければ)→ `scripts/dev.sh`、Haskell は hsjuiz・SDK の用意(無ければ)→ `scripts/dev.sh`、Zig は zigjuiz(`--zigjuiz-dir`・`--juiz-source` を付けてそこに無ければ、juiz のソース)・SDK の用意(無ければ)→ `scripts/dev.sh`(既定の形では zigjuiz を dev.sh が zig fetch で取る)。
   - C++ の「無ければ」は、SDK の場所(`--juiz-sdk-dir`、省けば `~/.juiz/sdk/<版>`)に `lib/cmake/juiz_sdk/juiz_sdkConfig.cmake` が無いとき。用意するコマンドは `juiz sdk install`(juiz#548、OS によらず同じ。版は juiz と同じなので付けない)で、`--juiz-sdk-dir` を付けたときはその場所を `--dir` で付ける。README の手順(`next_steps`)には、在るかどうかによらず書く(Step 2)。
 - Windows で動いているときは `scripts\dev.ps1` の形で表示する。
 - 呼び出しの例は、そのテンプレートに入っている型の分だけ出す。
@@ -601,8 +606,10 @@ juiz_pkg/templates/add/zig/<process|container>_part.tmpl  Zig の juiz.exportCom
 | `juiz_sdk_dir` | C++・Haskell の libjuiz_sdk の場所(§6.3・§6.4) |
 | `juiz_sdk_dir_arg` | `--juiz-sdk-dir` に指定した場所(絶対パス)。省けば無し(C++ の CMakeLists.txt §6.3、Zig の scripts/dev.sh §6.6) |
 | `hsjuiz_dir` | Haskell の hsjuiz の場所(§6.4) |
-| `zigjuiz_dir` | Zig の zigjuiz の場所(絶対パス、README 用、§6.6) |
-| `zigjuiz_path` | build.zig.zon に書く zigjuiz の場所(雛形からの相対パス、§6.6) |
+| `zigjuiz_dir` | Zig の zigjuiz の場所(絶対パス、README 用、§6.6)。指定しなければ無し |
+| `zigjuiz_path` | build.zig.zon に書く zigjuiz の場所(雛形からの相対パス、§6.6)。指定しなければ無し |
+| `zigjuiz_url` | Releases の zigjuiz のアーカイブの URL(dev.sh の zig fetch、§6.6、#578) |
+| `zigjuiz_fetch` | `zigjuiz_url` と同じ。zigjuiz の場所を指定したときは無し(build.zig.zon のコメントと README 用) |
 | `zig_fingerprint` | build.zig.zon の `.fingerprint`(`0x` と 16 桁、§6.6) |
 | `license` | `MIT OR Apache-2.0`、`--license none` なら無し |
 | `author` | `--author`、`--license none` なら無し |
@@ -635,7 +642,7 @@ conf の `{target}` は juiz の置換(app-package.md §5.2)で、この書式�
   - Step 1 の形(juiz_app/tests/pkg_cli_test.rs、今は juiz_app/tests/cli/pkg.rs): Unix で回す(`.sh` を使うため。`.ps1` は自動のテストが無い)。ほかのテストとポートが重ならないよう、生成した conf のポートを 8078(Rust)・8079(Python)に書き換えてから起動する。`scripts/dev.sh` でビルドした後なので、pack は `scripts/pack.sh --no-build` で release ビルドを省く。Python は `PYTHONPATH` の bindings/pyjuiz を使う(scripts/test.sh が設定する)。
 - `--idl`(Step 4・#468): juiz_pkg の単体テストで、言語ごとに生成するファイルの一覧・置換が残らないこと・juiz_std を使う/使わないときの依存の書き方・import した .jidl の写し・エラー(`-t` と一緒、宣言なし、2 つの名前空間、ディレクトリの外の import、各言語のキーワード、Python で既定値のある引数の後ろに既定値のない record/enum の引数)。juiz_idl の単体テストで Python・C++・Haskell の skeleton 生成器の出力。pkg_cli_test では、4 言語それぞれ juiz_std の型と別ファイルの record を使う .jidl から作り、本体を書き換えてから dev.sh(Python は不要)→ 起動 → call → `juiz type list --long` に .jidl の型が出る → pack.sh → `juiz run` を通す(Unix、ポートは Rust 8082・Python 8083・C++ 8084・Haskell 8085。Haskell は ghc と cabal がないときは飛ばす)。
 - `juiz pkg add`(Step 5): juiz_pkg の単体テストで、4 言語 × 3 種類の雛形すべてに Process と Container を足せて(`{{` が残らず、元の型も残る)、各言語の一覧の書き換え・conf のブロックの位置(無いときに作る位置を含む)・エラー(conf に既にある、ソースの識別子と衝突、雛形でない、入れる所が無い)・2 つめの書き込みで失敗したときに元に戻ること。pkg_cli_test の Rust・Python・C++・Haskell の生成から配布までのテストでは、生成の直後に `juiz pkg add process <name>_sum` と `juiz pkg add container <name>_arm` を打ち(同じ名前をもう一度足すとエラーで conf が変わらないことも確かめる)、起動と `juiz run` の後に足した型も呼ぶ。
-- Zig(#577): juiz_pkg の単体テストで、生成するファイルの一覧・build.zig.zon の相対パスと fingerprint(CRC-32 が Zig の勧める値と同じ)・名前の規則(§3 の 8 と 32 文字)・Windows の警告・`juiz pkg add` の `.parts` への足し方(`--idl` の雛形に std を足すことも)・`--idl` の build.zig。全言語・全種類の組み合わせの置換と `juiz pkg add` には Zig も入れる(5 × 3)。pkg_cli_test(slow)で、C++ と同じ配布と同じ形の libjuiz_sdk を `--juiz-sdk-dir` で指し、zigjuiz は `--juiz-source` の `bindings/zigjuiz` で、`-t component`(ポート 8081)と `--idl`(ポート 8088)の生成から配布までを通す。.juizapp に libjuiz_sdk が入っていることと `juiz: "=<版>"` を確かめる。Zig 0.17 が無ければ飛ばし(`ZIG` で zig を変えられる)、`JUIZ_REQUIRE_ZIG=1` なら落とす。クロスビルドはネットワーク(Releases の libjuiz_sdk)が要るので自動のテストにはせず、§6.6 の「確かめたこと」に手で確かめた結果を書く。
+- Zig(#577): juiz_pkg の単体テストで、生成するファイルの一覧・build.zig.zon の相対パスと fingerprint(CRC-32 が Zig の勧める値と同じ)・名前の規則(§3 の 8 と 32 文字)・Windows の警告・`juiz pkg add` の `.parts` への足し方(`--idl` の雛形に std を足すことも)・`--idl` の build.zig。全言語・全種類の組み合わせの置換と `juiz pkg add` には Zig も入れる(5 × 3)。zigjuiz の場所を指定しない既定の形(build.zig.zon に依存が無く、dev.sh・README に zig fetch の URL がある、#578)も単体テストで確かめる。pkg_cli_test(slow)で、C++ と同じ配布と同じ形の libjuiz_sdk を `--juiz-sdk-dir` で指し、zigjuiz は `--juiz-source` の `bindings/zigjuiz` で、`-t component`(ポート 8081)と `--idl`(ポート 8088)の生成から配布までを通す。.juizapp に libjuiz_sdk が入っていることと `juiz: "=<版>"` を確かめる。Zig 0.17 が無ければ飛ばし(`ZIG` で zig を変えられる)、`JUIZ_REQUIRE_ZIG=1` なら落とす。クロスビルドはネットワーク(Releases の libjuiz_sdk)が要るので自動のテストにはせず、§6.6 の「確かめたこと」に手で確かめた結果を書く。
 - Haskell: テンプレートの `bundle-plugin-deps.sh` が juiz の `scripts/bundle-plugin-deps.sh` と一致すること。
   - Step 3 の Haskell(pkg_cli_test): C++ と同じく配布と同じ形の libjuiz_sdk を `--juiz-sdk-dir` で指し、hsjuiz は `--juiz-source` の `bindings/hsjuiz`。ポートは 8076。.juizapp に libjuiz_sdk・hsjuiz・GHC の RTS が入っていることと `juiz: "=<版>"` を確かめる。ghc・cabal(Linux では patchelf も)が無ければ飛ばし、`JUIZ_REQUIRE_HASKELL=1` なら落とす。cargo test が LD_LIBRARY_PATH に足す `target/` の下は、scripts を呼ぶときに外す(残すと bundle-plugin-deps.sh の確かめで、隣に写した libjuiz_sdk より先に target/debug のものが見つかって失敗する)。
 
@@ -649,7 +656,7 @@ conf の `{target}` は juiz の置換(app-package.md §5.2)で、この書式�
 | 複数クレート・複数 Component のワークスペース | しない(1 雛形 = 1 Component) | |
 | Haskell の Windows | 生成するが警告 | #137 の後に `.ps1` と DLL の作り方を足す |
 | Zig の Windows | 生成するが警告。dev.sh の Windows のターゲットはエラー | #579 の後に `.ps1` と DLL の置き方を足す |
-| Zig の zigjuiz の取り方 | juiz のソースを clone して相対パスで指す | Releases のアーカイブと `zig fetch --save`(Step 6、#578) |
+| Zig の zigjuiz の `.hash` | 雛形に書かず、dev.sh の初回の `zig fetch --save` に任せる(#578) | 版ごとのハッシュを juiz_pkg に埋め込む(公開のたびにアーカイブから計算して書き込む仕組みが要る) |
 | CI のワークフロー(.github/workflows)の雛形 | 置かない | 置く場合は `${{ }}` と置換の書式の衝突を決める |
 
 ## 13. Step との対応
@@ -664,3 +671,4 @@ conf の `{target}` は juiz の置換(app-package.md §5.2)で、この書式�
 | 5 `juiz pkg add`(任意) | #461 | §2.4、§5.1 |
 | 6 サイトとリリース | #462、OpenJUIZ.github.io#87 | — |
 | Zig(Zig Step 5) | #577 | §6.6 ほか |
+| Zig の zigjuiz を Releases から zig fetch で取る(Zig Step 6) | #578 | §2(`--zigjuiz-dir`)、§6.6、§7.1、§10.2、§12 |

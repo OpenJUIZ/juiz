@@ -6,8 +6,9 @@
     .fingerprint = {{zig_fingerprint}},
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
-        // zigjuiz {{juiz_version}}: the Zig library of juiz, in the juiz source (a path relative to this directory)
+        // zigjuiz {{juiz_version}}: the Zig library of juiz, in the juiz source (a path relative to this directory: {{zigjuiz_path}})
         .zigjuiz = .{ .path = "{{zigjuiz_path}}" },
+        // zigjuiz {{juiz_version}} (the Zig library of juiz) comes here. scripts/dev.sh adds it the first time: zig fetch --save=zigjuiz {{zigjuiz_fetch}}
     },
     .paths = .{
         "build.zig",

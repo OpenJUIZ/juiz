@@ -330,8 +330,30 @@ fn invert(ctx: juiz.Context, args: struct { img: juiz.Image }) !juiz.Image {
 
 ## ビルド
 
-利用者の `build.zig.zon` の `dependencies` に zigjuiz を入れ(配布のアーカイブと `zig fetch` での取り込みは issue #578 で用意します。
-それまではリポジトリの `bindings/zigjuiz` を `.path` で指します)、`build.zig` を次のように書きます。
+### 取り込む(`zig fetch`)
+
+zigjuiz は juiz の GitHub Releases に、版ごとのアーカイブ `zigjuiz-<版>.tar.gz` として置いてあります(issue #578)。
+使う juiz と同じ版を、利用者のプロジェクト(`build.zig.zon` のあるディレクトリ)で `zig fetch --save` で取り込みます。
+
+```sh
+# <版> は juiz の版(juiz --version)。0.3.2 の次の版から置いてあります
+zig fetch --save https://github.com/OpenJUIZ/juiz/releases/download/v<版>/zigjuiz-<版>.tar.gz
+```
+
+`juiz pkg create <名前> -b zig` で作った雛形では、`scripts/dev.sh` が初めての実行のときにこれを行います。
+
+`build.zig.zon` の `dependencies` に `.zigjuiz = .{ .url = "...", .hash = "..." }` が書かれます(`.hash` は zig fetch が中身から計算します)。
+juiz を上げるときは、新しい版の URL でもう一度 `zig fetch --save` を実行します(同じ名前の依存は置き換わります)。
+アーカイブには `build.zig`・`build.zig.zon`・`src/` と、C のヘッダ `include/juiz_sdk.h` の写しが入っています。
+
+juiz のソース(`git clone`)を使うときは、`zig fetch --save=zigjuiz <juiz のソース>/bindings/zigjuiz` か、
+`.zigjuiz = .{ .path = "<このディレクトリからの相対パス>" }` で `bindings/zigjuiz` を指します(Zig は `.path` に絶対パスを受けません)。
+
+libjuiz_sdk は別に `juiz sdk install` で入れます([libjuiz_sdk の探し方](#libjuiz_sdk-の探し方))。
+
+### build.zig
+
+`build.zig` を次のように書きます。
 
 ```zig
 const std = @import("std");
@@ -398,6 +420,18 @@ Windows 向けは #579 で確かめます。
 
 rpath は `$ORIGIN`(macOS は `@loader_path`)と、見つけた libjuiz_sdk のディレクトリです。libjuiz_sdk をプラグインの隣に置いても、
 入れた場所のままでも読み込めます。
+
+## 対応する Zig の版
+
+Zig は 1.0 の前で、版ごとに標準ライブラリや build.zig の API が変わります。zigjuiz は **Zig の版を 1 つだけ** に対応し(古い版は追いません)、
+`build.zig.zon` の `minimum_zig_version` と build.zig の検査で、違う版ではビルドを止めます。juiz 本体と libjuiz_sdk は C ABI なので、Zig の版には関係しません。
+
+| juiz・zigjuiz の版 | Zig の版 |
+|---|---|
+| 0.3.2 の次の版〜(zigjuiz を初めて配る版) | 0.17.x |
+
+Zig の新しい版に移るときは、移行を 1 件ずつ issue にし、その issue を入れた juiz の版から zigjuiz の対応版を切り替えます(この表に行を足します)。
+CI は対応する 1 つの版だけで回します(`.github/workflows/test-linux.yml` の `ZIG_VERSION`)。
 
 ## ライセンス
 
