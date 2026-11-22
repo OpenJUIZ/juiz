@@ -1,0 +1,4 @@
+/// Returns a + b.
+fn {{name}}(args: struct { a: i64 = 0, b: i64 = 0 }) !i64 {
+    return std.math.add(i64, args.a, args.b);
+}

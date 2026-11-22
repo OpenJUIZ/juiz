@@ -984,11 +984,11 @@ const lib = juiz.addPlugin(.{ .name = "my_component", .root_source_file = b.path
     .imports = &.{.{ .name = "juiz_types", .module = types }} });
 ```
 
-- `juiz-idl` は `-Djuiz-idl=<パス>`、無ければ PATH から探す。Zig のビルドは入力が変わったときだけ juiz-idl を実行し直す。import した先は `juiz-idl` の引数には要らないが、変わったときに作り直すには `.depends` に書く。
+- `juiz-idl` は `-Djuiz-idl=<パス>`、無ければ PATH から探し、それも無ければ juiz の `juiz idl` を使う(#577。cargo の juiz_app・pip の juiz-cli には `juiz-idl` が無いため、C++ の `juiz_generate_types` と同じ)。Zig のビルドは入力が変わったときだけ juiz-idl を実行し直す。import した先は `juiz-idl` の引数には要らないが、変わったときに作り直すには `.depends` に書く。
 
 ### 26.4 雛形(zig-skeleton)
 
-`juiz-idl -g zig-skeleton` は、宣言のある名前空間ごとに `<名前空間の . を _ にしたもの>_component.zig`(`robot.arm` → `robot_arm_component.zig`)を書き出す(既定の `-g` には入れない)。`juiz pkg create -b zig --idl`(Zig Step 5)は `juiz_idl::zig_skeleton_items` でコンポーネントの名前を指定して作る。
+`juiz-idl -g zig-skeleton` は、宣言のある名前空間ごとに `<名前空間の . を _ にしたもの>_component.zig`(`robot.arm` → `robot_arm_component.zig`)を書き出す(既定の `-g` には入れない)。`juiz pkg create -b zig --idl`(Zig Step 5、#577、pkg.md §6.5)は `juiz_idl::zig_skeleton_items` でコンポーネントの名前を指定して作る。
 
 - 中身は `@import("juiz")` と `@import("juiz_types")`(§26.3)、宣言ごとの関数、`container` は状態の空の `pub const <CamelCase>State = struct {}` と `<名前>_create`、最後に `juiz.exportComponent` で 1 つの Component(コンポーネントの名前は名前空間の `.` を `_` にしたもの)にまとめる。
 - 関数の本体は `_ = args;` と `return error.NotImplemented;`(呼ぶと -1101 のエラーになる)。戻り値は `!T`。

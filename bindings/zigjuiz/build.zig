@@ -47,7 +47,7 @@ comptime {
 }
 
 /// C ヘッダ juiz_sdk.h の場所 (zigjuiz のディレクトリから)。リポジトリでは bindings/cjuiz/include/ を指す。
-/// 配布するアーカイブ (issue #577) では、作るときにヘッダを include/ に写してここを書き換える
+/// 配布するアーカイブ (issue #578) では、作るときにヘッダを include/ に写してここを書き換える
 const header_path = "../cjuiz/include/juiz_sdk.h";
 
 pub fn build(b: *std.Build) void {
@@ -104,15 +104,24 @@ pub const Juiz = struct {
     sdk_lib_dir: ?[]const u8,
     /// libjuiz_sdk が見つからないときに失敗させるステップ
     missing_sdk: ?*std.Build.Step,
-    /// juiz-idl のコマンド (-Djuiz-idl、無ければ PATH の juiz-idl)
-    idl_exe: []const u8,
+    /// juiz-idl のコマンド (-Djuiz-idl)。null なら addTypes で PATH の juiz-idl、それも無ければ `juiz idl` を使う
+    idl_exe: ?[]const u8,
 
     /// .jidl / .avsc から `juiz-idl -g zig` で型を作り (ビルドのたびではなく、入力が変わったときだけ)、
     /// 全部の名前空間を読み込む juiz_idl.zig を根にしたモジュールを返す (issue #576、docs/spec/datatype.md §26.3)。
     /// addPlugin の .imports に `.{ .name = "juiz_types", .module = types }` のように渡し、`@import("juiz_types")` で使う
     pub fn addTypes(self: Juiz, options: TypesOptions) *std.Build.Module {
         const b = self.b;
-        const run = b.addSystemCommand(&.{ self.idl_exe, "-g", "zig" });
+        // juiz-idl は cargo install juiz_idl で入るもの。juiz (cargo の juiz_app・pip の juiz-cli) には
+        // 同じ生成器が `juiz idl` として入っているので、juiz-idl が無ければそれを使う (issue #577)
+        const cmd: []const []const u8 = if (self.idl_exe) |exe|
+            &.{exe}
+        else if (b.findProgram(.{ .names = &.{"juiz-idl"} })) |exe|
+            &.{exe}
+        else
+            &.{ "juiz", "idl" };
+        const run = b.addSystemCommand(cmd);
+        run.addArgs(&.{ "-g", "zig" });
         const out = run.addPrefixedOutputDirectoryArg("--out-dir=", "juiz_types");
         for (options.import_dirs) |d| run.addPrefixedDirectoryArg("--import-dir=", d);
         for (options.files) |f| run.addFileArg(f);
@@ -147,7 +156,7 @@ pub const Juiz = struct {
             module.addLibraryPath(path);
             module.linkSystemLibrary("juiz_sdk", .{});
             switch (self.target.result.os.tag) {
-                // Windows は DLL を隣か PATH から探すので rpath は無い (Windows の確認は issue #578)
+                // Windows は DLL を隣か PATH から探すので rpath は無い (Windows の確認は issue #579)
                 .windows => {},
                 .macos, .ios => {
                     module.addRPathSpecial("@loader_path");
@@ -162,13 +171,60 @@ pub const Juiz = struct {
         if (self.missing_sdk) |step| lib.step.dependOn(step);
         return lib;
     }
+
+    /// .juizapp に入れるプラグインとして、addPlugin で作ったライブラリと libjuiz_sdk を `<prefix>/<dest_dir>` に並べて置く
+    /// (issue #577、C++ の juiz_sdk_bundle に当たる、docs/spec/app-package.md §12.2)。
+    /// lib の rpath は $ORIGIN (macOS は @loader_path) だけにする (libjuiz_sdk の絶対パスを書き込まない)。
+    /// できたディレクトリの中身をそのまま plugins/<ターゲット名>/ に置けば、SDK の無い機械でも読み込める。
+    /// `zig build` (install のステップ) で置かれる
+    pub fn installBundle(self: Juiz, lib: *std.Build.Step.Compile, options: BundleOptions) void {
+        const b = self.b;
+        const module = lib.root_module;
+        module.rpaths.clearRetainingCapacity();
+        // zig はリンクしたライブラリのディレクトリも rpath に足すので、それも止める
+        lib.each_lib_rpath = false;
+        switch (self.target.result.os.tag) {
+            .windows => {},
+            .macos, .ios => module.addRPathSpecial("@loader_path"),
+            else => module.addRPathSpecial("$ORIGIN"),
+        }
+        const dir: std.Build.InstallDir = .{ .custom = options.dest_dir };
+        const install_lib = b.addInstallArtifact(lib, .{
+            .dest_dir = .{ .override = dir },
+            .pdb_dir = .disabled,
+            .implib_dir = .disabled,
+            .h_dir = .disabled,
+        });
+        b.getInstallStep().dependOn(&install_lib.step);
+        const sdk_dir = self.sdk_lib_dir orelse return; // 見つからなければ missing_sdk のステップが失敗させる
+        const runtime = switch (self.target.result.os.tag) {
+            .windows => "juiz_sdk.dll",
+            .macos, .ios => "libjuiz_sdk.dylib",
+            else => "libjuiz_sdk.so",
+        };
+        // Windows のアーカイブは DLL を bin/ に置く (lib/ にはインポートライブラリ。cargo build の target/debug は同じ所。
+        // Windows の確認は issue #579)
+        var runtime_path = b.pathJoin(&.{ sdk_dir, runtime });
+        if (self.target.result.os.tag == .windows) {
+            if (std.Io.Dir.accessAbsolute(b.graph.io, runtime_path, .{})) |_| {} else |_| {
+                runtime_path = b.pathJoin(&.{ sdk_dir, "..", "bin", runtime });
+            }
+        }
+        const install_sdk = b.addInstallFileWithDir(.{ .cwd_relative = runtime_path }, dir, runtime);
+        b.getInstallStep().dependOn(&install_sdk.step);
+    }
+};
+
+pub const BundleOptions = struct {
+    /// 置き場所 (zig-out からの相対)。既定は zig-out/plugins
+    dest_dir: []const u8 = "plugins",
 };
 
 /// 利用者の build.zig で一度だけ呼ぶ。-Djuiz-sdk / -Djuiz-sdk-lib のオプションを b に足し、libjuiz_sdk を探す
 pub fn init(b: *std.Build, options: InitOptions) Juiz {
     const sdk_lib_opt = b.option([]const u8, "juiz-sdk-lib", "Directory that contains libjuiz_sdk (absolute path)");
     const sdk_opt = b.option([]const u8, "juiz-sdk", "Directory of the extracted libjuiz_sdk archive (default: JUIZ_SDK_HOME/<version> or `juiz sdk path`)");
-    const idl_exe = b.option([]const u8, "juiz-idl", "juiz-idl command used by addTypes (default: juiz-idl in PATH)") orelse "juiz-idl";
+    const idl_exe = b.option([]const u8, "juiz-idl", "juiz-idl command used by addTypes (default: juiz-idl in PATH, or `juiz idl`)");
     const dep = b.dependency(options.dependency_name, .{
         .target = options.target,
         .optimize = options.optimize,

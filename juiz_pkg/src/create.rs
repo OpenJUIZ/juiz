@@ -56,6 +56,16 @@ pub struct Plan {
     pub hsjuiz_missing: bool,
     /// `--hsjuiz-dir` を指定したか
     pub hsjuiz_given: bool,
+    /// Zig の zigjuiz のソースの場所 (§6.6)
+    pub zigjuiz_dir: PathBuf,
+    /// zigjuiz_dir に build.zig.zon が無い (Zig の次の手順に juiz のソースの用意を出す)
+    pub zigjuiz_missing: bool,
+    /// `--zigjuiz-dir` か `--juiz-source` を指定したか
+    pub zigjuiz_given: bool,
+    /// build.zig.zon に書く zigjuiz の場所 (雛形のディレクトリからの相対パス、/ 区切り)。Zig のときだけ
+    pub zigjuiz_rel: Option<String>,
+    /// build.zig.zon の .fingerprint (§6.6)
+    pub zig_fingerprint: u64,
     pub year: i64,
     /// Windows 向けの表示にするか (§9)
     pub windows: bool,
@@ -117,6 +127,29 @@ fn absolute(p: &Path) -> PathBuf {
     }
 }
 
+/// まだ無いかもしれないパスを絶対パスにする。在る一番深い親を正規化して (シンボリックリンクをたどって) 残りを付ける。
+/// 相対パスを作るときに、正規化した側 (macOS の /var → /private/var など) とそろえるため
+fn absolute_through_links(p: &Path) -> PathBuf {
+    // `..` と `.` は先に字面で外す (file_name を持たない要素を残さない)
+    let p: PathBuf = lexical_components(&absolute(p)).iter().collect();
+    let mut rest = Vec::new();
+    let mut cur = p.as_path();
+    while let Some(parent) = cur.parent() {
+        if let Some(n) = cur.file_name() {
+            rest.push(n.to_owned());
+        }
+        if let Ok(c) = std::fs::canonicalize(parent) {
+            let mut out = strip_verbatim(c);
+            for n in rest.iter().rev() {
+                out.push(n);
+            }
+            return out;
+        }
+        cur = parent;
+    }
+    p
+}
+
 /// Windows の canonicalize が付ける \\?\ を外す (ビルドの道具が読めないことがあるため)
 fn strip_verbatim(p: PathBuf) -> PathBuf {
     let s = p.to_string_lossy();
@@ -154,21 +187,93 @@ fn sdk_install_command(dir: &Path, given: bool) -> String {
 /// hsjuiz を含む juiz のソースを取るコマンド (Haskell、§6.4)。
 /// 既定の場所 (`~/juiz-<版>/bindings/hsjuiz`) なら `~/juiz-<版>` に clone する
 fn hsjuiz_clone_command(hsjuiz_dir: &Path, given: bool) -> String {
+    binding_clone_command(hsjuiz_dir, "hsjuiz", given)
+}
+
+/// `bindings/<binding>` を含む juiz のソースを取るコマンド (Haskell の hsjuiz、Zig の zigjuiz)
+fn binding_clone_command(dir: &Path, binding: &str, given: bool) -> String {
     let clone = |dest: &str| {
         format!("git clone --depth 1 --branch v{JUIZ_VERSION} https://github.com/OpenJUIZ/juiz.git {dest}")
     };
-    let source = hsjuiz_dir.parent().and_then(|p| p.parent());
-    let ends_with_bindings = hsjuiz_dir.file_name().is_some_and(|n| n == "hsjuiz")
-        && hsjuiz_dir.parent().and_then(|p| p.file_name()).is_some_and(|n| n == "bindings");
+    let source = dir.parent().and_then(|p| p.parent());
+    let ends_with_bindings = dir.file_name().is_some_and(|n| n == binding)
+        && dir.parent().and_then(|p| p.file_name()).is_some_and(|n| n == "bindings");
     match source {
         Some(src) if !given => clone(&format!("~/{}", src.file_name().unwrap_or_default().to_string_lossy())),
         Some(src) if ends_with_bindings => clone(&shell_arg(src)),
         _ => format!(
-            "{} <dir>   # then use <dir>/bindings/hsjuiz",
+            "{} <dir>   # then use <dir>/bindings/{binding}",
             clone("")
                 .trim_end()
         ),
     }
+}
+
+/// パスの要素から `.` を外し、`..` をその前の要素と打ち消す (字面だけで、ファイルは見ない)
+fn lexical_components(p: &Path) -> Vec<std::path::Component<'_>> {
+    use std::path::Component;
+    let mut v: Vec<Component> = Vec::new();
+    for c in p.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir if matches!(v.last(), Some(Component::Normal(_))) => {
+                v.pop();
+            }
+            c => v.push(c),
+        }
+    }
+    v
+}
+
+/// `to` を `from` (ディレクトリ) からの相対パスにする (/ 区切り)。どちらも絶対パス。
+/// 根が違う (Windows のドライブが違う) ときは None
+fn relative_path(from: &Path, to: &Path) -> Option<String> {
+    use std::path::Component;
+    let (f, t) = (lexical_components(from), lexical_components(to));
+    let root = |v: &[Component]| {
+        v.iter()
+            .take_while(|c| matches!(c, Component::Prefix(_) | Component::RootDir))
+            .count()
+    };
+    let (rf, rt) = (root(&f), root(&t));
+    if rf == 0 || rf != rt || f[..rf] != t[..rt] {
+        return None;
+    }
+    let common = f.iter().zip(t.iter()).take_while(|(a, b)| a == b).count();
+    let mut parts: Vec<String> = vec!["..".to_owned(); f.len() - common];
+    parts.extend(t[common..].iter().map(|c| c.as_os_str().to_string_lossy().into_owned()));
+    if parts.is_empty() {
+        Some(".".to_owned())
+    } else {
+        Some(parts.join("/"))
+    }
+}
+
+/// CRC-32 (IEEE、zlib と同じ)。build.zig.zon の fingerprint の上位 32 bit は名前の CRC-32 (§6.6)
+fn crc32(data: &[u8]) -> u32 {
+    let mut crc = 0xffff_ffffu32;
+    for &b in data {
+        crc ^= b as u32;
+        for _ in 0..8 {
+            let mask = (crc & 1).wrapping_neg();
+            crc = (crc >> 1) ^ (0xedb8_8320 & mask);
+        }
+    }
+    !crc
+}
+
+/// build.zig.zon の .fingerprint。下位 32 bit はパッケージごとの id (0 と 0xffffffff 以外の乱数)、
+/// 上位 32 bit は名前の CRC-32 (Zig 0.17 の Package.Fingerprint)
+pub(crate) fn zig_fingerprint(name: &str, seed: u64) -> u64 {
+    use std::hash::{BuildHasher, Hasher};
+    let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+    h.write(name.as_bytes());
+    h.write_u64(seed);
+    let mut id = h.finish() as u32;
+    if id == 0 || id == u32::MAX {
+        id = 1;
+    }
+    ((crc32(name.as_bytes()) as u64) << 32) | id as u64
 }
 
 fn git_user_name() -> Option<String> {
@@ -201,8 +306,18 @@ impl Plan {
         if args.hsjuiz_dir.is_some() && lang != Lang::Haskell {
             warnings.push("--hsjuiz-dir is only for -b haskell; ignored".to_owned());
         }
-        if args.juiz_sdk_dir.is_some() && !matches!(lang, Lang::Cpp | Lang::Haskell) {
-            warnings.push("--juiz-sdk-dir is only for -b cpp and -b haskell; ignored".to_owned());
+        if args.zigjuiz_dir.is_some() && lang != Lang::Zig {
+            warnings.push("--zigjuiz-dir is only for -b zig; ignored".to_owned());
+        }
+        if args.juiz_sdk_dir.is_some() && !lang.uses_sdk() {
+            warnings.push("--juiz-sdk-dir is only for -b cpp, -b haskell and -b zig; ignored".to_owned());
+        }
+        if lang == Lang::Zig && args.name.len() > names::ZIG_MAX_NAME_LEN {
+            return Err(PkgError::new(format!(
+                "invalid package name '{}': for Zig, it must be at most {} characters (the .name of build.zig.zon)",
+                args.name,
+                names::ZIG_MAX_NAME_LEN
+            )));
         }
         if args.author.is_some() && args.license == LicenseKind::None {
             warnings.push("--author is only used with --license mit-apache; ignored".to_owned());
@@ -292,6 +407,53 @@ impl Plan {
             }
         }
 
+        let zigjuiz_dir = match (&args.zigjuiz_dir, &juiz_source) {
+            (Some(d), _) => absolute(d),
+            (None, Some(src)) => src.join("bindings").join("zigjuiz"),
+            (None, None) => home
+                .join(format!("juiz-{JUIZ_VERSION}"))
+                .join("bindings")
+                .join("zigjuiz"),
+        };
+        let zigjuiz_missing = !zigjuiz_dir.join("build.zig.zon").is_file();
+        let zigjuiz_given = args.zigjuiz_dir.is_some() || juiz_source.is_some();
+        let mut zigjuiz_rel = None;
+        if lang == Lang::Zig {
+            // build.zig.zon の依存の .path は雛形からの相対パスでなければならない (Zig は絶対パスを受けない)
+            let dest = absolute_through_links(&args.output.clone().unwrap_or_else(|| PathBuf::from(&args.name)));
+            zigjuiz_rel = Some(relative_path(&dest, &zigjuiz_dir).ok_or_else(|| {
+                PkgError::new(format!(
+                    "zigjuiz in {} cannot be written as a path relative to {} (build.zig.zon needs a relative path; put them on the same drive)",
+                    slash(&zigjuiz_dir),
+                    slash(&dest)
+                ))
+            })?);
+            if windows {
+                warnings.push(
+                    "Zig plugins on Windows are not supported by this skeleton yet (juiz issue #579): the skeleton is made for Linux and macOS, without .ps1 scripts"
+                        .to_owned(),
+                );
+            }
+            if zigjuiz_missing {
+                warnings.push(format!(
+                    "zigjuiz is not in {} (build.zig.zon points there). Get the juiz source of {JUIZ_VERSION}:\n    {}",
+                    slash(&zigjuiz_dir),
+                    binding_clone_command(&zigjuiz_dir, "zigjuiz", zigjuiz_given)
+                ));
+            }
+            if sdk_missing {
+                warnings.push(format!(
+                    "libjuiz_sdk {JUIZ_VERSION} is not in {} (the plugin links it). Install it:\n    {}",
+                    slash(&juiz_sdk_dir),
+                    sdk_install_command(&juiz_sdk_dir, args.juiz_sdk_dir.is_some())
+                ));
+            }
+        }
+        let seed = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0);
+
         let (display_dir, cd_dir) = match &args.output {
             Some(o) => (o.display().to_string(), o.display().to_string()),
             None => (format!("./{}", args.name), args.name.clone()),
@@ -313,6 +475,11 @@ impl Plan {
                 hsjuiz_dir,
                 hsjuiz_missing,
                 hsjuiz_given,
+                zigjuiz_dir,
+                zigjuiz_missing,
+                zigjuiz_given,
+                zigjuiz_rel,
+                zig_fingerprint: zig_fingerprint(&args.name, seed),
                 year: current_year(),
                 windows,
                 idl,
@@ -329,6 +496,7 @@ impl Plan {
             (None, Lang::Python) => format!("pyjuiz =={JUIZ_VERSION}"),
             (None, Lang::Cpp) => format!("libjuiz_sdk {JUIZ_VERSION}"),
             (None, Lang::Haskell) => format!("hsjuiz {JUIZ_VERSION}"),
+            (None, Lang::Zig) => format!("zigjuiz {JUIZ_VERSION}"),
         }
     }
 
@@ -480,6 +648,29 @@ impl Plan {
                 }
                 lines.push((script("dev"), "# build and put the plugin in app/plugins/<target>/"));
             }
+            Lang::Zig => {
+                if self.zigjuiz_missing || !with_cd {
+                    lines.push((
+                        format!("# once: get zigjuiz {JUIZ_VERSION} (the juiz source) in {}", slash(&self.zigjuiz_dir)),
+                        "",
+                    ));
+                    lines.push((
+                        binding_clone_command(&self.zigjuiz_dir, "zigjuiz", self.zigjuiz_given),
+                        "",
+                    ));
+                }
+                if self.sdk_missing || !with_cd {
+                    lines.push((
+                        format!("# once: put libjuiz_sdk {JUIZ_VERSION} in {}", slash(&self.sdk_dir_label())),
+                        "",
+                    ));
+                    lines.push((self.sdk_install_command(), ""));
+                }
+                lines.push((
+                    script("dev"),
+                    "# build and put the plugin and libjuiz_sdk in app/plugins/<target>/",
+                ));
+            }
             _ => {
                 lines.push((
                     script("dev"),
@@ -546,6 +737,9 @@ impl Plan {
                 self.juiz_sdk_dir_given.then(|| slash(&self.juiz_sdk_dir)),
             )
             .set("hsjuiz_dir", slash(&self.hsjuiz_dir))
+            .set("zigjuiz_dir", slash(&self.zigjuiz_dir))
+            .set("zigjuiz_path", self.zigjuiz_rel.clone().unwrap_or_default())
+            .set("zig_fingerprint", format!("0x{:016x}", self.zig_fingerprint))
             .set_opt("license", self.license.then(|| "MIT OR Apache-2.0".to_owned()))
             .set_opt("author", self.author.clone())
             .set("year", self.year.to_string())
@@ -560,6 +754,7 @@ impl Plan {
                     .set_opt("idl_depends", i.depends())
                     .set("idl_hs_modules", i.hs_other_modules())
                     .set_opt("idl_hs_gen_dir", (self.lang == Lang::Haskell).then(|| "gen".to_owned()))
+                    .set("idl_zig_depends", i.zig_depends())
                     .set_opt(
                         "juiz_std_types_dep",
                         i.uses_juiz_std.then(|| self.rust_dep("juiz_std_types")),
@@ -572,6 +767,7 @@ impl Plan {
                     .set_opt("idl_depends", None)
                     .set_opt("idl_hs_modules", None)
                     .set_opt("idl_hs_gen_dir", None)
+                    .set_opt("idl_zig_depends", None)
                     .set_opt("juiz_std_types_dep", None);
             }
         }
@@ -853,6 +1049,108 @@ mod tests {
         assert!(s.contains("scripts/dev.sh"), "{s}");
     }
 
+    /// Zig (§6.6、issue #577)
+    #[test]
+    fn zig_component_files() {
+        let sdk = temp("zig_sdk_missing");
+        let base = temp("zig_base");
+        let zj = base.join("juiz-x").join("bindings").join("zigjuiz");
+        let out = base.join("work").join("my_robot");
+        let args = parse(&[
+            "create", "my_robot", "-b", "zig",
+            "--juiz-sdk-dir", sdk.to_str().unwrap(),
+            "--zigjuiz-dir", zj.to_str().unwrap(),
+            "-o", out.to_str().unwrap(),
+        ]);
+        let (p, w) = Plan::from_args_with(&args, || None, false).unwrap();
+        assert_eq!(
+            paths(&p),
+            [
+                ".gitignore",
+                "README.md",
+                "app/app.conf",
+                "app/juizapp.yaml",
+                "build.zig",
+                "build.zig.zon",
+                "scripts/dev.sh",
+                "scripts/pack.sh",
+                "src/my_robot.zig",
+            ]
+        );
+        // zigjuiz も libjuiz_sdk も無いので、用意するコマンドを警告に出す
+        assert_eq!(w.len(), 2, "{w:?}");
+        assert!(w[0].contains("zigjuiz is not in") && w[0].contains("git clone --depth 1 --branch v") && w[0].contains("/juiz-x"), "{w:?}");
+        assert!(w[1].contains("juiz sdk install --dir "), "{w:?}");
+        let files = p.files().unwrap();
+        let get = |n: &str| files.iter().find(|f| f.path == n).unwrap().content.clone();
+        // build.zig.zon: zigjuiz は雛形からの相対パス、fingerprint の上位 32 bit は名前の CRC-32
+        let zon = get("build.zig.zon");
+        assert!(zon.contains("    .name = .my_robot,\n"), "{zon}");
+        assert!(zon.contains(".zigjuiz = .{ .path = \"../../juiz-x/bindings/zigjuiz\" },"), "{zon}");
+        assert!(zon.contains(&format!("    .fingerprint = 0x{:08x}", crc32(b"my_robot"))), "{zon}");
+        let build = get("build.zig");
+        assert!(build.contains(".name = \"my_robot\","), "{build}");
+        assert!(build.contains("juiz.installBundle(lib, .{});"), "{build}");
+        let conf = get("app/app.conf");
+        assert!(conf.contains("\"language\": \"zig\""), "{conf}");
+        assert!(conf.contains("\"path\": \"plugins/{target}\""), "{conf}");
+        assert!(get("app/juizapp.yaml").contains(&format!("juiz: \"={JUIZ_VERSION}\"\n")));
+        let src = get("src/my_robot.zig");
+        assert!(src.contains("fn my_robot_add(args: struct { a: i64 = 0, b: i64 = 0 }) !i64 {"), "{src}");
+        assert!(src.contains("const MyRobotState = struct {"), "{src}");
+        assert!(src.contains("fn my_robot_get(self: *const MyRobotState) i64 {"), "{src}");
+        assert!(src.contains("        .type_name = \"my_robot\",\n"), "{src}");
+        // --juiz-sdk-dir は dev.sh の既定になる
+        let dev = get("scripts/dev.sh");
+        assert!(dev.contains(&format!("then sdk_dir=\"{}\"; fi", slash(&sdk))), "{dev}");
+        let s = p.summary();
+        assert!(s.contains("git clone --depth 1"), "{s}");
+        assert!(s.contains("juiz sdk install"), "{s}");
+        assert!(s.contains("scripts/dev.sh"), "{s}");
+        // --juiz-sdk-dir を省けば dev.sh の既定の行は無い (juiz sdk path を zigjuiz が使う)
+        let p = plan(&["create", "my_robot", "-b", "zig"]);
+        let dev = p.files().unwrap().into_iter().find(|f| f.path == "scripts/dev.sh").unwrap().content;
+        assert!(!dev.contains("then sdk_dir=\""), "{dev}");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn zig_names_and_windows() {
+        // build.zig.zon の .name は 32 文字まで
+        let long = "a".repeat(33);
+        let e = Plan::from_args_with(&parse(&["create", &long, "-b", "zig"]), || None, false).unwrap_err();
+        assert!(e.to_string().contains("at most 32"), "{e}");
+        assert!(Plan::from_args_with(&parse(&["create", &long, "-b", "rust"]), || None, false).is_ok());
+        assert!(Plan::from_args_with(&parse(&["create", "var", "-b", "zig"]), || None, false).is_err());
+        // Windows では警告し、.ps1 は置かない
+        let (p, w) = Plan::from_args_with(&parse(&["create", "my_robot", "-b", "zig"]), || None, true).unwrap();
+        assert!(w.iter().any(|w| w.contains("#579")), "{w:?}");
+        assert!(!paths(&p).iter().any(|f| f.ends_with(".ps1")));
+        assert!(p.summary().contains("scripts/dev.sh"));
+        // 言語に関係しないオプション
+        let (_, w) = Plan::from_args_with(&parse(&["create", "my_robot", "-b", "rust", "--zigjuiz-dir", "/x"]), || None, false).unwrap();
+        assert!(w.iter().any(|w| w.contains("--zigjuiz-dir is only for -b zig")), "{w:?}");
+    }
+
+    #[test]
+    fn relative_paths_and_fingerprints() {
+        let rel = |a: &str, b: &str| relative_path(Path::new(a), Path::new(b));
+        assert_eq!(rel("/a/b/c", "/a/x/y").as_deref(), Some("../../x/y"));
+        assert_eq!(rel("/a/b", "/a/b/c").as_deref(), Some("c"));
+        assert_eq!(rel("/a/b", "/a/b").as_deref(), Some("."));
+        assert_eq!(rel("/a/./b/../c", "/a/d").as_deref(), Some("../d"));
+        assert_eq!(rel("a/b", "/a"), None);
+        // zlib の crc32 と同じ。Zig 0.17 が my_robot に勧める値 0xb4edcc20…
+        assert_eq!(crc32(b"my_robot"), 0xb4ed_cc20);
+        assert_eq!(crc32(b""), 0);
+        for seed in 0..100 {
+            let f = zig_fingerprint("my_robot", seed);
+            assert_eq!((f >> 32) as u32, 0xb4ed_cc20);
+            let id = f as u32;
+            assert!(id != 0 && id != u32::MAX);
+        }
+    }
+
     #[test]
     fn haskell_found_and_windows() {
         let root = temp("hs_found");
@@ -1091,7 +1389,7 @@ mod tests {
     /// 全言語・全種類で、置換が残らない・conf の型と表示が合う (§11)
     #[test]
     fn all_combinations_render() {
-        for lang in ["rust", "python", "cpp", "haskell"] {
+        for lang in ["rust", "python", "cpp", "haskell", "zig"] {
             for t in ["component", "process", "container"] {
                 for lic in ["none", "mit-apache"] {
                     let p = plan(&["create", "my_robot", "-b", lang, "-t", t, "--license", lic]);
@@ -1258,6 +1556,19 @@ mod tests {
         assert!(cmake.contains("juiz_generate_types(my_robot\n  IDL idl/robot.jidl\n  DEPENDS idl/common/goal.jidl\n)"), "{cmake}");
         let s = p.summary();
         assert!(s.contains("# write the bodies of the functions (throw std::runtime_error) in src/my_robot.cpp, then\n  scripts/dev.sh"), "{s}");
+
+        // Zig: build.zig の juiz.addTypes がビルドのときに型を作る
+        let p = plan(&["create", "my_robot", "-b", "zig", "--idl", idl]);
+        let files = p.files().unwrap();
+        let src = common(&files, "zig", "src/my_robot.zig");
+        assert!(src.contains("const types = @import(\"juiz_types\");"), "{src}");
+        assert!(src.contains("fn turn(args: struct { goal: types.robot.common.Goal, pose: types.juiz_std.geometry.Pose2D, speed: f64 = 1.0 }) !f64 {"), "{src}");
+        assert!(src.contains("        .type_name = \"my_robot\",\n"), "{src}");
+        let build = files.iter().find(|f| f.path == "build.zig").unwrap().content.clone();
+        assert!(build.contains(".files = &.{b.path(\"idl/robot.jidl\")},\n        .depends = &.{ b.path(\"idl/common/goal.jidl\") },"), "{build}");
+        assert!(build.contains(".imports = &.{.{ .name = \"juiz_types\", .module = types }},"), "{build}");
+        let s = p.summary();
+        assert!(s.contains("# write the bodies of the functions (return error.NotImplemented) in src/my_robot.zig, then\n  scripts/dev.sh"), "{s}");
 
         // Haskell: scripts/dev.sh が gen/ に型のモジュールを作り、.cabal の other-modules に書く
         let p = plan(&["create", "my_robot", "-b", "haskell", "--idl", idl]);

@@ -73,6 +73,7 @@ fn lang_from_conf(language: &str) -> Option<Lang> {
         "python" => Some(Lang::Python),
         "c++" | "cpp" => Some(Lang::Cpp),
         "haskell" => Some(Lang::Haskell),
+        "zig" => Some(Lang::Zig),
         _ => None,
     }
 }
@@ -105,7 +106,7 @@ impl Package {
         let language = v["language"].as_str().unwrap_or("");
         let lang = lang_from_conf(language).ok_or_else(|| {
             err(format!(
-                "plugins.components.{component}.language in app/app.conf is '{language}'; expected rust, python, c++ or haskell"
+                "plugins.components.{component}.language in app/app.conf is '{language}'; expected rust, python, c++, haskell or zig"
             ))
         })?;
 
@@ -142,6 +143,7 @@ impl Package {
             Lang::Python => format!("app/python/{}.py", self.component),
             Lang::Cpp => format!("src/{}.cpp", self.component),
             Lang::Haskell => format!("src/{}.hs", names::camel(&self.component)),
+            Lang::Zig => format!("src/{}.zig", self.component),
         }
     }
 }
@@ -175,7 +177,7 @@ fn new_identifiers(kind: AddKind, name: &str, lang: Lang) -> Vec<String> {
     }
     if kind == AddKind::Container {
         let camel = names::camel(name);
-        if lang == Lang::Haskell {
+        if matches!(lang, Lang::Haskell | Lang::Zig) {
             v.push(format!("{camel}State"));
         } else {
             v.push(camel);
@@ -202,7 +204,10 @@ fn contains_word(text: &str, word: &str) -> bool {
 
 /// 足すコード (templates/add/<lang>/<kind>.tmpl)
 fn snippet(kind: AddKind, name: &str, lang: Lang) -> Result<String, PkgError> {
-    let key = format!("add/{}/{}.tmpl", lang.dir(), kind.dir());
+    add_template(&format!("add/{}/{}.tmpl", lang.dir(), kind.dir()), name)
+}
+
+fn add_template(key: &str, name: &str) -> Result<String, PkgError> {
     let (_, text) = templates()
         .iter()
         .find(|(p, _)| *p == key)
@@ -439,6 +444,56 @@ fn edit_haskell(
     Ok(join(&lines))
 }
 
+// ---- Zig ----
+
+/// Zig: コードは `comptime {` (juiz.exportComponent を呼ぶもの) とその前のコメントの前に、
+/// 要素 (templates/add/zig/<kind>_part.tmpl) は `.parts = .{` を閉じる `},` の前に入れる
+fn edit_zig(
+    src: &str,
+    path: &str,
+    kind: AddKind,
+    name: &str,
+    code: &str,
+) -> Result<String, PkgError> {
+    let mut lines = lines_of(src);
+    let export = lines
+        .iter()
+        .position(|l| l.trim_start().starts_with("juiz.exportComponent("))
+        .ok_or_else(|| not_a_skeleton(path, "juiz.exportComponent(.{ ... })"))?;
+    let head = (0..export)
+        .rev()
+        .find(|&i| lines[i].trim() == "comptime {")
+        .ok_or_else(|| not_a_skeleton(path, "comptime { before juiz.exportComponent"))?;
+    let parts = (export..lines.len())
+        .find(|&i| lines[i].trim() == ".parts = .{")
+        .ok_or_else(|| not_a_skeleton(path, ".parts = .{ at the end of a line in juiz.exportComponent"))?;
+    let indent = &lines[parts][..lines[parts].len() - lines[parts].trim_start().len()];
+    let close_line = format!("{indent}}},");
+    let close = (parts + 1..lines.len())
+        .find(|&i| lines[i].trim_end() == close_line)
+        .ok_or_else(|| not_a_skeleton(path, "the line }, that closes .parts = .{"))?;
+    let part = add_template(&format!("add/zig/{}_part.tmpl", kind.dir()), name)?;
+    // 足すコードは std を使う (--idl の雛形は読み込んでいない)
+    let needs_std = !lines.iter().any(|l| l.trim() == "const std = @import(\"std\");");
+    let item_indent = format!("{indent}    ");
+    let added: Vec<String> = part
+        .trim_end_matches('\n')
+        .lines()
+        .map(|l| if l.is_empty() { String::new() } else { format!("{item_indent}{l}") })
+        .collect();
+    lines.splice(close..close, added);
+    let at = back_over_comments(&lines, head, "//");
+    insert_block(&mut lines, at, code);
+    if needs_std {
+        let i = lines
+            .iter()
+            .position(|l| l.trim() == "const juiz = @import(\"juiz\");")
+            .ok_or_else(|| not_a_skeleton(path, "const juiz = @import(\"juiz\");"))?;
+        lines.insert(i, "const std = @import(\"std\");".to_owned());
+    }
+    Ok(join(&lines))
+}
+
 // ---- app/app.conf ----
 
 /// 最上位のキーの行か (`"processes":` / `processes:`)。値が同じ行にあればそれも返す
@@ -589,6 +644,7 @@ pub fn plan(dir: &Path, kind: AddKind, name: &str) -> Result<(Package, Vec<Edite
         Lang::Python => edit_python(&src, kind, &code)?,
         Lang::Cpp => edit_cpp(&src, &src_path, kind, name, &code)?,
         Lang::Haskell => edit_haskell(&src, &src_path, kind, name, &code)?,
+        Lang::Zig => edit_zig(&src, &src_path, kind, name, &code)?,
     };
     let new_conf = edit_conf(&conf, kind, name)?;
 
@@ -798,7 +854,7 @@ mod tests {
     /// 全言語・全種類の雛形に process と container を足せる。足した後は {{ が残らず、元の型も残る
     #[test]
     fn adds_to_every_skeleton() {
-        for lang in ["rust", "python", "cpp", "haskell"] {
+        for lang in ["rust", "python", "cpp", "haskell", "zig"] {
             for template in ["component", "process", "container"] {
                 let d = skeleton(lang, template, "all");
                 let before = conf_types(&d);
@@ -887,6 +943,41 @@ mod tests {
         );
         // 足したコードは Component のマニフェストの関数 (とその前のコメント) の前
         assert!(src.contains("COMPONENT_PROCESS_FACTORY(my_mul_manif, my_mul);\n\n// The manifest of the whole Component"));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// Zig (issue #577): コードは comptime の前、要素は .parts の閉じ }, の前。--idl の雛形には std も読み込む
+    #[test]
+    fn zig_parts() {
+        let d = skeleton("zig", "process", "zp");
+        let (_, files) = plan(&d, AddKind::Container, "arm").unwrap();
+        let src = &files[0].after;
+        assert!(
+            src.contains("            }),\n            juiz.containerPart(arm_create, .{\n                .type_name = \"arm\",\n"),
+            "{src}"
+        );
+        assert!(src.contains("                .container_type = \"arm\",\n                .description = \"Returns the value.\",\n            }),\n        },\n    });\n}\n"), "{src}");
+        assert!(src.find("const ArmState = struct {").unwrap() < src.find("comptime {").unwrap(), "{src}");
+        assert!(src.contains("fn arm_get(self: *const ArmState) i64 {"), "{src}");
+        assert_eq!(src.matches("const std = @import(\"std\");").count(), 1, "{src}");
+        // 状態の型 ArmState と重なる名前はエラー
+        write_edits(&d, &files, None).unwrap();
+        let e = plan(&d, AddKind::Container, "arm").unwrap_err();
+        assert!(e.to_string().contains("already"), "{e}");
+        let _ = std::fs::remove_dir_all(&d);
+
+        // --idl の雛形 (juiz_idl の zig-skeleton) は 1 行の要素で std を読み込んでいない
+        let d = temp("zig_idl_add");
+        let jidl = crate::idl::write_jidl(&d.join("src"), "a.jidl", "namespace a; process long f(long x);");
+        let o = d.join("pkg");
+        let args = create_args(&["create", "my_robot", "-b", "zig", "--idl", jidl.to_str().unwrap(), "-o", o.to_str().unwrap()]);
+        let (p, _) = crate::create::Plan::from_args_with(&args, || None, false).unwrap();
+        crate::create::write_files(&o, &p.files().unwrap(), None).unwrap();
+        let (_, files) = plan(&o, AddKind::Process, "sum").unwrap();
+        let src = &files[0].after;
+        assert!(src.contains("const std = @import(\"std\");\nconst juiz = @import(\"juiz\");"), "{src}");
+        assert!(src.contains("juiz.processPart(f, .{ .type_name = \"f\""), "{src}");
+        assert!(src.contains("            juiz.processPart(sum, .{\n"), "{src}");
         let _ = std::fs::remove_dir_all(&d);
     }
 

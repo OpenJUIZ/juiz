@@ -266,7 +266,7 @@ fn check_package(pkg: &Path, lang: &str) {
         s
     };
     assert!(names.iter().any(|n| n == "LICENSE-MIT"), "{names:?}");
-    if lang == "cpp" || lang == "haskell" {
+    if lang == "cpp" || lang == "haskell" || lang == "zig" {
         let sdk = format!(
             "plugins/{}/{}juiz_sdk.{}",
             juiz_core::HOST_TARGET,
@@ -478,7 +478,30 @@ fn haskell_tools_missing() -> Option<String> {
     Some(msg)
 }
 
-/// 雛形を cargo・cmake・cabal でビルドするテスト。1 件 10〜50 秒かかるので、`--skip slow::` で外せるようにまとめる
+/// Zig の雛形を作れるか。zig は環境変数 ZIG で変えられる (例: ZIG="python3 -m ziglang"、scripts/test.sh と同じ)。
+/// Zig 0.17 が無ければ飛ばし、JUIZ_REQUIRE_ZIG=1 なら飛ばさずに落とす
+fn zig_missing() -> Option<String> {
+    let zig = std::env::var("ZIG").unwrap_or_else(|_| "zig".to_owned());
+    let mut words = zig.split_whitespace();
+    let ok = words.next().is_some_and(|cmd| {
+        Command::new(cmd)
+            .args(words)
+            .arg("version")
+            .output()
+            .map(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).starts_with("0.17."))
+            .unwrap_or(false)
+    });
+    if ok {
+        return None;
+    }
+    let msg = format!("Zig 0.17 ({zig}) not found (needed for the Zig skeleton test)");
+    if std::env::var("JUIZ_REQUIRE_ZIG").as_deref() == Ok("1") {
+        panic!("{msg}");
+    }
+    Some(msg)
+}
+
+/// 雛形を cargo・cmake・cabal・zig でビルドするテスト。1 件 10〜50 秒かかるので、`--skip slow::` で外せるようにまとめる
 /// (CONTRIBUTING.md の「カテゴリと置き場所」の slow)
 mod slow {
     use super::*;
@@ -533,6 +556,53 @@ mod slow {
         let dir = temp_dir("pkg_cli_haskell_sdk");
         let sdk = sdk_from_workspace(&dir);
         create_build_run_pack("haskell", "pkg_hs_robot", 8076, true, &["--juiz-sdk-dir", path_str(&sdk)]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Zig (§6.6、issue #577): C++ と同じく配布と同じ形の libjuiz_sdk を --juiz-sdk-dir で指し、
+    /// zigjuiz は --juiz-source の bindings/zigjuiz を使う。zigjuiz の installBundle が libjuiz_sdk をプラグインの隣に置く
+    #[cfg(unix)]
+    #[test]
+    fn pkg_create_zig_component_builds_runs_and_packs() {
+        if let Some(reason) = zig_missing() {
+            eprintln!("skip: {reason}");
+            return;
+        }
+        let dir = temp_dir("pkg_cli_zig_sdk");
+        let sdk = sdk_from_workspace(&dir);
+        create_build_run_pack("zig", "pkg_zig_robot", 8081, true, &["--juiz-sdk-dir", path_str(&sdk)]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Zig の --idl (issue #577): build.zig の juiz.addTypes が `juiz idl -g zig` で型を作る
+    /// (PATH に juiz-idl が無ければ juiz の `juiz idl`)
+    #[cfg(unix)]
+    #[test]
+    fn pkg_create_zig_idl_builds_runs_and_packs() {
+        if let Some(reason) = zig_missing() {
+            eprintln!("skip: {reason}");
+            return;
+        }
+        let dir = temp_dir("pkg_cli_zig_idl_sdk");
+        let sdk = sdk_from_workspace(&dir);
+        idl_build_run_pack(
+            "zig",
+            "pkg_zig_idl",
+            8088,
+            true,
+            &["--juiz-sdk-dir", path_str(&sdk)],
+            "src/pkg_zig_idl.zig",
+            &[
+                (
+                    "    _ = args;\n    // write the body of pkg_idl_remaining\n    return error.NotImplemented;",
+                    "    return args.goal.pose.theta - args.from_pose.theta + args.goal.tolerance;",
+                ),
+                (
+                    "    _ = self;\n    _ = args;\n    // write the body of pkg_idl_double\n    return error.NotImplemented;",
+                    "    _ = self;\n    return args.step * 2;",
+                ),
+            ],
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

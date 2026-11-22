@@ -56,6 +56,31 @@ pub const HASKELL_RESERVED: &[&str] = &[
     "prelude", "numeric", "foreign",
 ];
 
+/// Zig だけで使えない名前 (#577)。Zig のキーワードと、宣言に使えない基本の型・値の名前
+/// (`<name>` は関数名・build.zig.zon の `.name` になる)、zigjuiz のモジュールの名前。
+/// `i8`・`u64` のような整数の型の名前は zig_primitive_int で別に見る
+pub const ZIG_RESERVED: &[&str] = &[
+    // キーワード (RESERVED に無いもの)
+    "addrspace", "align", "allowzero", "anyframe", "anytype", "callconv", "comptime", "defer",
+    "errdefer", "error", "linksection", "noalias", "noinline", "nosuspend", "opaque", "orelse",
+    "packed", "resume", "suspend", "threadlocal", "unreachable", "var",
+    // 基本の型・値
+    "isize", "usize", "f16", "f32", "f64", "f80", "f128", "c_char", "c_short", "c_ushort", "c_int",
+    "c_uint", "c_long", "c_ulong", "c_longlong", "c_ulonglong", "c_longdouble", "anyopaque",
+    "anyerror", "noreturn", "comptime_int", "comptime_float", "null", "undefined",
+    // zigjuiz と雛形が使う名前
+    "zigjuiz", "juiz_types", "builtin", "root",
+];
+
+/// build.zig.zon の `.name` の上限 (Zig 0.17)
+pub const ZIG_MAX_NAME_LEN: usize = 32;
+
+/// `i8`・`u64` のような Zig の整数の型の名前か
+fn zig_primitive_int(name: &str) -> bool {
+    let rest = name.strip_prefix('i').or_else(|| name.strip_prefix('u'));
+    rest.is_some_and(|r| !r.is_empty() && r.chars().all(|c| c.is_ascii_digit()))
+}
+
 /// 規則に合わない理由を返す (合えば None)
 fn violation(name: &str, lang: Lang) -> Option<String> {
     let mut chars = name.chars();
@@ -93,6 +118,9 @@ fn violation(name: &str, lang: Lang) -> Option<String> {
             "for C++, '{name}' clashes with a name in the juiz C++ headers (the class {} or the function component_manifest_entry_point)",
             camel(name)
         ));
+    }
+    if lang == Lang::Zig && (ZIG_RESERVED.contains(&name) || zig_primitive_int(name)) {
+        return Some(format!("for Zig, '{name}' is a keyword or a name that Zig or zigjuiz uses"));
     }
     if let Err(e) = juiz_sdk::identifier::validate_name(name) {
         return Some(format!("{e}"));
@@ -185,6 +213,17 @@ mod tests {
         assert!(validate("arm_2", Lang::Rust).is_ok());
         assert!(validate("arm_2", Lang::Haskell).is_err());
         assert!(validate("arm_v2", Lang::Haskell).is_ok());
+    }
+
+    #[test]
+    fn zig_reserved_names() {
+        for n in ["var", "error", "comptime", "u8", "i64", "u1024", "f64", "usize", "anyerror", "zigjuiz", "undefined"] {
+            assert!(validate(n, Lang::Zig).is_err(), "{n}");
+            assert!(validate(n, Lang::Rust).is_ok() || RESERVED.contains(&n), "{n}");
+        }
+        for n in ["u", "i", "u8x", "my_var", "uart", "i2c"] {
+            assert!(validate(n, Lang::Zig).is_ok(), "{n}");
+        }
     }
 
     #[test]

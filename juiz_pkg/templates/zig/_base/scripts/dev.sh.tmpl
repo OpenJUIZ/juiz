@@ -1,0 +1,86 @@
+#!/bin/sh
+# Build the plugin and put it with libjuiz_sdk in app/plugins/<target>/ (to run app/app.conf during development)
+# usage: scripts/dev.sh [--release] [--target <target>]
+#   --target <target>: cross-build for another machine, one of x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu,
+#                      x86_64-apple-darwin, aarch64-apple-darwin (default: this machine, `juiz pkg target`).
+#                      It uses libjuiz_sdk of that target: install it once with `juiz sdk install --target <target>`
+#   JUIZ_SDK_DIR=<dir> scripts/dev.sh   uses libjuiz_sdk extracted in <dir> (default: `juiz sdk path`)
+#   ZIG=<command> scripts/dev.sh        uses this zig (default: zig). Zig 0.17.x is needed
+set -eu
+cd "$(dirname "$0")/.."
+if ! command -v juiz >/dev/null 2>&1; then
+  echo "error: juiz is not in PATH. Install juiz {{juiz_version}}:" >&2
+  echo "  cargo install juiz_app --version {{juiz_version}}   (or: pip install juiz-cli=={{juiz_version}})" >&2
+  exit 1
+fi
+zig="${ZIG:-zig}"
+if ! zig_version=$($zig version 2>/dev/null); then
+  echo "error: $zig is not found. Install Zig 0.17.x (https://ziglang.org/download/, or: pip install ziglang==0.17.1 and ZIG=\"python3 -m ziglang\")." >&2
+  exit 1
+fi
+case "$zig_version" in
+  0.17.*) ;;
+  *)
+    echo "error: zigjuiz {{juiz_version}} needs Zig 0.17.x, but $zig is $zig_version." >&2
+    exit 1
+    ;;
+esac
+release=
+target=
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --release) release=1 ;;
+    --target)
+      if [ $# -lt 2 ]; then
+        echo "error: --target needs a target, such as aarch64-unknown-linux-gnu" >&2
+        exit 1
+      fi
+      target=$2
+      shift
+      ;;
+    *)
+      echo "error: unknown option $1 (usage: scripts/dev.sh [--release] [--target <target>])" >&2
+      exit 1
+      ;;
+  esac
+  shift
+done
+host=$(juiz pkg target)
+if [ -z "$target" ]; then
+  target=$host
+fi
+# the Zig name of the target (the plugin goes to app/plugins/<target>/ with the name that juiz uses)
+case "$target" in
+  x86_64-unknown-linux-gnu) zig_target=x86_64-linux-gnu ;;
+  aarch64-unknown-linux-gnu) zig_target=aarch64-linux-gnu ;;
+  x86_64-apple-darwin) zig_target=x86_64-macos ;;
+  aarch64-apple-darwin) zig_target=aarch64-macos ;;
+  *windows*)
+    echo "error: Zig plugins on Windows are not supported by this skeleton yet (juiz issue #579)." >&2
+    exit 1
+    ;;
+  *)
+    echo "error: $target is not a target of libjuiz_sdk (x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu, x86_64-apple-darwin, aarch64-apple-darwin)." >&2
+    exit 1
+    ;;
+esac
+sdk_dir="${JUIZ_SDK_DIR:-}"
+if [ -z "$sdk_dir" ] && [ "$target" != "$host" ]; then
+  if ! sdk_dir=$(juiz sdk path --target "$target"); then
+    echo "error: install libjuiz_sdk for $target first: juiz sdk install --target $target" >&2
+    exit 1
+  fi
+fi
+if [ -z "$sdk_dir" ]; then sdk_dir="{{juiz_sdk_dir_arg}}"; fi  # --juiz-sdk-dir of juiz pkg create
+set --
+if [ -n "$release" ]; then set -- "$@" --release; fi
+# for this machine, build for the native target (the same as the plugins juiz loads here)
+if [ "$target" != "$host" ]; then set -- "$@" "-Dtarget=$zig_target"; fi
+if [ -n "$sdk_dir" ]; then set -- "$@" "-Djuiz-sdk=$sdk_dir"; fi
+rm -rf zig-out/plugins
+$zig build "$@"
+mkdir -p "app/plugins/$target"
+for f in zig-out/plugins/*; do
+  cp "$f" "app/plugins/$target/"
+  echo "app/plugins/$target/$(basename "$f")"
+done

@@ -1,0 +1,10 @@
+# .juizapp manifest (juiz docs/spec/app-package.md §4). languages, targets, rust and files are added by juiz pack
+format: 1
+name: {{name}}
+version: 0.1.0
+kind: app
+description: "{{name}}: a juiz component"
+license: {{license}}
+# The package carries libjuiz_sdk {{juiz_version}}, and juiz loads it only with the same version of juiz
+juiz: "={{juiz_version}}"
+entry: app.conf
