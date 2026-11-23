@@ -1,6 +1,6 @@
 # 雛形生成コマンド(juiz pkg)仕様
 
-- 状態: 確定(juiz pkg Step 0、issue #456、2026-11-09)。Step 1(#457、2026-11-10)で Rust・Python を実装し、実装に合わせて §2.2・§5・§6.1・§6.2・§10.2・§11 を書き足した。Step 2(#458、2026-11-10)で C++ を実装し、§2.2・§3・§5.2・§6.3・§7.1・§9・§10.2・§11 を書き足した。Step 4(#460、2026-11-10)で `--idl` を Rust だけ実装し、§2.2・§6.5・§7・§9・§10・§11・§12 を書き足した。Step 5(#461、2026-11-10)で `juiz pkg add` を実装し、§1・§2.4・§10.1・§11・§12 を書き足した。#468(2026-11-11)で `--idl` を Python・C++・Haskell に広げ、§2.2・§6.5・§9・§10・§11・§12 を書き直した。Zig Step 5(#577、2026-11-22)で Zig を足し、§1・§2・§3・§5・§6.5・§6.6・§7・§10・§11・§12 を書き足した
+- 状態: 確定(juiz pkg Step 0、issue #456、2026-11-09)。Step 1(#457、2026-11-10)で Rust・Python を実装し、実装に合わせて §2.2・§5・§6.1・§6.2・§10.2・§11 を書き足した。Step 2(#458、2026-11-10)で C++ を実装し、§2.2・§3・§5.2・§6.3・§7.1・§9・§10.2・§11 を書き足した。Step 4(#460、2026-11-10)で `--idl` を Rust だけ実装し、§2.2・§6.5・§7・§9・§10・§11・§12 を書き足した。Step 5(#461、2026-11-10)で `juiz pkg add` を実装し、§1・§2.4・§10.1・§11・§12 を書き足した。#468(2026-11-11)で `--idl` を Python・C++・Haskell に広げ、§2.2・§6.5・§9・§10・§11・§12 を書き直した。Zig Step 5(#577、2026-11-22)で Zig を足し、§1・§2・§3・§5・§6.5・§6.6・§7・§10・§11・§12 を書き足した。設計文書 Step 0(#593、2026-11-23)で、設計文書 `juizdesign.yaml` を経由する 3 つのモード(§2.2・§2.5〜§2.7)を足し、§1・§2.4・§4・§5・§13 を書き足した(文書そのものの仕様は [design.md](design.md))
 - 親 issue: #455。検討の経緯と比較はプロジェクトの計画書 juiz-pkg-plan.md(2026-11-09 確定)にある
 - 関連: アプリ配布形式 [app-package.md](app-package.md)(雛形はそのまま `juiz pack` できる形にする)、Rust プラグインの C ABI [rust-plugin-abi.md](rust-plugin-abi.md)(雛形の Rust プラグインは C ABI)、データ型 [datatype.md](datatype.md) §18(`rust-skeleton`、Step 4 の `--idl`)
 - この文書は Step 1〜6(#457〜#462)の実装の基準になる。実装で仕様を変えるときは、同じ PR でこの文書を直す
@@ -18,6 +18,14 @@ juiz pkg create my_robot -b rust
 - 中身の形は、チュートリアル(サイトの第 1〜5 章の言語別「1 から作る形」)と、実際のアプリのリポジトリ teleop_twist(`app/app.conf` + `app/juizapp.yaml` + `scripts/`)の形をそのまま使う。新しい形は作らない。
 - 雛形に書く juiz の SDK の版は、雛形を作った juiz 自身の版にする(§7)。チュートリアルで一番つまずく「`juiz --version` と同じ版にそろえる」を機械的に満たすため。
 - 対象の言語は Rust・Python・C++・Haskell・Zig(Zig は #577)。
+
+雛形は Component の設計文書 `juizdesign.yaml`([design.md](design.md))を経由して作る(design.md の Step 1〜4 で順に切り替える)。モードは 3 つ:
+
+| モード | コマンド | 節 |
+| --- | --- | --- |
+| ① 雛形 + 設計文書(今まで通り) | `juiz pkg create <name> -b <lang> [-t … \| --idl …]` | §2.2 |
+| ② 設計文書から雛形 | `juiz pkg create -d <juizdesign.yaml> [-b <lang>]` | §2.5 |
+| ③ 設計文書だけ | `juiz pkg design <name> [-t … \| --idl …]`、検査は `juiz pkg design check <file>` | §2.6・§2.7 |
 
 扱わないもの(§12 で後回しにしたもの)は、外部のテンプレート(git から取るもの、cargo-generate 互換)、既存の雛形への型の追加(`juiz pkg add`、§2.4)以外の書き換え、Haskell と Zig の Windows。
 
@@ -54,6 +62,7 @@ juiz pkg create <name> -b <lang> [-t <template> | --idl <file.jidl>] [-o <dir>]
 | `<name>` | (必須) | 名前。§3 の規則に合わなければエラー |
 | `-b`, `--lang <lang>` | (必須) | `rust` / `python` / `cpp` / `haskell` / `zig`。`c++` も `cpp` として受ける。大文字小文字は区別しない |
 | `-t`, `--template <template>` | `component` | `component` / `process` / `container`(§4) |
+| `-d`, `--design <file>` | なし | 設計文書から雛形を作る(§2.5)。`<name>`・`-t`・`--idl` とは一緒に使えない |
 | `--idl <file.jidl>` | なし | §4 の例の型の代わりに、.jidl の `process` / `container` 宣言から型付きの関数を作る(§6.5)。5 つの言語すべて(Step 4 で Rust、#468 で Python・C++・Haskell、#577 で Zig)。`-t` とは一緒に使えない |
 | `-o`, `--output <dir>` | `./<name>` | 雛形を作るディレクトリそのもの(親ではない)。§8 の規則で既にあれば止める |
 | `--license <kind>` | `none` | `mit-apache` で LICENSE-MIT・LICENSE-APACHE を置き、各ファイルの license の欄を `MIT OR Apache-2.0` にする(§5.5)。`none` では置かない |
@@ -68,6 +77,7 @@ juiz pkg create <name> -b <lang> [-t <template> | --idl <file.jidl>] [-o <dir>]
 - 言語に関係しないオプション(`-b rust` に `--hsjuiz-dir` など)は、警告を出して無視する。
 - 成功したら終了コード 0、失敗したら 0 以外。失敗したときは何も残さない(§8)。
 - 表示は英語(juiz の CLI のほかの表示に合わせる)。
+- 雛形の直下に、作った型を書いた設計文書 `juizdesign.yaml`(design.md)を置く。`-t` では種類のプリセット(design.md §7)、`--idl` では .jidl から作った文書(design.md §6.2)。`-t` は設計文書 Step 1(#594)から置き、Step 2・3(#595・#596)で生成も文書経由に切り替える。`--idl` は Step 4(#597)から。
 
 ### 2.3 `juiz pkg target`
 
@@ -115,7 +125,54 @@ juiz pkg add container <name> [-C <dir>]
 - 入れる所が見つからない(利用者が形を変えた)ときは、何を探したかを示してエラーにし、手で足すよう案内する。
 - 書き換えは、2 つのファイルの中身を全部作ってから書く。2 つめで失敗したら 1 つめを元に戻す(§8 と同じく、失敗したら何も変えない)。
 - README.md の型の表(`types_table`)は直さない(表示で案内する)。
+- 設計文書 Step 4(#597)から、雛形の直下の `juizdesign.yaml` にも足す型を書き足す(design.md §8.3)。`juizdesign.yaml` が無い雛形では警告して、ソースと conf だけを書き換える。
 - 成功したら、足した型・書き換えたファイル・次に打つコマンド(ビルドのある言語は `scripts/dev.sh`、juiz の再起動、足した型の呼び出しの例)を表示する。Windows では `scripts\dev.ps1`(Haskell は `.sh`)。
+
+### 2.5 `juiz pkg create -d`(設計文書から雛形、設計文書 Step 2・3)
+
+```
+juiz pkg create -d <juizdesign.yaml> [-b <lang>] [-o <dir>]
+                [--license <mit-apache|none>] [--author <name>]
+                [--hsjuiz-dir <dir>] [--zigjuiz-dir <dir>] [--juiz-sdk-dir <dir>] [--juiz-source <dir>]
+```
+
+- 設計文書の型を入れた Component を作る。関数は宣言・マクロ・manifest まで文書どおりで、本体は未実装の印(design.md §1)。
+- 名前は文書の `component.name`。`<name>`・`-t`・`--idl` とは一緒に使えない(clap の `conflicts_with`。`<name>` は `-d` が無いときだけ必須)。
+- 言語は `-b`、無ければ文書の `component.language`、どちらも無ければエラー。違えば警告して `-b` を使う(design.md §8.2)。
+- `-o` を省けば `./<component.name>`。作り先が文書のあるディレクトリそのもののときの扱いは design.md §8.2。
+- 書く前に design.md §5 の検査を通す(言語の規則も)。エラーがあれば何も書かない。
+- 生成物は `--idl`(§6.5)と同じ形にそろえる。`idl:` の .jidl は文書からの相対パスのまま写す(`--idl` の `idl/<file>.jidl` の代わり)。app.conf は design.md §6.3、README の型の表と生成後の表示は design.md §6.4。
+- 生成後の表示(§9)の 1 行目の種類は `from <文書のファイル名>`。「本体を書く」行は §6.5 と同じ。
+
+### 2.6 `juiz pkg design`(設計文書だけ、設計文書 Step 1・4)
+
+```
+juiz pkg design <name> [-b <lang>] [-t <template> | --idl <file.jidl>] [-o <file>]
+```
+
+| オプション | 既定 | 意味 |
+| --- | --- | --- |
+| `<name>` | (必須) | Component の名前(§3。`-b` を付ければその言語の規則も) |
+| `-b`, `--lang <lang>` | なし | 文書の `component.language` に書く。付ければ言語の規則でも検査する |
+| `-t`, `--template <template>` | `component` | プリセット(design.md §7) |
+| `--idl <file.jidl>` | なし | .jidl の宣言から文書を作る(design.md §6.2・§8.4、Step 4)。`-t` とは一緒に使えない |
+| `-o`, `--output <file>` | `./juizdesign.yaml` | 書くファイル |
+
+- 雛形は作らず、設計文書を 1 つ書く。利用者が書き直して `create -d` に渡す使い方。
+- 書き先がファイルとして在ればエラー(上書きしない、§8)。親ディレクトリが無ければ作る。
+- 文書の書き方は design.md §9。書く前に design.md §5 の検査を通す。
+- 表示は、書いたファイルと型の数、次に打つコマンド(`juiz pkg design check <file>`、`juiz pkg create -d <file> -b <lang>`)。
+- `check` は §2.7 のサブコマンドなので、`juiz pkg design check` は名前 `check` の文書にはならない(名前 `check` の文書は書けない)。
+
+### 2.7 `juiz pkg design check`(設計文書 Step 1)
+
+```
+juiz pkg design check <file> [-b <lang>]
+```
+
+- 設計文書を design.md §5 で検査する。言語は `-b`、無ければ文書の `component.language`、どちらも無ければ言語によらない検査だけ(design.md §8.1)。
+- 通れば 1 行(`ok: <file> (component <name>: <n> processes, <n> containers, <n> container processes)`)と警告を出して終了コード 0。エラーがあれば、すべてのエラーを `<file>:<行>:<桁>: error: <道筋>: <文>` の形で出して 0 以外。
+- ファイルは何も書かない。
 
 ## 3. 名前の規則
 
@@ -167,6 +224,7 @@ juiz pkg add container <name> [-C <dir>]
 - 引数と戻り値には型を付ける(Rust は `i64`、Python は型注釈 `int`、C++ は `int64_t`、Haskell は `Int64`)。型を付けた雛形にしておけば、管理画面の呼び出しフォームや接続時の型検査がそのまま効く(datatype.md)。
 - 各型には英語の description を付ける。
 - コードのコメントは英語にする(生成物は利用者のもので、日本語の利用者に限らないため)。README も英語にする。
+- 3 つの種類は、組み込みの設計文書(プリセット)と言語ごとの本体の断片で表す(design.md §7)。プリセットの整数は `long`(JIDL の `int` は 32 bit のため)。
 
 ## 5. 共通の生成物
 
@@ -182,6 +240,7 @@ my_robot/
 ├─ scripts/
 │  ├─ dev.sh   dev.ps1       ビルドしてプラグインを app/plugins/<ターゲット>/ に置く(Python には無い)
 │  └─ pack.sh  pack.ps1      dist/ に <name>-0.1.0.juizapp を作る
+├─ juizdesign.yaml          設計文書(design.md、設計文書 Step 1 から)
 ├─ README.md
 ├─ .gitignore
 └─ LICENSE-MIT  LICENSE-APACHE   (--license mit-apache のときだけ)
@@ -673,3 +732,4 @@ conf の `{target}` は juiz の置換(app-package.md §5.2)で、この書式�
 | 6 サイトとリリース | #462、OpenJUIZ.github.io#87 | — |
 | Zig(Zig Step 5) | #577 | §6.6 ほか |
 | Zig の zigjuiz を Releases から zig fetch で取る(Zig Step 6) | #578 | §2(`--zigjuiz-dir`)、§6.6、§7.1、§10.2、§12 |
+| 設計文書(design.md の Step 0〜6) | #592(#593〜#599) | §1、§2.2、§2.4〜§2.7、§4、§5 |

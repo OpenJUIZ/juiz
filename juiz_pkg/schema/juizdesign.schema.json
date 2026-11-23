@@ -1,0 +1,265 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/OpenJUIZ/juiz/main/juiz_pkg/schema/juizdesign.schema.json",
+  "title": "juiz component design (juizdesign.yaml)",
+  "description": "Design of a juiz component: its Process, Container and ContainerProcess types (juiz docs/spec/design.md). Names, type resolution and default values are checked by `juiz pkg design check`.",
+  "type": "object",
+  "required": [
+    "format",
+    "component"
+  ],
+  "properties": {
+    "format": {
+      "const": 1,
+      "description": "Format version of this document."
+    },
+    "component": {
+      "$ref": "#/$defs/component"
+    },
+    "idl": {
+      "description": ".jidl files to read record and enum types from, relative to this document (or built-in files such as juiz_std/geometry.jidl).",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string",
+        "pattern": "\\.jidl$"
+      }
+    },
+    "processes": {
+      "description": "Process types of the component.",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/$defs/process"
+      }
+    },
+    "containers": {
+      "description": "Container types of the component.",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/$defs/container"
+      }
+    }
+  },
+  "patternProperties": {
+    "^x-": true
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "typeName": {
+      "description": "Type name (Avro name rule).",
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+    },
+    "typeExpr": {
+      "description": "Type in the JIDL notation: boolean, int (32 bit), long (64 bit), float, double, string, bytes, any, image, array<T>, map<T>, T?, union { null, T }, or the full name of a record / enum such as robot.types.Velocity.",
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string"
+    },
+    "component": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "description": "Component name (juiz docs/spec/pkg.md §3).",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "maxLength": 64
+        },
+        "description": {
+          "$ref": "#/$defs/description"
+        },
+        "language": {
+          "description": "Default language for `juiz pkg create -d` when -b is not given (lower case; juiz also accepts other cases).",
+          "enum": [
+            "rust",
+            "python",
+            "cpp",
+            "c++",
+            "haskell",
+            "zig"
+          ]
+        }
+      },
+      "patternProperties": {
+        "^x-": true
+      },
+      "additionalProperties": false
+    },
+    "argument": {
+      "type": "object",
+      "required": [
+        "name",
+        "type"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/typeName"
+        },
+        "type": {
+          "$ref": "#/$defs/typeExpr"
+        },
+        "default": {
+          "description": "Default value (juiz docs/spec/datatype.md §4)."
+        },
+        "description": {
+          "$ref": "#/$defs/description"
+        }
+      },
+      "patternProperties": {
+        "^x-": true
+      },
+      "additionalProperties": false
+    },
+    "arguments": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/$defs/argument"
+      }
+    },
+    "process": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/typeName"
+        },
+        "description": {
+          "$ref": "#/$defs/description"
+        },
+        "arguments": {
+          "$ref": "#/$defs/arguments"
+        },
+        "returns": {
+          "$ref": "#/$defs/typeExpr",
+          "description": "Return type. void when omitted."
+        }
+      },
+      "patternProperties": {
+        "^x-": true
+      },
+      "additionalProperties": false
+    },
+    "containerProcess": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/typeName"
+        },
+        "description": {
+          "$ref": "#/$defs/description"
+        },
+        "arguments": {
+          "$ref": "#/$defs/arguments"
+        },
+        "returns": {
+          "$ref": "#/$defs/typeExpr",
+          "description": "Return type. void when omitted."
+        },
+        "readonly": {
+          "type": "boolean",
+          "description": "Does not change the state of the container."
+        }
+      },
+      "patternProperties": {
+        "^x-": true
+      },
+      "additionalProperties": false
+    },
+    "stateField": {
+      "type": "object",
+      "required": [
+        "name",
+        "type"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/typeName"
+        },
+        "type": {
+          "$ref": "#/$defs/typeExpr"
+        },
+        "init": {
+          "$ref": "#/$defs/typeName",
+          "description": "Name of the container argument that gives the initial value."
+        },
+        "default": {
+          "description": "Initial value (juiz docs/spec/datatype.md §4)."
+        },
+        "description": {
+          "$ref": "#/$defs/description"
+        }
+      },
+      "not": {
+        "required": [
+          "init",
+          "default"
+        ]
+      },
+      "patternProperties": {
+        "^x-": true
+      },
+      "additionalProperties": false
+    },
+    "container": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/typeName"
+        },
+        "description": {
+          "$ref": "#/$defs/description"
+        },
+        "arguments": {
+          "$ref": "#/$defs/arguments"
+        },
+        "state": {
+          "description": "Values the container holds. Used only for the generated code.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/stateField"
+          }
+        },
+        "processes": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/containerProcess"
+          }
+        }
+      },
+      "patternProperties": {
+        "^x-": true
+      },
+      "additionalProperties": false
+    }
+  }
+}
