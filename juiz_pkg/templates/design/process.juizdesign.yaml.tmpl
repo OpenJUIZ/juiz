@@ -10,6 +10,6 @@ processes:
   - name: {{name}}_add
     description: "Returns a + b."
     arguments:
-      - { name: a, type: long, default: 0 }
-      - { name: b, type: long, default: 0 }
+      - { name: a, type: long, default: 0, description: "the first value" }
+      - { name: b, type: long, default: 0, description: "the second value" }
     returns: long

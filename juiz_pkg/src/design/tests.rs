@@ -775,12 +775,14 @@ mod create_d {
         let files = p.files().unwrap();
         let copy = &files.iter().find(|f| f.path == FILE_NAME).unwrap().content;
         assert_eq!(copy, &ROVER.replace("  language: rust\n", "  language: python\n"));
-        // 言語が決まらない・Step 2 で作れない言語
+        // 言語が決まらなければエラー。C++・Haskell・Zig も作れる (設計文書 Step 3)
         std::fs::write(&doc, ROVER.replace("  language: rust\n", "")).unwrap();
         let e = plan(&["-d", d]).unwrap_err().to_string();
         assert!(e.contains("give the language with -b"), "{e}");
-        let e = plan(&["-d", d, "-b", "cpp"]).unwrap_err().to_string();
-        assert!(e.contains("#596"), "{e}");
+        for (b, lang) in [("cpp", Lang::Cpp), ("haskell", Lang::Haskell), ("zig", Lang::Zig)] {
+            let (p, _) = plan(&["-d", d, "-b", b]).unwrap();
+            assert_eq!(p.lang, lang);
+        }
         // 検査を通らない文書は何も書かずにエラー (すべてのエラーを並べる)
         std::fs::write(&doc, ROVER.replace("type: rover.types.Velocity }", "type: Velocity }")).unwrap();
         let e = plan(&["-d", d]).unwrap_err().to_string();

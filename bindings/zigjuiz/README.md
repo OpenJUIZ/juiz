@@ -297,6 +297,7 @@ fn poseMove(args: struct { pose: Pose2D, dx: f64 = 1 }) Pose2D {
   `JUIZ_VALUE_DOES_NOT_MATCH_TYPE_ERROR`(-702)です。戻り値は辞書にして返します。
 - 型の対応: `boolean`・`int`・`long`・`float`・`double` は `bool`・`i32`・`i64`・`f32`・`f64`、`string` は `[]const u8`、`bytes` は `juiz.Bytes`、
   `array<T>` は `[]const T`、`map<T>` は `juiz.Map(T)`、`T?` は `?T`、`any` は `juiz.Value`。enum の記号は snake_case の小文字(`Idle` → `.idle`)。
+- juiz-idl に組み込まれた .jidl(`juiz_std/geometry.jidl` など)を直接生成するときは、ファイルではないので `.builtins = &.{"juiz_std/geometry.jidl"}` で名前を渡します(`.files` と一緒に使えます)。
 - `juiz-idl` は `-Djuiz-idl=<パス>`、無ければ PATH から探し、それも無ければ `juiz idl`(cargo の juiz_app・pip の juiz-cli に入っているもの)を使います。`juiz-idl -g zig-skeleton` で、.jidl の `process` / `container` 宣言から雛形も作れます。
 - IDL を使わずに手で書くこともできます。
 

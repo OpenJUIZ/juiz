@@ -91,6 +91,9 @@ pub const TypesOptions = struct {
     import_dirs: []const std.Build.LazyPath = &.{},
     /// import した先のファイル。変わったときに作り直すために書く (CMake の juiz_generate_types の DEPENDS と同じ)
     depends: []const std.Build.LazyPath = &.{},
+    /// juiz-idl に組み込まれた .jidl (`juiz_std/geometry.jidl` など、docs/spec/datatype.md §24.4)。
+    /// ファイルが無いので、書いたまま juiz-idl に渡す (CMake の juiz_generate_types の IDL と同じ、設計文書 Step 3)
+    builtins: []const []const u8 = &.{},
 };
 
 /// 利用者の build.zig から使う、juiz のプラグインを作る道具
@@ -125,6 +128,7 @@ pub const Juiz = struct {
         const out = run.addPrefixedOutputDirectoryArg("--out-dir=", "juiz_types");
         for (options.import_dirs) |d| run.addPrefixedDirectoryArg("--import-dir=", d);
         for (options.files) |f| run.addFileArg(f);
+        run.addArgs(options.builtins);
         for (options.depends) |f| run.addFileInput(f);
         return b.createModule(.{
             .root_source_file = out.path(b, "juiz_idl.zig"),

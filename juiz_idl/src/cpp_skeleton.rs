@@ -13,7 +13,9 @@ use serde_json::Value;
 
 use crate::cpp::{double_literal, long_literal, named_path, string_literal, value_literal, KEYWORDS};
 use crate::rust_skeleton::camel_case;
-use crate::{ContainerSignature, GeneratedFile, IdlError, ProcessSignature, Signatures};
+use crate::{
+    ContainerSignature, DesignSkeleton, GeneratedFile, IdlError, ProcessSignature, Signatures, StateInit,
+};
 
 fn generate_error(message: String) -> IdlError {
     IdlError::Generate { message }
@@ -68,6 +70,7 @@ fn unsupported(where_: &str, t: &DataType) -> IdlError {
 fn argument(
     p: &ProcessSignature,
     a: &crate::ArgumentSignature,
+    design: bool,
 ) -> Result<(String, String), IdlError> {
     let t = schema_type(&a.schema)?;
     let name = string_literal(&a.name);
@@ -80,7 +83,11 @@ fn argument(
         ),
         DataType::Int | DataType::Long => (
             if matches!(t, DataType::Int) { "int32_t" } else { "int64_t" }.to_owned(),
-            format!(".add_int_arg({name}, {desc}, {})", long_literal(d.and_then(Value::as_i64).unwrap_or(0))),
+            format!(".add_int_arg({name}, {desc}, {})", {
+                let i = d.and_then(Value::as_i64).unwrap_or(0);
+                // 設計文書の雛形は 32 bit に収まる値を INT64_C なしで書く (今の -t と同じ)
+                if design && i32::try_from(i).is_ok() { i.to_string() } else { long_literal(i) }
+            }),
         ),
         DataType::Float | DataType::Double => (
             if matches!(t, DataType::Float) { "float" } else { "double" }.to_owned(),
@@ -179,7 +186,7 @@ fn process_code(p: &ProcessSignature, container: Option<(&str, &str)>) -> Result
     }
     for a in p.arguments.iter() {
         let an = plain_ident(&a.name, "argument")?;
-        let (ty, line) = argument(p, a)?;
+        let (ty, line) = argument(p, a, false)?;
         manif.push(line);
         params.push(format!("{ty} {an}"));
         used.push(an);
@@ -287,5 +294,315 @@ pub fn cpp_skeleton_items(s: &Signatures, component_name: &str) -> Result<String
     out.push_str(&format!(
         ";\n}}\nDEFINE_COMPONENT_MANIFEST_ENTRY_POINT({component_name}_component_manifest)\n"
     ));
+    Ok(out)
+}
+
+// ---- 設計文書から作る雛形 (docs/spec/design.md §6.2、設計文書 Step 3) ----
+
+/// 4 つの空白で字下げする (空の行はそのまま)
+fn indent(code: &str) -> String {
+    code.trim_end_matches('\n')
+        .lines()
+        .map(|l| if l.is_empty() { "\n".to_owned() } else { format!("    {l}\n") })
+        .collect()
+}
+
+/// 関数の本体。設計文書の本体の断片があればそれ、無ければ未実装の印
+fn design_body(name: &str, used: &[String], design: &DesignSkeleton) -> String {
+    if let Some(b) = design.bodies.get(name) {
+        return indent(b);
+    }
+    let mut out: String = used.iter().map(|u| format!("    (void){u};\n")).collect();
+    out.push_str(&format!(
+        "    throw std::runtime_error({});\n",
+        string_literal(&format!("write the body of {name}"))
+    ));
+    out
+}
+
+/// 設計文書の Process・ContainerProcess。`container` は (状態のクラス, Container の型名)
+fn design_process(
+    p: &ProcessSignature,
+    container: Option<(&str, &str)>,
+    design: &DesignSkeleton,
+) -> Result<String, IdlError> {
+    let name = plain_ident(&p.type_name, "process")?;
+    let mut out = match container {
+        None if p.arguments.is_empty() => format!("// Process {name}\n"),
+        None => format!(
+            "// Process {name}. The arguments are passed in the order they are added to the manifest\n"
+        ),
+        Some(_) if p.readonly => format!(
+            "// ContainerProcess {name}. readonly() in the manifest and the const pointer make it readonly\n\
+             // (juiz may run readonly container processes of the same container in parallel)\n"
+        ),
+        Some(_) => format!("// ContainerProcess {name}\n"),
+    };
+    let mut manif = vec![format!("static auto {name}_manif = ProcessManifest({})", string_literal(&name))];
+    if let Some(d) = &p.description {
+        manif.push(format!(".description({})", string_literal(d)));
+    }
+    let mut params = Vec::new();
+    let mut used = Vec::new();
+    if let Some((state, _)) = container {
+        let mut first = "container".to_owned();
+        while p.arguments.iter().any(|a| a.name == first) {
+            first.push('_');
+        }
+        let constness = if p.readonly { "const " } else { "" };
+        params.push(format!("{constness}{state}* {first}"));
+        used.push(first);
+    }
+    for a in p.arguments.iter() {
+        let an = plain_ident(&a.name, "argument")?;
+        let (ty, line) = argument(p, a, true)?;
+        manif.push(line);
+        params.push(format!("{ty} {an}"));
+        used.push(an);
+    }
+    let (ret, ret_line) = returns(p)?;
+    manif.extend(ret_line);
+    if p.readonly {
+        manif.push(".readonly()".to_owned());
+    }
+    out.push_str(&manif.join("\n    "));
+    out.push_str(";\n");
+    out.push_str(&format!("std::optional<{ret}> {name}({}) {{\n", params.join(", ")));
+    out.push_str(&design_body(&name, &used, design));
+    out.push_str("}\n");
+    match container {
+        Some((state, _)) => out.push_str(&format!(
+            "COMPONENT_CONTAINER_PROCESS_FACTORY({state}, {name}_manif, {name});\n"
+        )),
+        None => out.push_str(&format!("COMPONENT_PROCESS_FACTORY({name}_manif, {name});\n")),
+    }
+    Ok(out)
+}
+
+/// 整数・小数・真偽・文字列の値は、そのまま C++ のリテラルにする (`0`・`1.5`・`true`・`"a"`)
+fn plain_literal(t: &DataType, v: &Value) -> Result<String, IdlError> {
+    Ok(match (t, v) {
+        (DataType::Int | DataType::Long, Value::Number(n)) => match n.as_i64() {
+            Some(i) if i32::try_from(i).is_ok() => i.to_string(),
+            _ => crate::cpp::default_initializer(t, v)?,
+        },
+        (DataType::Float, Value::Number(n)) => format!("{}f", double_literal(n.as_f64().unwrap_or(0.0))),
+        (DataType::Double, Value::Number(n)) => double_literal(n.as_f64().unwrap_or(0.0)),
+        (DataType::Boolean, Value::Bool(b)) => b.to_string(),
+        (DataType::String, Value::String(s)) => format!("std::string({})", string_literal(s)),
+        // 空の配列・辞書は {} (値の初期化)
+        (DataType::Array(_), Value::Array(a)) if a.is_empty() => "{}".to_owned(),
+        (DataType::Map(_), Value::Object(m)) if m.is_empty() => "{}".to_owned(),
+        _ => crate::cpp::default_initializer(t, v)?,
+    })
+}
+
+/// app.conf の Container の値 (args) から引数を読む式
+fn container_argument(c: &ContainerSignature, a: &crate::ArgumentSignature) -> Result<(String, String), IdlError> {
+    let t = schema_type(&a.schema)?;
+    let n = string_literal(&a.name);
+    let ty = crate::cpp::cpp_type(&t)?;
+    let get = match &t {
+        DataType::Boolean => format!("args.get_bool({n})"),
+        DataType::Int => format!("int32_t(args.get_int({n}))"),
+        DataType::Long => format!("args.get_int({n})"),
+        DataType::Float => format!("float(args.get_float({n}))"),
+        DataType::Double => format!("args.get_float({n})"),
+        DataType::String => format!("args.get_string({n})"),
+        DataType::Enum(_) => format!("juiz::type_traits<{ty}>::from_value(juiz::Value(args.get_string({n})))"),
+        DataType::Array(_) => format!("juiz::type_traits<{ty}>::from_value(juiz::Value(args.get_array({n})))"),
+        DataType::Record(_) | DataType::Map(_) => {
+            format!("juiz::type_traits<{ty}>::from_value(juiz::Value(args.get_object({n})))")
+        }
+        _ => {
+            return Err(generate_error(format!(
+                "container {} argument {}: {} is not supported for a Container argument by the C++ skeleton (use boolean, int, long, float, double, string, array, map, record or enum)",
+                c.type_name,
+                a.name,
+                t.display_name()
+            )))
+        }
+    };
+    let zero = crate::zero_value(&t);
+    let default = plain_literal(&t, a.default.as_ref().unwrap_or(&zero))?;
+    Ok((ty, format!("args.has({n}) ? {get} : {default}")))
+}
+
+/// 設計文書の Container: 状態のクラス (`<Name>`)、引数から状態を作る関数、ContainerProcess
+fn design_container(c: &ContainerSignature, design: &DesignSkeleton) -> Result<String, IdlError> {
+    let name = plain_ident(&c.type_name, "container")?;
+    let class = design_state_name(&c.type_name);
+    // 状態のクラス。コンストラクタは状態の初期値に使う引数を受け取る
+    let mut ctor_params: Vec<(String, String)> = Vec::new();
+    let mut inits = Vec::new();
+    let mut fields = String::new();
+    for s in c.state.iter() {
+        let sn = plain_ident(&s.name, "state")?;
+        let t = schema_type(&s.schema)?;
+        let ty = crate::cpp::cpp_type(&t)?;
+        let expr = match &s.init {
+            StateInit::Argument(arg) => {
+                let a = c.arguments.iter().find(|a| a.name == *arg).ok_or_else(|| {
+                    generate_error(format!(
+                        "the state {} of the container {name} is initialized by '{arg}', which is not an argument",
+                        s.name
+                    ))
+                })?;
+                if !ctor_params.iter().any(|(n, _)| n == arg) {
+                    ctor_params.push((arg.clone(), crate::cpp::cpp_type(&schema_type(&a.schema)?)?));
+                }
+                arg.clone()
+            }
+            StateInit::Value(v) => plain_literal(&t, v)?,
+        };
+        inits.push(format!("{sn}({expr})"));
+        fields.push_str(&format!("    {ty} {sn};"));
+        match &s.description {
+            Some(d) => fields.push_str(&format!("  // {}\n", d.lines().collect::<Vec<_>>().join(" "))),
+            None => fields.push('\n'),
+        }
+    }
+    // コンストラクタの引数の順は Container の引数の順
+    ctor_params.sort_by_key(|(n, _)| c.arguments.iter().position(|a| a.name == *n));
+    let mut out = format!("// State of the container {name}\nclass {class} {{\npublic:\n");
+    if !c.state.is_empty() {
+        let params: Vec<String> = ctor_params.iter().map(|(n, t)| format!("{t} {n}")).collect();
+        // 状態が 1 つなら 1 行、2 つ以上なら初期化を 1 行ずつ
+        if inits.len() == 1 {
+            out.push_str(&format!("    explicit {class}({}) : {} {{}}\n", params.join(", "), inits[0]));
+        } else {
+            out.push_str(&format!(
+                "    explicit {class}({})\n        : {} {{}}\n",
+                params.join(", "),
+                inits.join(",\n          ")
+            ));
+        }
+    }
+    out.push_str(&fields);
+    out.push_str("};\n\n");
+    // Container の関数
+    let names: Vec<&str> = c.arguments.iter().map(|a| a.name.as_str()).collect();
+    if names.is_empty() {
+        out.push_str(&format!("// Container {name}\n"));
+    } else {
+        out.push_str(&format!(
+            "// Container {name}. args holds the container entry of app/app.conf ({})\n",
+            names.join(", ")
+        ));
+    }
+    out.push_str(&format!("static auto {name}_manif = ContainerManifest({})", string_literal(&name)));
+    if let Some(d) = &c.description {
+        out.push_str(&format!("\n    .description({})", string_literal(d)));
+    }
+    out.push_str(&format!(";\n{class}* {name}(juiz::CapsuleMap args) {{\n"));
+    if c.arguments.is_empty() {
+        out.push_str("    (void)args;\n");
+    }
+    for a in c.arguments.iter() {
+        let an = plain_ident(&a.name, "argument")?;
+        let (ty, expr) = container_argument(c, a)?;
+        out.push_str(&format!("    {ty} {an} = {expr};\n"));
+    }
+    for a in c.arguments.iter() {
+        if !ctor_params.iter().any(|(n, _)| *n == a.name) {
+            out.push_str(&format!("    (void){};\n", a.name));
+        }
+    }
+    let ctor_args: Vec<&str> = ctor_params.iter().map(|(n, _)| n.as_str()).collect();
+    out.push_str(&format!(
+        "    return new {class}({});\n}}\nCOMPONENT_CONTAINER_FACTORY({name}_manif, {name});\n",
+        ctor_args.join(", ")
+    ));
+    for p in c.container_processes.iter() {
+        out.push('\n');
+        out.push_str(&design_process(p, Some((&class, &name)), design)?);
+    }
+    Ok(out)
+}
+
+/// 設計文書の Container の状態のクラスの名前 (`my_robot` → `MyRobot`、design.md §5.2 の N4)
+fn design_state_name(container: &str) -> String {
+    camel_case(container)
+}
+
+/// 設計文書から作る雛形 (docs/spec/design.md §6.2)。[`cpp_skeleton_items`] と同じ並びで、ファイルの先頭の説明
+/// (`design.header`)、Container の引数・状態 (状態のクラスは `<Name>`)、ContainerProcess の readonly
+/// (`.readonly()` と const のポインタ)、本体の断片 (`design.bodies`)、Component の説明も出す。
+/// `juiz pkg create -d`・`-t` が src/<name>.cpp に使う
+pub fn cpp_design_items(
+    s: &Signatures,
+    component_name: &str,
+    design: &DesignSkeleton,
+) -> Result<String, IdlError> {
+    let mut defined: BTreeMap<String, String> = BTreeMap::new();
+    let mut define = |n: &str, what: String| -> Result<(), IdlError> {
+        if let Some(other) = defined.insert(n.to_owned(), what.clone()) {
+            return Err(generate_error(format!(
+                "{other} and {what} both become the C++ name {n}"
+            )));
+        }
+        Ok(())
+    };
+    for p in s.processes.iter() {
+        define(&p.type_name, format!("process {}", p.type_name))?;
+    }
+    for c in s.containers.iter() {
+        define(&c.type_name, format!("container {}", c.type_name))?;
+        define(&design_state_name(&c.type_name), format!("the state class of container {}", c.type_name))?;
+        for p in c.container_processes.iter() {
+            define(&p.type_name, format!("container_process {}", p.type_name))?;
+        }
+    }
+    let mut body = String::new();
+    for p in s.processes.iter() {
+        body.push('\n');
+        body.push_str(&design_process(p, None, design)?);
+    }
+    for c in s.containers.iter() {
+        body.push('\n');
+        body.push_str(&design_container(c, design)?);
+    }
+    body.push_str(&format!(
+        "\n// The manifest of the whole Component (the types in this plugin)\nauto {component_name}_component_manifest() {{\n    return ComponentManifest({})",
+        string_literal(component_name)
+    ));
+    if let Some(d) = &design.description {
+        body.push_str(&format!("\n        .description({})", string_literal(d)));
+    }
+    for p in s.processes.iter() {
+        body.push_str(&format!("\n        .add_process({}_manifest())", p.type_name));
+    }
+    for c in s.containers.iter() {
+        body.push_str(&format!("\n        .add_container({}_manifest()", c.type_name));
+        for p in c.container_processes.iter() {
+            body.push_str(&format!("\n            .add_process({}_manifest())", p.type_name));
+        }
+        body.push(')');
+    }
+    body.push_str(&format!(
+        ";\n}}\nDEFINE_COMPONENT_MANIFEST_ENTRY_POINT({component_name}_component_manifest)\n"
+    ));
+    // 使うものだけ #include する
+    let mut includes = vec!["<cstdint>", "<optional>"];
+    for (used, header) in [
+        ("std::map<", "<map>"),
+        ("std::runtime_error", "<stdexcept>"),
+        ("std::string", "<string>"),
+        ("std::vector<", "<vector>"),
+    ] {
+        if body.contains(used) {
+            includes.push(header);
+        }
+    }
+    includes.sort();
+    let mut out = design.header.clone();
+    for i in includes {
+        out.push_str(&format!("#include {i}\n"));
+    }
+    out.push_str("\n#include \"juiz/juiz.h\"\n");
+    if design.types {
+        out.push_str("#include \"juiz_idl.h\"\n");
+    }
+    out.push_str(&body);
     Ok(out)
 }

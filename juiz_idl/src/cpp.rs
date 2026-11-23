@@ -170,7 +170,7 @@ pub(crate) fn named_path(t: &DataType) -> Result<String, IdlError> {
     Ok(out)
 }
 
-fn cpp_type(t: &DataType) -> Result<String, IdlError> {
+pub(crate) fn cpp_type(t: &DataType) -> Result<String, IdlError> {
     Ok(match t {
         DataType::Null => {
             return Err(generate_error(
@@ -297,7 +297,7 @@ pub(crate) fn long_literal(i: i64) -> String {
 }
 
 /// フィールドの既定値の初期化子 (`{}` の中身)。基本型と列挙はリテラル、それ以外は辞書から作る
-fn default_initializer(t: &DataType, dict: &Value) -> Result<String, IdlError> {
+pub(crate) fn default_initializer(t: &DataType, dict: &Value) -> Result<String, IdlError> {
     Ok(match (t, dict) {
         (DataType::Boolean, Value::Bool(b)) => format!("{b}"),
         (DataType::Int, Value::Number(n)) if n.is_i64() => {

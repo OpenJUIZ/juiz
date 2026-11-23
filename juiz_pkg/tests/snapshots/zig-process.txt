@@ -171,8 +171,8 @@ processes:
   - name: my_robot_add
     description: "Returns a + b."
     arguments:
-      - { name: a, type: long, default: 0 }
-      - { name: b, type: long, default: 0 }
+      - { name: a, type: long, default: 0, description: "the first value" }
+      - { name: b, type: long, default: 0, description: "the second value" }
     returns: long
 ==== scripts/dev.ps1 ====
 # Build the plugin and put it with juiz_sdk.dll in app\plugins\<target>\ (to run app\app.conf during development)
@@ -430,12 +430,12 @@ fn my_robot_add(args: struct { a: i64 = 0, b: i64 = 0 }) !i64 {
 comptime {
     juiz.exportComponent(.{
         .type_name = "my_robot",
-        .description = "my_robot: a juiz component.",
+        .description = "my_robot: a juiz component",
         .parts = .{
             juiz.processPart(my_robot_add, .{
                 .type_name = "my_robot_add",
                 .description = "Returns a + b.",
-                .args = .{ .a = "first value", .b = "second value" },
+                .args = .{ .a = "the first value", .b = "the second value" },
             }),
         },
     });

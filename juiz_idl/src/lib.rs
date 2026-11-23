@@ -68,11 +68,13 @@ use juiz_types::TypeError;
 pub use builtin::{builtin_file, BUILTIN_FILES, BUILTIN_PREFIX};
 pub use constants::ATTR_CONSTANTS;
 pub use cpp::{generate_cpp, CPP_ALL_HEADER};
-pub use cpp_skeleton::{cpp_skeleton_items, generate_cpp_skeleton};
+pub use cpp_skeleton::{cpp_design_items, cpp_skeleton_items, generate_cpp_skeleton};
 pub use haskell::generate_haskell;
-pub use haskell_skeleton::{generate_haskell_skeleton, haskell_skeleton_items, haskell_skeleton_module};
+pub use haskell_skeleton::{
+    generate_haskell_skeleton, haskell_design_items, haskell_skeleton_items, haskell_skeleton_module,
+};
 pub use zig::generate_zig;
-pub use zig_skeleton::{generate_zig_skeleton, zig_skeleton_file, zig_skeleton_items};
+pub use zig_skeleton::{generate_zig_skeleton, zig_design_items, zig_skeleton_file, zig_skeleton_items};
 pub use jidl::to_jidl;
 pub use json_schema::{json_schema_of, JSON_SCHEMA_DIALECT};
 pub use model::{
@@ -315,6 +317,12 @@ pub struct DesignSkeleton {
     pub bodies: std::collections::BTreeMap<String, String>,
     /// ファイルの最後に足すコード (Rust の `#[cfg(test)]` のテストなど)
     pub tail: Option<String>,
+    /// ファイルの先頭の説明 (C++・Haskell・Zig、設計文書 Step 3)。Haskell はプラグマの後、module の前に置く
+    pub header: String,
+    /// Component の説明 (`component.description`)。C++・Haskell・Zig の Component のマニフェストに書く
+    pub description: Option<String>,
+    /// `idl:` の型のコードを読み込むか (C++ の `#include "juiz_idl.h"`、Zig の `@import("juiz_types")`)
+    pub types: bool,
 }
 
 /// 生成の設定
@@ -437,4 +445,27 @@ pub fn write_files(files: &[GeneratedFile], out_dir: &Path) -> Result<(), IdlErr
         })?;
     }
     Ok(())
+}
+
+/// 型の 0 値 (辞書の表し方、docs/spec/design.md §4.4)。record のフィールドは既定値があればそれを使う。
+/// 設計文書の雛形で、既定値の無い Container の引数を conf に無いときに使う
+pub fn zero_value(t: &juiz_types::DataType) -> serde_json::Value {
+    use juiz_types::DataType;
+    use serde_json::Value;
+    match t {
+        DataType::Null | DataType::Any | DataType::Image | DataType::Optional { .. } => Value::Null,
+        DataType::Boolean => Value::Bool(false),
+        DataType::Int | DataType::Long => Value::from(0),
+        DataType::Float | DataType::Double => Value::from(0.0),
+        DataType::String | DataType::Bytes => Value::from(""),
+        DataType::Array(_) => Value::Array(Vec::new()),
+        DataType::Map(_) => Value::Object(serde_json::Map::new()),
+        DataType::Record(r) => Value::Object(
+            r.fields
+                .iter()
+                .map(|f| (f.name.clone(), f.default_as_dict().unwrap_or_else(|| zero_value(&f.data_type))))
+                .collect(),
+        ),
+        DataType::Enum(e) => Value::from(e.default.clone().or_else(|| e.symbols.first().cloned()).unwrap_or_default()),
+    }
 }

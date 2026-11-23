@@ -41,6 +41,10 @@ pub const VARIABLES: &[&str] = &[
     "description_str",
     "design_conf",
     "design_idl_note",
+    "design_idl_label",
+    "hs_source_dirs",
+    "idl_zig_files",
+    "idl_zig_builtins",
 ];
 
 /// 変数の値。None は「無し」(その変数を含む行を消す)

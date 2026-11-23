@@ -1,0 +1,412 @@
+==== .gitignore ====
+# build outputs
+/target
+/build
+/dist-newstyle
+__pycache__/
+/.venv
+*.egg-info/
+# plugins put by scripts/dev.sh, and packages made by scripts/pack.sh
+/app/plugins/
+/dist/
+*.juizapp
+==== CMakeLists.txt ====
+# rover: a juiz component written in C++ (juiz docs/spec/pkg.md)
+#   scripts/dev.sh builds it and puts the plugin and libjuiz_sdk in app/plugins/<target>/
+cmake_minimum_required(VERSION 3.16)
+project(rover VERSION 0.1.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+
+# libjuiz_sdk must be the same version as juiz (juiz --version): juiz does not load a plugin built with another version.
+# Change the directory with: cmake -D JUIZ_SDK_DIR=<dir> (or the JUIZ_SDK_DIR environment variable of scripts/dev.sh)
+set(JUIZ_VERSION "<version>")
+if(WIN32)
+  file(TO_CMAKE_PATH "$ENV{USERPROFILE}/.juiz/sdk/${JUIZ_VERSION}" JUIZ_SDK_DEFAULT_DIR)
+else()
+  set(JUIZ_SDK_DEFAULT_DIR "$ENV{HOME}/.juiz/sdk/${JUIZ_VERSION}")
+endif()
+set(JUIZ_SDK_DIR "${JUIZ_SDK_DEFAULT_DIR}" CACHE PATH "libjuiz_sdk directory")
+find_package(juiz_sdk ${JUIZ_VERSION} EXACT CONFIG REQUIRED PATHS "${JUIZ_SDK_DIR}" NO_DEFAULT_PATH)
+
+# The plugin (librover.so, librover.dylib or rover.dll) goes to build/plugins.
+# $<1:...> keeps Visual Studio from adding the configuration name (build/plugins/Release)
+add_library(rover SHARED src/rover.cpp)
+target_link_libraries(rover PRIVATE juiz_sdk::juiz_sdk)
+set_target_properties(rover PROPERTIES
+  LIBRARY_OUTPUT_DIRECTORY "$<1:${CMAKE_BINARY_DIR}/plugins>"
+  RUNTIME_OUTPUT_DIRECTORY "$<1:${CMAKE_BINARY_DIR}/plugins>")
+# Make the plugin look for libjuiz_sdk next to itself ($ORIGIN / @loader_path) and copy libjuiz_sdk
+# (juiz_sdk.dll on Windows) to build/plugins, so that the directory works in a .juizapp as is
+juiz_sdk_bundle(rover)
+
+# The C++ types (record, enum) of the .jidl: juiz idl -g cpp generates juiz_idl.h in build/juiz_idl when the .jidl changes.
+# It uses juiz-idl, or `juiz idl` of the juiz in PATH. DEPENDS lists the imported .jidl files
+juiz_generate_types(rover
+  IDL idl/rover.jidl juiz_std/geometry.jidl
+)
+==== README.md ====
+# rover
+
+A juiz component written in C++. It was made with `juiz pkg create -d` of juiz <version>,
+from the design document `juizdesign.yaml`.
+
+
+## What is inside
+
+| Type | Kind | Arguments (default) | Returns | What it does |
+| --- | --- | --- | --- | --- |
+| `rover_stop_command` | Process | - | `rover.types.Velocity` | - |
+| `rover_base` | Container | `wheel_base: double` (0.3) | - | - |
+| `rover_base_drive` | ContainerProcess | `command: rover.types.Velocity` | `juiz_std.geometry.Pose2D` | - |
+| `rover_base_pose` | ContainerProcess (readonly) | - | `juiz_std.geometry.Pose2D` | - |
+
+| Path | What it is |
+| --- | --- |
+| `juizdesign.yaml` | The design document: the types of this Component (`juiz pkg design check juizdesign.yaml` checks it) |
+| `idl/rover.jidl`, `juiz_std/geometry.jidl` | The record and enum types (JIDL) the design document uses (`idl:`) |
+| `src/rover.cpp` | The Component. Each `COMPONENT_*_FACTORY` is a type, listed in `rover_component_manifest()`. Write the bodies (`throw`) |
+| `CMakeLists.txt` | Builds the plugin with libjuiz_sdk (`find_package(juiz_sdk <version> EXACT)`) |
+| `idl/rover.jidl`, `juiz_std/geometry.jidl` | CMake generates their C++ types in `juiz_idl.h` when it builds (`juiz_generate_types` in `CMakeLists.txt`) |
+| `app/app.conf` | The configuration to start juiz with. It is also the entry of the `.juizapp` package |
+| `app/juizapp.yaml` | The `.juizapp` manifest (name, version, required juiz version) |
+| `scripts/dev.sh`, `scripts/dev.ps1` | Build the plugin and put it with libjuiz_sdk in `app/plugins/<target>/` |
+| `scripts/pack.sh`, `scripts/pack.ps1` | Build in release mode and make `dist/rover-<version>.juizapp` |
+
+## Requirements
+
+- juiz <version> (`juiz --version`). Install it with `cargo install juiz_app --version <version>` or `pip install juiz-cli==<version>`
+- juiz in PATH when you build, if `idl:` has `idl/rover.jidl`, `juiz_std/geometry.jidl` (CMake runs `juiz idl` to generate the C++ types)
+- CMake 3.16 or later and a C++17 compiler (on Windows, Visual Studio 2022 with "Desktop development with C++")
+- libjuiz_sdk <version> in `~/.juiz/sdk/<version>` (`%USERPROFILE%\.juiz\sdk\<version>` on Windows).
+  Install it with `juiz sdk install` (it downloads libjuiz_sdk of the same version as juiz;
+  `juiz sdk path` prints where it is).
+
+libjuiz_sdk must be the same version as juiz: juiz does not load a plugin that carries another version of libjuiz_sdk.
+`CMakeLists.txt` asks for exactly `<version>`, and `app/juizapp.yaml` requires `juiz: "=<version>"` for the same reason.
+When you update juiz, install libjuiz_sdk of the new version and change both.
+To use libjuiz_sdk in another directory, run `JUIZ_SDK_DIR=<dir> scripts/dev.sh` (or `cmake -D JUIZ_SDK_DIR=<dir>`).
+
+## Write, build, run and call
+
+The functions in `src/rover.cpp` have the arguments and the return values written in `juizdesign.yaml`, and their bodies throw
+`std::runtime_error`: calling one before you write it fails. The example calls below use the default values, or a value of the type.
+
+```sh
+# once: put libjuiz_sdk <version> in ~/.juiz/sdk/<version>
+juiz sdk install
+# write the bodies of the functions (throw std::runtime_error) in src/rover.cpp, then
+scripts/dev.sh                  # build and put the plugin and libjuiz_sdk in app/plugins/<target>/
+juiz -f app/app.conf -d         # start (keep it running)
+
+# in another terminal
+juiz process call "http://127.0.0.1:8000/process/rover_stop_command0::rover_stop_command" '{}' -p
+juiz container-process call "http://127.0.0.1:8000/container_process/rover_base_drive0::rover_base_drive:rover_base0" '{"command":{"v":0.0,"w":0.0}}' -p
+juiz container-process call "http://127.0.0.1:8000/container_process/rover_base_pose0::rover_base_pose:rover_base0" '{}' -p
+
+scripts/pack.sh                 # make dist/rover-0.1.0.juizapp
+juiz run dist/rover-0.1.0.juizapp
+```
+
+On Windows, use `scripts\dev.ps1` and `scripts\pack.ps1` instead of the `.sh` scripts.
+
+## Changing the design
+
+`juiz pkg create -d` does not change a skeleton it has made. When you change `juizdesign.yaml`, change the functions and the manifests in
+`src/rover.cpp` and `app/app.conf` to match (`juiz pkg create -d juizdesign.yaml -b cpp -o <dir>` writes a new skeleton, to copy from).
+`juiz pkg add` adds a type to `src/rover.cpp` and `app/app.conf`.
+The build generates the C++ types of `idl/rover.jidl`, `juiz_std/geometry.jidl` again when they change (with `juiz idl`, so juiz must be in PATH when you build).
+When a `.jidl` of `idl:` imports another file, add it to `DEPENDS` of `juiz_generate_types` in `CMakeLists.txt`.
+
+## Versions
+
+The package version is `0.1.0` in both `CMakeLists.txt` and `app/juizapp.yaml`. When you release a new version, change both.
+
+## Plugins for several OSes in one package
+
+Run `scripts/dev.sh --release` on each OS, collect the `app/plugins/<target>/` directories in one `app/plugins/`, and run `scripts/pack.sh --no-build`.
+Each `app/plugins/<target>/` holds the plugin and libjuiz_sdk of that OS.
+==== app/app.conf ====
+# rover: start-up configuration of the juiz component rover
+#   development: juiz -f app/app.conf -d
+#                (Rust, C++, Haskell and Zig: run scripts/dev.sh first to put the plugin in app/plugins/<target>/)
+#   package:     scripts/pack.sh, then juiz run dist/rover-0.1.0.juizapp
+"name": "rover"
+"option":
+  "http_broker":
+    "start": true
+    "port": 8000
+"plugins":
+  "components":
+    "rover":
+      "language": "c++"
+      "path": "plugins/{target}"
+"processes":
+  - "type_name": "rover_stop_command"
+    "name": "rover_stop_command0"
+"containers":
+  - "type_name": "rover_base"
+    "name": "rover_base0"
+    "wheel_base": 0.3
+    "processes":
+      - "type_name": "rover_base_drive"
+        "name": "rover_base_drive0"
+      - "type_name": "rover_base_pose"
+        "name": "rover_base_pose0"
+==== app/juizapp.yaml ====
+# .juizapp manifest (juiz docs/spec/app-package.md §4). languages, targets, rust and files are added by juiz pack
+format: 1
+name: rover
+version: 0.1.0
+kind: app
+description: "Drives a two-wheeled rover."
+# The package carries libjuiz_sdk <version>, and juiz loads it only with the same version of juiz
+juiz: "=<version>"
+entry: app.conf
+==== idl/rover.jidl ====
+namespace rover.types;
+
+record Velocity {
+  double v;
+  double w;
+}
+==== juizdesign.yaml ====
+format: 1
+component:
+  name: rover
+  description: "Drives a two-wheeled rover."
+  language: cpp
+idl:
+  - idl/rover.jidl                 # namespace rover.types; record Velocity { double v; double w; }
+  - juiz_std/geometry.jidl         # built-in types
+processes:
+  - name: rover_stop_command
+    returns: rover.types.Velocity
+containers:
+  - name: rover_base
+    arguments:
+      - { name: wheel_base, type: double, default: 0.3, description: "distance between the wheels [m]" }
+    state:
+      - { name: wheel_base, type: double, init: wheel_base }
+      - { name: last_command, type: "rover.types.Velocity?" }
+      - { name: pose, type: juiz_std.geometry.Pose2D }
+    processes:
+      - name: rover_base_drive
+        arguments:
+          - { name: command, type: rover.types.Velocity }
+        returns: juiz_std.geometry.Pose2D
+      - name: rover_base_pose
+        readonly: true
+        returns: juiz_std.geometry.Pose2D
+==== scripts/dev.ps1 ====
+# Build the plugin and put it with juiz_sdk.dll in app\plugins\<target>\ (to run app\app.conf during development)
+# usage: scripts\dev.ps1 [-Release]
+#   $env:JUIZ_SDK_DIR = "<dir>" uses libjuiz_sdk in <dir> (default: %USERPROFILE%\.juiz\sdk\<version>)
+param([switch]$Release)
+$ErrorActionPreference = "Stop"
+Set-Location (Join-Path $PSScriptRoot "..")
+if (-not (Get-Command juiz -ErrorAction SilentlyContinue)) {
+    Write-Host "error: juiz is not in PATH. Install juiz <version>:"
+    Write-Host "  cargo install juiz_app --version <version>   (or: pip install juiz-cli==<version>)"
+    exit 1
+}
+if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
+    Write-Host "error: cmake is not in PATH. Install CMake 3.16 or later and Visual Studio 2022 (Desktop development with C++)."
+    exit 1
+}
+$target = (juiz pkg target | Out-String).Trim()
+$config = if ($Release) { "Release" } else { "Debug" }
+$cmakeArgs = @("-S", ".", "-B", "build", "-D", "CMAKE_BUILD_TYPE=$config")
+if ($env:JUIZ_SDK_DIR) { $cmakeArgs += @("-D", "JUIZ_SDK_DIR=$env:JUIZ_SDK_DIR") }
+cmake @cmakeArgs
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+cmake --build build --config $config
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$dest = Join-Path "app\plugins" $target
+New-Item -ItemType Directory -Force -Path $dest | Out-Null
+foreach ($lib in @("rover.dll", "juiz_sdk.dll")) {
+    Copy-Item (Join-Path "build\plugins" $lib) $dest
+    Write-Output (Join-Path $dest $lib)
+}
+==== scripts/dev.sh ====
+#!/bin/sh
+# Build the plugin and put it with libjuiz_sdk in app/plugins/<target>/ (to run app/app.conf during development)
+# usage: scripts/dev.sh [--release]
+#   JUIZ_SDK_DIR=<dir> scripts/dev.sh   uses libjuiz_sdk in <dir> (default: ~/.juiz/sdk/<version>)
+set -eu
+cd "$(dirname "$0")/.."
+if ! command -v juiz >/dev/null 2>&1; then
+  echo "error: juiz is not in PATH. Install juiz <version>:" >&2
+  echo "  cargo install juiz_app --version <version>   (or: pip install juiz-cli==<version>)" >&2
+  exit 1
+fi
+if ! command -v cmake >/dev/null 2>&1; then
+  echo "error: cmake is not in PATH. Install CMake 3.16 or later and a C++17 compiler." >&2
+  exit 1
+fi
+target=$(juiz pkg target)
+if [ "${1:-}" = "--release" ]; then
+  config=Release
+else
+  config=Debug
+fi
+if [ -n "${JUIZ_SDK_DIR:-}" ]; then
+  cmake -S . -B build -D CMAKE_BUILD_TYPE=$config -D "JUIZ_SDK_DIR=$JUIZ_SDK_DIR"
+else
+  cmake -S . -B build -D CMAKE_BUILD_TYPE=$config
+fi
+cmake --build build --config $config
+case "$target" in
+  *apple-darwin) libs="librover.dylib libjuiz_sdk.dylib" ;;
+  *windows*) libs="rover.dll juiz_sdk.dll" ;;
+  *) libs="librover.so libjuiz_sdk.so" ;;
+esac
+mkdir -p "app/plugins/$target"
+for lib in $libs; do
+  cp "build/plugins/$lib" "app/plugins/$target/"
+  echo "app/plugins/$target/$lib"
+done
+==== scripts/pack.ps1 ====
+# Make dist\rover-<version>.juizapp with juiz pack (juiz docs/spec/app-package.md)
+# usage: scripts\pack.ps1 [-NoBuild]
+#   -NoBuild: do not build; pack the plugins already in app\plugins\<target>\
+param([switch]$NoBuild)
+$ErrorActionPreference = "Stop"
+Set-Location (Join-Path $PSScriptRoot "..")
+if (-not $NoBuild) {
+    & (Join-Path $PSScriptRoot "dev.ps1") -Release
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+$stage = Join-Path ([System.IO.Path]::GetTempPath()) ("juiz-pack-" + [System.Guid]::NewGuid())
+New-Item -ItemType Directory -Path $stage | Out-Null
+try {
+    Copy-Item -Recurse -Path "app\*" -Destination $stage
+    Get-ChildItem -Path $stage -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force
+    foreach ($f in @("LICENSE-MIT", "LICENSE-APACHE")) {
+        if (Test-Path $f) { Copy-Item $f $stage }
+    }
+    New-Item -ItemType Directory -Force -Path dist | Out-Null
+    juiz pack $stage -o dist
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+} finally {
+    Remove-Item -Recurse -Force $stage
+}
+==== scripts/pack.sh ====
+#!/bin/sh
+# Make dist/rover-<version>.juizapp with juiz pack (juiz docs/spec/app-package.md)
+# usage: scripts/pack.sh [--no-build]
+#   --no-build: do not build; pack the plugins already in app/plugins/<target>/
+#               (to put plugins built on several OSes into one .juizapp, collect them there first)
+set -eu
+cd "$(dirname "$0")/.."
+if [ "${1:-}" != "--no-build" ]; then
+  scripts/dev.sh --release
+fi
+stage=$(mktemp -d)
+trap 'rm -rf "$stage"' EXIT
+(cd app && tar cf - --exclude=__pycache__ .) | (cd "$stage" && tar xf -)
+for f in LICENSE-MIT LICENSE-APACHE; do
+  if [ -f "$f" ]; then cp "$f" "$stage/"; fi
+done
+mkdir -p dist
+juiz pack "$stage" -o dist
+==== src/rover.cpp ====
+// rover: a juiz component made from juizdesign.yaml (juiz pkg create -d).
+//
+// Write the body of each function (replace the `(void)…;` and `throw` lines).
+// The arguments and the return values are typed by juizdesign.yaml: when you change it,
+// change the functions and the manifests here to match.
+// The record and enum types are in juiz_idl.h, which CMake generates from idl/rover.jidl, juiz_std/geometry.jidl (juiz_generate_types).
+#include <cstdint>
+#include <map>
+#include <optional>
+#include <stdexcept>
+#include <string>
+
+#include "juiz/juiz.h"
+#include "juiz_idl.h"
+
+// Process rover_stop_command
+static auto rover_stop_command_manif = ProcessManifest("rover_stop_command")
+    .returns<::rover::types::Velocity>();
+std::optional<::rover::types::Velocity> rover_stop_command() {
+    throw std::runtime_error("write the body of rover_stop_command");
+}
+COMPONENT_PROCESS_FACTORY(rover_stop_command_manif, rover_stop_command);
+
+// State of the container rover_base
+class RoverBase {
+public:
+    explicit RoverBase(double wheel_base)
+        : wheel_base(wheel_base),
+          last_command(std::nullopt),
+          pose(juiz::type_traits<::juiz_std::geometry::Pose2D>::from_value(juiz::Value(std::map<std::string, juiz::Value>{{"position", juiz::Value(std::map<std::string, juiz::Value>{{"x", juiz::Value(0.0)}, {"y", juiz::Value(0.0)}})}, {"theta", juiz::Value(0.0)}}))) {}
+    double wheel_base;
+    std::optional<::rover::types::Velocity> last_command;
+    ::juiz_std::geometry::Pose2D pose;
+};
+
+// Container rover_base. args holds the container entry of app/app.conf (wheel_base)
+static auto rover_base_manif = ContainerManifest("rover_base");
+RoverBase* rover_base(juiz::CapsuleMap args) {
+    double wheel_base = args.has("wheel_base") ? args.get_float("wheel_base") : 0.3;
+    return new RoverBase(wheel_base);
+}
+COMPONENT_CONTAINER_FACTORY(rover_base_manif, rover_base);
+
+// ContainerProcess rover_base_drive
+static auto rover_base_drive_manif = ProcessManifest("rover_base_drive")
+    .add_typed_arg<::rover::types::Velocity>("command", "")
+    .returns<::juiz_std::geometry::Pose2D>();
+std::optional<::juiz_std::geometry::Pose2D> rover_base_drive(RoverBase* container, const ::rover::types::Velocity& command) {
+    (void)container;
+    (void)command;
+    throw std::runtime_error("write the body of rover_base_drive");
+}
+COMPONENT_CONTAINER_PROCESS_FACTORY(RoverBase, rover_base_drive_manif, rover_base_drive);
+
+// ContainerProcess rover_base_pose. readonly() in the manifest and the const pointer make it readonly
+// (juiz may run readonly container processes of the same container in parallel)
+static auto rover_base_pose_manif = ProcessManifest("rover_base_pose")
+    .returns<::juiz_std::geometry::Pose2D>()
+    .readonly();
+std::optional<::juiz_std::geometry::Pose2D> rover_base_pose(const RoverBase* container) {
+    (void)container;
+    throw std::runtime_error("write the body of rover_base_pose");
+}
+COMPONENT_CONTAINER_PROCESS_FACTORY(RoverBase, rover_base_pose_manif, rover_base_pose);
+
+// The manifest of the whole Component (the types in this plugin)
+auto rover_component_manifest() {
+    return ComponentManifest("rover")
+        .description("Drives a two-wheeled rover.")
+        .add_process(rover_stop_command_manifest())
+        .add_container(rover_base_manifest()
+            .add_process(rover_base_drive_manifest())
+            .add_process(rover_base_pose_manifest()));
+}
+DEFINE_COMPONENT_MANIFEST_ENTRY_POINT(rover_component_manifest)
+==== <summary> ====
+Created rover (cpp, from juizdesign.yaml) in /work/rover  [libjuiz_sdk <version>]
+
+Next steps:
+  cd /work/rover
+  # once: put libjuiz_sdk <version> in ~/.juiz/sdk/<version>
+  juiz sdk install
+  # write the bodies of the functions (throw std::runtime_error) in src/rover.cpp, then
+  scripts/dev.sh                  # build and put the plugin and libjuiz_sdk in app/plugins/<target>/
+  juiz -f app/app.conf -d         # start (keep it running)
+
+  # in another terminal
+  juiz process call "http://127.0.0.1:8000/process/rover_stop_command0::rover_stop_command" '{}' -p
+  juiz container-process call "http://127.0.0.1:8000/container_process/rover_base_drive0::rover_base_drive:rover_base0" '{"command":{"v":0.0,"w":0.0}}' -p
+  juiz container-process call "http://127.0.0.1:8000/container_process/rover_base_pose0::rover_base_pose:rover_base0" '{}' -p
+
+  scripts/pack.sh                 # make dist/rover-0.1.0.juizapp
+  juiz run dist/rover-0.1.0.juizapp

@@ -159,14 +159,14 @@ containers:
   - name: my_robot
     description: "Holds an integer value."
     arguments:
-      - { name: initial_value, type: long, default: 0 }
+      - { name: initial_value, type: long, default: 0, description: "the initial value" }
     state:
       - { name: value, type: long, init: initial_value }
     processes:
       - name: my_robot_increment
         description: "Adds step to the value and returns it."
         arguments:
-          - { name: step, type: long, default: 1 }
+          - { name: step, type: long, default: 1, description: "the value to add" }
         returns: long
       - name: my_robot_get
         description: "Returns the value."
@@ -541,7 +541,7 @@ my_robot_component :: ComponentManifest
 my_robot_component = componentManifest "my_robot"
   & description "my_robot: a juiz component"
 
--- | State of the container my_robot: one integer value
+-- | State of the container my_robot: the IORef of value
 newtype MyRobotState = MyRobotState (IORef Int64)
 
 -- | Container my_robot. initial_value is taken from the container entry of app/app.conf
