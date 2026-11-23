@@ -6,6 +6,7 @@
 pub mod add;
 pub mod cli;
 pub mod create;
+pub mod design;
 pub mod idl;
 pub mod names;
 pub mod render;

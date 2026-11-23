@@ -1,6 +1,6 @@
 # 設計文書(juizdesign.yaml)仕様
 
-- 状態: 確定(Step 0、issue #593、2026-11-23)
+- 状態: 確定(Step 0、issue #593、2026-11-23)。Step 1(#594、2026-11-23)で文書の読み書き・検査・プリセット・`juiz pkg design`・`design check` を実装し、実装に合わせて §3.1・§5・§9・§13 を書き足した
 - 親 issue: #592。計画と経緯はプロジェクトの計画書 pkg-design-doc-plan.md(2026-11-23 確定、§6 の 9 項目はすべて推奨どおり)にある
 - 関連: 雛形生成 [pkg.md](pkg.md)(§2.5〜§2.7 に CLI の 3 モード)、データ型 [datatype.md](datatype.md)(型の書き方 §9.2、辞書での値 §4、manifest §6、skeleton §18・§20.6・§21.6・§22.4・§26.4)、[manifest-profile.md](manifest-profile.md)
 - この文書は Step 1〜6(#594〜#599)の実装の基準になる。実装で仕様を変えるときは、同じ PR でこの文書を直す
@@ -47,7 +47,6 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/OpenJUIZ/juiz/v<版>/juiz_pkg/schema/juizdesign.schema.json
 # my_robot: design of the juiz component my_robot (juiz docs/spec/design.md)
 #   check:    juiz pkg design check juizdesign.yaml
-#   scaffold: juiz pkg create -d juizdesign.yaml -b <rust|python|cpp|haskell|zig>
 format: 1
 component:
   name: my_robot
@@ -74,8 +73,8 @@ containers:
         returns: long
       - name: my_robot_get
         description: "Returns the value."
-        readonly: true
         returns: long
+        readonly: true
 ```
 
 .jidl の record を使う例:
@@ -237,6 +236,13 @@ Container(`containers[]`):
 
 エラーの場所は、文書の中の道筋(`containers[0].processes[1].arguments[0].type`)で示し、行と桁が分かれば `juizdesign.yaml:12:9:` の形で前に付ける。エラーは見つかった分をすべて並べる(1 つで止めない)。ただし YAML として読めないときと、`format` が違うときは、そこで止める。
 
+実装(Step 1)での決めごと:
+
+- エラーの位置は、そのキーの位置(`type: …` なら `type` の字の位置)。配列の要素は要素の位置。キーが無いエラー(「`name` が要る」など)は、そのキーを持つはずの辞書の位置。
+- F1〜F3 のエラーがあれば、N・T の検査はしない(読めなかった値から別のエラーが続けて出ないように)。F3 のエラーはすべて並べる。
+- N6・T6(言語の規則)は、ほかにエラーが無いときだけ見る。文書を juiz_idl のシグネチャに直し、型ごとに `*_skeleton_items` で作れるかを試して、作れなければその型(`processes[0]`・`containers[0].processes[1]` など)のエラーにする。Container の引数と状態の名前は、その名前の引数を 1 つ持つ関数を作れるかで確かめる。`idl:` の型は、その言語の型のコードを作れるか(juiz_idl の生成器)も確かめる。
+- 文書には言語ごとの区別が無いので、N4 の `<Name>State` は言語によらず数える。
+
 ### 5.1 形
 
 - F1. YAML として読める。最上位は辞書。
@@ -388,10 +394,11 @@ CLI の引数・表示は pkg.md §2.2・§2.5〜§2.7 に書く。ここでは�
 
 `juiz pkg design`・`juiz pkg create`(`-t`・`--idl`)・`juiz pkg add` が書く文書は、次の形にそろえる(人が読み書きしやすく、`pkg add` が書き足す所を決めやすいように)。
 
-- 先頭に §3.1 の 4 行のコメント。1 行目は JSON Schema(§10)の場所で、`<版>` は juiz の版(pkg.md §7.1)。
+- 先頭に §3.1 の 3 行のコメント。1 行目は JSON Schema(§10)の場所で、`<版>` は juiz の版(pkg.md §7.1)。`create -d` を実装する Step 2 で、4 行目に `#   scaffold: juiz pkg create -d juizdesign.yaml -b <rust|python|cpp|haskell|zig>` を足す(Step 1 の版では、まだ無いコマンドを案内しないため)。
 - キーの順番は §3.2 の表の順。値の無い任意のキーは書かない。
-- 型は block 形式(`- name: …` の後に字下げしたキー)、引数と状態は 1 行の flow 形式(`- { name: a, type: long, default: 0 }`)。
-- 文字列は、`description` と、英数字・`_`・`.`・`<`・`>` 以外の字を含む型の式(`"long?"`・`"union { null, string }"`)を `"` で囲む。名前とそれ以外の型の式は囲まない(`array<double>` は YAML でそのまま文字列になる)。
+- 型は block 形式(`- name: …` の後に字下げしたキー)、引数と状態は 1 行の flow 形式(`- { name: a, type: long, default: 0 }`)。`readonly: true` は ContainerProcess の最後のキー(`false` なら書かない)。
+- 既定値・初期値は 1 行の flow 形式で書く。文字列はいつも `"` で囲み、辞書の鍵は名前の順(serde_json の並び)。
+- 文字列は、`description` と、英数字・`_`・`.`・`<`・`>` 以外の字を含む型の式(`"long?"`・`"union { null, string }"`)を `"` で囲む。名前とそれ以外の型の式は囲まない(`array<double>` は YAML でそのまま文字列になる)。ただし、囲まないと文字列でない値に読めるもの(`null`・`true`・`10` など)は囲む。`idl:` のパスは英数字・`_`・`.`・`/`・`-` だけなら囲まない。
 - 字下げは 2 つの空白、改行は LF、UTF-8(BOM なし)。
 
 利用者が書く文書は、この形でなくてよい(YAML として正しければ読む)。

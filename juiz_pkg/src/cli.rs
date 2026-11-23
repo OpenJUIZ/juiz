@@ -22,6 +22,8 @@ pub enum PkgCommand {
     Add(AddArgs),
     /// Print the host target triple (the <target> of app/plugins/<target>/)
     Target,
+    /// Write a design document (juizdesign.yaml) of a Component without making a skeleton, or check one
+    Design(DesignArgs),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -80,6 +82,46 @@ pub struct CreateArgs {
     pub juiz_source: Option<PathBuf>,
 }
 
+/// `juiz pkg design <name>` と `juiz pkg design check <file>` (pkg.md §2.6・§2.7)
+#[derive(Args, Clone, Debug)]
+#[command(args_conflicts_with_subcommands = true, subcommand_negates_reqs = true)]
+pub struct DesignArgs {
+    #[command(subcommand)]
+    pub command: Option<DesignCommand>,
+
+    /// Component name ([a-z][a-z0-9_]*)
+    #[arg(required = true)]
+    pub name: Option<String>,
+
+    /// Language: written as component.language, and its rules are checked too
+    #[arg(short = 'b', long = "lang", ignore_case = true)]
+    pub lang: Option<Lang>,
+
+    /// Which preset design to write (the same types as juiz pkg create -t)
+    #[arg(short = 't', long = "template", default_value = "component", ignore_case = true)]
+    pub template: Template,
+
+    /// File to write (default: ./juizdesign.yaml). It must not exist
+    #[arg(short = 'o', long = "output")]
+    pub output: Option<PathBuf>,
+}
+
+#[derive(Subcommand, Clone, Debug)]
+pub enum DesignCommand {
+    /// Check a design document (juizdesign.yaml) and print all the errors
+    Check(DesignCheckArgs),
+}
+
+#[derive(Args, Clone, Debug)]
+pub struct DesignCheckArgs {
+    /// Design document to check
+    pub file: PathBuf,
+
+    /// Language whose rules are checked too (default: component.language of the document)
+    #[arg(short = 'b', long = "lang", ignore_case = true)]
+    pub lang: Option<Lang>,
+}
+
 #[derive(Args, Clone, Debug)]
 pub struct AddArgs {
     /// What to add: process (<name>) or container (<name> with <name>_increment and <name>_get)
@@ -114,5 +156,31 @@ pub fn run(args: &PkgArgs) -> Result<(), PkgError> {
             println!("{}", crate::HOST_TARGET);
             Ok(())
         }
+        PkgCommand::Design(d) => match (&d.command, &d.name) {
+            (Some(DesignCommand::Check(c)), _) => {
+                let checked = crate::design::command::check_file(c)?;
+                for l in &checked.lines {
+                    eprintln!("{l}");
+                }
+                match &checked.ok_line {
+                    Some(ok) => {
+                        println!("{ok}");
+                        Ok(())
+                    }
+                    None => Err(PkgError::new(format!(
+                        "{} is not a valid design document ({} error{})",
+                        c.file.display(),
+                        checked.report.errors.len(),
+                        if checked.report.errors.len() == 1 { "" } else { "s" }
+                    ))),
+                }
+            }
+            (None, Some(name)) => {
+                let written = crate::design::command::design(name, d)?;
+                print!("{}", written.summary);
+                Ok(())
+            }
+            (None, None) => Err(PkgError::new("give a component name: juiz pkg design <name>")),
+        },
     }
 }

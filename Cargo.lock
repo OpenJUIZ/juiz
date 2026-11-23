@@ -2145,6 +2145,7 @@ dependencies = [
  "juiz_idl",
  "juiz_sdk",
  "juiz_types",
+ "regex",
  "serde_json",
  "yaml-rust2",
 ]

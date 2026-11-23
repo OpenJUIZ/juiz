@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/OpenJUIZ/juiz/v{{juiz_version}}/juiz_pkg/schema/juizdesign.schema.json
+# {{name}}: design of the juiz component {{name}} (juiz docs/spec/design.md)
+#   check:    juiz pkg design check juizdesign.yaml
+format: 1
+component:
+  name: {{name}}
+  description: "{{name}}: a juiz component"
+processes:
+  - name: {{name}}_add
+    description: "Returns a + b."
+    arguments:
+      - { name: a, type: long, default: 0 }
+      - { name: b, type: long, default: 0 }
+    returns: long

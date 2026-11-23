@@ -13,7 +13,12 @@ juiz pkg target                           # app/plugins/<target>/ の <target> (
 cd my_robot
 juiz pkg add process my_mul               # 作った雛形に Process my_mul を足す (ソースと app/app.conf を直す)
 juiz pkg add container arm                # Container arm と arm_increment・arm_get を足す
+
+juiz pkg design my_robot -b rust          # 雛形を作らず、設計文書 juizdesign.yaml だけを書く
+juiz pkg design check juizdesign.yaml     # 設計文書を検査する (エラーを <file>:<行>:<桁> の形ですべて出す)
 ```
+
+`juiz pkg create` は雛形の直下に、入れた型を書いた設計文書 `juizdesign.yaml`([docs/spec/design.md](https://github.com/OpenJUIZ/juiz/blob/main/docs/spec/design.md))も置きます。エディタの補完には [schema/juizdesign.schema.json](schema/juizdesign.schema.json) を使えます(文書の 1 行目のコメントが指しています)。
 
 - 言語 `-b`/`--lang`: `rust`、`python`、`cpp`、`haskell`、`zig`
 - 中身 `-t`/`--template`: `component`(既定)、`process`、`container`
