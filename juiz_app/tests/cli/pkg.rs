@@ -235,8 +235,26 @@ fn call_added(app: &Path, name: &str, port: u16) {
     assert!(call(app, "container-process", &get, "{}").contains("Value(5)"));
 }
 
+/// 雛形を作るディレクトリ。Windows では juiz のソースと同じドライブにする: Zig の build.zig.zon は
+/// zigjuiz を相対パスで指すので、TEMP (C:) とチェックアウト (CI では D:) が違うと作れない (#588)
+fn work_dir(name: &str) -> PathBuf {
+    if !cfg!(windows) {
+        return temp_dir(name);
+    }
+    // canonicalize が付ける \\?\ を外す (PowerShell の Set-Location が \\?\ 付きのパスを辿れない)
+    let root = repo_root();
+    let root = root.to_str().unwrap();
+    let dir = PathBuf::from(root.strip_prefix(r"\\?\").unwrap_or(root))
+        .join("target")
+        .join("pkg-test-work")
+        .join(format!("{name}_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
 fn create_build_run_pack(lang: &str, name: &str, port: u16, build: bool, extra: &[&str]) {
-    let dir = temp_dir(&format!("pkg_cli_{lang}"));
+    let dir = work_dir(&format!("pkg_cli_{lang}"));
     let app = create(&dir, name, lang, extra);
     set_port(&app, port);
     add_types(&app, name);
@@ -323,7 +341,7 @@ fn idl_build_run_pack(
     source: &str,
     bodies: &[(&str, &str)],
 ) {
-    let dir = temp_dir(&format!("pkg_cli_{lang}_idl"));
+    let dir = work_dir(&format!("pkg_cli_{lang}_idl"));
     let idl = dir.join("idl_src");
     std::fs::create_dir_all(idl.join("common")).unwrap();
     std::fs::write(
@@ -614,7 +632,7 @@ mod slow {
             eprintln!("skip: {reason}");
             return;
         }
-        let dir = temp_dir("pkg_cli_zig_sdk");
+        let dir = work_dir("pkg_cli_zig_sdk");
         let sdk = zig_sdk_from_workspace(&dir);
         create_build_run_pack("zig", "pkg_zig_robot", 8081, true, &["--juiz-sdk-dir", path_str(&sdk)]);
         let _ = std::fs::remove_dir_all(&dir);
@@ -628,7 +646,7 @@ mod slow {
             eprintln!("skip: {reason}");
             return;
         }
-        let dir = temp_dir("pkg_cli_zig_idl_sdk");
+        let dir = work_dir("pkg_cli_zig_idl_sdk");
         let sdk = zig_sdk_from_workspace(&dir);
         idl_build_run_pack(
             "zig",
