@@ -1,0 +1,101 @@
+# Build the plugin and put it with juiz_sdk.dll in app\plugins\<target>\ (to run app\app.conf during development)
+# usage: scripts\dev.ps1 [-Release] [-Target <target>]
+#   -Target <target>: cross-build for another machine, one of x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu,
+#                     x86_64-apple-darwin, aarch64-apple-darwin, x86_64-pc-windows-msvc (default: this machine, `juiz pkg target`).
+#                     It uses libjuiz_sdk of that target: install it once with `juiz sdk install --target <target>`
+#   $env:JUIZ_SDK_DIR = "<dir>"   uses libjuiz_sdk extracted in <dir> (default: `juiz sdk path`)
+#   $env:ZIG = "<command>"        uses this zig (default: zig). Zig 0.17.x is needed
+param([switch]$Release, [string]$Target = "")
+$ErrorActionPreference = "Stop"
+Set-Location (Join-Path $PSScriptRoot "..")
+
+# runs a command and stops if it fails. Its messages on stderr (zig prints its progress there) are not errors
+function Invoke-Checked([string]$Exe, [string[]]$Arguments) {
+    $saved = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $Exe @Arguments
+    } finally {
+        $ErrorActionPreference = $saved
+    }
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
+# runs a command and returns its output (trimmed), or $null if it fails
+function Get-Output([string]$Exe, [string[]]$Arguments) {
+    $saved = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $out = (& $Exe @Arguments 2>$null | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0) { return $null }
+        return $out
+    } catch {
+        return $null
+    } finally {
+        $ErrorActionPreference = $saved
+    }
+}
+
+if (-not (Get-Command juiz -ErrorAction SilentlyContinue)) {
+    Write-Host "error: juiz is not in PATH. Install juiz {{juiz_version}}:"
+    Write-Host "  cargo install juiz_app --version {{juiz_version}}   (or: pip install juiz-cli=={{juiz_version}})"
+    exit 1
+}
+# $env:ZIG may be a command with arguments, such as "python -m ziglang"
+$zigWords = @(if ($env:ZIG) { $env:ZIG -split "\s+" | Where-Object { $_ } } else { "zig" })
+$zig = $zigWords[0]
+$zigArgs = @($zigWords | Select-Object -Skip 1)
+$zigVersion = $null
+if (Get-Command $zig -ErrorAction SilentlyContinue) {
+    $zigVersion = Get-Output $zig ($zigArgs + @("version"))
+}
+if (-not $zigVersion) {
+    Write-Host "error: $($zigWords -join ' ') is not found. Install Zig 0.17.x (https://ziglang.org/download/, or: pip install ziglang==0.17.1 and `$env:ZIG = `"python -m ziglang`")."
+    exit 1
+}
+if (-not $zigVersion.StartsWith("0.17.")) {
+    Write-Host "error: zigjuiz {{juiz_version}} needs Zig 0.17.x, but $($zigWords -join ' ') is $zigVersion."
+    exit 1
+}
+# zigjuiz {{juiz_version}} from the GitHub release of juiz, the first time (zig fetch writes its .url and .hash in build.zig.zon)
+if (-not (Select-String -Path build.zig.zon -Pattern '^\s*\.zigjuiz\s*=' -Quiet)) {
+    Write-Output "adding zigjuiz {{juiz_version}} to build.zig.zon: zig fetch --save=zigjuiz {{zigjuiz_url}}"
+    Invoke-Checked $zig ($zigArgs + @("fetch", "--save=zigjuiz", "{{zigjuiz_url}}"))
+}
+$hostTarget = Get-Output juiz @("pkg", "target")
+if (-not $Target) { $Target = $hostTarget }
+# the Zig name of the target (the plugin goes to app\plugins\<target>\ with the name that juiz uses)
+$zigTargets = @{
+    "x86_64-unknown-linux-gnu"  = "x86_64-linux-gnu"
+    "aarch64-unknown-linux-gnu" = "aarch64-linux-gnu"
+    "x86_64-apple-darwin"       = "x86_64-macos"
+    "aarch64-apple-darwin"      = "aarch64-macos"
+    # Windows: Zig's default ABI (gnu) links to juiz_sdk.dll.lib of libjuiz_sdk; the plugin is <name>.dll next to juiz_sdk.dll
+    "x86_64-pc-windows-msvc"    = "x86_64-windows"
+}
+if (-not $zigTargets.ContainsKey($Target)) {
+    Write-Host "error: $Target is not a target of libjuiz_sdk ($($zigTargets.Keys -join ', '))."
+    exit 1
+}
+$sdkDir = $env:JUIZ_SDK_DIR
+if (-not $sdkDir -and $Target -ne $hostTarget) {
+    $sdkDir = Get-Output juiz @("sdk", "path", "--target", $Target)
+    if (-not $sdkDir) {
+        Write-Host "error: install libjuiz_sdk for $Target first: juiz sdk install --target $Target"
+        exit 1
+    }
+}
+if (-not $sdkDir) { $sdkDir = "{{juiz_sdk_dir_arg}}" }  # --juiz-sdk-dir of juiz pkg create
+$buildArgs = @("build")
+if ($Release) { $buildArgs += "--release" }
+# for this machine, build for the native target (the same as the plugins juiz loads here)
+if ($Target -ne $hostTarget) { $buildArgs += "-Dtarget=$($zigTargets[$Target])" }
+if ($sdkDir) { $buildArgs += "-Djuiz-sdk=$sdkDir" }
+if (Test-Path zig-out\plugins) { Remove-Item -Recurse -Force zig-out\plugins }
+Invoke-Checked $zig ($zigArgs + $buildArgs)
+$dest = Join-Path "app\plugins" $Target
+New-Item -ItemType Directory -Force -Path $dest | Out-Null
+foreach ($f in Get-ChildItem -File zig-out\plugins) {
+    Copy-Item $f.FullName $dest
+    Write-Output (Join-Path $dest $f.Name)
+}

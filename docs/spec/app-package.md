@@ -544,7 +544,7 @@ C ABI のプラグインは libjuiz_sdk を通して値を受け渡すので、l
 Zig は 1 台から別の OS・CPU 向けにビルドできるので、Zig のプラグインだけのパッケージは、1 台で複数のターゲットの `plugins/<ターゲット名>/` を作れる。
 
 1. そのターゲットの libjuiz_sdk を入れる: `juiz sdk install --target <ターゲット名>`(既定の置き場所は `~/.juiz/sdk/<版>-<ターゲット名>`、`juiz sdk path --target <ターゲット名>` で表示)。ターゲット名は Releases に置いている 5 種(`x86_64-unknown-linux-gnu`、`aarch64-unknown-linux-gnu`、`x86_64-apple-darwin`、`aarch64-apple-darwin`、`x86_64-pc-windows-msvc`)。
-2. `zig build --release -Dtarget=<Zig のターゲット> -Djuiz-sdk=<1 の場所>`。Zig のターゲットは `aarch64-linux-gnu`・`x86_64-linux-gnu`・`aarch64-macos`・`x86_64-macos`。できた `zig-out/plugins/` を `plugins/<ターゲット名>/` に置く。`juiz pkg create -b zig` の雛形では `scripts/dev.sh --release --target <ターゲット名>` が 1〜2 をまとめて行う(pkg.md §6.6)。
+2. `zig build --release -Dtarget=<Zig のターゲット> -Djuiz-sdk=<1 の場所>`。Zig のターゲットは `aarch64-linux-gnu`・`x86_64-linux-gnu`・`aarch64-macos`・`x86_64-macos`・`x86_64-windows`(#588)。できた `zig-out/plugins/` を `plugins/<ターゲット名>/` に置く。`juiz pkg create -b zig` の雛形では `scripts/dev.sh --release --target <ターゲット名>` が 1〜2 をまとめて行う(pkg.md §6.6)。
 3. 全部のターゲットのディレクトリを置いてから `juiz pack` する。pack はホストのターゲットのプラグインだけ依存するライブラリを調べる(§12.2)。
 
 確かめたこと(2026-11-22、Linux x86_64 の Zig 0.17.1、libjuiz_sdk 0.3.2 の Releases のアーカイブ): `aarch64-unknown-linux-gnu`(RUNPATH `$ORIGIN`、`libjuiz_sdk.so` を NEEDED)と `aarch64-apple-darwin`(LC_RPATH `@loader_path`、`@rpath/libjuiz_sdk.dylib` を読み込む)のプラグインができ、ホストの分と一緒に 1 つの .juizapp(`targets` に 3 つ)にできた。別の機械での読み込みはこのクラウド環境では確かめていない(macOS の CI で確かめるのは #579)。

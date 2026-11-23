@@ -15,12 +15,14 @@ License: {{license}}
 | `build.zig.zon` | The Zig package. It points to zigjuiz (the Zig library of juiz) |
 | `app/app.conf` | The configuration to start juiz with. It is also the entry of the `.juizapp` package |
 | `app/juizapp.yaml` | The `.juizapp` manifest (name, version, required juiz version) |
-| `scripts/dev.sh` | Build the plugin and put it with libjuiz_sdk in `app/plugins/<target>/` (`--target` for another machine) |
-| `scripts/pack.sh` | Build in release mode and make `dist/{{name}}-<version>.juizapp` |
+| `scripts/dev.sh`, `scripts/dev.ps1` | Build the plugin and put it with libjuiz_sdk in `app/plugins/<target>/` (`--target` / `-Target` for another machine) |
+| `scripts/pack.sh`, `scripts/pack.ps1` | Build in release mode and make `dist/{{name}}-<version>.juizapp` |
 
 ## Requirements
 
-Linux or macOS. This skeleton does not support Windows yet (juiz issue #588).
+Linux, macOS or Windows (x86_64). On Windows, use `scripts\dev.ps1` and `scripts\pack.ps1` instead of the `.sh` scripts:
+the plugin is `{{name}}.dll`, and `juiz_sdk.dll` goes next to it (Windows has no rpath).
+Zig builds it with its default ABI (`x86_64-windows-gnu`); Visual Studio is not needed.
 
 - juiz {{juiz_version}} (`juiz --version`). Install it with `cargo install juiz_app --version {{juiz_version}}` or `pip install juiz-cli=={{juiz_version}}`
 - Zig 0.17.x ([ziglang.org](https://ziglang.org/download/), or `pip install ziglang==0.17.1` and `ZIG="python3 -m ziglang" scripts/dev.sh`).
@@ -36,7 +38,7 @@ If you move this project or zigjuiz, change the path in `build.zig.zon`.
 zigjuiz and libjuiz_sdk must be the same version as juiz: juiz does not load a plugin that carries another version of libjuiz_sdk.
 `app/juizapp.yaml` requires `juiz: "={{juiz_version}}"` for the same reason.
 When you update juiz, get zigjuiz and libjuiz_sdk of the new version, and change `build.zig.zon` and `app/juizapp.yaml`.
-To use libjuiz_sdk in another directory, run `JUIZ_SDK_DIR=<dir> scripts/dev.sh` (or `zig build -Djuiz-sdk=<dir>`).
+To use libjuiz_sdk in another directory, run `JUIZ_SDK_DIR=<dir> scripts/dev.sh` (`$env:JUIZ_SDK_DIR = "<dir>"` before `scripts\dev.ps1` on Windows, or `zig build -Djuiz-sdk=<dir>`).
 
 ## Build, run and call
 
@@ -63,5 +65,6 @@ scripts/dev.sh --release --target aarch64-apple-darwin        # app/plugins/aarc
 scripts/pack.sh                                               # builds for this machine, packs every app/plugins/<target>/
 ```
 
-The targets are x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu, x86_64-apple-darwin and aarch64-apple-darwin.
+The targets are x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu, x86_64-apple-darwin, aarch64-apple-darwin and x86_64-pc-windows-msvc.
+On Windows, run `scripts\dev.ps1 -Release -Target <target>` and `scripts\pack.ps1`.
 Each `app/plugins/<target>/` holds the plugin and libjuiz_sdk of that target.

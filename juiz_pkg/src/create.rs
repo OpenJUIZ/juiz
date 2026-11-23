@@ -420,12 +420,6 @@ impl Plan {
         };
         let zigjuiz_missing = zigjuiz_dir.as_ref().is_some_and(|d| !d.join("build.zig.zon").is_file());
         let mut zigjuiz_rel = None;
-        if lang == Lang::Zig && windows {
-            warnings.push(
-                "The Zig skeleton does not support Windows yet (juiz issue #588): it is made for Linux and macOS, without .ps1 scripts"
-                    .to_owned(),
-            );
-        }
         if let (Lang::Zig, Some(zigjuiz_dir)) = (lang, &zigjuiz_dir) {
             // build.zig.zon の依存の .path は雛形からの相対パスでなければならない (Zig は絶対パスを受けない)
             let dest = absolute_through_links(&args.output.clone().unwrap_or_else(|| PathBuf::from(&args.name)));
@@ -1074,7 +1068,9 @@ mod tests {
                 "app/juizapp.yaml",
                 "build.zig",
                 "build.zig.zon",
+                "scripts/dev.ps1",
                 "scripts/dev.sh",
+                "scripts/pack.ps1",
                 "scripts/pack.sh",
                 "src/my_robot.zig",
             ]
@@ -1178,11 +1174,13 @@ mod tests {
         assert!(e.to_string().contains("at most 32"), "{e}");
         assert!(Plan::from_args_with(&parse(&["create", &long, "-b", "rust"]), || None, false).is_ok());
         assert!(Plan::from_args_with(&parse(&["create", "var", "-b", "zig"]), || None, false).is_err());
-        // Windows では警告し、.ps1 は置かない
+        // Windows でも警告せず、.ps1 を置いて .ps1 の形で表示する (#588)
         let (p, w) = Plan::from_args_with(&parse(&["create", "my_robot", "-b", "zig"]), || None, true).unwrap();
-        assert!(w.iter().any(|w| w.contains("#588")), "{w:?}");
-        assert!(!paths(&p).iter().any(|f| f.ends_with(".ps1")));
-        assert!(p.summary().contains("scripts/dev.sh"));
+        assert!(!w.iter().any(|w| w.contains("Windows")), "{w:?}");
+        let files = paths(&p);
+        assert!(files.iter().any(|f| f == "scripts/dev.ps1") && files.iter().any(|f| f == "scripts/pack.ps1"), "{files:?}");
+        let s = p.summary();
+        assert!(s.contains("scripts\\dev.ps1") && !s.contains("scripts/dev.sh"), "{s}");
         // 言語に関係しないオプション
         let (_, w) = Plan::from_args_with(&parse(&["create", "my_robot", "-b", "rust", "--zigjuiz-dir", "/x"]), || None, false).unwrap();
         assert!(w.iter().any(|w| w.contains("--zigjuiz-dir is only for -b zig")), "{w:?}");
