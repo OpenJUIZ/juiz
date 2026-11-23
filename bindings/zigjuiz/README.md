@@ -336,7 +336,7 @@ zigjuiz は juiz の GitHub Releases に、版ごとのアーカイブ `zigjuiz-
 使う juiz と同じ版を、利用者のプロジェクト(`build.zig.zon` のあるディレクトリ)で `zig fetch --save` で取り込みます。
 
 ```sh
-# <版> は juiz の版(juiz --version)。0.3.2 の次の版から置いてあります
+# <版> は juiz の版(juiz --version)。0.3.3 から置いてあります
 zig fetch --save https://github.com/OpenJUIZ/juiz/releases/download/v<版>/zigjuiz-<版>.tar.gz
 ```
 
@@ -455,7 +455,7 @@ Zig は 1.0 の前で、版ごとに標準ライブラリや build.zig の API �
 
 | juiz・zigjuiz の版 | Zig の版 |
 |---|---|
-| 0.3.2 の次の版〜(zigjuiz を初めて配る版) | 0.17.x |
+| 0.3.3〜(zigjuiz を初めて配る版) | 0.17.x |
 
 Zig の新しい版に移るときは、移行を 1 件ずつ issue にし、その issue を入れた juiz の版から zigjuiz の対応版を切り替えます(この表に行を足します)。
 CI は対応する 1 つの版だけで回します(`.github/workflows/test-linux.yml` の `ZIG_VERSION`)。
