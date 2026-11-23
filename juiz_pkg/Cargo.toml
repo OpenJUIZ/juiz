@@ -11,7 +11,7 @@ keywords = ["juiz", "scaffold", "template", "robotics"]
 categories = ["development-tools", "command-line-utilities"]
 build = "build.rs"
 # templates/ の下の .gitignore.tmpl のような隠しファイルも入れる (cargo は既定で外す)
-include = ["build.rs", "src/**/*.rs", "templates/**/*", "templates/**/.*", "README.md"]
+include = ["build.rs", "src/**/*.rs", "templates/**/*", "templates/**/.*", "schema/*.json", "README.md"]
 
 [[bin]]
 name = "juiz-pkg"
