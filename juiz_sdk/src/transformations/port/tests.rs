@@ -15,6 +15,8 @@ struct FakeRegistry {
     written: Mutex<Option<(String, Pose)>>,
     /// set_transform で書いた (呼び出し元の名前, source, destination, 値)
     transform_written: Mutex<Option<(String, String, String, Transform)>>,
+    /// set_model で受け取った (Container の名前, model の値)
+    model_written: Mutex<Option<(String, Value)>>,
 }
 
 impl FakeRegistry {
@@ -22,6 +24,7 @@ impl FakeRegistry {
         Arc::new(FakeRegistry {
             written: Mutex::new(None),
             transform_written: Mutex::new(None),
+            model_written: Mutex::new(None),
         })
     }
 }
@@ -116,6 +119,26 @@ impl TransformationsRegistry for FakeRegistry {
             Time { sec: 7, nanosec: 8 },
             *value,
         ))
+    }
+
+    /// 受け取った値を覚えて、data の長さを size にしたモデル情報を返す。`null` なら `null`。
+    /// format "bad" は ContainerModelInvalidError
+    fn set_model(&self, container: &ContainerIdentifier, model: &Value) -> JuizResult<Value> {
+        use base64::Engine;
+        if model["format"] == "bad" {
+            return Err(anyhow!(JuizError::ContainerModelInvalidError {
+                message: "bad format".to_owned()
+            }));
+        }
+        *self.model_written.lock().unwrap() = Some((container.name.clone(), model.clone()));
+        if model.is_null() {
+            return Ok(Value::Null);
+        }
+        let size = base64::engine::general_purpose::STANDARD
+            .decode(model["data"].as_str().unwrap_or_default())
+            .map(|d| d.len())
+            .unwrap_or(usize::MAX);
+        Ok(jvalue!({"format": model["format"], "size": size, "scale": model["scale"]}))
     }
 }
 
@@ -297,6 +320,7 @@ fn unknown_port_version_is_not_used() {
         set: None,
         lookup: None,
         set_transform: None,
+        set_model: None,
     };
     assert!(unsafe { port_from_addr(&mut port as *mut JuizPosePort as usize) }.is_none());
     assert!(unsafe { port_from_addr(owner.addr()) }.is_some());
@@ -376,6 +400,7 @@ fn old_host_port_without_lookup_is_still_used() {
         set: host.set,
         lookup: host.lookup,
         set_transform: host.set_transform,
+        set_model: host.set_model,
     };
     let addr = &mut old as *mut JuizPosePort as usize;
     let port = unsafe { port_from_addr(addr) };
@@ -513,11 +538,157 @@ fn old_host_port_without_set_transform_is_still_used() {
         set: host.set,
         lookup: host.lookup,
         set_transform: host.set_transform,
+        set_model: host.set_model,
     };
     let port = unsafe { port_from_addr(&old as *const JuizPosePort as usize) };
     assert!(port.is_some());
     assert!(port_lookup(port, "lidar0", "robot0").is_ok());
     let f = port_set_transform(port, "map", "odom", &odom_offset()).unwrap_err();
+    assert_eq!(f.code, JUIZ_TRANSFORMATIONS_ERROR);
+    assert!(f.message.contains("too old"), "{}", f.message);
+}
+
+// ---- set_model (container-model.md §13.2、#564) ----
+
+unsafe extern "C" fn fill_options(arg: *mut c_void, v: *mut Value) -> i64 {
+    let scale = *(arg as *const f64);
+    let v = &mut *v;
+    v["scale"] = jvalue!(scale);
+    v["file_name"] = jvalue!("closed.glb");
+    JUIZ_OK
+}
+
+unsafe extern "C" fn fail_options(_arg: *mut c_void, _v: *mut Value) -> i64 {
+    -12345
+}
+
+unsafe extern "C" fn take_info(arg: *mut c_void, v: *mut Value) {
+    *(arg as *mut Value) = (*v).clone();
+}
+
+#[test]
+fn c_set_model_replaces_through_capsule_map() {
+    let registry = FakeRegistry::new();
+    let owner = PosePortOwner::new(attached_handle(&registry));
+    let mut cm = CapsuleMap::new();
+    let glb = CString::new("glb").unwrap();
+    let data = b"glTF-data";
+    let mut scale = 0.5f64;
+    let mut info = Value::Null;
+
+    // 口が無い
+    let code = unsafe {
+        juiz_container_model_set(&mut cm, data.as_ptr(), data.len(), glb.as_ptr(), None, std::ptr::null_mut(), None, std::ptr::null_mut())
+    };
+    assert_eq!(code, JUIZ_TRANSFORMATIONS_NOT_ATTACHED_ERROR);
+
+    cm.set_pose_port(owner.addr());
+    let code = unsafe {
+        juiz_container_model_set(
+            &mut cm,
+            data.as_ptr(),
+            data.len(),
+            glb.as_ptr(),
+            Some(fill_options),
+            &mut scale as *mut f64 as *mut c_void,
+            Some(take_info),
+            &mut info as *mut Value as *mut c_void,
+        )
+    };
+    assert_eq!(code, JUIZ_OK, "{:?}", unsafe { CStr::from_ptr(juiz_container_pose_last_error()) });
+    // 中身はホストが base64 にして data に入れる
+    let (name, model) = registry.model_written.lock().unwrap().clone().unwrap();
+    assert_eq!(name, "camera0");
+    assert_eq!(model["format"], "glb");
+    assert_eq!(model["file_name"], "closed.glb");
+    assert_eq!(model["data"], "Z2xURi1kYXRh");
+    assert_eq!(info, jvalue!({"format": "glb", "size": data.len(), "scale": 0.5}));
+
+    // 値の誤りは JUIZ_CONTAINER_MODEL_INVALID_ERROR
+    let bad = CString::new("bad").unwrap();
+    let code = unsafe {
+        juiz_container_model_set(&mut cm, data.as_ptr(), data.len(), bad.as_ptr(), None, std::ptr::null_mut(), None, std::ptr::null_mut())
+    };
+    assert_eq!(code, JUIZ_CONTAINER_MODEL_INVALID_ERROR);
+    let msg = unsafe { CStr::from_ptr(juiz_container_pose_last_error()) }
+        .to_string_lossy()
+        .into_owned();
+    assert!(msg.contains("bad format"), "{msg}");
+
+    // options の関数が 0 以外を返したらその値で止める
+    let code = unsafe {
+        juiz_container_model_set(&mut cm, data.as_ptr(), data.len(), glb.as_ptr(), Some(fail_options), std::ptr::null_mut(), None, std::ptr::null_mut())
+    };
+    assert_eq!(code, -12345);
+    // 長さがあるのに data が null
+    let code = unsafe {
+        juiz_container_model_set(&mut cm, std::ptr::null(), 3, glb.as_ptr(), None, std::ptr::null_mut(), None, std::ptr::null_mut())
+    };
+    assert_eq!(code, JUIZ_TRANSFORMATIONS_ERROR);
+
+    // 外す
+    let code = unsafe { juiz_container_model_clear(&mut cm) };
+    assert_eq!(code, JUIZ_OK);
+    let (_, model) = registry.model_written.lock().unwrap().clone().unwrap();
+    assert_eq!(model, Value::Null);
+}
+
+#[test]
+fn readonly_port_refuses_set_model() {
+    let registry = FakeRegistry::new();
+    let owner = PosePortOwner::new_readonly(attached_handle(&registry));
+    let mut cm = CapsuleMap::new();
+    cm.set_pose_port(owner.addr());
+    let glb = CString::new("glb").unwrap();
+    let code = unsafe {
+        juiz_container_model_set(&mut cm, b"x".as_ptr(), 1, glb.as_ptr(), None, std::ptr::null_mut(), None, std::ptr::null_mut())
+    };
+    assert_eq!(code, JUIZ_CONTAINER_MODEL_INVALID_ERROR);
+    assert_eq!(unsafe { juiz_container_model_clear(&mut cm) }, JUIZ_CONTAINER_MODEL_INVALID_ERROR);
+    assert!(registry.model_written.lock().unwrap().is_none());
+}
+
+#[test]
+fn port_registry_set_model_goes_through_host_handle() {
+    let registry = FakeRegistry::new();
+    let owner = PosePortOwner::new(attached_handle(&registry));
+    let plugin_side = ContainerPoseHandle::new(camera_id());
+    let _a = PortAttachment::attach(plugin_side.clone(), owner.addr()).unwrap();
+    let info = plugin_side
+        .set_model_bytes(b"abcd", "stl", &jvalue!({"scale": 2.0}))
+        .unwrap();
+    assert_eq!(info, jvalue!({"format": "stl", "size": 4, "scale": 2.0}));
+    let (name, model) = registry.model_written.lock().unwrap().clone().unwrap();
+    assert_eq!(name, "camera0");
+    assert_eq!(model["data"], "YWJjZA==");
+    assert_eq!(plugin_side.clear_model().unwrap(), Value::Null);
+    let e = plugin_side.set_model_bytes(b"abcd", "bad", &Value::Null).unwrap_err();
+    assert!(matches!(
+        e.downcast_ref::<JuizError>(),
+        Some(JuizError::ContainerModelInvalidError { .. })
+    ));
+}
+
+#[test]
+fn old_host_port_without_set_model_is_still_used() {
+    // set_model を足す前 (#410) のホストの表。set_transform までは使え、set_model だけエラー
+    let registry = FakeRegistry::new();
+    let owner = PosePortOwner::new(attached_handle(&registry));
+    let host = unsafe { port_from_addr(owner.addr()) }.unwrap();
+    let old = JuizPosePort {
+        abi_version: POSE_PORT_ABI_VERSION,
+        struct_size: std::mem::offset_of!(JuizPosePort, set_model) as u32,
+        ctx: host.ctx,
+        get: host.get,
+        set: host.set,
+        lookup: host.lookup,
+        set_transform: host.set_transform,
+        set_model: host.set_model,
+    };
+    let port = unsafe { port_from_addr(&old as *const JuizPosePort as usize) };
+    assert!(port.is_some());
+    assert!(port_set_transform(port, "map", "odom", &odom_offset()).is_ok());
+    let f = port_set_model(port, &Value::Null, None).unwrap_err();
     assert_eq!(f.code, JUIZ_TRANSFORMATIONS_ERROR);
     assert!(f.message.contains("too old"), "{}", f.message);
 }

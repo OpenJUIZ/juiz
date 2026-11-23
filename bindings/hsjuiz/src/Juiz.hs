@@ -125,6 +125,8 @@ module Juiz
   , ContainerTransform (..)
   , identityTransform
   , setTransform
+  , setModel
+  , clearModel
   , transformToValue
   , transformStampedToValue
   , poseToValue
@@ -142,6 +144,7 @@ module Juiz
   , juizTransformationsError
   , juizTransformNotWritableError
   , juizTransformNotFoundError
+  , juizContainerModelInvalidError
     -- * よく使う型
   , Int64
   , Word64

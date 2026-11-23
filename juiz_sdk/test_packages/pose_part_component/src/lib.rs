@@ -134,6 +134,11 @@ fn rust_part_try_readonly(c: &ContainerImpl<RustPart>, op: String, reference: St
             .pose_handle()
             .set_transform(&reference, "base0", &Transform::identity())
             .map(|_| ()),
+        // #564: モデルの差し替えも止まる (ContainerModelInvalidError)
+        "set_model" => c
+            .pose_handle()
+            .set_model_bytes(b"<sdf/>", "sdf", &Value::Null)
+            .map(|_| ()),
         _ => Ok(()),
     };
     let name = match r {
@@ -141,6 +146,7 @@ fn rust_part_try_readonly(c: &ContainerImpl<RustPart>, op: String, reference: St
         Err(e) => match e.chain().find_map(|c| c.downcast_ref::<JuizError>()) {
             Some(JuizError::PoseNotWritableError { .. }) => "PoseNotWritableError".to_owned(),
             Some(JuizError::TransformNotWritableError { .. }) => "TransformNotWritableError".to_owned(),
+            Some(JuizError::ContainerModelInvalidError { .. }) => "ContainerModelInvalidError".to_owned(),
             _ => format!("other: {e:#}"),
         },
     };
@@ -188,6 +194,28 @@ fn rust_part_set_transform(
     }
 }
 
+/// 3D モデルを text (空なら外す) に差し替え、差し替えた後のモデル情報を返す (#564、container-model.md §13.2)。
+/// 値の誤りは "ContainerModelInvalidError" を返す
+#[juiz_component_container_process(container_type = "rust_part" arguments = { default = { text = "" format = "sdf" } })]
+fn rust_part_set_model(c: &mut ContainerImpl<RustPart>, text: String, format: String) -> JuizResult<Capsule> {
+    let r = if text.is_empty() {
+        c.clear_model().map(|_| jvalue!({"cleared": true}))
+    } else {
+        c.set_model(
+            text.as_bytes(),
+            &format,
+            &jvalue!({"color": "#0000ff", "file_name": format!("rust.{format}")}),
+        )
+    };
+    match r {
+        Ok(v) => Ok(v.into()),
+        Err(e) => match e.chain().find_map(|c| c.downcast_ref::<JuizError>()) {
+            Some(JuizError::ContainerModelInvalidError { .. }) => Ok(jvalue!("ContainerModelInvalidError").into()),
+            _ => Err(e),
+        },
+    }
+}
+
 juiz_component_manifest!(
     component_name = "pose_part_component"
     containers = {
@@ -200,7 +228,8 @@ juiz_component_manifest!(
             rust_part_try_readonly,
             rust_part_meet,
             rust_part_lookup,
-            rust_part_set_transform
+            rust_part_set_transform,
+            rust_part_set_model
         ]
     }
 );

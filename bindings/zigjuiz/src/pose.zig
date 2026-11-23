@@ -12,7 +12,8 @@
 //!
 //! 第 1 引数は ContainerProcess が受け取った Container の状態へのポインタ (self)。zigjuiz は ContainerProcess を
 //! 呼ぶ間、そのスレッドに「self と juiz が渡した口 (capsule_map)」の組を覚えておき、ここで探して使う。
-//! readonly の ContainerProcess (self が *const State) からは、setPose / setTransform はコンパイルエラーになる。
+//! readonly の ContainerProcess (self が *const State) からは、setPose / setTransform / setModel / clearModel は
+//! コンパイルエラーになる。3D モデルは setModel / clearModel で差し替える (docs/spec/container-model.md §13.2、#564)。
 const std = @import("std");
 const c = @import("c");
 const value = @import("value.zig");
@@ -50,6 +51,8 @@ pub const PoseError = error{
     TransformNotWritable,
     /// Transform が無い (-907)
     TransformNotFound,
+    /// setModel の値の誤り (形式に合わない・上限超えなど)、readonly の ContainerProcess からの差し替え (-908)
+    ContainerModelInvalid,
     /// 名前が長すぎて NUL 終端の文字列にできない (メモリ不足)
     OutOfMemory,
 };
@@ -118,6 +121,7 @@ fn check(r: i64) PoseError!void {
         c.JUIZ_INVALID_POSE_VALUE_ERROR => error.InvalidPoseValue,
         c.JUIZ_TRANSFORM_NOT_WRITABLE_ERROR => error.TransformNotWritable,
         c.JUIZ_TRANSFORM_NOT_FOUND_ERROR => error.TransformNotFound,
+        c.JUIZ_CONTAINER_MODEL_INVALID_ERROR => error.ContainerModelInvalid,
         else => error.TransformationsError,
     };
 }
@@ -172,6 +176,73 @@ pub fn setTransform(self: anytype, source: []const u8, destination: []const u8, 
     var out: TransformStamped = std.mem.zeroes(TransformStamped);
     try check(c.juiz_container_transform_set(cm, try withZ(&sbuf, source), try withZ(&dbuf, destination), &t, &out));
     return out;
+}
+
+/// setModel の options を libjuiz_sdk の空の辞書に書く (juiz_container_model_set の options)
+const ModelOptions = struct {
+    allocator: std.mem.Allocator,
+    options: Value,
+
+    fn fill(arg: ?*anyopaque, obj: ?*c.value) callconv(.c) i64 {
+        const self: *ModelOptions = @ptrCast(@alignCast(arg.?));
+        value.fillCollection(self.allocator, obj, self.options) catch return c.JUIZ_CONTAINER_MODEL_INVALID_ERROR;
+        return c.JUIZ_OK;
+    }
+};
+
+/// setModel のモデル情報を juiz.Value に写す (juiz_container_model_set の info)
+const ModelInfo = struct {
+    allocator: std.mem.Allocator,
+    result: ?Value = null,
+    err: ?error{ OutOfMemory, UnsupportedValue } = null,
+
+    fn take(arg: ?*anyopaque, v: ?*c.value) callconv(.c) void {
+        const self: *ModelInfo = @ptrCast(@alignCast(arg.?));
+        self.result = value.read(self.allocator, v) catch |e| {
+            self.err = e;
+            return;
+        };
+    }
+};
+
+/// self の Container の 3D モデルを data の中身に差し替え、差し替えた後のモデル情報
+/// (juiz_std.model.ContainerModelInfo の辞書、allocator に作る) を返す (docs/spec/container-model.md §13.2、#564)。
+/// format は "glb"・"gltf"・"stl"・"sdf"・"other" (空なら options の file_name の拡張子から)。
+/// options は scale・origin・up_axis・color・file_name の辞書 (.null なら無し)。
+/// 値の誤り (形式に合わない・上限超えなど) は error.ContainerModelInvalid (今のモデルは変わらない)。
+/// readonly の ContainerProcess からは呼べない (コンパイルエラー)
+pub fn setModel(self: anytype, allocator: std.mem.Allocator, data: []const u8, format: []const u8, options: Value) PoseError!Value {
+    const cm = try portOf(containerPtr("juiz.setModel", self, true));
+    switch (options) {
+        .null, .object => {},
+        else => return error.ContainerModelInvalid,
+    }
+    var fbuf: [64]u8 = undefined;
+    const fmt: ?[*:0]const u8 = if (format.len == 0) null else try withZ(&fbuf, format);
+    var opts = ModelOptions{ .allocator = allocator, .options = options };
+    var info = ModelInfo{ .allocator = allocator };
+    try check(c.juiz_container_model_set(
+        cm,
+        data.ptr,
+        data.len,
+        fmt,
+        if (options == .object) ModelOptions.fill else null,
+        &opts,
+        ModelInfo.take,
+        &info,
+    ));
+    if (info.err) |e| return switch (e) {
+        error.OutOfMemory => error.OutOfMemory,
+        error.UnsupportedValue => error.TransformationsError,
+    };
+    return info.result orelse .null;
+}
+
+/// self の Container の 3D モデルを外す (§13.2)。conf や型の既定のモデルにも戻らない。
+/// readonly の ContainerProcess からは呼べない (コンパイルエラー)
+pub fn clearModel(self: anytype) PoseError!void {
+    const cm = try portOf(containerPtr("juiz.clearModel", self, true));
+    try check(c.juiz_container_model_clear(cm));
 }
 
 // ---- 値を作る・変える ----

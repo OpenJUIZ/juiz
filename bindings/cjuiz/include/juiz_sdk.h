@@ -60,6 +60,9 @@ extern "C" {
 #define JUIZ_TRANSFORM_NOT_WRITABLE_ERROR                  INT64_C(-906)
 /* juiz_container_transform_set の Transform が無い (§7.5、#410) */
 #define JUIZ_TRANSFORM_NOT_FOUND_ERROR                     INT64_C(-907)
+/* juiz_container_model_set / _clear の値の誤り (形式に合わない・上限超えなど)、readonly の ContainerProcess からの差し替え
+ * (docs/spec/container-model.md §13.2、#564) */
+#define JUIZ_CONTAINER_MODEL_INVALID_ERROR                 INT64_C(-908)
 /* C++ のプラグイン (cppjuiz の entry point) で、juiz の例外ではない例外が投げられた (#400)。
  * extern "C" の境界の外へ例外を出すと juiz ごと落ちるので、entry point が捕まえてこのコードにする。
  * Process / ContainerProcess では戻り値の capsule にエラー文 (what()) を文字列で入れる */
@@ -332,7 +335,21 @@ typedef struct juiz_transform_stamped {
  * out (NULL 可) に書いた後の値を書く */
 int64_t juiz_container_transform_set(capsule_map* cm, const char* source, const char* destination,
                                      const juiz_transform* value, juiz_transform_stamped* out);
-/* このスレッドで最後に呼んだ juiz_container_pose_get / _set / _lookup・juiz_container_transform_set のエラー文 (成功なら空文字列)。
+/* 呼び出し元 Container の 3D モデルを、data (size バイト) の中身に差し替える (docs/spec/container-model.md §13.2、#564)。
+ * 結果は API の container/set_model と同じ (確かめ方・上限も同じで、通らなければ今のモデルは変えない)。
+ * format (NULL 可) は "glb"・"gltf"・"stl"・"sdf"・"other"。NULL なら options の file_name の拡張子から決める。
+ * options (NULL 可) は空のオブジェクトの value を受け取り、scale・origin・up_axis・color・file_name を書く関数
+ * (第 1 引数は options_arg。JUIZ_OK 以外を返すと、その値を返して止める)。
+ * info (NULL 可) には差し替えた後のモデル情報 (juiz_std.model.ContainerModelInfo の辞書) を渡す
+ * (第 1 引数は info_arg。value は info の中でだけ有効)。
+ * 値の誤り・readonly の ContainerProcess からは JUIZ_CONTAINER_MODEL_INVALID_ERROR */
+int64_t juiz_container_model_set(capsule_map* cm, const uint8_t* data, size_t size, const char* format,
+                                 int64_t (*options)(void* options_arg, value* obj), void* options_arg,
+                                 void (*info)(void* info_arg, value* info), void* info_arg);
+/* 呼び出し元 Container の 3D モデルを外す (§13.2)。conf や型の既定のモデルにも戻らない */
+int64_t juiz_container_model_clear(capsule_map* cm);
+/* このスレッドで最後に呼んだ juiz_container_pose_get / _set / _lookup・juiz_container_transform_set・
+ * juiz_container_model_set / _clear のエラー文 (成功なら空文字列)。
  * 次にこのスレッドでそれらを呼ぶまで有効で、解放しない */
 const char* juiz_container_pose_last_error(void);
 

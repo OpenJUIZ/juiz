@@ -45,6 +45,8 @@ pub const JUIZ_TRANSFORMATIONS_ERROR: i64 = -905;
 pub const JUIZ_TRANSFORM_NOT_WRITABLE_ERROR: i64 = -906;
 /// `set_transform` の Transform が無い (§7.5、#410)
 pub const JUIZ_TRANSFORM_NOT_FOUND_ERROR: i64 = -907;
+/// `set_model` の値の誤り・readonly の ContainerProcess からの差し替え (container-model.md §13.2、#564)
+pub const JUIZ_CONTAINER_MODEL_INVALID_ERROR: i64 = -908;
 
 // ---- 構造体 (juiz_sdk.h と同じ並び) ----
 
@@ -279,6 +281,20 @@ pub type JuizPosePortSetTransformFn = extern "C" fn(
     error: *const JuizBytesSink,
 ) -> i64;
 
+/// 呼び出し元 Container の 3D モデルを差し替える関数 (container-model.md §13.2、#564)。
+/// `model` は `container/set_model` の `model` の JSON (UTF-8)。`null` ならモデルを外す。
+/// `data` の `ptr` が null でなければ、ホストがその中身を base64 にして `model` の `data` に入れる
+/// (プラグインが base64 にしなくてよいように。`model` に `data` があれば上書きする)。
+/// 成功なら 0 を返し、`info` (null 可) に差し替えた後のモデル情報の JSON (外したら `null`) を書く。
+/// 失敗なら負のコードを返し、`error` (null 可) に文を書く
+pub type JuizPosePortSetModelFn = extern "C" fn(
+    ctx: *const c_void,
+    model: JuizBytes,
+    data: JuizBytes,
+    info: *const JuizBytesSink,
+    error: *const JuizBytesSink,
+) -> i64;
+
 /// 呼び出し元 Container の ContainerPose の口 (§12.3)。ホストが作り、呼び出しの間だけ有効
 #[repr(C)]
 pub struct JuizPosePort {
@@ -293,6 +309,8 @@ pub struct JuizPosePort {
     pub lookup: Option<JuizPosePortLookupFn>,
     /// #410 で足した。`struct_size` がこの項目を含まない古いホストの口では使わない
     pub set_transform: Option<JuizPosePortSetTransformFn>,
+    /// #564 で足した。`struct_size` がこの項目を含まない古いホストの口では使わない
+    pub set_model: Option<JuizPosePortSetModelFn>,
 }
 
 /// 版 1 の最初の表の大きさ (`lookup` を足す前)。これより小さい表は受け付けない
@@ -317,6 +335,16 @@ impl JuizPosePort {
         }
         self.set_transform
     }
+
+    /// `set_model` を持つ口なら、その関数 (#564 より古いホストの口では None)
+    pub fn set_model_fn(&self) -> Option<JuizPosePortSetModelFn> {
+        if (self.struct_size as usize)
+            < std::mem::offset_of!(JuizPosePort, set_model) + std::mem::size_of::<Option<JuizPosePortSetModelFn>>()
+        {
+            return None;
+        }
+        self.set_model
+    }
 }
 
 // ---- ホストの側 ----
@@ -330,18 +358,24 @@ pub struct PosePortOwner {
 
 impl PosePortOwner {
     pub fn new(handle: ContainerPoseHandle) -> Self {
-        Self::with_set(handle, host_port_set, host_port_set_transform)
+        Self::with_set(handle, host_port_set, host_port_set_transform, host_port_set_model)
     }
 
     /// readonly の ContainerProcess に渡す口 (§14、#377)。書き込みは `PoseNotWritableError` (JUIZ_POSE_NOT_WRITABLE_ERROR)
     pub fn new_readonly(handle: ContainerPoseHandle) -> Self {
-        Self::with_set(handle, host_port_set_readonly, host_port_set_transform_readonly)
+        Self::with_set(
+            handle,
+            host_port_set_readonly,
+            host_port_set_transform_readonly,
+            host_port_set_model_readonly,
+        )
     }
 
     fn with_set(
         handle: ContainerPoseHandle,
         set: JuizPosePortSetFn,
         set_transform: JuizPosePortSetTransformFn,
+        set_model: JuizPosePortSetModelFn,
     ) -> Self {
         let handle = Box::new(handle);
         let port = Box::new(JuizPosePort {
@@ -352,6 +386,7 @@ impl PosePortOwner {
             set: Some(set),
             lookup: Some(host_port_lookup),
             set_transform: Some(set_transform),
+            set_model: Some(set_model),
         });
         PosePortOwner {
             port,
@@ -376,6 +411,7 @@ pub fn transformations_error_code(e: &anyhow::Error) -> i64 {
         Some(JuizError::InvalidPoseValueError { .. }) => JUIZ_INVALID_POSE_VALUE_ERROR,
         Some(JuizError::TransformNotWritableError { .. }) => JUIZ_TRANSFORM_NOT_WRITABLE_ERROR,
         Some(JuizError::TransformNotFoundError { .. }) => JUIZ_TRANSFORM_NOT_FOUND_ERROR,
+        Some(JuizError::ContainerModelInvalidError { .. }) => JUIZ_CONTAINER_MODEL_INVALID_ERROR,
         _ => JUIZ_TRANSFORMATIONS_ERROR,
     }
 }
@@ -389,6 +425,7 @@ pub fn transformations_error_name(code: i64) -> &'static str {
         JUIZ_INVALID_POSE_VALUE_ERROR => "InvalidPoseValueError",
         JUIZ_TRANSFORM_NOT_WRITABLE_ERROR => "TransformNotWritableError",
         JUIZ_TRANSFORM_NOT_FOUND_ERROR => "TransformNotFoundError",
+        JUIZ_CONTAINER_MODEL_INVALID_ERROR => "ContainerModelInvalidError",
         _ => "TransformationsError",
     }
 }
@@ -601,6 +638,85 @@ extern "C" fn host_port_set_transform_readonly(
     })
 }
 
+/// ホストの口に届いた `model` の JSON と中身から、`container/set_model` の `model` の値を作る (§13.2)
+fn model_value(model: &JuizBytes, data: &JuizBytes) -> JuizResult<Value> {
+    use base64::Engine;
+    let invalid = |message: String| anyhow!(JuizError::ContainerModelInvalidError { message });
+    let text = bytes_str(model, "model")?;
+    let mut v: Value =
+        serde_json::from_str(text).map_err(|e| invalid(format!("model is not JSON ({e})")))?;
+    if data.ptr.is_null() {
+        return Ok(v);
+    }
+    // SAFETY: 呼び手は data を呼び出しの間有効に保つ
+    let bytes = unsafe { data.as_slice() }.unwrap_or_default();
+    match &mut v {
+        Value::Object(o) => {
+            o.insert(
+                "data".to_owned(),
+                jvalue!(base64::engine::general_purpose::STANDARD.encode(bytes)),
+            );
+        }
+        other => return Err(invalid(format!("model must be a dictionary to carry data, but {other}"))),
+    }
+    Ok(v)
+}
+
+/// [`host_guarded`] のモデル版 (container-model.md §13.2)
+fn host_guarded_model(
+    error: *const JuizBytesSink,
+    info: *const JuizBytesSink,
+    body: impl FnOnce() -> JuizResult<Value>,
+) -> i64 {
+    let r = catch_unwind(AssertUnwindSafe(body));
+    let (code, message) = match r {
+        Ok(Ok(v)) => {
+            sink_write(info, v.to_string().as_bytes());
+            return JUIZ_OK;
+        }
+        Ok(Err(e)) => (transformations_error_code(&e), format!("{e:#}")),
+        Err(_) => (
+            JUIZ_TRANSFORMATIONS_ERROR,
+            "panicked while replacing the model".to_owned(),
+        ),
+    };
+    let _ = catch_unwind(AssertUnwindSafe(|| sink_write(error, message.as_bytes())));
+    code
+}
+
+extern "C" fn host_port_set_model(
+    ctx: *const c_void,
+    model: JuizBytes,
+    data: JuizBytes,
+    info: *const JuizBytesSink,
+    error: *const JuizBytesSink,
+) -> i64 {
+    host_guarded_model(error, info, || {
+        // SAFETY: ctx は PosePortOwner が持つ ContainerPoseHandle
+        let handle = unsafe { &*(ctx as *const ContainerPoseHandle) };
+        handle.set_model(&model_value(&model, &data)?)
+    })
+}
+
+extern "C" fn host_port_set_model_readonly(
+    ctx: *const c_void,
+    _model: JuizBytes,
+    _data: JuizBytes,
+    info: *const JuizBytesSink,
+    error: *const JuizBytesSink,
+) -> i64 {
+    host_guarded_model(error, info, || {
+        // SAFETY: ctx は PosePortOwner が持つ ContainerPoseHandle
+        let handle = unsafe { &*(ctx as *const ContainerPoseHandle) };
+        Err(anyhow!(JuizError::ContainerModelInvalidError {
+            message: format!(
+                "the model of Container({}) can not be replaced from a readonly container process",
+                handle.identifier()
+            ),
+        }))
+    })
+}
+
 // ---- プラグインの側 ----
 
 /// アドレスから口を取り出す。0・知らない版・小さすぎる表なら None
@@ -672,6 +788,9 @@ impl PortFailure {
             },
             JUIZ_TRANSFORM_NOT_FOUND_ERROR => JuizError::TransformNotFoundError {
                 identifier: reference.to_owned(),
+            },
+            JUIZ_CONTAINER_MODEL_INVALID_ERROR => JuizError::ContainerModelInvalidError {
+                message: self.message.clone(),
             },
             _ => {
                 return anyhow!(
@@ -836,6 +955,62 @@ pub fn port_set_transform(
     Ok((out, name(frame_id, source), name(child_frame_id, destination)))
 }
 
+/// 口で呼び出し元 Container の 3D モデルを差し替える (container-model.md §13.2、#564)。
+/// `model` は `container/set_model` の `model` の値 (`null` で外す)。`data` があればホストが base64 にして
+/// `model` の `data` に入れる。差し替えた後のモデル情報 (外したら `Null`) を返す。
+/// `set_model` を持たない古いホストの口では `JUIZ_TRANSFORMATIONS_ERROR`
+pub fn port_set_model(port: Option<&JuizPosePort>, model: &Value, data: Option<&[u8]>) -> Result<Value, PortFailure> {
+    let port = port.ok_or_else(PortFailure::not_attached)?;
+    let set_model = port.set_model_fn().ok_or_else(|| PortFailure {
+        code: JUIZ_TRANSFORMATIONS_ERROR,
+        message: "the host of this container process is too old to support set_model \
+                  (update juiz)"
+            .to_owned(),
+    })?;
+    let model_json = model.to_string();
+    let mut info: Vec<u8> = Vec::new();
+    let mut error: Vec<u8> = Vec::new();
+    let info_sink = JuizBytesSink {
+        ctx: &mut info as *mut Vec<u8> as *mut c_void,
+        write: Some(collect_into_vec),
+    };
+    let error_sink = JuizBytesSink {
+        ctx: &mut error as *mut Vec<u8> as *mut c_void,
+        write: Some(collect_into_vec),
+    };
+    // 中身が空でも「中身あり」と分かるように、null でないポインタを渡す
+    let data = match data {
+        Some(d) if d.is_empty() => JuizBytes {
+            ptr: std::ptr::NonNull::<u8>::dangling().as_ptr(),
+            len: 0,
+        },
+        Some(d) => JuizBytes::from_slice(d),
+        None => JuizBytes::empty(),
+    };
+    let code = set_model(
+        port.ctx,
+        JuizBytes::from_slice(model_json.as_bytes()),
+        data,
+        &info_sink,
+        &error_sink,
+    );
+    if code != JUIZ_OK {
+        let message = if error.is_empty() {
+            format!("returned {code} ({})", transformations_error_name(code))
+        } else {
+            String::from_utf8_lossy(&error).into_owned()
+        };
+        return Err(PortFailure { code, message });
+    }
+    if info.is_empty() {
+        return Ok(Value::Null);
+    }
+    serde_json::from_slice(&info).map_err(|e| PortFailure {
+        code: JUIZ_TRANSFORMATIONS_ERROR,
+        message: format!("the host returned a broken model info ({e})"),
+    })
+}
+
 fn finish(
     code: i64,
     out: JuizPoseStamped,
@@ -915,6 +1090,11 @@ impl TransformationsRegistry for PortRegistry {
         let (t, s, d) = port_set_transform(self.port(), source, destination, &value.into())
             .map_err(|f| f.into_error(&caller.to_string(), &format!("{source} -> {destination}")))?;
         Ok(t.to_transform_stamped(&s, &d))
+    }
+
+    fn set_model(&self, container: &ContainerIdentifier, model: &Value) -> JuizResult<Value> {
+        let c = container.to_string();
+        port_set_model(self.port(), model, None).map_err(|f| f.into_error(&c, &c))
     }
 }
 
@@ -1024,6 +1204,11 @@ impl TransformationsRegistry for ThreadPortRegistry {
         let (t, s, d) = port_set_transform(self.port(), source, destination, &value.into())
             .map_err(|f| f.into_error(&caller.to_string(), &format!("{source} -> {destination}")))?;
         Ok(t.to_transform_stamped(&s, &d))
+    }
+
+    fn set_model(&self, container: &ContainerIdentifier, model: &Value) -> JuizResult<Value> {
+        let c = container.to_string();
+        port_set_model(self.port(), model, None).map_err(|f| f.into_error(&c, &c))
     }
 }
 
@@ -1221,7 +1406,72 @@ pub unsafe extern "C" fn juiz_container_transform_set(
     })
 }
 
-/// このスレッドで最後に呼んだ `juiz_container_pose_get` / `_set` / `_lookup`・`juiz_container_transform_set` のエラー文 (成功なら空)。
+/// 呼び出し元 Container の 3D モデルを、`data` (`size` バイト) の中身に差し替える (container-model.md §13.2、#564)。
+/// `format` (null 可) は `glb`・`gltf`・`stl`・`sdf`・`other` (null なら `options` の `file_name` の拡張子から)。
+/// `options` (null 可) は空のオブジェクトの `value*` を受け取り、`scale`・`origin`・`up_axis`・`color`・`file_name` を
+/// 書く関数 (`options_arg` を第 1 引数に渡す。0 以外を返すとその値で止める)。`info` (null 可) には差し替えた後の
+/// モデル情報 (`juiz_std.model.ContainerModelInfo` の辞書) の `value*` を渡す (`info_arg` を第 1 引数に、呼び出しの間だけ有効)。
+/// 値の誤り・readonly の ContainerProcess からは `JUIZ_CONTAINER_MODEL_INVALID_ERROR`
+#[no_mangle]
+pub unsafe extern "C" fn juiz_container_model_set(
+    cm: *mut CapsuleMap,
+    data: *const u8,
+    size: usize,
+    format: *const c_char,
+    options: Option<unsafe extern "C" fn(*mut c_void, *mut Value) -> i64>,
+    options_arg: *mut c_void,
+    info: Option<unsafe extern "C" fn(*mut c_void, *mut Value)>,
+    info_arg: *mut c_void,
+) -> i64 {
+    c_guarded(|| {
+        let cm = cm.as_ref().ok_or_else(|| null_argument("capsule_map"))?;
+        if data.is_null() && size > 0 {
+            return Err(null_argument("data"));
+        }
+        let bytes: &[u8] = if data.is_null() {
+            &[]
+        } else {
+            std::slice::from_raw_parts(data, size)
+        };
+        let mut model = jvalue!({});
+        if let Some(f) = options {
+            let r = f(options_arg, &mut model);
+            if r != JUIZ_OK {
+                return Err(PortFailure {
+                    code: r,
+                    message: format!("the options callback returned {r}"),
+                });
+            }
+            if !model.is_object() {
+                return Err(PortFailure {
+                    code: JUIZ_CONTAINER_MODEL_INVALID_ERROR,
+                    message: format!("model options must be a dictionary, but {model}"),
+                });
+            }
+        }
+        if !format.is_null() {
+            model["format"] = jvalue!(c_string(format, "format")?);
+        }
+        let mut v = port_set_model(port_from_addr(cm.pose_port()), &model, Some(bytes))?;
+        if let Some(f) = info {
+            f(info_arg, &mut v);
+        }
+        Ok(())
+    })
+}
+
+/// 呼び出し元 Container の 3D モデルを外す (container-model.md §13.2、#564)。conf や型の既定のモデルにも戻らない
+#[no_mangle]
+pub unsafe extern "C" fn juiz_container_model_clear(cm: *mut CapsuleMap) -> i64 {
+    c_guarded(|| {
+        let cm = cm.as_ref().ok_or_else(|| null_argument("capsule_map"))?;
+        port_set_model(port_from_addr(cm.pose_port()), &Value::Null, None)?;
+        Ok(())
+    })
+}
+
+/// このスレッドで最後に呼んだ `juiz_container_pose_get` / `_set` / `_lookup`・`juiz_container_transform_set`・
+/// `juiz_container_model_set` / `_clear` のエラー文 (成功なら空)。
 /// 文字列は次にこのスレッドでそれらを呼ぶまで有効で、解放しない
 #[no_mangle]
 pub extern "C" fn juiz_container_pose_last_error() -> *const c_char {
