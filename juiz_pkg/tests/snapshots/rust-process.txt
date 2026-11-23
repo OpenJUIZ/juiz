@@ -35,7 +35,7 @@ A juiz component written in Rust. It was made with `juiz pkg create` of juiz <ve
 
 | Type | Kind | Arguments (default) | Returns | What it does |
 | --- | --- | --- | --- | --- |
-| `my_robot_add` | Process | `a: int` (0), `b: int` (0) | int | Returns `a + b` |
+| `my_robot_add` | Process | `a: long` (0), `b: long` (0) | `long` | Returns a + b. |
 
 | Path | What it is |
 | --- | --- |
@@ -107,6 +107,7 @@ entry: app.conf
 # yaml-language-server: $schema=https://raw.githubusercontent.com/OpenJUIZ/juiz/v<version>/juiz_pkg/schema/juizdesign.schema.json
 # my_robot: design of the juiz component my_robot (juiz docs/spec/design.md)
 #   check:    juiz pkg design check juizdesign.yaml
+#   scaffold: juiz pkg create -d juizdesign.yaml -b <rust|python|cpp|haskell|zig>
 format: 1
 component:
   name: my_robot
@@ -224,6 +225,7 @@ juiz pack "$stage" -o dist
 use juiz_sdk::prelude::*;
 
 #[juiz_component_process(
+    typed = "all"
     description = "Returns a + b."
     arguments = { default = { a = 0 b = 0 } }
 )]

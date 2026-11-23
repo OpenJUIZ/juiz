@@ -16,10 +16,10 @@ A juiz component written in Zig. It was made with `juiz pkg create` of juiz <ver
 
 | Type | Kind | Arguments (default) | Returns | What it does |
 | --- | --- | --- | --- | --- |
-| `my_robot_add` | Process | `a: int` (0), `b: int` (0) | int | Returns `a + b` |
-| `my_robot` | Container | `initial_value: int` (0) | - | Holds one integer `value` |
-| `my_robot_increment` | ContainerProcess | `step: int` (1) | int | `value += step`, returns `value` |
-| `my_robot_get` | ContainerProcess (readonly) | - | int | Returns `value` |
+| `my_robot_add` | Process | `a: long` (0), `b: long` (0) | `long` | Returns a + b. |
+| `my_robot` | Container | `initial_value: long` (0) | - | Holds an integer value. |
+| `my_robot_increment` | ContainerProcess | `step: long` (1) | `long` | Adds step to the value and returns it. |
+| `my_robot_get` | ContainerProcess (readonly) | - | `long` | Returns the value. |
 
 | Path | What it is |
 | --- | --- |
@@ -185,6 +185,7 @@ pub fn build(b: *std.Build) void {
 # yaml-language-server: $schema=https://raw.githubusercontent.com/OpenJUIZ/juiz/v<version>/juiz_pkg/schema/juizdesign.schema.json
 # my_robot: design of the juiz component my_robot (juiz docs/spec/design.md)
 #   check:    juiz pkg design check juizdesign.yaml
+#   scaffold: juiz pkg create -d juizdesign.yaml -b <rust|python|cpp|haskell|zig>
 format: 1
 component:
   name: my_robot

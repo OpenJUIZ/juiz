@@ -15,7 +15,8 @@ use serde_json::Value;
 use crate::python::{docstring, literal, namespace_alias, str_lit, KEYWORDS};
 use crate::rust_skeleton::camel_case;
 use crate::{
-    ContainerSignature, GeneratedFile, IdlError, ProcessSignature, Signatures,
+    ArgumentSignature, ContainerSignature, DesignSkeleton, GeneratedFile, IdlError,
+    ProcessSignature, Signatures, StateInit,
 };
 
 /// デコレータなど、雛形が自分で使う名前 (関数名・型名に使えない)
@@ -189,16 +190,17 @@ fn plain_ident(name: &str, what: &str) -> Result<String, IdlError> {
 
 /// 引数の並び (`first` は ContainerProcess の Container の引数)
 fn parameters(
-    p: &ProcessSignature,
+    type_name: &str,
+    arguments: &[ArgumentSignature],
     first: Option<String>,
     names: &TypeNames,
 ) -> Result<Vec<String>, IdlError> {
     let mut out: Vec<String> = first.into_iter().collect();
     let mut defaulted: Option<&str> = None;
-    for a in p.arguments.iter() {
+    for a in arguments.iter() {
         let name = plain_ident(&a.name, "argument")?;
         let t = schema_type(&a.schema)?;
-        let ann = annotation(&t, names, &format!("{} argument {}", p.type_name, a.name))?;
+        let ann = annotation(&t, names, &format!("{type_name} argument {}", a.name))?;
         match &a.default {
             Some(d) if !matches!(t, DataType::Image) => {
                 defaulted = Some(&a.name);
@@ -213,8 +215,8 @@ fn parameters(
                 }
                 if let Some(prev) = defaulted {
                     return Err(generate_error(format!(
-                        "{}: argument {} has no default but comes after {prev}, which has one; a Python function cannot have it (give {} a default or move it before {prev})",
-                        p.type_name, a.name, a.name
+                        "{type_name}: argument {} has no default but comes after {prev}, which has one; a Python function cannot have it (give {} a default or move it before {prev})",
+                        a.name, a.name
                     )));
                 }
                 out.push(format!("{name}: {ann}"));
@@ -238,20 +240,45 @@ fn function(
     p: &ProcessSignature,
     first: Option<String>,
     names: &TypeNames,
+    mode: Mode,
 ) -> Result<String, IdlError> {
     let name = plain_ident(&p.type_name, "process")?;
-    let params = parameters(p, first, names)?;
+    let params = parameters(&p.type_name, &p.arguments, first, names)?;
     let mut out = format!(
         "{decorator}\ndef {name}({}) -> {}:\n",
         params.join(", "),
         returns(p, names)?
     );
     out.push_str(&docstring(&p.description, "    "));
-    out.push_str(&format!(
+    out.push_str(&body(&name, mode));
+    Ok(out)
+}
+
+/// 関数の本体。設計文書の本体の断片があればそれ、無ければ未実装の印
+fn body(name: &str, mode: Mode) -> String {
+    if let Mode::Design(d) = mode {
+        if let Some(b) = d.bodies.get(name) {
+            return b
+                .trim_end_matches('\n')
+                .lines()
+                .map(|l| if l.is_empty() { "\n".to_owned() } else { format!("    {l}\n") })
+                .collect();
+        }
+    }
+    format!(
         "    raise NotImplementedError({})\n",
         str_lit(&format!("write the body of {name}"))
-    ));
-    Ok(out)
+    )
+}
+
+/// 雛形の作り方
+#[derive(Clone, Copy)]
+enum Mode<'a> {
+    /// .jidl の宣言から (`juiz idl -g python-skeleton`、`juiz pkg create --idl`)
+    Jidl,
+    /// 設計文書から (`juiz pkg create -d`・`-t`、docs/spec/design.md §6.2)。
+    /// 状態のクラスは `<Name>` (pkg.md §6.2・§2.4 と同じ) で、引数から状態を作る
+    Design(&'a DesignSkeleton),
 }
 
 /// Container の状態のクラスの名前 (`arm` → `ArmState`)
@@ -259,29 +286,111 @@ pub(crate) fn state_name(container: &str) -> String {
     format!("{}State", camel_case(container))
 }
 
-fn container_code(c: &ContainerSignature, names: &TypeNames) -> Result<String, IdlError> {
+/// 雛形の中の状態のクラスの名前 (設計文書からは `<Name>`、.jidl からは `<Name>State`)
+fn state_class(container: &str, mode: Mode) -> String {
+    match mode {
+        Mode::Jidl => state_name(container),
+        Mode::Design(_) => camel_case(container),
+    }
+}
+
+/// 状態の値の型注釈 (デコレータが読まないので、pyjuiz が受けない型も書ける)
+fn state_annotation(t: &DataType, names: &TypeNames) -> String {
+    match t {
+        DataType::Bytes => "bytes".to_owned(),
+        DataType::Any => "object".to_owned(),
+        DataType::Optional { inner, .. } => format!("{} | None", state_annotation(inner, names)),
+        DataType::Array(i) => format!("list[{}]", state_annotation(i, names)),
+        DataType::Map(i) => format!("dict[str, {}]", state_annotation(i, names)),
+        t => annotation(t, names, "").unwrap_or_else(|_| "object".to_owned()),
+    }
+}
+
+/// 状態の初期値の Python の式 (docs/spec/design.md §3.3・§4.4)
+fn state_value(t: &DataType, v: &Value, names: &TypeNames) -> String {
+    match (t, v) {
+        (DataType::Optional { .. }, Value::Null) => "None".to_owned(),
+        (DataType::Optional { inner, .. }, v) => state_value(inner, v, names),
+        (DataType::Bytes, Value::String(s)) if s.is_empty() => "b\"\"".to_owned(),
+        (DataType::Bytes, Value::String(s)) => format!("base64.b64decode({})", str_lit(s)),
+        _ => default_expr(t, v, names),
+    }
+}
+
+fn container_code(c: &ContainerSignature, names: &TypeNames, mode: Mode) -> Result<String, IdlError> {
     let name = plain_ident(&c.type_name, "container")?;
-    let state = state_name(&c.type_name);
-    let mut out = format!(
-        "class {state}:\n    \"\"\"State of the container {name} (the JIDL does not type it: add the attributes you need).\"\"\"\n\n\n\
-         @juiz_container\ndef {name}() -> {state}:\n"
-    );
-    out.push_str(&docstring(&c.description, "    "));
-    out.push_str(&format!("    return {state}()\n"));
+    let state = state_class(&c.type_name, mode);
+    let mut out = match mode {
+        Mode::Jidl => {
+            let mut out = format!(
+                "class {state}:\n    \"\"\"State of the container {name} (the JIDL does not type it: add the attributes you need).\"\"\"\n\n\n\
+                 @juiz_container\ndef {name}() -> {state}:\n"
+            );
+            out.push_str(&docstring(&c.description, "    "));
+            out.push_str(&format!("    return {state}()\n"));
+            out
+        }
+        Mode::Design(_) => design_container(c, &name, &state, names)?,
+    };
     for p in c.container_processes.iter() {
         // 引数と同じ名前なら Container の引数の名前を変える
         let mut first = "container".to_owned();
         while p.arguments.iter().any(|a| a.name == first) {
             first.push('_');
         }
+        let readonly = if p.readonly { ", readonly=True" } else { "" };
         out.push_str("\n\n");
         out.push_str(&function(
-            &format!("@juiz_container_process(container_type={})", str_lit(&name)),
+            &format!("@juiz_container_process(container_type={}{readonly})", str_lit(&name)),
             p,
             Some(format!("{first}: {state}")),
             names,
+            mode,
         )?);
     }
+    Ok(out)
+}
+
+/// 設計文書の Container: 状態のクラスと、引数から状態を作る関数 (docs/spec/design.md §3.3)
+fn design_container(
+    c: &ContainerSignature,
+    name: &str,
+    state: &str,
+    names: &TypeNames,
+) -> Result<String, IdlError> {
+    let mut out = format!("class {state}:\n    \"\"\"State of the container {name}.\"\"\"\n");
+    if !c.state.is_empty() {
+        let mut params = Vec::new();
+        let mut body = String::new();
+        for s in &c.state {
+            let n = plain_ident(&s.name, "state")?;
+            let t = schema_type(&s.schema)?;
+            params.push(format!("{n}: {}", state_annotation(&t, names)));
+            let comment = match &s.description {
+                Some(d) if !d.trim().is_empty() => {
+                    format!("  # {}", d.split_whitespace().collect::<Vec<_>>().join(" "))
+                }
+                _ => String::new(),
+            };
+            body.push_str(&format!("        self.{n} = {n}{comment}\n"));
+        }
+        out.push_str(&format!("\n    def __init__(self, {}):\n{body}", params.join(", ")));
+    }
+    let params = parameters(name, &c.arguments, None, names)?;
+    out.push_str(&format!(
+        "\n\n@juiz_container\ndef {name}({}) -> {state}:\n",
+        params.join(", ")
+    ));
+    out.push_str(&docstring(&c.description, "    "));
+    let mut values = Vec::new();
+    for s in &c.state {
+        let t = schema_type(&s.schema)?;
+        values.push(match &s.init {
+            StateInit::Argument(a) => plain_ident(a, "argument")?,
+            StateInit::Value(v) => state_value(&t, v, names),
+        });
+    }
+    out.push_str(&format!("    return {state}({})\n", values.join(", ")));
     Ok(out)
 }
 
@@ -292,13 +401,33 @@ fn collect_named(t: &DataType, out: &mut BTreeSet<(String, String)>) {
     }
 }
 
+/// 状態の型に出てくる名前付き型 (配列・辞書・T? の中も。型注釈に書くので)
+fn collect_all_named(t: &DataType, out: &mut BTreeSet<(String, String)>) {
+    match t {
+        DataType::Array(i) | DataType::Map(i) => collect_all_named(i, out),
+        DataType::Optional { inner, .. } => collect_all_named(inner, out),
+        t => collect_named(t, out),
+    }
+}
+
 /// 雛形の中身 (import、宣言ごとの関数)。ファイルの先頭の説明は付けない。
 /// `juiz pkg create --idl` (docs/spec/pkg.md §6.5) が app/python/<name>.py に使う
 pub fn python_skeleton_items(s: &Signatures) -> Result<String, IdlError> {
+    items(s, Mode::Jidl)
+}
+
+/// 設計文書から作る雛形の中身 (docs/spec/design.md §6.2)。[`python_skeleton_items`] と同じ並びで、
+/// Container の引数・状態 (状態のクラスは `<Name>`)、ContainerProcess の `readonly=True`、
+/// 本体の断片 (`design.bodies`) と最後のコード (`design.tail`) も出す。`juiz pkg create -d`・`-t` が使う
+pub fn python_design_items(s: &Signatures, design: &DesignSkeleton) -> Result<String, IdlError> {
+    items(s, Mode::Design(design))
+}
+
+fn items(s: &Signatures, mode: Mode) -> Result<String, IdlError> {
     // 関数・クラスの名前 (重なれば Python では後のものが前のものを隠すのでエラー)
     let mut defined: BTreeMap<String, String> = BTreeMap::new();
     let mut define = |n: String, what: String| -> Result<(), IdlError> {
-        if USED.contains(&n.as_str()) {
+        if USED.contains(&n.as_str()) || (n == "base64" && matches!(mode, Mode::Design(_))) {
             return Err(generate_error(format!(
                 "{what} becomes the Python name {n}, which the skeleton uses itself"
             )));
@@ -315,7 +444,7 @@ pub fn python_skeleton_items(s: &Signatures) -> Result<String, IdlError> {
     }
     for c in s.containers.iter() {
         define(c.type_name.clone(), format!("container {}", c.type_name))?;
-        define(state_name(&c.type_name), format!("the state class of container {}", c.type_name))?;
+        define(state_class(&c.type_name, mode), format!("the state class of container {}", c.type_name))?;
         for p in c.container_processes.iter() {
             define(p.type_name.clone(), format!("container_process {}", p.type_name))?;
         }
@@ -328,11 +457,28 @@ pub fn python_skeleton_items(s: &Signatures) -> Result<String, IdlError> {
         .iter()
         .chain(s.containers.iter().flat_map(|c| c.container_processes.iter()));
     let mut uses_image = false;
+    let mut uses_base64 = false;
     for p in all {
         for schema in p.arguments.iter().map(|a| &a.schema).chain([&p.output_schema]) {
             let t = schema_type(schema)?;
             uses_image |= matches!(t, DataType::Image);
             collect_named(&t, &mut types);
+        }
+    }
+    for c in s.containers.iter() {
+        for a in c.arguments.iter() {
+            collect_named(&schema_type(&a.schema)?, &mut types);
+        }
+        for st in c.state.iter() {
+            let t = schema_type(&st.schema)?;
+            collect_all_named(&t, &mut types);
+            if let StateInit::Value(Value::String(v)) = &st.init {
+                let inner = match &t {
+                    DataType::Optional { inner, .. } => inner.as_ref(),
+                    t => t,
+                };
+                uses_base64 |= matches!(inner, DataType::Bytes) && !v.is_empty();
+            }
         }
     }
     let names = TypeNames::new(&types.into_iter().collect::<Vec<_>>(), &taken)?;
@@ -347,7 +493,11 @@ pub fn python_skeleton_items(s: &Signatures) -> Result<String, IdlError> {
     if !s.processes.is_empty() {
         decorators.push("juiz_process");
     }
-    let mut out = format!("from juiz import {}\n", decorators.join(", "));
+    let mut out = String::new();
+    if uses_base64 {
+        out.push_str("import base64\n\n");
+    }
+    out.push_str(&format!("from juiz import {}\n", decorators.join(", ")));
     if uses_image {
         out.push_str("from PIL.Image import Image\n");
     }
@@ -358,11 +508,18 @@ pub fn python_skeleton_items(s: &Signatures) -> Result<String, IdlError> {
     }
     for p in s.processes.iter() {
         out.push_str("\n\n");
-        out.push_str(&function("@juiz_process", p, None, &names)?);
+        out.push_str(&function("@juiz_process", p, None, &names, mode)?);
     }
     for c in s.containers.iter() {
         out.push_str("\n\n");
-        out.push_str(&container_code(c, &names)?);
+        out.push_str(&container_code(c, &names, mode)?);
+    }
+    if let Mode::Design(DesignSkeleton { tail: Some(t), .. }) = mode {
+        out.push_str("\n\n");
+        out.push_str(t);
+        if !t.ends_with('\n') {
+            out.push('\n');
+        }
     }
     Ok(out)
 }

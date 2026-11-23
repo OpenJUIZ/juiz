@@ -138,6 +138,7 @@ juiz pkg create -d <juizdesign.yaml> [-b <lang>] [-o <dir>]
 ```
 
 - 設計文書の型を入れた Component を作る。関数は宣言・マクロ・manifest まで文書どおりで、本体は未実装の印(design.md §1)。
+- 設計文書 Step 2(#595)で Rust・Python を作れるようにした。C++・Haskell・Zig は Step 3(#596)まで、言語が決まった所でエラーにする。
 - 名前は文書の `component.name`。`<name>`・`-t`・`--idl` とは一緒に使えない(clap の `conflicts_with`。`<name>` は `-d` が無いときだけ必須)。
 - 言語は `-b`、無ければ文書の `component.language`、どちらも無ければエラー。違えば警告して `-b` を使う(design.md §8.2)。
 - `-o` を省けば `./<component.name>`。作り先が文書のあるディレクトリそのもののときの扱いは design.md §8.2。
@@ -162,7 +163,7 @@ juiz pkg design <name> [-b <lang>] [-t <template> | --idl <file.jidl>] [-o <file
 - 雛形は作らず、設計文書を 1 つ書く。利用者が書き直して `create -d` に渡す使い方。
 - 書き先がファイルとして在ればエラー(上書きしない、§8)。親ディレクトリが無ければ作る。
 - 文書の書き方は design.md §9。書く前に design.md §5 の検査を通す。
-- 表示は、書いたファイルと型の数、次に打つコマンド(`juiz pkg design check <file>`、`juiz pkg create -d <file> -b <lang>`)。`create -d` の行は、それを実装する Step 2 から出す(Step 1 は `check` の行だけ。`-b` を付けなかったときは `check` に `-b <rust|python|cpp|haskell|zig>` を付けて案内する)。
+- 表示は、書いたファイルと型の数、次に打つコマンド(`juiz pkg design check <file>`、`juiz pkg create -d <file>`)。`create -d` の行は、それを実装した Step 2 から出す(Step 1 は `check` の行だけだった)。`-b` を付けなかったときは、どちらにも `-b <rust|python|cpp|haskell|zig>` を付けて案内する。
 - 書く前の検査で `-b` が無いときの W3(design.md §5.4)は出さない(プリセットなので)。
 - `check` は §2.7 のサブコマンドなので、`juiz pkg design check` は名前 `check` の文書にはならない(名前 `check` の文書は書けない)。
 
@@ -379,6 +380,7 @@ pub struct MyRobot {
 }
 
 #[juiz_component_process(
+    typed = "all"
     description = "Returns a + b."
     arguments = { default = { a = 0 b = 0 } }
 )]
@@ -387,6 +389,7 @@ fn my_robot_add(a: i64, b: i64) -> JuizResult<i64> {
 }
 
 #[juiz_component_container(
+    typed = "all"
     description = "Holds an integer value."
     arguments = { default = { initial_value = 0 } }
 )]
@@ -396,6 +399,7 @@ fn my_robot(initial_value: i64) -> JuizResult<Box<MyRobot>> {
 
 #[juiz_component_container_process(
     container_type = "my_robot"
+    typed = "all"
     description = "Adds step to the value and returns it."
     arguments = { default = { step = 1 } }
 )]
@@ -406,6 +410,7 @@ fn my_robot_increment(container: &mut ContainerImpl<MyRobot>, step: i64) -> Juiz
 
 #[juiz_component_container_process(
     container_type = "my_robot"
+    typed = "all"
     description = "Returns the value."
 )]
 fn my_robot_get(container: &ContainerImpl<MyRobot>) -> JuizResult<i64> {
@@ -421,6 +426,7 @@ juiz_component_manifest!(
 );
 ```
 
+  - 設計文書 Step 2(#595)から、このソースはプリセットの設計文書と本体の断片から juiz_idl の `rust_design_items` で作る(design.md §7)。`typed = "all"` はそのときに付いた(引数・戻り値の型が manifest の `schema` に入る)。
   - Step 1 でビルドして確かめた: 戻り値に `i64` をそのまま書ける(マクロが `JuizResult<Capsule>` に直す、datatype.md)。Container を `&ContainerImpl<T>`(`mut` なし)で受けると readonly になる(`juiz container-process list --long` に `readonly` が出る)。上の例はそのまま使える。
   - `#[cfg(test)]` のテストを 1 つ置く(`my_robot_add` の結果を確かめる程度)。マクロが関数を `CapsuleMap` を受けるものに書き換えるので、テストは `CapsuleMap` に引数を入れて呼ぶ。`-t container` には Process が無いので置かない。
 - dev.sh: `cargo build [--release]` → `target/<profile>/` の `lib<name>.so` / `lib<name>.dylib` / `<name>.dll` を `app/plugins/<ターゲット>/` に写す(teleop_twist の dev_plugin.sh と同じ)。
@@ -637,9 +643,14 @@ Next steps:
 ```
 juiz_pkg/templates/
 ├─ common/_base/            どの言語・種類にも入れるもの(.gitignore の共通部分、LICENSE など)
-├─ common/<template>/       種類ごと・言語によらないもの(app/app.conf)
+├─ common/design/           設計文書から作るときの app/app.conf(-t・-d、中身は design_conf)
+├─ common/idl/              --idl の app/app.conf
 ├─ <lang>/_base/            言語ごと・種類によらないもの(ビルドのファイル、scripts/、README)
-└─ <lang>/<template>/       言語と種類ごとのもの(Component のソース)
+├─ <lang>/<template>/       言語と種類ごとのもの(Component のソース。C++・Haskell・Zig だけ、設計文書 Step 3 まで)
+├─ <lang>/idl/              --idl のもの(Rust の -d で .jidl を写すときも Cargo.toml・build.rs に使う)
+└─ <lang>/design/           -d の README(Rust・Python)
+
+juiz_pkg/templates/design/fragments/<lang>/<役割>.<拡張子>.tmpl  -t の本体の断片(design.md §7.2。create の層には入らない)
 
 juiz_pkg/templates/add/<lang>/<process|container>.tmpl   juiz pkg add で足すコード(§2.4。create の層には入らない)
 juiz_pkg/templates/design/<template>.juizdesign.yaml.tmpl  -t のプリセットの設計文書(design.md §7.1。create の層には入らない。変数は name・Name・juiz_version)
@@ -648,6 +659,7 @@ juiz_pkg/templates/add/zig/<process|container>_part.tmpl  Zig の juiz.exportCom
 
 - `<lang>` は `rust` / `python` / `cpp` / `haskell` / `zig`、`<template>` は `component` / `process` / `container`。`--idl` のときは `<template>` の代わりに `idl` の層(`common/idl/`・`<lang>/idl/`)を重ね、その後に .jidl の写し・Python の型のコード・Component のソースをコードで足す(§6.5)。
 - 雛形は `common/_base` → `common/<template>` → `<lang>/_base` → `<lang>/<template>` の順に重ね、同じ出力パスは後のものが勝つ。
+  - 設計文書 Step 2(#595)から: `-t` は `common/_base` → `common/design` → `<lang>/_base` → `<lang>/<template>`(Rust・Python には無い)、`-d` は `common/_base` → `common/design` → `<lang>/_base` →(Rust で .jidl を写すとき `rust/idl`)→ `<lang>/design`。その後に設計文書・.jidl の写し・Python の型のコード・Component のソース(Rust・Python)をコードで足す。
 - テンプレートのファイル名は必ず `.tmpl` で終え、出力では `.tmpl` を外す(`Cargo.toml.tmpl` → `Cargo.toml`)。テンプレートの中に `Cargo.toml` という名前があると、`cargo package` が juiz_pkg のディレクトリの中の別のパッケージとみなして外してしまうため。
 - パスの中にも変数を書いてよい(`src/{{name}}.cpp.tmpl`、`src/{{Name}}.hs.tmpl`)。
 - LICENSE-MIT・LICENSE-APACHE は `--license mit-apache` のときだけ出力する(コードで振り分ける)。
@@ -690,6 +702,10 @@ juiz_pkg/templates/add/zig/<process|container>_part.tmpl  Zig の juiz.exportCom
 | `idl_depends` | C++ の `juiz_generate_types` の `DEPENDS`(import した .jidl の写し、空白区切り)。無ければ無し(#468) |
 | `idl_hs_modules` | Haskell の .cabal の `other-modules` に足す型のモジュール(`\n                    , A.B` を並べたもの)。`--idl` でなければ無し(#468) |
 | `idl_hs_gen_dir` | Haskell の `--idl` の型の出力先 `gen`。ほかは無し(scripts/dev.sh の `juiz idl` の行と .gitignore の `/gen/` を消す、#468) |
+| `idl_compile` | Rust の build.rs の `.compile(&[…])` の中身(`"idl/a.jidl", …`)。`--idl` は `idl_main`、`-d` は写す `idl:` の .jidl。ほかは無し |
+| `description_str` | Cargo.toml・pyproject.toml・`app/juizapp.yaml` の `description` の値(`"…"` で囲んだもの)。`component.description`、無ければ `"<name>: a juiz component"` |
+| `design_conf` | 設計文書から作る app.conf の `processes`・`containers`(とプリセットの `ecs`)(複数行、design.md §6.3)。`--idl` では無し |
+| `design_idl_note` | `-d` の Python の README の「.jidl を変えたら型を作り直す」段落。写す .jidl が無ければ無し |
 | `idl_zig_depends` | Zig の build.zig の `addTypes` の `.depends`(import した .jidl の写しを `b.path("…")` で `, ` 区切り。無ければ空)。`--idl` でなければ無し(#577) |
 
 `types_table` と `next_steps` は、種類・言語で変わる README の部分を、条件分岐の書式を設けずに 1 つのテンプレートで書くために足した(Step 1)。
@@ -709,6 +725,7 @@ conf の `{target}` は juiz の置換(app-package.md §5.2)で、この書式�
 - `--idl`(Step 4・#468): juiz_pkg の単体テストで、言語ごとに生成するファイルの一覧・置換が残らないこと・juiz_std を使う/使わないときの依存の書き方・import した .jidl の写し・エラー(`-t` と一緒、宣言なし、2 つの名前空間、ディレクトリの外の import、各言語のキーワード、Python で既定値のある引数の後ろに既定値のない record/enum の引数)。juiz_idl の単体テストで Python・C++・Haskell の skeleton 生成器の出力。pkg_cli_test では、4 言語それぞれ juiz_std の型と別ファイルの record を使う .jidl から作り、本体を書き換えてから dev.sh(Python は不要)→ 起動 → call → `juiz type list --long` に .jidl の型が出る → pack.sh → `juiz run` を通す(Unix、ポートは Rust 8082・Python 8083・C++ 8084・Haskell 8085。Haskell は ghc と cabal がないときは飛ばす)。
 - `juiz pkg add`(Step 5): juiz_pkg の単体テストで、4 言語 × 3 種類の雛形すべてに Process と Container を足せて(`{{` が残らず、元の型も残る)、各言語の一覧の書き換え・conf のブロックの位置(無いときに作る位置を含む)・エラー(conf に既にある、ソースの識別子と衝突、雛形でない、入れる所が無い)・2 つめの書き込みで失敗したときに元に戻ること。pkg_cli_test の Rust・Python・C++・Haskell の生成から配布までのテストでは、生成の直後に `juiz pkg add process <name>_sum` と `juiz pkg add container <name>_arm` を打ち(同じ名前をもう一度足すとエラーで conf が変わらないことも確かめる)、起動と `juiz run` の後に足した型も呼ぶ。
 - Zig(#577): juiz_pkg の単体テストで、生成するファイルの一覧・build.zig.zon の相対パスと fingerprint(CRC-32 が Zig の勧める値と同じ)・名前の規則(§3 の 8 と 32 文字)・Windows で警告せず `.ps1` を置くこと(#588)・`juiz pkg add` の `.parts` への足し方(`--idl` の雛形に std を足すことも)・`--idl` の build.zig。全言語・全種類の組み合わせの置換と `juiz pkg add` には Zig も入れる(5 × 3)。zigjuiz の場所を指定しない既定の形(build.zig.zon に依存が無く、dev.sh・README に zig fetch の URL がある、#578)も単体テストで確かめる。pkg_cli_test(slow)で、C++ と同じ配布と同じ形の libjuiz_sdk を `--juiz-sdk-dir` で指し、zigjuiz は `--juiz-source` の `bindings/zigjuiz` で、`-t component`(ポート 8081)と `--idl`(ポート 8088)の生成から配布までを通す。.juizapp に libjuiz_sdk が入っていることと `juiz: "=<版>"` を確かめる。Zig 0.17 が無ければ飛ばし(`ZIG` で zig を変えられる)、`JUIZ_REQUIRE_ZIG=1` なら落とす。Zig の 2 件は Windows でも走らせ(#588、test-windows.yml)、scripts は `.ps1` を PowerShell(`pwsh`、無ければ `powershell`)で実行する。Windows の libjuiz_sdk は package-juiz-sdk.sh を使わず、ワークスペースの `juiz_sdk.dll`・`juiz_sdk.dll.lib` を配布と同じ `bin/`・`lib/` に写したものを `--juiz-sdk-dir` で指す。Windows では雛形を TEMP ではなく `target/pkg-test-work/` に作る(build.zig.zon の zigjuiz は相対パスなので、TEMP の C: とチェックアウトの D:(CI)のようにドライブが違うと作れない)。クロスビルドはネットワーク(Releases の libjuiz_sdk)が要るので自動のテストにはせず、§6.6 の「確かめたこと」に手で確かめた結果を書く。
+- 設計文書 Step 2(#595): design.md §12 の Step 2。`-t` の 5 言語 × 3 種類の生成物のスナップショット(`juiz_pkg/tests/snapshots/`、design.md §7.3)、`create -d` の単体テストと pkg_cli_test(Rust 8090・Python 8102)。
 - 設計文書 Step 1(#594): juiz_pkg の単体テスト(src/design/)で、design.md §12 の Step 1 のもの。§5 の規則ごとの合わない例(道筋と行)、プリセット 3 つと §3.1 の例が 5 言語の検査を通ること、juiz が書いた文書の読み書きが同じ文字列になること、JSON Schema との食い違い(テストの中の小さな JSON Schema の検査器で、schema が使う言葉だけを解く)、5 言語 × 3 種類の `create -t` に `juizdesign.yaml` が置かれてその言語の検査を通ること。pkg_cli_test(`pkg_design_and_check`)で `juiz pkg design`・`design check` の表示・終了コード・上書きしないこと。
 - Haskell: テンプレートの `bundle-plugin-deps.sh` が juiz の `scripts/bundle-plugin-deps.sh` と一致すること。
   - Step 3 の Haskell(pkg_cli_test): C++ と同じく配布と同じ形の libjuiz_sdk を `--juiz-sdk-dir` で指し、hsjuiz は `--juiz-source` の `bindings/hsjuiz`。ポートは 8076。.juizapp に libjuiz_sdk・hsjuiz・GHC の RTS が入っていることと `juiz: "=<版>"` を確かめる。ghc・cabal(Linux では patchelf も)が無ければ飛ばし、`JUIZ_REQUIRE_HASKELL=1` なら落とす。cargo test が LD_LIBRARY_PATH に足す `target/` の下は、scripts を呼ぶときに外す(残すと bundle-plugin-deps.sh の確かめで、隣に写した libjuiz_sdk より先に target/debug のものが見つかって失敗する)。

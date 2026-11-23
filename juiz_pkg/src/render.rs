@@ -37,6 +37,10 @@ pub const VARIABLES: &[&str] = &[
     "zigjuiz_fetch",
     "zig_fingerprint",
     "idl_zig_depends",
+    "idl_compile",
+    "description_str",
+    "design_conf",
+    "design_idl_note",
 ];
 
 /// 変数の値。None は「無し」(その変数を含む行を消す)

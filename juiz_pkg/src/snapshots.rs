@@ -115,3 +115,20 @@ fn create_template_snapshots() {
         }
     }
 }
+
+/// `create -d` で §3.1 の 2 つめの例 (rover) から作る雛形 (Rust・Python)
+#[cfg(unix)]
+#[test]
+fn create_design_snapshots() {
+    let dir = std::env::temp_dir().join(format!("juiz_pkg_snapshot_rover_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("idl")).unwrap();
+    std::fs::write(dir.join("idl/rover.jidl"), crate::design::tests::ROVER_JIDL).unwrap();
+    let doc = dir.join("juizdesign.yaml");
+    std::fs::write(&doc, crate::design::tests::ROVER).unwrap();
+    for lang in ["rust", "python"] {
+        let plan = plan_for(&["create", "-d", doc.to_str().unwrap(), "-b", lang, "-o", "/work/rover"]);
+        assert_snapshot(&format!("{lang}-design-rover"), &render_plan(&plan));
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

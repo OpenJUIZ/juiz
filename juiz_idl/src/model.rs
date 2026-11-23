@@ -44,6 +44,10 @@ pub struct ProcessSignature {
     pub description: Option<String>,
     pub arguments: Vec<ArgumentSignature>,
     pub output_schema: TypeSchema,
+    /// Container の状態を変えない ContainerProcess か (設計文書の `readonly`、docs/spec/design.md §3.2)。
+    /// JIDL には書き方が無いので、.jidl から読んだものは false
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub readonly: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -65,6 +69,32 @@ pub struct ContainerSignature {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub container_processes: Vec<ProcessSignature>,
+    /// Container を作るときの引数 (設計文書の `arguments`、docs/spec/design.md §3.2)。
+    /// JIDL には書き方が無いので、.jidl から読んだものは空
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub arguments: Vec<ArgumentSignature>,
+    /// Container が持つ値 (設計文書の `state`、docs/spec/design.md §3.3)。雛形のコードを作るためだけの情報で、
+    /// manifest には出ない。.jidl から読んだものは空
+    #[serde(skip)]
+    pub state: Vec<StateSignature>,
+}
+
+/// Container が持つ値 1 つ (docs/spec/design.md §3.3)
+#[derive(Clone, Debug, PartialEq)]
+pub struct StateSignature {
+    pub name: String,
+    pub schema: TypeSchema,
+    pub init: StateInit,
+    pub description: Option<String>,
+}
+
+/// 状態の初期値 (docs/spec/design.md §3.3)
+#[derive(Clone, Debug, PartialEq)]
+pub enum StateInit {
+    /// その名前の Container の引数の値
+    Argument(String),
+    /// この値 (辞書の表し方、datatype.md §4)。`init` も `default` も無いときは型の 0 値 (design.md §4.4)
+    Value(Value),
 }
 
 impl IdlModel {
@@ -425,6 +455,8 @@ impl Loader {
                         type_name: c.name.clone(),
                         description: c.doc.clone(),
                         container_processes: cps,
+                        arguments: Vec::new(),
+                        state: Vec::new(),
                     });
                 }
                 _ => {}
@@ -803,6 +835,7 @@ impl<'a> Resolver<'a> {
             description: p.doc.clone(),
             arguments,
             output_schema,
+            readonly: false,
         })
     }
 }

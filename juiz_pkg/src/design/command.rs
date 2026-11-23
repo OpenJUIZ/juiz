@@ -49,13 +49,13 @@ pub fn design(name: &str, args: &DesignArgs) -> Result<Written, PkgError> {
         .map_err(|e| PkgError::new(format!("cannot create {}: {e}", base.display())))?;
     std::fs::write(&path, content.as_bytes())
         .map_err(|e| PkgError::new(format!("cannot write {label}: {e}")))?;
+    let lang = match args.lang {
+        Some(_) => String::new(),
+        None => " -b <rust|python|cpp|haskell|zig>".to_owned(),
+    };
     let summary = format!(
-        "Wrote {label} ({})\n\nNext steps:\n  # edit {label}, then\n  juiz pkg design check {label}{}\n",
+        "Wrote {label} ({})\n\nNext steps:\n  # edit {label}, then\n  juiz pkg design check {label}{lang}\n  juiz pkg create -d {label}{lang}\n",
         d.counts(),
-        match args.lang {
-            Some(_) => String::new(),
-            None => " -b <rust|python|cpp|haskell|zig>".to_owned(),
-        }
     );
     Ok(Written {
         path,

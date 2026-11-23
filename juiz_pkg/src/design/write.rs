@@ -116,7 +116,8 @@ pub fn header(name: &str) -> String {
     format!(
         "# yaml-language-server: $schema=https://raw.githubusercontent.com/OpenJUIZ/juiz/v{JUIZ_VERSION}/juiz_pkg/schema/juizdesign.schema.json\n\
          # {name}: design of the juiz component {name} (juiz docs/spec/design.md)\n\
-         #   check:    juiz pkg design check {FILE_NAME}\n"
+         #   check:    juiz pkg design check {FILE_NAME}\n\
+         #   scaffold: juiz pkg create -d {FILE_NAME} -b <rust|python|cpp|haskell|zig>\n"
     )
 }
 
