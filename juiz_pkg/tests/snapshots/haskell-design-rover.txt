@@ -47,8 +47,8 @@ Linux or macOS. Haskell plugins on Windows are not supported by this skeleton ye
 
 - juiz <version> (`juiz --version`). Install it with `cargo install juiz_app --version <version>` or `pip install juiz-cli==<version>`
 - GHC 9.6 or later and cabal ([GHCup](https://www.haskell.org/ghcup/))
-- libjuiz_sdk <version> in `/root/.juiz/sdk/<version>`
-- The juiz source of <version> for hsjuiz, in `/root/juiz-<version>/bindings/hsjuiz` (hsjuiz is not on Hackage yet)
+- libjuiz_sdk <version> in `/opt/juiz-sdk`
+- The juiz source of <version> for hsjuiz, in `/opt/juiz/bindings/hsjuiz` (hsjuiz is not on Hackage yet)
 - To make the package on Linux: patchelf (`apt install patchelf` or `pip install patchelf`)
 
 `cabal.project` has the absolute paths of hsjuiz and libjuiz_sdk that `juiz pkg create` found or expected.
@@ -64,10 +64,10 @@ The functions in `src/Rover.hs` have the arguments and the return values written
 `error "write the body of …"`: calling one before you write it fails. The example calls below use the default values, or a value of the type.
 
 ```sh
-# once: get hsjuiz <version> (the juiz source) in /root/juiz-<version>/bindings/hsjuiz
-git clone --depth 1 --branch v<version> https://github.com/OpenJUIZ/juiz.git ~/juiz-<version>
-# once: put libjuiz_sdk <version> in /root/.juiz/sdk/<version>
-juiz sdk install
+# once: get hsjuiz <version> (the juiz source) in /opt/juiz/bindings/hsjuiz
+git clone --depth 1 --branch v<version> https://github.com/OpenJUIZ/juiz.git /opt/juiz
+# once: put libjuiz_sdk <version> in /opt/juiz-sdk
+juiz sdk install --dir /opt/juiz-sdk
 # write the bodies of the functions (error "…") in src/Rover.hs, then
 scripts/dev.sh                  # build and put the plugin in app/plugins/<target>/
 juiz -f app/app.conf -d         # start (keep it running)
@@ -147,7 +147,7 @@ entry: app.conf
 -- Build this package together with hsjuiz <version> from the juiz source.
 -- The paths were written by juiz pkg create. When you update juiz, change them to the new version
 -- (hsjuiz and libjuiz_sdk must be the same version as juiz).
-packages: . /root/juiz-<version>/bindings/hsjuiz
+packages: . /opt/juiz/bindings/hsjuiz
 
 -- hsjuiz uses only packages that come with GHC, so the Hackage index is not used (no cabal update needed)
 active-repositories: :none
@@ -155,8 +155,8 @@ active-repositories: :none
 -- hsjuiz links to libjuiz_sdk. GHC loads libjuiz_sdk with hsjuiz when it runs Template Haskell,
 -- and the plugin built by scripts/dev.sh finds it with this rpath during development
 package hsjuiz
-  extra-lib-dirs: /root/.juiz/sdk/<version>/lib
-  ghc-options: -optl-Wl,-rpath,/root/.juiz/sdk/<version>/lib
+  extra-lib-dirs: /opt/juiz-sdk/lib
+  ghc-options: -optl-Wl,-rpath,/opt/juiz-sdk/lib
 ==== idl/rover.jidl ====
 namespace rover.types;
 
@@ -620,10 +620,10 @@ Created rover (haskell, from juizdesign.yaml) in /work/rover  [hsjuiz <version>]
 
 Next steps:
   cd /work/rover
-  # once: get hsjuiz <version> (the juiz source) in /root/juiz-<version>/bindings/hsjuiz
-  git clone --depth 1 --branch v<version> https://github.com/OpenJUIZ/juiz.git ~/juiz-<version>
-  # once: put libjuiz_sdk <version> in /root/.juiz/sdk/<version>
-  juiz sdk install
+  # once: get hsjuiz <version> (the juiz source) in /opt/juiz/bindings/hsjuiz
+  git clone --depth 1 --branch v<version> https://github.com/OpenJUIZ/juiz.git /opt/juiz
+  # once: put libjuiz_sdk <version> in /opt/juiz-sdk
+  juiz sdk install --dir /opt/juiz-sdk
   # write the bodies of the functions (error "…") in src/Rover.hs, then
   scripts/dev.sh                  # build and put the plugin in app/plugins/<target>/
   juiz -f app/app.conf -d         # start (keep it running)

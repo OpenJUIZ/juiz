@@ -32,6 +32,7 @@ if(WIN32)
 else()
   set(JUIZ_SDK_DEFAULT_DIR "$ENV{HOME}/.juiz/sdk/${JUIZ_VERSION}")
 endif()
+set(JUIZ_SDK_DEFAULT_DIR "/opt/juiz-sdk")  # given with juiz pkg create --juiz-sdk-dir
 set(JUIZ_SDK_DIR "${JUIZ_SDK_DEFAULT_DIR}" CACHE PATH "libjuiz_sdk directory")
 find_package(juiz_sdk ${JUIZ_VERSION} EXACT CONFIG REQUIRED PATHS "${JUIZ_SDK_DIR}" NO_DEFAULT_PATH)
 
@@ -99,8 +100,8 @@ The functions in `src/rover.cpp` have the arguments and the return values writte
 `std::runtime_error`: calling one before you write it fails. The example calls below use the default values, or a value of the type.
 
 ```sh
-# once: put libjuiz_sdk <version> in ~/.juiz/sdk/<version>
-juiz sdk install
+# once: put libjuiz_sdk <version> in /opt/juiz-sdk
+juiz sdk install --dir /opt/juiz-sdk
 # write the bodies of the functions (throw std::runtime_error) in src/rover.cpp, then
 scripts/dev.sh                  # build and put the plugin and libjuiz_sdk in app/plugins/<target>/
 juiz -f app/app.conf -d         # start (keep it running)
@@ -397,8 +398,8 @@ Created rover (cpp, from juizdesign.yaml) in /work/rover  [libjuiz_sdk <version>
 
 Next steps:
   cd /work/rover
-  # once: put libjuiz_sdk <version> in ~/.juiz/sdk/<version>
-  juiz sdk install
+  # once: put libjuiz_sdk <version> in /opt/juiz-sdk
+  juiz sdk install --dir /opt/juiz-sdk
   # write the bodies of the functions (throw std::runtime_error) in src/rover.cpp, then
   scripts/dev.sh                  # build and put the plugin and libjuiz_sdk in app/plugins/<target>/
   juiz -f app/app.conf -d         # start (keep it running)

@@ -127,7 +127,22 @@ fn create_design_snapshots() {
     let doc = dir.join("juizdesign.yaml");
     std::fs::write(&doc, crate::design::tests::ROVER).unwrap();
     for lang in ["rust", "python", "cpp", "haskell", "zig"] {
-        let plan = plan_for(&["create", "-d", doc.to_str().unwrap(), "-b", lang, "-o", "/work/rover"]);
+        // SDK などの場所は -t と同じく決めて渡す (既定は HOME で変わるため)
+        let plan = plan_for(&[
+            "create",
+            "-d",
+            doc.to_str().unwrap(),
+            "-b",
+            lang,
+            "-o",
+            "/work/rover",
+            "--juiz-sdk-dir",
+            "/opt/juiz-sdk",
+            "--hsjuiz-dir",
+            "/opt/juiz/bindings/hsjuiz",
+            "--zigjuiz-dir",
+            "/opt/juiz/bindings/zigjuiz",
+        ]);
         assert_snapshot(&format!("{lang}-design-rover"), &render_plan(&plan));
     }
     let _ = std::fs::remove_dir_all(&dir);

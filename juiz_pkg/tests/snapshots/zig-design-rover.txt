@@ -45,10 +45,11 @@ Zig builds it with its default ABI (`x86_64-windows-gnu`); Visual Studio is not 
 - Zig 0.17.x ([ziglang.org](https://ziglang.org/download/), or `pip install ziglang==0.17.1` and `ZIG="python3 -m ziglang" scripts/dev.sh`).
   zigjuiz supports only this version of Zig
 - `juiz-idl` or `juiz` in PATH, if `idl:` has `idl/rover.jidl`, `juiz_std/geometry.jidl`: the build generates the types with `juiz-idl -g zig` (or `juiz idl -g zig`)
-- libjuiz_sdk <version> in `/root/.juiz/sdk/<version>`. Install it with `juiz sdk install` (`juiz sdk path` prints where it is)
+- libjuiz_sdk <version> in `/opt/juiz-sdk`. Install it with `juiz sdk install` (`juiz sdk path` prints where it is)
+- The juiz source of <version> for zigjuiz, in `/opt/juiz/bindings/zigjuiz`
 - zigjuiz <version>, the Zig library of juiz. `scripts/dev.sh` adds it to `build.zig.zon` the first time (it needs the network once):
-  `zig fetch --save=zigjuiz https://github.com/OpenJUIZ/juiz/releases/download/v<version>/zigjuiz-<version>.tar.gz`
 
+`build.zig.zon` points to zigjuiz with the path `../../opt/juiz/bindings/zigjuiz`, relative to this directory (Zig does not take an absolute path there).
 If you move this project or zigjuiz, change the path in `build.zig.zon`.
 
 zigjuiz and libjuiz_sdk must be the same version as juiz: juiz does not load a plugin that carries another version of libjuiz_sdk.
@@ -62,8 +63,10 @@ The functions in `src/rover.zig` have the arguments and the return values writte
 `return error.NotImplemented`: calling one before you write it fails. The example calls below use the default values, or a value of the type.
 
 ```sh
-# once: put libjuiz_sdk <version> in ~/.juiz/sdk/<version>
-juiz sdk install
+# once: get zigjuiz <version> (the juiz source) in /opt/juiz/bindings/zigjuiz
+git clone --depth 1 --branch v<version> https://github.com/OpenJUIZ/juiz.git /opt/juiz
+# once: put libjuiz_sdk <version> in /opt/juiz-sdk
+juiz sdk install --dir /opt/juiz-sdk
 # write the bodies of the functions (return error.NotImplemented) in src/rover.zig, then
 scripts/dev.sh                  # build and put the plugin and libjuiz_sdk in app/plugins/<target>/
 juiz -f app/app.conf -d         # start (keep it running)
@@ -186,7 +189,8 @@ pub fn build(b: *std.Build) void {
     .fingerprint = 0x1234567800000001,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
-        // zigjuiz <version> (the Zig library of juiz) comes here. scripts/dev.sh adds it the first time: zig fetch --save=zigjuiz https://github.com/OpenJUIZ/juiz/releases/download/v<version>/zigjuiz-<version>.tar.gz
+        // zigjuiz <version>: the Zig library of juiz, in the juiz source (a path relative to this directory: ../../opt/juiz/bindings/zigjuiz)
+        .zigjuiz = .{ .path = "../../opt/juiz/bindings/zigjuiz" },
     },
     .paths = .{
         "build.zig",
@@ -317,6 +321,7 @@ if (-not $sdkDir -and $Target -ne $hostTarget) {
         exit 1
     }
 }
+if (-not $sdkDir) { $sdkDir = "/opt/juiz-sdk" }  # --juiz-sdk-dir of juiz pkg create
 $buildArgs = @("build")
 if ($Release) { $buildArgs += "--release" }
 # for this machine, build for the native target (the same as the plugins juiz loads here)
@@ -407,6 +412,7 @@ if [ -z "$sdk_dir" ] && [ "$target" != "$host" ]; then
     exit 1
   fi
 fi
+if [ -z "$sdk_dir" ]; then sdk_dir="/opt/juiz-sdk"; fi  # --juiz-sdk-dir of juiz pkg create
 set --
 if [ -n "$release" ]; then set -- "$@" --release; fi
 # for this machine, build for the native target (the same as the plugins juiz loads here)
@@ -537,8 +543,10 @@ Created rover (zig, from juizdesign.yaml) in /work/rover  [zigjuiz <version>]
 
 Next steps:
   cd /work/rover
-  # once: put libjuiz_sdk <version> in ~/.juiz/sdk/<version>
-  juiz sdk install
+  # once: get zigjuiz <version> (the juiz source) in /opt/juiz/bindings/zigjuiz
+  git clone --depth 1 --branch v<version> https://github.com/OpenJUIZ/juiz.git /opt/juiz
+  # once: put libjuiz_sdk <version> in /opt/juiz-sdk
+  juiz sdk install --dir /opt/juiz-sdk
   # write the bodies of the functions (return error.NotImplemented) in src/rover.zig, then
   scripts/dev.sh                  # build and put the plugin and libjuiz_sdk in app/plugins/<target>/
   juiz -f app/app.conf -d         # start (keep it running)
