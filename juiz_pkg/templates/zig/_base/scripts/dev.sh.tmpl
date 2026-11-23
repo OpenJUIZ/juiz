@@ -2,7 +2,7 @@
 # Build the plugin and put it with libjuiz_sdk in app/plugins/<target>/ (to run app/app.conf during development)
 # usage: scripts/dev.sh [--release] [--target <target>]
 #   --target <target>: cross-build for another machine, one of x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu,
-#                      x86_64-apple-darwin, aarch64-apple-darwin (default: this machine, `juiz pkg target`).
+#                      x86_64-apple-darwin, aarch64-apple-darwin, x86_64-pc-windows-msvc (default: this machine, `juiz pkg target`).
 #                      It uses libjuiz_sdk of that target: install it once with `juiz sdk install --target <target>`
 #   JUIZ_SDK_DIR=<dir> scripts/dev.sh   uses libjuiz_sdk extracted in <dir> (default: `juiz sdk path`)
 #   ZIG=<command> scripts/dev.sh        uses this zig (default: zig). Zig 0.17.x is needed
@@ -60,12 +60,10 @@ case "$target" in
   aarch64-unknown-linux-gnu) zig_target=aarch64-linux-gnu ;;
   x86_64-apple-darwin) zig_target=x86_64-macos ;;
   aarch64-apple-darwin) zig_target=aarch64-macos ;;
-  *windows*)
-    echo "error: This skeleton does not support Windows yet (juiz issue #588)." >&2
-    exit 1
-    ;;
+  # Windows: Zig's default ABI (gnu) links to juiz_sdk.dll.lib of libjuiz_sdk; the plugin is <name>.dll next to juiz_sdk.dll
+  x86_64-pc-windows-msvc) zig_target=x86_64-windows ;;
   *)
-    echo "error: $target is not a target of libjuiz_sdk (x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu, x86_64-apple-darwin, aarch64-apple-darwin)." >&2
+    echo "error: $target is not a target of libjuiz_sdk (x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu, x86_64-apple-darwin, aarch64-apple-darwin, x86_64-pc-windows-msvc)." >&2
     exit 1
     ;;
 esac

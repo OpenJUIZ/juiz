@@ -114,9 +114,29 @@ fn library_path_without_target(var: &str) -> String {
         .unwrap_or_default()
 }
 
+/// 雛形の scripts/<name> を実行する。Windows では .ps1 の方を PowerShell で実行し、
+/// 引数を .ps1 の形 (`--no-build` → `-NoBuild`、`--release` → `-Release`) に直す (#588)
 fn script(app: &Path, name: &str, args: &[&str]) {
-    let out = Command::new(app.join("scripts").join(name))
-        .args(args)
+    let mut cmd = if cfg!(windows) {
+        let ps1 = app.join("scripts").join(name.replace(".sh", ".ps1"));
+        // PowerShell 7 (pwsh) があればそれを使う。無ければ Windows PowerShell 5.1
+        let shell = if Command::new("pwsh").arg("-Version").output().is_ok() { "pwsh" } else { "powershell" };
+        let mut c = Command::new(shell);
+        c.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"]).arg(ps1);
+        for a in args {
+            c.arg(match *a {
+                "--no-build" => "-NoBuild",
+                "--release" => "-Release",
+                other => panic!("no .ps1 form for {other}"),
+            });
+        }
+        c
+    } else {
+        let mut c = Command::new(app.join("scripts").join(name));
+        c.args(args);
+        c
+    };
+    let out = cmd
         .env("LD_LIBRARY_PATH", library_path_without_target("LD_LIBRARY_PATH"))
         .env("DYLD_LIBRARY_PATH", library_path_without_target("DYLD_LIBRARY_PATH"))
         .current_dir(app)
@@ -377,14 +397,16 @@ record Goal { juiz_std.geometry.Pose2D pose; double tolerance = 0.5; }
     };
     let mut d = start(&["-f", "app/app.conf", "-d"], &app, dir.join("dev.log"), &double);
     check(&app);
-    assert!(d.stop(), "{}", d.log_text());
+    // Windows には TERM が無く kill で止めるので、正常に終わったかは Unix でだけ見る
+    assert!(d.stop() || cfg!(not(unix)), "{}", d.log_text());
 
     script(&app, "pack.sh", &["--no-build"]);
     let pkg = app.join("dist").join(format!("{name}-0.1.0.juizapp"));
     check_package(&pkg, lang);
     let mut d = start(&["run", path_str(&pkg)], &app, dir.join("run.log"), &double);
     check(&app);
-    assert!(d.stop(), "{}", d.log_text());
+    // Windows には TERM が無く kill で止めるので、正常に終わったかは Unix でだけ見る
+    assert!(d.stop() || cfg!(not(unix)), "{}", d.log_text());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -452,6 +474,30 @@ fn sdk_from_workspace(dir: &Path) -> PathBuf {
         juiz_core::HOST_TARGET
     ));
     assert!(sdk.join("lib").join("cmake").join("juiz_sdk").is_dir(), "{}", sdk.display());
+    sdk
+}
+
+/// Zig の雛形のテストに使う libjuiz_sdk。Unix は sdk_from_workspace (配布と同じ形)。
+/// Windows は package-juiz-sdk.sh (Git Bash と 7z が要る) を使わず、zigjuiz が見る 2 つのファイルだけを
+/// 配布と同じ置き場所 (bin/juiz_sdk.dll と lib/juiz_sdk.dll.lib) に写す (#588)
+fn zig_sdk_from_workspace(dir: &Path) -> PathBuf {
+    if !cfg!(windows) {
+        return sdk_from_workspace(dir);
+    }
+    let bin_dir = assert_cmd::cargo::cargo_bin("juiz").parent().unwrap().to_path_buf();
+    let lib_dir = [bin_dir, repo_root().join("target").join("debug")]
+        .into_iter()
+        .find(|d| d.join("juiz_sdk.dll").is_file() && d.join("juiz_sdk.dll.lib").is_file())
+        .unwrap_or_else(|| panic!("juiz_sdk.dll is not built. Run cargo build (scripts/test.sh does) first"));
+    let sdk = dir.join(format!(
+        "juiz_sdk-{}-{}",
+        env!("CARGO_PKG_VERSION"),
+        juiz_core::HOST_TARGET
+    ));
+    for (sub, file) in [("bin", "juiz_sdk.dll"), ("lib", "juiz_sdk.dll.lib")] {
+        std::fs::create_dir_all(sdk.join(sub)).unwrap();
+        std::fs::copy(lib_dir.join(file), sdk.join(sub).join(file)).unwrap();
+    }
     sdk
 }
 
@@ -560,8 +606,8 @@ mod slow {
     }
 
     /// Zig (§6.6、issue #577): C++ と同じく配布と同じ形の libjuiz_sdk を --juiz-sdk-dir で指し、
-    /// zigjuiz は --juiz-source の bindings/zigjuiz を使う。zigjuiz の installBundle が libjuiz_sdk をプラグインの隣に置く
-    #[cfg(unix)]
+    /// zigjuiz は --juiz-source の bindings/zigjuiz を使う。zigjuiz の installBundle が libjuiz_sdk をプラグインの隣に置く。
+    /// Windows でも走らせ、scripts/dev.ps1・pack.ps1 を通す (#588)
     #[test]
     fn pkg_create_zig_component_builds_runs_and_packs() {
         if let Some(reason) = zig_missing() {
@@ -569,14 +615,13 @@ mod slow {
             return;
         }
         let dir = temp_dir("pkg_cli_zig_sdk");
-        let sdk = sdk_from_workspace(&dir);
+        let sdk = zig_sdk_from_workspace(&dir);
         create_build_run_pack("zig", "pkg_zig_robot", 8081, true, &["--juiz-sdk-dir", path_str(&sdk)]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Zig の --idl (issue #577): build.zig の juiz.addTypes が `juiz idl -g zig` で型を作る
-    /// (PATH に juiz-idl が無ければ juiz の `juiz idl`)
-    #[cfg(unix)]
+    /// (PATH に juiz-idl が無ければ juiz の `juiz idl`)。Windows でも走らせる (#588)
     #[test]
     fn pkg_create_zig_idl_builds_runs_and_packs() {
         if let Some(reason) = zig_missing() {
@@ -584,7 +629,7 @@ mod slow {
             return;
         }
         let dir = temp_dir("pkg_cli_zig_idl_sdk");
-        let sdk = sdk_from_workspace(&dir);
+        let sdk = zig_sdk_from_workspace(&dir);
         idl_build_run_pack(
             "zig",
             "pkg_zig_idl",

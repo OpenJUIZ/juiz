@@ -88,9 +88,9 @@ impl Lang {
         }
     }
 
-    /// Windows 向けの scripts/*.ps1 があるか (Haskell の Windows は #137、Zig の Windows は #588 まで無い、§5.3)
+    /// Windows 向けの scripts/*.ps1 があるか (Haskell の Windows は #137 まで無い、Zig は #588 で足した、§5.3)
     pub fn has_ps1(self) -> bool {
-        !matches!(self, Lang::Haskell | Lang::Zig)
+        self != Lang::Haskell
     }
 
     /// libjuiz_sdk を使う言語か (C ABI のプラグインで、.juizapp に libjuiz_sdk を同梱する、§6.3・§6.4・§6.6)

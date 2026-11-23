@@ -340,7 +340,7 @@ zigjuiz は juiz の GitHub Releases に、版ごとのアーカイブ `zigjuiz-
 zig fetch --save https://github.com/OpenJUIZ/juiz/releases/download/v<版>/zigjuiz-<版>.tar.gz
 ```
 
-`juiz pkg create <名前> -b zig` で作った雛形では、`scripts/dev.sh` が初めての実行のときにこれを行います。
+`juiz pkg create <名前> -b zig` で作った雛形では、`scripts/dev.sh`(Windows は `scripts\dev.ps1`)が初めての実行のときにこれを行います。
 
 `build.zig.zon` の `dependencies` に `.zigjuiz = .{ .url = "...", .hash = "..." }` が書かれます(`.hash` は zig fetch が中身から計算します)。
 juiz を上げるときは、新しい版の URL でもう一度 `zig fetch --save` を実行します(同じ名前の依存は置き換わります)。
@@ -376,7 +376,7 @@ pub fn build(b: *std.Build) void {
 `zigjuiz.init` は 1 つの build.zig で 1 回だけ呼び、プラグインごとに `addPlugin` を呼びます。できたライブラリは `zig-out/lib` に置かれます
 (Windows は `zig-out/bin` に `<名前>.dll` と `juiz_sdk.dll`。「[OS ごとの注意](#os-ごとの注意)」)。
 
-`juiz pkg create <名前> -b zig` で、この形の build.zig と Component のソース・conf・`.juizapp` を作る scripts の入った雛形を作れます(issue #577、docs/spec/pkg.md §6.6)。
+`juiz pkg create <名前> -b zig` で、この形の build.zig と Component のソース・conf・`.juizapp` を作る scripts(`.sh` と Windows 向けの `.ps1`、issue #588)の入った雛形を作れます(issue #577、docs/spec/pkg.md §6.6)。
 
 ### .juizapp に入れる(`installBundle`)
 
