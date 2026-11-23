@@ -799,6 +799,12 @@ impl Plan {
                 out.insert(rel, content);
             }
         }
+        // 設計文書 (design.md、設計文書 Step 1)。-t ではプリセットに雛形の言語を書いたもの。
+        // --idl の文書は設計文書 Step 4 (#597) から
+        if self.idl.is_none() {
+            let (path, text) = self.design_file();
+            out.insert(path, text);
+        }
         // --idl: .jidl の写し、Python の型のコード、juiz_idl の雛形から作る Component のソース
         // (テンプレートの置換は通さない)
         if let Some(i) = &self.idl {
@@ -812,6 +818,13 @@ impl Plan {
             .into_iter()
             .map(|(path, content)| GeneratedFile { path, content })
             .collect())
+    }
+
+    /// 雛形の直下に置く設計文書 (pkg.md §2.2、design.md §7.1)
+    pub fn design_file(&self) -> (String, String) {
+        let mut d = crate::design::preset(&self.name, self.template);
+        d.component.language = Some(self.lang);
+        (crate::design::FILE_NAME.to_owned(), crate::design::to_yaml(&d))
     }
 
     /// 成功したときの表示 (§9)
@@ -1008,6 +1021,7 @@ mod tests {
                 "app/app.conf",
                 "app/juizapp.yaml",
                 "cabal.project",
+                "juizdesign.yaml",
                 "my-robot.cabal",
                 "scripts/bundle-plugin-deps.sh",
                 "scripts/dev.sh",
@@ -1068,6 +1082,7 @@ mod tests {
                 "app/juizapp.yaml",
                 "build.zig",
                 "build.zig.zon",
+                "juizdesign.yaml",
                 "scripts/dev.ps1",
                 "scripts/dev.sh",
                 "scripts/pack.ps1",
@@ -1310,6 +1325,7 @@ mod tests {
                 "README.md",
                 "app/app.conf",
                 "app/juizapp.yaml",
+                "juizdesign.yaml",
                 "scripts/dev.ps1",
                 "scripts/dev.sh",
                 "scripts/pack.ps1",
@@ -1330,6 +1346,7 @@ mod tests {
                 "README.md",
                 "app/app.conf",
                 "app/juizapp.yaml",
+                "juizdesign.yaml",
                 "scripts/dev.ps1",
                 "scripts/dev.sh",
                 "scripts/pack.ps1",
@@ -1412,6 +1429,7 @@ mod tests {
                 "app/app.conf",
                 "app/juizapp.yaml",
                 "app/python/my_robot.py",
+                "juizdesign.yaml",
                 "pyproject.toml",
                 "scripts/pack.ps1",
                 "scripts/pack.sh",
@@ -1460,6 +1478,17 @@ mod tests {
                     let s = p.summary();
                     assert_eq!(s.contains("my_robot_add0"), p.template.has_process(), "{s}");
                     assert_eq!(s.contains("my_robot_increment0"), p.template.has_container(), "{s}");
+                    // 雛形の直下の設計文書 (設計文書 Step 1): プリセットに雛形の言語を書いたもので、その言語の検査を通る
+                    let doc = &files.iter().find(|f| f.path == "juizdesign.yaml").unwrap().content;
+                    let d = crate::design::parse(doc).unwrap();
+                    assert_eq!(d.component.language, Some(p.lang), "{doc}");
+                    assert_eq!(d.processes.is_empty(), !p.template.has_process(), "{doc}");
+                    assert_eq!(d.containers.is_empty(), !p.template.has_container(), "{doc}");
+                    let mut preset = crate::design::preset("my_robot", p.template);
+                    preset.component.language = Some(p.lang);
+                    assert_eq!(*doc, crate::design::to_yaml(&preset));
+                    let r = crate::design::check(&d, Some(p.lang), Path::new("."));
+                    assert!(r.is_ok() && r.warnings.is_empty(), "{lang} {t}: {r:#?}");
                 }
             }
         }

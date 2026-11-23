@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/OpenJUIZ/juiz/v{{juiz_version}}/juiz_pkg/schema/juizdesign.schema.json
+# {{name}}: design of the juiz component {{name}} (juiz docs/spec/design.md)
+#   check:    juiz pkg design check juizdesign.yaml
+format: 1
+component:
+  name: {{name}}
+  description: "{{name}}: a juiz component"
+processes:
+  - name: {{name}}_add
+    description: "Returns a + b."
+    arguments:
+      - { name: a, type: long, default: 0 }
+      - { name: b, type: long, default: 0 }
+    returns: long
+containers:
+  - name: {{name}}
+    description: "Holds an integer value."
+    arguments:
+      - { name: initial_value, type: long, default: 0 }
+    state:
+      - { name: value, type: long, init: initial_value }
+    processes:
+      - name: {{name}}_increment
+        description: "Adds step to the value and returns it."
+        arguments:
+          - { name: step, type: long, default: 1 }
+        returns: long
+      - name: {{name}}_get
+        description: "Returns the value."
+        returns: long
+        readonly: true

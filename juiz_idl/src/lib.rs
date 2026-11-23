@@ -79,7 +79,7 @@ pub use model::{
     load_files, load_files_with, load_str, ArgumentSignature, ContainerSignature, IdlModel,
     LoadOptions, ProcessSignature, Signatures, IMPORT_PATH_ENV,
 };
-pub use parser::{parse_idl, IdlFile};
+pub use parser::{parse_idl, Declaration, FieldDecl, IdlFile, ProcessDecl, TypeExpr};
 pub use python::generate_python;
 pub use python_skeleton::{generate_python_skeleton, python_skeleton_items};
 pub use rust::{generate_rust, MODULE_TREE_FILE};

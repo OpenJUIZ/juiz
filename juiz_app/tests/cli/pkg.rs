@@ -66,6 +66,59 @@ fn pkg_create_errors() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// `juiz pkg design` と `juiz pkg design check` (pkg.md §2.6・§2.7、設計文書 Step 1)
+#[test]
+fn pkg_design_and_check() {
+    let dir = temp_dir("pkg_cli_design");
+    let file = dir.join("d").join("juizdesign.yaml");
+    let f = path_str(&file);
+    let r = run(&["pkg", "design", "my_robot", "-b", "rust", "-o", f]);
+    assert!(r.status.success(), "{r:?}");
+    let out = String::from_utf8_lossy(&r.stdout);
+    assert!(out.contains("(component my_robot: 1 process, 1 container, 2 container processes)"), "{out}");
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(text.contains("  language: rust\n") && text.contains("  - name: my_robot_add\n"), "{text}");
+    // 上書きしない
+    let r = run(&["pkg", "design", "my_robot", "-o", f]);
+    assert!(!r.status.success());
+    assert!(String::from_utf8_lossy(&r.stderr).contains("already exists"));
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), text);
+    // check: 通れば ok の 1 行
+    let r = run(&["pkg", "design", "check", f]);
+    assert!(r.status.success(), "{r:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&r.stdout).trim(),
+        format!("ok: {f} (component my_robot: 1 process, 1 container, 2 container processes)")
+    );
+    // check: エラーはすべて <file>:<行>:<桁>: error: <道筋>: の形で並べ、0 以外で終わる
+    std::fs::write(
+        &file,
+        text.replace("type: long, default: 1 }", "type: long, default: one }")
+            .replace("returns: long\n        readonly: true", "returns: Count\n        readonly: true"),
+    )
+    .unwrap();
+    let r = run(&["pkg", "design", "check", f]);
+    assert!(!r.status.success());
+    let err = String::from_utf8_lossy(&r.stderr);
+    assert!(err.contains(&format!("{f}:27:")) && err.contains(": error: containers[0].processes[0].arguments[0].default: "), "{err}");
+    assert!(err.contains(": error: containers[0].processes[1].returns: unknown type 'Count'"), "{err}");
+    assert!(err.contains("(2 errors)"), "{err}");
+    // 言語の規則は -b で
+    std::fs::write(&file, text.replace("my_robot_add", "fn")).unwrap();
+    assert!(run(&["pkg", "design", "check", f, "-b", "python"]).status.success());
+    let r = run(&["pkg", "design", "check", f]);
+    assert!(!r.status.success());
+    assert!(String::from_utf8_lossy(&r.stderr).contains("processes[0]: cannot be made in Rust"));
+    // juiz pkg create も雛形の直下に設計文書を置く
+    let app = dir.join("app_py");
+    let r = run(&["pkg", "create", "my_robot", "-b", "python", "-t", "process", "-o", path_str(&app)]);
+    assert!(r.status.success(), "{r:?}");
+    let r = run(&["pkg", "design", "check", path_str(&app.join("juizdesign.yaml"))]);
+    assert!(r.status.success(), "{r:?}");
+    assert!(String::from_utf8_lossy(&r.stdout).contains("(component my_robot: 1 process, 0 containers, 0 container processes)"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// 生成した app.conf のポートをテスト用に変える (既定の 8000 は他と重なりうるので)
 fn set_port(app: &Path, port: u16) {
     let conf = app.join("app").join("app.conf");
