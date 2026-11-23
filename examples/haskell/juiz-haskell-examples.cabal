@@ -117,7 +117,7 @@ foreign-library pose_component_hs
     if os(windows)
         options:      standalone
         mod-def-file: def/pose_component_hs.def
-    build-depends:    text
+    build-depends:    text, bytestring
     other-modules:    PoseComponent
 
 -- 誤った Component。juiz が読み込むときにエラーになる (juiz のテスト用)

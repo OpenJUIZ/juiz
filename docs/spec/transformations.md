@@ -283,6 +283,8 @@ transforms:
 
 C ABI の口 `JuizPosePort` には `lookup` の後ろに関数 `set_transform(ctx, source, destination, value, out, frame_id, child_frame_id, error)` を足した(表の版は 1 のまま)。プラグインの側は `struct_size` が `set_transform` を含むときだけ使い、含まない古いホストの口では `JUIZ_TRANSFORMATIONS_ERROR`。エラーコードに `JUIZ_TRANSFORM_NOT_WRITABLE_ERROR`(-906)と `JUIZ_TRANSFORM_NOT_FOUND_ERROR`(-907)を足した。
 
+さらに `set_transform` の後ろに、3D モデルを差し替える関数 `set_model(ctx, model, data, info, error)` を足した(#564、表の版は 1 のまま。中身は container-model.md §13.2)。エラーコード `JUIZ_CONTAINER_MODEL_INVALID_ERROR`(-908)も足した。
+
 ## 8. Pose 通知
 
 ### 8.1 きっかけ

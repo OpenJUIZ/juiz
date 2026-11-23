@@ -42,7 +42,7 @@ $zig build --release -Djuiz-sdk-lib="$sdk_dir" -Djuiz-idl="$idl_exe"
 names=(
     increment_process_zig greet_process_zig echo_types_process_zig fail_process_zig
     example_container_zig example_container_zig_increment example_container_zig_get mismatched_container_process_zig
-    zig_part zig_part_pose zig_part_set_pose zig_part_try zig_part_peek zig_part_sleep zig_part_lookup zig_part_set_transform
+    zig_part zig_part_pose zig_part_set_pose zig_part_try zig_part_peek zig_part_sleep zig_part_lookup zig_part_set_transform zig_part_set_model
     example_component_zig image_component_zig typed_component_zig
 )
 for name in "${names[@]}"; do

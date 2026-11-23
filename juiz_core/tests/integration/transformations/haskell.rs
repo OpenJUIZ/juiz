@@ -13,10 +13,11 @@ use juiz_sdk::process_identifier::ProcessIdentifier;
 const EPS: f64 = 1e-9;
 const H: f64 = std::f64::consts::FRAC_1_SQRT_2;
 
-const PROCESSES: [&str; 9] = [
+const PROCESSES: [&str; 11] = [
     "hs_part_pose", "hs_part_set_pose", "hs_part_try",
     "hs_part_peek", "hs_part_sleep", "hs_part_try_readonly",
     "hs_part_lookup", "hs_part_set_transform", "hs_part_try_readonly_transform",
+    "hs_part_set_model", "hs_part_try_readonly_model",
 ];
 
 fn part(name: &str) -> Value {
@@ -294,6 +295,40 @@ fn haskell_container_process_sets_transforms() -> JuizResult<()> {
         );
         let p = call(system, "camera0", "hs_part_pose", jvalue!({"reference": "map"}))?;
         assert_pose(&p, "map", &pose(2.0, 0.2, 0.0, z90()));
+        Ok(())
+    })
+}
+
+/// setModel / clearModel (#564、container-model.md §13.2): Haskell の ContainerProcess から 3D モデルを差し替える・外す
+#[test]
+fn haskell_container_process_replaces_model() -> JuizResult<()> {
+    if skip_without_haskell_example() {
+        return Ok(());
+    }
+    crate::common::logger::init();
+    const SDF: &str = r#"<sdf version="1.9"><model name="m"><link name="l"><visual name="v">
+<geometry><cylinder><radius>0.1</radius><length>0.2</length></cylinder></geometry></visual></link></model></sdf>"#;
+    System::new(conf())?.setup()?.run_and_do_once(|system| {
+        let info = call(system, "base0", "hs_part_set_model", jvalue!({"text": SDF, "format": "sdf"}))?;
+        assert_eq!(info["format"], "sdf", "{info}");
+        assert_eq!(info["file_name"], "hs.sdf");
+        assert_eq!(info["color"], "#ff0000");
+        assert_eq!(info["sha256"], juiz_core::models::sha256_hex(SDF.as_bytes()));
+        assert_eq!(system.core_broker().lock()?.container_model_info("base0")?, info);
+        // 値の誤りは ContainerModelInvalidError で、今のモデルは変えない
+        assert_eq!(
+            call(system, "base0", "hs_part_set_model", jvalue!({"text": "not a glb", "format": "glb"}))?,
+            jvalue!("ContainerModelInvalidError")
+        );
+        assert_eq!(system.core_broker().lock()?.container_model_info("base0")?["sha256"], info["sha256"]);
+        // readonly の中からは差し替えられない (§14)
+        assert_eq!(
+            call(system, "base0", "hs_part_try_readonly_model", jvalue!({}))?,
+            jvalue!("ContainerModelInvalidError")
+        );
+        // 外す
+        assert_eq!(call(system, "base0", "hs_part_set_model", jvalue!({"text": ""}))?, jvalue!({"cleared": true}));
+        assert_eq!(system.core_broker().lock()?.container_model_info("base0")?, Value::Null);
         Ok(())
     })
 }

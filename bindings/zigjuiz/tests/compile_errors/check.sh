@@ -80,6 +80,10 @@ expect_error "juiz.setPose can not be called from a readonly container process" 
     'const S = struct { v: i64 }; fn f(self: *const S) !i64 { _ = try juiz.setPose(self, "map", juiz.makePose(0, 0, 0, juiz.quaternion_identity)); return self.v; } comptime { juiz.exportContainerProcess(f, .{ .type_name = "x", .container_type = "c" }); }'
 expect_error "juiz.setTransform can not be called from a readonly container process" \
     'const S = struct { v: i64 }; fn f(self: *const S) !i64 { _ = try juiz.setTransform(self, "a", "b", juiz.makeTransform2d(0, 0, 0)); return self.v; } comptime { juiz.exportContainerProcess(f, .{ .type_name = "x", .container_type = "c" }); }'
+expect_error "juiz.setModel can not be called from a readonly container process" \
+    'const S = struct { v: i64 }; fn f(self: *const S) !i64 { _ = try juiz.setModel(self, @import("std").heap.page_allocator, "x", "sdf", .null); return self.v; } comptime { juiz.exportContainerProcess(f, .{ .type_name = "x", .container_type = "c" }); }'
+expect_error "juiz.clearModel can not be called from a readonly container process" \
+    'const S = struct { v: i64 }; fn f(self: *const S) !i64 { try juiz.clearModel(self); return self.v; } comptime { juiz.exportContainerProcess(f, .{ .type_name = "x", .container_type = "c" }); }'
 
 # Component (issue #575)。壊れた Component は C++ / Haskell では読み込むときのエラーだが、zigjuiz ではコンパイルエラー
 component_parts='const S = struct { v: i64 }; const T = struct { w: i64 }; fn p() i64 { return 1; } fn mk() S { return .{ .v = 1 }; } fn get(self: *const S) i64 { return self.v; } fn getT(self: *const T) i64 { return self.w; }'

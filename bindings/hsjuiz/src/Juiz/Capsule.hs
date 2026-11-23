@@ -12,6 +12,9 @@ module Juiz.Capsule
   , (.=)
     -- * libjuiz_sdk の値の読み書き
   , peekValue
+  , fill
+  , withCallback
+  , withLockCallback
   , readArgument
   , readArgumentOrImage
   , readTypedArgument

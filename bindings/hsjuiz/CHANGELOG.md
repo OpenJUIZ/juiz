@@ -5,7 +5,9 @@ hsjuiz の版は juiz(crates.io の juiz_app、PyPI の pyjuiz / juiz-cli)と同
 
 ## 0.3.4
 
-- hsjuiz の API は 0.3.3 から変えていない(juiz pkg の Zig 雛形の Windows 対応 #588 の公開に版をそろえた)。
+- `Juiz.Pose` に `setModel` / `clearModel` を足した。ContainerProcess の中から、その Container の 3D モデルを差し替える・外す
+  (docs/spec/container-model.md §13.2、juiz#564)。値の誤りは `juizContainerModelInvalidError`(-908)。
+- `Juiz.Capsule` から `fill`・`withCallback`・`withLockCallback` を出した(`setModel` が使う)。
 
 ## 0.3.3
 

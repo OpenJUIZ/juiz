@@ -53,7 +53,7 @@ pub trait TransformationsRegistry: Send + Sync {
     /// Container `container` の 3D モデルを差し替える (docs/spec/container-model.md §13.2、issue #389)。
     /// `model` は `{"data": "<base64>", "format", "file_name", "scale", "origin", "up_axis", "color"}`、
     /// `null` ならモデルを外す。戻り値は差し替えた後のモデル情報 (外したら `Null`)。
-    /// 既定の実装は対応していないエラー (C ABI のプラグインの口など)
+    /// 既定の実装は対応していないエラー (C ABI の口 `PortRegistry` は #564 で口の `set_model` を通すようにした)
     fn set_model(&self, container: &ContainerIdentifier, model: &Value) -> JuizResult<Value> {
         let _ = model;
         Err(anyhow!(JuizError::ContainerModelInvalidError {

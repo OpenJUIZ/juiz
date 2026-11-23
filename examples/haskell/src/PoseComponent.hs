@@ -7,6 +7,8 @@ module PoseComponent () where
 
 import Control.Concurrent (threadDelay)
 import Control.Exception (try)
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 
 import Juiz
 
@@ -152,6 +154,41 @@ partTryReadonlyTransform _ source = do
       | code == juizTransformNotWritableError -> "TransformNotWritableError"
       | otherwise -> "TransformationsError"
 
+-- | 3D モデルを text (空なら外す) に差し替え、差し替えた後のモデル情報を返す (#564、container-model.md §13.2)。
+-- 値の誤りは "ContainerModelInvalidError" を返す
+partSetModelManifest :: ProcessManifest
+partSetModelManifest = containerProcessManifest "hs_part_set_model" "hs_part"
+  & addStringArg "text" "model contents (empty to clear)" ""
+  & addStringArg "format" "model format" "sdf"
+
+partSetModel :: IORef Int64 -> Text -> Text -> IO Value
+partSetModel _ text format = do
+  r <- try $
+    if T.null text
+      then clearModel >> pure (object ["cleared" .= True])
+      else setModel (TE.encodeUtf8 text) format
+             (object ["color" .= ("#ff0000" :: Text), "file_name" .= ("hs." <> format)])
+  pure $ case r of
+    Right v -> v
+    Left (JuizError code _)
+      | code == juizContainerModelInvalidError -> JString "ContainerModelInvalidError"
+      | otherwise -> JString "TransformationsError"
+
+-- | readonly の中からモデルを差し替えようとする (#564)。'juizContainerModelInvalidError' になる
+partTryReadonlyModelManifest :: ProcessManifest
+partTryReadonlyModelManifest = containerProcessManifest "hs_part_try_readonly_model" "hs_part"
+  & readonly True
+  & addStringArg "format" "model format" "sdf"
+
+partTryReadonlyModel :: IORef Int64 -> Text -> IO Text
+partTryReadonlyModel _ format = do
+  r <- try (setModel "<sdf/>" format JNull)
+  pure $ case r of
+    Right _ -> "ok"
+    Left (JuizError code _)
+      | code == juizContainerModelInvalidError -> "ContainerModelInvalidError"
+      | otherwise -> "TransformationsError"
+
 juizComponent 'component
   [ componentContainer 'createPart 'partManifest
   , componentContainerProcess 'partPose 'partPoseManifest
@@ -163,4 +200,6 @@ juizComponent 'component
   , componentContainerProcess 'partLookup 'partLookupManifest
   , componentContainerProcess 'partSetTransform 'partSetTransformManifest
   , componentContainerProcess 'partTryReadonlyTransform 'partTryReadonlyTransformManifest
+  , componentContainerProcess 'partSetModel 'partSetModelManifest
+  , componentContainerProcess 'partTryReadonlyModel 'partTryReadonlyModelManifest
   ]
