@@ -2,7 +2,7 @@
 name = "{{name}}"
 version = "0.1.0"
 edition = "2021"
-description = "{{name}}: a juiz component"
+description = {{description_str}}
 license = "{{license}}"
 publish = false
 
@@ -13,3 +13,4 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 # Same version as the juiz that made this skeleton (juiz --version)
 juiz_sdk = {{juiz_sdk_dep}}
+juiz_std_types = {{juiz_std_types_dep}}  # the juiz_std types (idl: juiz_std/...)

@@ -1,0 +1,365 @@
+==== .gitignore ====
+# build outputs
+/target
+/build
+/dist-newstyle
+__pycache__/
+/.venv
+*.egg-info/
+# plugins put by scripts/dev.sh, and packages made by scripts/pack.sh
+/app/plugins/
+/dist/
+*.juizapp
+==== CMakeLists.txt ====
+# my_robot: a juiz component written in C++ (juiz docs/spec/pkg.md)
+#   scripts/dev.sh builds it and puts the plugin and libjuiz_sdk in app/plugins/<target>/
+cmake_minimum_required(VERSION 3.16)
+project(my_robot VERSION 0.1.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+
+# libjuiz_sdk must be the same version as juiz (juiz --version): juiz does not load a plugin built with another version.
+# Change the directory with: cmake -D JUIZ_SDK_DIR=<dir> (or the JUIZ_SDK_DIR environment variable of scripts/dev.sh)
+set(JUIZ_VERSION "<version>")
+if(WIN32)
+  file(TO_CMAKE_PATH "$ENV{USERPROFILE}/.juiz/sdk/${JUIZ_VERSION}" JUIZ_SDK_DEFAULT_DIR)
+else()
+  set(JUIZ_SDK_DEFAULT_DIR "$ENV{HOME}/.juiz/sdk/${JUIZ_VERSION}")
+endif()
+set(JUIZ_SDK_DEFAULT_DIR "/opt/juiz-sdk")  # given with juiz pkg create --juiz-sdk-dir
+set(JUIZ_SDK_DIR "${JUIZ_SDK_DEFAULT_DIR}" CACHE PATH "libjuiz_sdk directory")
+find_package(juiz_sdk ${JUIZ_VERSION} EXACT CONFIG REQUIRED PATHS "${JUIZ_SDK_DIR}" NO_DEFAULT_PATH)
+
+# The plugin (libmy_robot.so, libmy_robot.dylib or my_robot.dll) goes to build/plugins.
+# $<1:...> keeps Visual Studio from adding the configuration name (build/plugins/Release)
+add_library(my_robot SHARED src/my_robot.cpp)
+target_link_libraries(my_robot PRIVATE juiz_sdk::juiz_sdk)
+set_target_properties(my_robot PROPERTIES
+  LIBRARY_OUTPUT_DIRECTORY "$<1:${CMAKE_BINARY_DIR}/plugins>"
+  RUNTIME_OUTPUT_DIRECTORY "$<1:${CMAKE_BINARY_DIR}/plugins>")
+# Make the plugin look for libjuiz_sdk next to itself ($ORIGIN / @loader_path) and copy libjuiz_sdk
+# (juiz_sdk.dll on Windows) to build/plugins, so that the directory works in a .juizapp as is
+juiz_sdk_bundle(my_robot)
+==== README.md ====
+# my_robot
+
+A juiz component written in C++. It was made with `juiz pkg create` of juiz <version>.
+
+
+## What is inside
+
+| Type | Kind | Arguments (default) | Returns | What it does |
+| --- | --- | --- | --- | --- |
+| `my_robot` | Container | `initial_value: long` (0) | - | Holds an integer value. |
+| `my_robot_increment` | ContainerProcess | `step: long` (1) | `long` | Adds step to the value and returns it. |
+| `my_robot_get` | ContainerProcess (readonly) | - | `long` | Returns the value. |
+
+| Path | What it is |
+| --- | --- |
+| `src/my_robot.cpp` | The Component. Each `COMPONENT_*_FACTORY` is a type, listed in `my_robot_component_manifest()` |
+| `CMakeLists.txt` | Builds the plugin with libjuiz_sdk (`find_package(juiz_sdk <version> EXACT)`) |
+| `app/app.conf` | The configuration to start juiz with. It is also the entry of the `.juizapp` package |
+| `app/juizapp.yaml` | The `.juizapp` manifest (name, version, required juiz version) |
+| `scripts/dev.sh`, `scripts/dev.ps1` | Build the plugin and put it with libjuiz_sdk in `app/plugins/<target>/` |
+| `scripts/pack.sh`, `scripts/pack.ps1` | Build in release mode and make `dist/my_robot-<version>.juizapp` |
+
+## Requirements
+
+- juiz <version> (`juiz --version`). Install it with `cargo install juiz_app --version <version>` or `pip install juiz-cli==<version>`
+- CMake 3.16 or later and a C++17 compiler (on Windows, Visual Studio 2022 with "Desktop development with C++")
+- libjuiz_sdk <version> in `~/.juiz/sdk/<version>` (`%USERPROFILE%\.juiz\sdk\<version>` on Windows).
+  Install it with `juiz sdk install` (it downloads libjuiz_sdk of the same version as juiz;
+  `juiz sdk path` prints where it is).
+
+libjuiz_sdk must be the same version as juiz: juiz does not load a plugin that carries another version of libjuiz_sdk.
+`CMakeLists.txt` asks for exactly `<version>`, and `app/juizapp.yaml` requires `juiz: "=<version>"` for the same reason.
+When you update juiz, install libjuiz_sdk of the new version and change both.
+To use libjuiz_sdk in another directory, run `JUIZ_SDK_DIR=<dir> scripts/dev.sh` (or `cmake -D JUIZ_SDK_DIR=<dir>`).
+
+## Build, run and call
+
+```sh
+# once: put libjuiz_sdk <version> in /opt/juiz-sdk
+juiz sdk install --dir /opt/juiz-sdk
+scripts/dev.sh                  # build and put the plugin and libjuiz_sdk in app/plugins/<target>/
+juiz -f app/app.conf -d         # start (keep it running)
+
+# in another terminal
+juiz container-process call "http://127.0.0.1:8000/container_process/my_robot_increment0::my_robot_increment:my_robot0" '{"step": 1}' -p
+juiz container-process call "http://127.0.0.1:8000/container_process/my_robot_get0::my_robot_get:my_robot0" '{}' -p
+
+scripts/pack.sh                 # make dist/my_robot-0.1.0.juizapp
+juiz run dist/my_robot-0.1.0.juizapp
+```
+
+On Windows, use `scripts\dev.ps1` and `scripts\pack.ps1` instead of the `.sh` scripts.
+
+## Versions
+
+The package version is `0.1.0` in both `CMakeLists.txt` and `app/juizapp.yaml`. When you release a new version, change both.
+
+## Plugins for several OSes in one package
+
+Run `scripts/dev.sh --release` on each OS, collect the `app/plugins/<target>/` directories in one `app/plugins/`, and run `scripts/pack.sh --no-build`.
+Each `app/plugins/<target>/` holds the plugin and libjuiz_sdk of that OS.
+==== app/app.conf ====
+# my_robot: start-up configuration of the juiz component my_robot
+#   development: juiz -f app/app.conf -d
+#                (Rust, C++, Haskell and Zig: run scripts/dev.sh first to put the plugin in app/plugins/<target>/)
+#   package:     scripts/pack.sh, then juiz run dist/my_robot-0.1.0.juizapp
+"name": "my_robot"
+"option":
+  "http_broker":
+    "start": true
+    "port": 8000
+"plugins":
+  "components":
+    "my_robot":
+      "language": "c++"
+      "path": "plugins/{target}"
+"containers":
+  - "type_name": "my_robot"
+    "name": "my_robot0"
+    "initial_value": 0
+    "processes":
+      - "type_name": "my_robot_increment"
+        "name": "my_robot_increment0"
+      - "type_name": "my_robot_get"
+        "name": "my_robot_get0"
+"ecs":
+  # Calls my_robot_increment0 periodically once started (set auto_start: true to start it with juiz)
+  - "type_name": "main_loop_ec"
+    "name": "main_ec"
+    "rate": 1
+    "bind":
+      - "type_name": "my_robot_increment"
+        "name": "my_robot_increment0"
+        "container_name": "my_robot0"
+    "auto_start": false
+==== app/juizapp.yaml ====
+# .juizapp manifest (juiz docs/spec/app-package.md §4). languages, targets, rust and files are added by juiz pack
+format: 1
+name: my_robot
+version: 0.1.0
+kind: app
+description: "my_robot: a juiz component"
+# The package carries libjuiz_sdk <version>, and juiz loads it only with the same version of juiz
+juiz: "=<version>"
+entry: app.conf
+==== juizdesign.yaml ====
+# yaml-language-server: $schema=https://raw.githubusercontent.com/OpenJUIZ/juiz/v<version>/juiz_pkg/schema/juizdesign.schema.json
+# my_robot: design of the juiz component my_robot (juiz docs/spec/design.md)
+#   check:    juiz pkg design check juizdesign.yaml
+#   scaffold: juiz pkg create -d juizdesign.yaml -b <rust|python|cpp|haskell|zig>
+format: 1
+component:
+  name: my_robot
+  description: "my_robot: a juiz component"
+  language: cpp
+containers:
+  - name: my_robot
+    description: "Holds an integer value."
+    arguments:
+      - { name: initial_value, type: long, default: 0 }
+    state:
+      - { name: value, type: long, init: initial_value }
+    processes:
+      - name: my_robot_increment
+        description: "Adds step to the value and returns it."
+        arguments:
+          - { name: step, type: long, default: 1 }
+        returns: long
+      - name: my_robot_get
+        description: "Returns the value."
+        returns: long
+        readonly: true
+==== scripts/dev.ps1 ====
+# Build the plugin and put it with juiz_sdk.dll in app\plugins\<target>\ (to run app\app.conf during development)
+# usage: scripts\dev.ps1 [-Release]
+#   $env:JUIZ_SDK_DIR = "<dir>" uses libjuiz_sdk in <dir> (default: %USERPROFILE%\.juiz\sdk\<version>)
+param([switch]$Release)
+$ErrorActionPreference = "Stop"
+Set-Location (Join-Path $PSScriptRoot "..")
+if (-not (Get-Command juiz -ErrorAction SilentlyContinue)) {
+    Write-Host "error: juiz is not in PATH. Install juiz <version>:"
+    Write-Host "  cargo install juiz_app --version <version>   (or: pip install juiz-cli==<version>)"
+    exit 1
+}
+if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
+    Write-Host "error: cmake is not in PATH. Install CMake 3.16 or later and Visual Studio 2022 (Desktop development with C++)."
+    exit 1
+}
+$target = (juiz pkg target | Out-String).Trim()
+$config = if ($Release) { "Release" } else { "Debug" }
+$cmakeArgs = @("-S", ".", "-B", "build", "-D", "CMAKE_BUILD_TYPE=$config")
+if ($env:JUIZ_SDK_DIR) { $cmakeArgs += @("-D", "JUIZ_SDK_DIR=$env:JUIZ_SDK_DIR") }
+cmake @cmakeArgs
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+cmake --build build --config $config
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$dest = Join-Path "app\plugins" $target
+New-Item -ItemType Directory -Force -Path $dest | Out-Null
+foreach ($lib in @("my_robot.dll", "juiz_sdk.dll")) {
+    Copy-Item (Join-Path "build\plugins" $lib) $dest
+    Write-Output (Join-Path $dest $lib)
+}
+==== scripts/dev.sh ====
+#!/bin/sh
+# Build the plugin and put it with libjuiz_sdk in app/plugins/<target>/ (to run app/app.conf during development)
+# usage: scripts/dev.sh [--release]
+#   JUIZ_SDK_DIR=<dir> scripts/dev.sh   uses libjuiz_sdk in <dir> (default: ~/.juiz/sdk/<version>)
+set -eu
+cd "$(dirname "$0")/.."
+if ! command -v juiz >/dev/null 2>&1; then
+  echo "error: juiz is not in PATH. Install juiz <version>:" >&2
+  echo "  cargo install juiz_app --version <version>   (or: pip install juiz-cli==<version>)" >&2
+  exit 1
+fi
+if ! command -v cmake >/dev/null 2>&1; then
+  echo "error: cmake is not in PATH. Install CMake 3.16 or later and a C++17 compiler." >&2
+  exit 1
+fi
+target=$(juiz pkg target)
+if [ "${1:-}" = "--release" ]; then
+  config=Release
+else
+  config=Debug
+fi
+if [ -n "${JUIZ_SDK_DIR:-}" ]; then
+  cmake -S . -B build -D CMAKE_BUILD_TYPE=$config -D "JUIZ_SDK_DIR=$JUIZ_SDK_DIR"
+else
+  cmake -S . -B build -D CMAKE_BUILD_TYPE=$config
+fi
+cmake --build build --config $config
+case "$target" in
+  *apple-darwin) libs="libmy_robot.dylib libjuiz_sdk.dylib" ;;
+  *windows*) libs="my_robot.dll juiz_sdk.dll" ;;
+  *) libs="libmy_robot.so libjuiz_sdk.so" ;;
+esac
+mkdir -p "app/plugins/$target"
+for lib in $libs; do
+  cp "build/plugins/$lib" "app/plugins/$target/"
+  echo "app/plugins/$target/$lib"
+done
+==== scripts/pack.ps1 ====
+# Make dist\my_robot-<version>.juizapp with juiz pack (juiz docs/spec/app-package.md)
+# usage: scripts\pack.ps1 [-NoBuild]
+#   -NoBuild: do not build; pack the plugins already in app\plugins\<target>\
+param([switch]$NoBuild)
+$ErrorActionPreference = "Stop"
+Set-Location (Join-Path $PSScriptRoot "..")
+if (-not $NoBuild) {
+    & (Join-Path $PSScriptRoot "dev.ps1") -Release
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+$stage = Join-Path ([System.IO.Path]::GetTempPath()) ("juiz-pack-" + [System.Guid]::NewGuid())
+New-Item -ItemType Directory -Path $stage | Out-Null
+try {
+    Copy-Item -Recurse -Path "app\*" -Destination $stage
+    Get-ChildItem -Path $stage -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force
+    foreach ($f in @("LICENSE-MIT", "LICENSE-APACHE")) {
+        if (Test-Path $f) { Copy-Item $f $stage }
+    }
+    New-Item -ItemType Directory -Force -Path dist | Out-Null
+    juiz pack $stage -o dist
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+} finally {
+    Remove-Item -Recurse -Force $stage
+}
+==== scripts/pack.sh ====
+#!/bin/sh
+# Make dist/my_robot-<version>.juizapp with juiz pack (juiz docs/spec/app-package.md)
+# usage: scripts/pack.sh [--no-build]
+#   --no-build: do not build; pack the plugins already in app/plugins/<target>/
+#               (to put plugins built on several OSes into one .juizapp, collect them there first)
+set -eu
+cd "$(dirname "$0")/.."
+if [ "${1:-}" != "--no-build" ]; then
+  scripts/dev.sh --release
+fi
+stage=$(mktemp -d)
+trap 'rm -rf "$stage"' EXIT
+(cd app && tar cf - --exclude=__pycache__ .) | (cd "$stage" && tar xf -)
+for f in LICENSE-MIT LICENSE-APACHE; do
+  if [ -f "$f" ]; then cp "$f" "$stage/"; fi
+done
+mkdir -p dist
+juiz pack "$stage" -o dist
+==== src/my_robot.cpp ====
+// my_robot: a juiz component written in C++ (juiz docs/spec/pkg.md).
+//
+// Each COMPONENT_*_FACTORY exposes one type of this Component, and my_robot_component_manifest()
+// at the end lists them. Unlike Rust and Python, the type name and the arguments
+// (name, description, default) are written in the manifest. Build with scripts/dev.sh.
+#include <cstdint>
+#include <optional>
+
+#include "juiz/juiz.h"
+
+// State of the container my_robot
+class MyRobot {
+public:
+    explicit MyRobot(int64_t initial_value) : value(initial_value) {}
+    int64_t value;
+};
+
+// Container my_robot. args holds the container entry of app/app.conf (initial_value)
+static auto my_robot_manif = ContainerManifest("my_robot")
+    .description("Holds an integer value.");
+MyRobot* my_robot(juiz::CapsuleMap args) {
+    int64_t initial_value = args.has("initial_value") ? args.get_int("initial_value") : 0;
+    return new MyRobot(initial_value);
+}
+COMPONENT_CONTAINER_FACTORY(my_robot_manif, my_robot);
+
+// ContainerProcess my_robot_increment
+static auto my_robot_increment_manif = ProcessManifest("my_robot_increment")
+    .description("Adds step to the value and returns it.")
+    .add_int_arg("step", "the value to add", 1);
+std::optional<int64_t> my_robot_increment(MyRobot* container, int64_t step) {
+    container->value += step;
+    return container->value;
+}
+COMPONENT_CONTAINER_PROCESS_FACTORY(MyRobot, my_robot_increment_manif, my_robot_increment);
+
+// ContainerProcess my_robot_get. readonly() in the manifest and the const pointer make it readonly
+// (juiz may run readonly container processes of the same container in parallel)
+static auto my_robot_get_manif = ProcessManifest("my_robot_get")
+    .description("Returns the value.")
+    .readonly();
+std::optional<int64_t> my_robot_get(const MyRobot* container) {
+    return container->value;
+}
+COMPONENT_CONTAINER_PROCESS_FACTORY(MyRobot, my_robot_get_manif, my_robot_get);
+
+// The manifest of the whole Component (the types in this plugin)
+auto my_robot_component_manifest() {
+    return ComponentManifest("my_robot")
+        .description("my_robot: a juiz component")
+        .add_container(my_robot_manifest()
+            .add_process(my_robot_increment_manifest())
+            .add_process(my_robot_get_manifest()));
+}
+DEFINE_COMPONENT_MANIFEST_ENTRY_POINT(my_robot_component_manifest)
+==== <summary> ====
+Created my_robot (cpp, container) in /work/my_robot  [libjuiz_sdk <version>]
+
+Next steps:
+  cd /work/my_robot
+  # once: put libjuiz_sdk <version> in /opt/juiz-sdk
+  juiz sdk install --dir /opt/juiz-sdk
+  scripts/dev.sh                  # build and put the plugin and libjuiz_sdk in app/plugins/<target>/
+  juiz -f app/app.conf -d         # start (keep it running)
+
+  # in another terminal
+  juiz container-process call "http://127.0.0.1:8000/container_process/my_robot_increment0::my_robot_increment:my_robot0" '{"step": 1}' -p
+  juiz container-process call "http://127.0.0.1:8000/container_process/my_robot_get0::my_robot_get:my_robot0" '{}' -p
+
+  scripts/pack.sh                 # make dist/my_robot-0.1.0.juizapp
+  juiz run dist/my_robot-0.1.0.juizapp

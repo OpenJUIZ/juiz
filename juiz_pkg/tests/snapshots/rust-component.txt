@@ -1,0 +1,352 @@
+==== .gitignore ====
+# build outputs
+/target
+/build
+/dist-newstyle
+__pycache__/
+/.venv
+*.egg-info/
+# plugins put by scripts/dev.sh, and packages made by scripts/pack.sh
+/app/plugins/
+/dist/
+*.juizapp
+==== Cargo.toml ====
+[package]
+name = "my_robot"
+version = "0.1.0"
+edition = "2021"
+description = "my_robot: a juiz component"
+publish = false
+
+[lib]
+# cdylib: the plugin juiz loads (C ABI). rlib: for cargo test
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Same version as the juiz that made this skeleton (juiz --version)
+juiz_sdk = "=<version>"
+==== README.md ====
+# my_robot
+
+A juiz component written in Rust. It was made with `juiz pkg create` of juiz <version>.
+
+
+## What is inside
+
+| Type | Kind | Arguments (default) | Returns | What it does |
+| --- | --- | --- | --- | --- |
+| `my_robot_add` | Process | `a: long` (0), `b: long` (0) | `long` | Returns a + b. |
+| `my_robot` | Container | `initial_value: long` (0) | - | Holds an integer value. |
+| `my_robot_increment` | ContainerProcess | `step: long` (1) | `long` | Adds step to the value and returns it. |
+| `my_robot_get` | ContainerProcess (readonly) | - | `long` | Returns the value. |
+
+| Path | What it is |
+| --- | --- |
+| `src/lib.rs` | The Component. Each `#[juiz_component_*]` function is a type, listed in `juiz_component_manifest!` |
+| `app/app.conf` | The configuration to start juiz with. It is also the entry of the `.juizapp` package |
+| `app/juizapp.yaml` | The `.juizapp` manifest (name, version, required juiz version) |
+| `scripts/dev.sh`, `scripts/dev.ps1` | Build the plugin and put it in `app/plugins/<target>/` |
+| `scripts/pack.sh`, `scripts/pack.ps1` | Build in release mode and make `dist/my_robot-<version>.juizapp` |
+
+## Requirements
+
+- juiz <version> (`juiz --version`). Install it with `cargo install juiz_app --version <version>` or `pip install juiz-cli==<version>`
+- Rust (cargo)
+
+`juiz_sdk` in `Cargo.toml` is pinned to the same version as juiz (`=<version>`).
+When you update juiz, update `juiz_sdk` to the same version.
+
+## Build, run and call
+
+```sh
+scripts/dev.sh                  # build and put the plugin in app/plugins/<target>/
+juiz -f app/app.conf -d         # start (keep it running)
+
+# in another terminal
+juiz process call "http://127.0.0.1:8000/process/my_robot_add0::my_robot_add" '{"a": 1, "b": 2}' -p
+juiz container-process call "http://127.0.0.1:8000/container_process/my_robot_increment0::my_robot_increment:my_robot0" '{"step": 1}' -p
+juiz container-process call "http://127.0.0.1:8000/container_process/my_robot_get0::my_robot_get:my_robot0" '{}' -p
+
+scripts/pack.sh                 # make dist/my_robot-0.1.0.juizapp
+juiz run dist/my_robot-0.1.0.juizapp
+```
+
+On Windows, use `scripts\dev.ps1` and `scripts\pack.ps1` instead of the `.sh` scripts.
+`cargo test` runs the unit tests in `src/lib.rs`.
+
+## Versions
+
+The package version is `0.1.0` in both `Cargo.toml` and `app/juizapp.yaml`. When you release a new version, change both.
+
+## Plugins for several OSes in one package
+
+Run `scripts/dev.sh --release` on each OS, collect the `app/plugins/<target>/` directories in one `app/plugins/`, and run `scripts/pack.sh --no-build`.
+==== app/app.conf ====
+# my_robot: start-up configuration of the juiz component my_robot
+#   development: juiz -f app/app.conf -d
+#                (Rust, C++, Haskell and Zig: run scripts/dev.sh first to put the plugin in app/plugins/<target>/)
+#   package:     scripts/pack.sh, then juiz run dist/my_robot-0.1.0.juizapp
+"name": "my_robot"
+"option":
+  "http_broker":
+    "start": true
+    "port": 8000
+"plugins":
+  "components":
+    "my_robot":
+      "language": "rust"
+      "path": "plugins/{target}"
+"processes":
+  - "type_name": "my_robot_add"
+    "name": "my_robot_add0"
+"containers":
+  - "type_name": "my_robot"
+    "name": "my_robot0"
+    "initial_value": 0
+    "processes":
+      - "type_name": "my_robot_increment"
+        "name": "my_robot_increment0"
+      - "type_name": "my_robot_get"
+        "name": "my_robot_get0"
+"ecs":
+  # Calls my_robot_increment0 periodically once started (set auto_start: true to start it with juiz)
+  - "type_name": "main_loop_ec"
+    "name": "main_ec"
+    "rate": 1
+    "bind":
+      - "type_name": "my_robot_increment"
+        "name": "my_robot_increment0"
+        "container_name": "my_robot0"
+    "auto_start": false
+==== app/juizapp.yaml ====
+# .juizapp manifest (juiz docs/spec/app-package.md §4). languages, targets, rust and files are added by juiz pack
+format: 1
+name: my_robot
+version: 0.1.0
+kind: app
+description: "my_robot: a juiz component"
+juiz: ">=<version>"
+entry: app.conf
+==== juizdesign.yaml ====
+# yaml-language-server: $schema=https://raw.githubusercontent.com/OpenJUIZ/juiz/v<version>/juiz_pkg/schema/juizdesign.schema.json
+# my_robot: design of the juiz component my_robot (juiz docs/spec/design.md)
+#   check:    juiz pkg design check juizdesign.yaml
+#   scaffold: juiz pkg create -d juizdesign.yaml -b <rust|python|cpp|haskell|zig>
+format: 1
+component:
+  name: my_robot
+  description: "my_robot: a juiz component"
+  language: rust
+processes:
+  - name: my_robot_add
+    description: "Returns a + b."
+    arguments:
+      - { name: a, type: long, default: 0 }
+      - { name: b, type: long, default: 0 }
+    returns: long
+containers:
+  - name: my_robot
+    description: "Holds an integer value."
+    arguments:
+      - { name: initial_value, type: long, default: 0 }
+    state:
+      - { name: value, type: long, init: initial_value }
+    processes:
+      - name: my_robot_increment
+        description: "Adds step to the value and returns it."
+        arguments:
+          - { name: step, type: long, default: 1 }
+        returns: long
+      - name: my_robot_get
+        description: "Returns the value."
+        returns: long
+        readonly: true
+==== scripts/dev.ps1 ====
+# Build the plugin and put it in app\plugins\<target>\ (to run app\app.conf during development)
+# usage: scripts\dev.ps1 [-Release]
+param([switch]$Release)
+$ErrorActionPreference = "Stop"
+Set-Location (Join-Path $PSScriptRoot "..")
+if (-not (Get-Command juiz -ErrorAction SilentlyContinue)) {
+    Write-Host "error: juiz is not in PATH. Install juiz <version>:"
+    Write-Host "  cargo install juiz_app --version <version>   (or: pip install juiz-cli==<version>)"
+    exit 1
+}
+$target = (juiz pkg target | Out-String).Trim()
+if ($Release) {
+    $buildProfile = "release"
+    cargo build --release
+} else {
+    $buildProfile = "debug"
+    cargo build
+}
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$targetDir = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { "target" }
+$lib = "my_robot.dll"
+$dest = Join-Path "app\plugins" $target
+New-Item -ItemType Directory -Force -Path $dest | Out-Null
+Copy-Item (Join-Path (Join-Path $targetDir $buildProfile) $lib) $dest
+Write-Output (Join-Path $dest $lib)
+==== scripts/dev.sh ====
+#!/bin/sh
+# Build the plugin and put it in app/plugins/<target>/ (to run app/app.conf during development)
+# usage: scripts/dev.sh [--release]
+set -eu
+cd "$(dirname "$0")/.."
+if ! command -v juiz >/dev/null 2>&1; then
+  echo "error: juiz is not in PATH. Install juiz <version>:" >&2
+  echo "  cargo install juiz_app --version <version>   (or: pip install juiz-cli==<version>)" >&2
+  exit 1
+fi
+target=$(juiz pkg target)
+if [ "${1:-}" = "--release" ]; then
+  profile=release
+  cargo build --release
+else
+  profile=debug
+  cargo build
+fi
+case "$target" in
+  *apple-darwin) lib=libmy_robot.dylib ;;
+  *windows*) lib=my_robot.dll ;;
+  *) lib=libmy_robot.so ;;
+esac
+mkdir -p "app/plugins/$target"
+cp "${CARGO_TARGET_DIR:-target}/$profile/$lib" "app/plugins/$target/"
+echo "app/plugins/$target/$lib"
+==== scripts/pack.ps1 ====
+# Make dist\my_robot-<version>.juizapp with juiz pack (juiz docs/spec/app-package.md)
+# usage: scripts\pack.ps1 [-NoBuild]
+#   -NoBuild: do not build; pack the plugins already in app\plugins\<target>\
+param([switch]$NoBuild)
+$ErrorActionPreference = "Stop"
+Set-Location (Join-Path $PSScriptRoot "..")
+if (-not $NoBuild) {
+    & (Join-Path $PSScriptRoot "dev.ps1") -Release
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+$stage = Join-Path ([System.IO.Path]::GetTempPath()) ("juiz-pack-" + [System.Guid]::NewGuid())
+New-Item -ItemType Directory -Path $stage | Out-Null
+try {
+    Copy-Item -Recurse -Path "app\*" -Destination $stage
+    Get-ChildItem -Path $stage -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force
+    foreach ($f in @("LICENSE-MIT", "LICENSE-APACHE")) {
+        if (Test-Path $f) { Copy-Item $f $stage }
+    }
+    New-Item -ItemType Directory -Force -Path dist | Out-Null
+    juiz pack $stage -o dist
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+} finally {
+    Remove-Item -Recurse -Force $stage
+}
+==== scripts/pack.sh ====
+#!/bin/sh
+# Make dist/my_robot-<version>.juizapp with juiz pack (juiz docs/spec/app-package.md)
+# usage: scripts/pack.sh [--no-build]
+#   --no-build: do not build; pack the plugins already in app/plugins/<target>/
+#               (to put plugins built on several OSes into one .juizapp, collect them there first)
+set -eu
+cd "$(dirname "$0")/.."
+if [ "${1:-}" != "--no-build" ]; then
+  scripts/dev.sh --release
+fi
+stage=$(mktemp -d)
+trap 'rm -rf "$stage"' EXIT
+(cd app && tar cf - --exclude=__pycache__ .) | (cd "$stage" && tar xf -)
+for f in LICENSE-MIT LICENSE-APACHE; do
+  if [ -f "$f" ]; then cp "$f" "$stage/"; fi
+done
+mkdir -p dist
+juiz pack "$stage" -o dist
+==== src/lib.rs ====
+//! my_robot: a juiz component (juiz docs/spec/pkg.md).
+//!
+//! Each function with a #[juiz_component_*] attribute becomes a type of this Component.
+//! juiz_component_manifest! at the end lists them. Build with scripts/dev.sh.
+use juiz_sdk::prelude::*;
+
+#[juiz_component_process(
+    typed = "all"
+    description = "Returns a + b."
+    arguments = { default = { a = 0 b = 0 } }
+)]
+fn my_robot_add(a: i64, b: i64) -> JuizResult<i64> {
+    Ok(a + b)
+}
+
+/// State of the container `my_robot`.
+#[repr(Rust)]
+pub struct MyRobot {
+    pub value: i64,
+}
+
+#[juiz_component_container(
+    typed = "all"
+    description = "Holds an integer value."
+    arguments = { default = { initial_value = 0 } }
+)]
+fn my_robot(initial_value: i64) -> JuizResult<Box<MyRobot>> {
+    Ok(Box::new(MyRobot {
+        value: initial_value,
+    }))
+}
+
+#[juiz_component_container_process(
+    container_type = "my_robot"
+    typed = "all"
+    description = "Adds step to the value and returns it."
+    arguments = { default = { step = 1 } }
+)]
+fn my_robot_increment(container: &mut ContainerImpl<MyRobot>, step: i64) -> JuizResult<i64> {
+    container.value += step;
+    Ok(container.value)
+}
+
+/// Receiving the container as `&ContainerImpl` (not `&mut`) makes this ContainerProcess readonly.
+#[juiz_component_container_process(
+    container_type = "my_robot"
+    typed = "all"
+    description = "Returns the value."
+)]
+fn my_robot_get(container: &ContainerImpl<MyRobot>) -> JuizResult<i64> {
+    Ok(container.value)
+}
+
+juiz_component_manifest!(
+    component_name = "my_robot"
+    containers = {
+        my_robot = [ my_robot_increment, my_robot_get ]
+    }
+    processes = [ my_robot_add ]
+);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn add_returns_the_sum() -> JuizResult<()> {
+        // The attribute turns the function into one that takes its arguments as a CapsuleMap
+        let mut args = CapsuleMap::new();
+        args.insert("a".to_owned(), jvalue!(1).into());
+        args.insert("b".to_owned(), jvalue!(2).into());
+        let result = my_robot_add(args)?;
+        assert_eq!(result.as_value().unwrap(), &jvalue!(3));
+        Ok(())
+    }
+}
+==== <summary> ====
+Created my_robot (rust, component) in /work/my_robot  [juiz_sdk =<version>]
+
+Next steps:
+  cd /work/my_robot
+  scripts/dev.sh                  # build and put the plugin in app/plugins/<target>/
+  juiz -f app/app.conf -d         # start (keep it running)
+
+  # in another terminal
+  juiz process call "http://127.0.0.1:8000/process/my_robot_add0::my_robot_add" '{"a": 1, "b": 2}' -p
+  juiz container-process call "http://127.0.0.1:8000/container_process/my_robot_increment0::my_robot_increment:my_robot0" '{"step": 1}' -p
+  juiz container-process call "http://127.0.0.1:8000/container_process/my_robot_get0::my_robot_get:my_robot0" '{}' -p
+
+  scripts/pack.sh                 # make dist/my_robot-0.1.0.juizapp
+  juiz run dist/my_robot-0.1.0.juizapp

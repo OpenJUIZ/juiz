@@ -100,7 +100,7 @@ fn pkg_design_and_check() {
     let r = run(&["pkg", "design", "check", f]);
     assert!(!r.status.success());
     let err = String::from_utf8_lossy(&r.stderr);
-    assert!(err.contains(&format!("{f}:27:")) && err.contains(": error: containers[0].processes[0].arguments[0].default: "), "{err}");
+    assert!(err.contains(&format!("{f}:28:")) && err.contains(": error: containers[0].processes[0].arguments[0].default: "), "{err}");
     assert!(err.contains(": error: containers[0].processes[1].returns: unknown type 'Count'"), "{err}");
     assert!(err.contains("(2 errors)"), "{err}");
     // 言語の規則は -b で
@@ -481,6 +481,160 @@ record Goal { juiz_std.geometry.Pose2D pose; double tolerance = 0.5; }
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// `create -d` の文書 (設計文書 Step 2、design.md §12): .jidl の record、Container の引数・状態・readonly
+fn design_doc(name: &str, lang: &str) -> String {
+    format!(
+        r#"format: 1
+component:
+  name: {name}
+  description: "Scales vectors and counts."
+  language: {lang}
+idl:
+  - idl/types.jidl
+processes:
+  - name: pkg_design_scale
+    description: "Scales v by k."
+    arguments:
+      - {{ name: v, type: pkg_design.types.Vec2 }}
+      - {{ name: k, type: double, default: 2.0 }}
+    returns: pkg_design.types.Vec2
+containers:
+  - name: pkg_design_counter
+    description: "Counts from start."
+    arguments:
+      - {{ name: start, type: long, default: 10 }}
+      - {{ name: label, type: string, default: "c" }}
+    state:
+      - {{ name: count, type: long, init: start, description: "the count" }}
+      - {{ name: label, type: string, init: label }}
+      - {{ name: history, type: "array<long>" }}
+      - {{ name: last, type: "pkg_design.types.Vec2?" }}
+    processes:
+      - name: pkg_design_counter_add
+        arguments:
+          - {{ name: step, type: long, default: 1 }}
+        returns: long
+      - name: pkg_design_counter_get
+        readonly: true
+        returns: long
+"#
+    )
+}
+
+/// `create -d` (pkg.md §2.5、design.md §12 の Step 2): 文書から作った雛形の本体を書き、`juiz pkg add` で型を足してから、
+/// ビルド→起動→call→型と readonly の確認→pack→juiz run を通す。文書は雛形の外のディレクトリに置く
+fn design_build_run_pack(lang: &str, name: &str, port: u16, build: bool, source: &str, bodies: &[(&str, &str)]) {
+    let dir = work_dir(&format!("pkg_cli_{lang}_design"));
+    let design = dir.join("design");
+    std::fs::create_dir_all(design.join("idl")).unwrap();
+    std::fs::write(
+        design.join("idl").join("types.jidl"),
+        "namespace pkg_design.types;\nrecord Vec2 { double x = 0.0; double y = 0.0; }\n",
+    )
+    .unwrap();
+    let doc = design.join("juizdesign.yaml");
+    std::fs::write(&doc, design_doc(name, lang)).unwrap();
+    let r = run(&["pkg", "design", "check", path_str(&doc)]);
+    assert!(r.status.success(), "{r:?}");
+
+    let app = dir.join(name);
+    let repo = repo_root();
+    let out = run(&[
+        "pkg", "create", "-d", path_str(&doc), "-o", path_str(&app),
+        "--juiz-source", path_str(&repo), "--license", "mit-apache", "--author", "juiz test",
+    ]);
+    assert!(out.status.success(), "{out:?}");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains(&format!("Created {name} ({lang}, from juizdesign.yaml)")), "{stdout}");
+    assert!(stdout.contains("# write the bodies of the functions"), "{stdout}");
+    // 文書と .jidl は雛形の直下に写す (§8.2)
+    assert_eq!(std::fs::read_to_string(app.join("juizdesign.yaml")).unwrap(), design_doc(name, lang));
+    assert!(app.join("idl").join("types.jidl").is_file());
+    set_port(&app, port);
+    let conf = std::fs::read_to_string(app.join("app").join("app.conf")).unwrap();
+    assert!(conf.contains("    \"start\": 10\n    \"label\": \"c\"\n"), "{conf}");
+
+    // 本体を書く (利用者がすること)
+    let src = app.join(source);
+    let mut code = std::fs::read_to_string(&src).unwrap();
+    for (from, to) in bodies {
+        assert!(code.contains(from), "{from}\n---\n{code}");
+        code = code.replace(from, to);
+    }
+    assert!(!code.contains("write the body of pkg_design"), "{code}");
+    std::fs::write(&src, code).unwrap();
+    add_types(&app, name);
+
+    if build {
+        script(&app, "dev.sh", &[]);
+    }
+    let h = format!("http://127.0.0.1:{port}");
+    let scale = format!("{h}/process/pkg_design_scale0::pkg_design_scale");
+    let add = format!("{h}/container_process/pkg_design_counter_add0::pkg_design_counter_add:pkg_design_counter0");
+    let get = format!("{h}/container_process/pkg_design_counter_get0::pkg_design_counter_get:pkg_design_counter0");
+    let check = |app: &Path| {
+        let r = call(app, "process", &scale, r#"{"v": {"x": 1.5, "y": -2.0}}"#);
+        assert!(r.contains("3.0") && r.contains("-4.0"), "{r}");
+        // 状態は Container の引数 start (conf の 10) から
+        assert!(call(app, "container-process", &get, "{}").contains("Value(10)"));
+        assert!(call(app, "container-process", &add, r#"{"step": 5}"#).contains("Value(15)"));
+        assert!(call(app, "container-process", &add, "{}").contains("Value(16)"));
+        assert!(call(app, "container-process", &get, "{}").contains("Value(16)"));
+        // 引数・戻り値は型付き (§6.1)、_get は readonly
+        let out = juiz().args(["-s", &h, "type", "list", "--long"]).current_dir(app).output().unwrap();
+        let list = String::from_utf8_lossy(&out.stdout);
+        assert!(list.contains("pkg_design.types.Vec2") && list.contains("pkg_design_scale"), "{list}");
+        let out = juiz().args(["-s", &h, "container-process", "list", "--long"]).current_dir(app).output().unwrap();
+        let list = String::from_utf8_lossy(&out.stdout);
+        // readonly は ContainerProcess の行の次の行に出る
+        let lines: Vec<&str> = list.lines().collect();
+        let readonly = |id: &str| {
+            let i = lines.iter().position(|l| l.contains(id)).unwrap();
+            lines.get(i + 1).is_some_and(|l| l.trim() == "readonly")
+        };
+        assert!(readonly("pkg_design_counter_get0") && !readonly("pkg_design_counter_add0"), "{list}");
+        call_added(app, name, port);
+    };
+    let mut d = start(&["-f", "app/app.conf", "-d"], &app, dir.join("dev.log"), &get);
+    check(&app);
+    assert!(d.stop() || cfg!(not(unix)), "{}", d.log_text());
+
+    script(&app, "pack.sh", &["--no-build"]);
+    let pkg = app.join("dist").join(format!("{name}-0.1.0.juizapp"));
+    check_package(&pkg, lang);
+    let mut d = start(&["run", path_str(&pkg)], &app, dir.join("run.log"), &get);
+    check(&app);
+    assert!(d.stop() || cfg!(not(unix)), "{}", d.log_text());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Python の create -d (設計文書 Step 2)
+#[cfg(all(unix, feature = "embed-python"))]
+#[test]
+fn pkg_create_python_design_runs_and_packs() {
+    design_build_run_pack(
+        "python",
+        "pkg_py_design",
+        8102,
+        false,
+        "app/python/pkg_py_design.py",
+        &[
+            (
+                "    raise NotImplementedError(\"write the body of pkg_design_scale\")",
+                "    return Vec2(x=v.x * k, y=v.y * k)",
+            ),
+            (
+                "    raise NotImplementedError(\"write the body of pkg_design_counter_add\")",
+                "    container.count += step\n    container.history.append(step)\n    return container.count",
+            ),
+            (
+                "    raise NotImplementedError(\"write the body of pkg_design_counter_get\")",
+                "    return container.count",
+            ),
+        ],
+    );
+}
+
 /// Python の --idl (issue #468): 型のパッケージは app/python/ に作ってあり、juiz_std は pyjuiz のもの
 #[cfg(all(unix, feature = "embed-python"))]
 #[test]
@@ -647,6 +801,33 @@ mod slow {
                 (
                     "    let _ = (container, step);\n    todo!(\"write the body of pkg_idl_double\")",
                     "    let _ = container;\n    Ok(step * 2)",
+                ),
+            ],
+        );
+    }
+
+    /// Rust の create -d (設計文書 Step 2)
+    #[cfg(unix)]
+    #[test]
+    fn pkg_create_rust_design_builds_runs_and_packs() {
+        design_build_run_pack(
+            "rust",
+            "pkg_rust_design",
+            8090,
+            true,
+            "src/lib.rs",
+            &[
+                (
+                    "    let _ = (v, k);\n    todo!(\"write the body of pkg_design_scale\")",
+                    "    Ok(crate::pkg_design::types::Vec2 { x: v.x * k, y: v.y * k })",
+                ),
+                (
+                    "    let _ = (container, step);\n    todo!(\"write the body of pkg_design_counter_add\")",
+                    "    container.count += step;\n    container.history.push(step);\n    Ok(container.count)",
+                ),
+                (
+                    "    let _ = container;\n    todo!(\"write the body of pkg_design_counter_get\")",
+                    "    Ok(container.count)",
                 ),
             ],
         );

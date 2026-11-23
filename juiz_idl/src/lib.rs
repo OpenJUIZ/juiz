@@ -77,13 +77,13 @@ pub use jidl::to_jidl;
 pub use json_schema::{json_schema_of, JSON_SCHEMA_DIALECT};
 pub use model::{
     load_files, load_files_with, load_str, ArgumentSignature, ContainerSignature, IdlModel,
-    LoadOptions, ProcessSignature, Signatures, IMPORT_PATH_ENV,
+    LoadOptions, ProcessSignature, Signatures, StateInit, StateSignature, IMPORT_PATH_ENV,
 };
 pub use parser::{parse_idl, Declaration, FieldDecl, IdlFile, ProcessDecl, TypeExpr};
 pub use python::generate_python;
-pub use python_skeleton::{generate_python_skeleton, python_skeleton_items};
+pub use python_skeleton::{generate_python_skeleton, python_design_items, python_skeleton_items};
 pub use rust::{generate_rust, MODULE_TREE_FILE};
-pub use rust_skeleton::{generate_rust_skeleton, rust_skeleton_items};
+pub use rust_skeleton::{generate_rust_skeleton, rust_design_items, rust_skeleton_items};
 pub use typescript::{generate_typescript, TYPESCRIPT_COMMON_FILE};
 
 /// juiz-idl のエラー。位置は 1 から数える
@@ -304,6 +304,17 @@ impl ExternNamespace {
                 .strip_prefix(self.namespace.as_str())
                 .is_some_and(|rest| rest.starts_with('.'))
     }
+}
+
+/// 設計文書から雛形を作るときの指定 (docs/spec/design.md §6.2・§7.2)。
+/// [`rust_design_items`]・[`python_design_items`] に渡す
+#[derive(Clone, Debug, Default)]
+pub struct DesignSkeleton {
+    /// 型名 → 関数の本体 (その言語のコード、字下げなし)。無い型の本体は未実装の印
+    /// (Rust `todo!()`、Python `raise NotImplementedError`)
+    pub bodies: std::collections::BTreeMap<String, String>,
+    /// ファイルの最後に足すコード (Rust の `#[cfg(test)]` のテストなど)
+    pub tail: Option<String>,
 }
 
 /// 生成の設定

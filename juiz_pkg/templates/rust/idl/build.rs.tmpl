@@ -3,6 +3,6 @@
 fn main() {
     juiz_idl::build::configure()
 {{idl_extern}}
-        .compile(&["{{idl_main}}"])
+        .compile(&[{{idl_compile}}])
         .unwrap();
 }

@@ -7,7 +7,7 @@ use std::path::{Component, Path, PathBuf};
 
 use juiz_idl::{
     parse_idl, ArgumentSignature, ContainerSignature, Declaration, IdlModel, LoadOptions,
-    OutputKind, ProcessSignature, Signatures, TypeExpr,
+    OutputKind, ProcessSignature, Signatures, StateInit, StateSignature, TypeExpr,
 };
 use juiz_types::{check_value, is_valid_type_name, DataType, TypeSchema};
 use serde_json::Value;
@@ -33,6 +33,30 @@ fn lang_label(lang: Lang) -> &'static str {
         Lang::Haskell => "Haskell",
         Lang::Zig => "Zig",
     }
+}
+
+/// 既定値として使う値 (§4.2)。`default: null` で型が `T?` でないとき、`image` の引数の既定値は「既定値なし」
+fn effective_default(t: &DataType, d: &Option<Value>) -> Option<Value> {
+    d.clone()
+        .filter(|d| !(d.is_null() && !t.is_nullable()))
+        .filter(|_| *t != DataType::Image)
+}
+
+/// 引数のシグネチャ (型が読めなければ None)
+fn argument_signatures(args: &[ArgumentDesign], types: &[Option<DataType>]) -> Option<Vec<ArgumentSignature>> {
+    args.iter()
+        .zip(types)
+        .map(|(a, t)| {
+            let t = t.as_ref()?;
+            Some(ArgumentSignature {
+                name: a.name.clone(),
+                type_name: t.argument_type_name().to_owned(),
+                description: a.description.clone(),
+                schema: TypeSchema::from_data_type(t).ok()?,
+                default: effective_default(t, &a.default),
+            })
+        })
+        .collect()
 }
 
 fn contains_image(t: &DataType) -> bool {
@@ -275,7 +299,7 @@ impl<'a> Checker<'a> {
                 type_name: t.argument_type_name().to_owned(),
                 description: a.description.clone(),
                 schema: TypeSchema::from_data_type(&t).ok()?,
-                default: a.default.clone().filter(|d| !(d.is_null() && !t.is_nullable())),
+                default: effective_default(&t, &a.default),
             });
         }
         Some(ProcessSignature {
@@ -283,6 +307,7 @@ impl<'a> Checker<'a> {
             description: p.description.clone(),
             arguments,
             output_schema: TypeSchema::from_data_type(&output?).ok()?,
+            readonly: p.readonly,
         })
     }
 
@@ -380,6 +405,33 @@ impl<'a> Checker<'a> {
             .map_err(|e| e.to_string())
     }
 
+    /// 設計文書用の雛形 (juiz_idl の `*_design_items`) で作れるか
+    fn try_design(&self, lang: Lang, s: Signatures) -> Result<(), String> {
+        let plan = self.idl_plan(lang, s, &[]);
+        let e = |e: juiz_idl::IdlError| e.to_string();
+        match lang {
+            Lang::Rust => {
+                let options = juiz_idl::GenerateOptions {
+                    externs: if plan.uses_juiz_std {
+                        vec![juiz_idl::ExternNamespace {
+                            namespace: "juiz_std".to_owned(),
+                            rust_path: Some("::juiz_std_types::juiz_std".to_owned()),
+                        }]
+                    } else {
+                        Vec::new()
+                    },
+                };
+                juiz_idl::rust_design_items(&plan.signatures, &self.design.component.name, &options, &Default::default())
+                    .map(|_| ())
+                    .map_err(e)
+            }
+            Lang::Python => juiz_idl::python_design_items(&plan.signatures, &Default::default())
+                .map(|_| ())
+                .map_err(e),
+            _ => Ok(()),
+        }
+    }
+
     fn language_rules(&mut self, lang: Lang, processes: Vec<ProcessSignature>, containers: Vec<ContainerSignature>) {
         let name = self.design.component.name.clone();
         let label = lang_label(lang);
@@ -428,10 +480,17 @@ impl<'a> Checker<'a> {
                 self.error(format!("processes[{i}]"), format!("cannot be made in {label}: {e}"));
             }
         }
+        let full_containers = containers.clone();
         for (i, c) in containers.into_iter().enumerate() {
             let empty = ContainerSignature {
                 container_processes: Vec::new(),
                 ..c.clone()
+            };
+            // 引数と状態は下で 1 つずつ確かめるので、ここでは外す
+            let empty = ContainerSignature {
+                arguments: Vec::new(),
+                state: Vec::new(),
+                ..empty
             };
             if let Err(e) = self.try_skeleton(lang, sigs(vec![], vec![empty.clone()]), &hs_modules) {
                 self.error(format!("containers[{i}]"), format!("cannot be made in {label}: {e}"));
@@ -476,9 +535,18 @@ impl<'a> Checker<'a> {
                         default: None,
                     }],
                     output_schema: TypeSchema::from_data_type(&DataType::Long).expect("long"),
+                    readonly: false,
                 };
                 if self.try_skeleton(lang, sigs(vec![probe], vec![]), &hs_modules).is_err() {
                     self.error(path, format!("'{field}' cannot be used as a name in {label} (a keyword or a reserved name)"));
+                }
+            }
+        }
+        // 設計文書から作る雛形 (Rust・Python、§6.2): Container の引数・状態・readonly も入れて作れるか
+        if matches!(lang, Lang::Rust | Lang::Python) && self.report.errors.is_empty() {
+            for (i, c) in full_containers.iter().enumerate() {
+                if let Err(e) = self.try_design(lang, sigs(vec![], vec![c.clone()])) {
+                    self.error(format!("containers[{i}]"), format!("cannot be made in {label}: {e}"));
                 }
             }
         }
@@ -487,6 +555,20 @@ impl<'a> Checker<'a> {
 
 /// 文書を検査する (§5)。`lang` は決まっている言語 (§8.1)、`base` は文書のあるディレクトリ (`idl:` の基準)
 pub fn check(design: &Design, lang: Option<Lang>, base: &Path) -> Report {
+    check_and_resolve(design, lang, base).0
+}
+
+/// 検査して通った文書の型 (雛形を作るため、§6.2)
+#[derive(Clone, Debug)]
+pub struct Resolved {
+    /// 文書の型を juiz_idl のシグネチャにしたもの (名前空間は component.name)
+    pub signatures: Signatures,
+    /// `idl:` を読んだもの
+    pub model: IdlModel,
+}
+
+/// 検査し、エラーが無ければ文書の型をシグネチャにして返す
+pub fn check_and_resolve(design: &Design, lang: Option<Lang>, base: &Path) -> (Report, Option<Resolved>) {
     let mut c = Checker {
         design,
         report: Report::default(),
@@ -524,6 +606,7 @@ pub fn check(design: &Design, lang: Option<Lang>, base: &Path) -> Report {
         c.check_type_name(&k.name, &format!("{path}.name"));
         let arg_types = c.arguments(&k.arguments, &format!("{path}.arguments"), Role::ContainerArgument);
         let mut seen: Vec<&str> = Vec::new();
+        let mut states: Option<Vec<StateSignature>> = Some(Vec::new());
         for (j, s) in k.state.iter().enumerate() {
             let sp = format!("{path}.state[{j}]");
             c.check_field_name(&s.name, &format!("{sp}.name"), "state");
@@ -564,7 +647,28 @@ pub fn check(design: &Design, lang: Option<Lang>, base: &Path) -> Report {
             if let Some(t) = &t {
                 c.check_default(t, &s.default, &format!("{sp}.default"));
             }
+            // 状態のシグネチャ (初期値は init、default、型の 0 値の順、§3.3)
+            match (&t, states.as_mut()) {
+                (Some(t), Some(v)) => {
+                    let init = match (&s.init, effective_default(t, &s.default)) {
+                        (Some(a), _) => StateInit::Argument(a.clone()),
+                        (None, Some(d)) => StateInit::Value(d),
+                        (None, None) => StateInit::Value(zero_value(t)),
+                    };
+                    match TypeSchema::from_data_type(t) {
+                        Ok(schema) => v.push(StateSignature {
+                            name: s.name.clone(),
+                            schema,
+                            init,
+                            description: s.description.clone(),
+                        }),
+                        Err(_) => states = None,
+                    }
+                }
+                _ => states = None,
+            }
         }
+        let arguments = argument_signatures(&k.arguments, &arg_types);
         let mut cps = Vec::new();
         let mut ok = true;
         for (j, p) in k.processes.iter().enumerate() {
@@ -573,11 +677,16 @@ pub fn check(design: &Design, lang: Option<Lang>, base: &Path) -> Report {
                 None => ok = false,
             }
         }
-        containers.push(ok.then(|| ContainerSignature {
-            type_name: k.name.clone(),
-            description: k.description.clone(),
-            container_processes: cps,
-        }));
+        containers.push(match (ok, arguments, states) {
+            (true, Some(arguments), Some(state)) => Some(ContainerSignature {
+                type_name: k.name.clone(),
+                description: k.description.clone(),
+                container_processes: cps,
+                arguments,
+                state,
+            }),
+            _ => None,
+        });
     }
 
     // N3・N4: 型名と、型名から作る識別子が重ならない
@@ -629,14 +738,20 @@ pub fn check(design: &Design, lang: Option<Lang>, base: &Path) -> Report {
     }
 
     // N6・T6 (ほかにエラーが無いときだけ。型が読めないと生成できないので)
+    let processes: Option<Vec<_>> = processes.into_iter().collect();
+    let containers: Option<Vec<_>> = containers.into_iter().collect();
+    let sigs = match (processes, containers) {
+        (Some(p), Some(k)) if c.report.errors.is_empty() && !c.type_failed => Some(Signatures {
+            namespace: design.component.name.clone(),
+            processes: p,
+            containers: k,
+        }),
+        _ => None,
+    };
     match lang {
         Some(l) => {
-            if c.report.errors.is_empty() && !c.type_failed {
-                let processes: Option<Vec<_>> = processes.into_iter().collect();
-                let containers: Option<Vec<_>> = containers.into_iter().collect();
-                if let (Some(p), Some(k)) = (processes, containers) {
-                    c.language_rules(l, p, k);
-                }
+            if let Some(s) = &sigs {
+                c.language_rules(l, s.processes.clone(), s.containers.clone());
             }
         }
         None => c.warning(
@@ -644,5 +759,14 @@ pub fn check(design: &Design, lang: Option<Lang>, base: &Path) -> Report {
             "the language is not decided, so the rules of each language (keywords and types the language cannot use) were not checked; give -b <lang> or write component.language",
         ),
     }
-    c.report
+    let resolved = match (sigs, c.report.is_ok(), c.model.take()) {
+        (Some(signatures), true, Some(model)) => Some(Resolved { signatures, model }),
+        _ => None,
+    };
+    (c.report, resolved)
+}
+
+/// 型の 0 値 (§4.4)
+pub fn zero_value(t: &DataType) -> Value {
+    crate::idl::example_value(t)
 }

@@ -1,0 +1,15 @@
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn add_returns_the_sum() -> JuizResult<()> {
+        // The attribute turns the function into one that takes its arguments as a CapsuleMap
+        let mut args = CapsuleMap::new();
+        args.insert("a".to_owned(), jvalue!(1).into());
+        args.insert("b".to_owned(), jvalue!(2).into());
+        let result = {{name}}_add(args)?;
+        assert_eq!(result.as_value().unwrap(), &jvalue!(3));
+        Ok(())
+    }
+}

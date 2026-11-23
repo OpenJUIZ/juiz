@@ -5,6 +5,7 @@
 
 mod check;
 pub mod command;
+pub mod generate;
 mod read;
 mod write;
 pub mod yaml;
@@ -14,7 +15,7 @@ use serde_json::Value;
 use crate::render::{render, Vars};
 use crate::{names, templates, Lang, Template, JUIZ_VERSION};
 
-pub use check::check;
+pub use check::{check, check_and_resolve, Resolved};
 pub use read::parse;
 pub use write::to_yaml;
 pub use yaml::Pos;
@@ -188,4 +189,4 @@ pub fn preset_text(name: &str, template: Template) -> String {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

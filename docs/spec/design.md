@@ -1,6 +1,6 @@
 # 設計文書(juizdesign.yaml)仕様
 
-- 状態: 確定(Step 0、issue #593、2026-11-23)。Step 1(#594、2026-11-23)で文書の読み書き・検査・プリセット・`juiz pkg design`・`design check` を実装し、実装に合わせて §3.1・§5・§9・§13 を書き足した
+- 状態: 確定(Step 0、issue #593、2026-11-23)。Step 1(#594、2026-11-23)で文書の読み書き・検査・プリセット・`juiz pkg design`・`design check` を実装し、実装に合わせて §3.1・§5・§9・§13 を書き足した。Step 2(#595、2026-11-23)で Rust・Python の文書からの生成・`create -d`・`-t` の文書経由を実装し、§3.3・§5・§7.2・§7.3・§8.2・§9・§12 を書き足した
 - 親 issue: #592。計画と経緯はプロジェクトの計画書 pkg-design-doc-plan.md(2026-11-23 確定、§6 の 9 項目はすべて推奨どおり)にある
 - 関連: 雛形生成 [pkg.md](pkg.md)(§2.5〜§2.7 に CLI の 3 モード)、データ型 [datatype.md](datatype.md)(型の書き方 §9.2、辞書での値 §4、manifest §6、skeleton §18・§20.6・§21.6・§22.4・§26.4)、[manifest-profile.md](manifest-profile.md)
 - この文書は Step 1〜6(#594〜#599)の実装の基準になる。実装で仕様を変えるときは、同じ PR でこの文書を直す
@@ -175,6 +175,8 @@ Container(`containers[]`):
 ### 3.3 状態(`state`)
 
 - `state` は、雛形の Container の状態の型(Rust の struct、Python のクラスの属性、C++ の struct、Haskell・Zig の `<Name>State` など)のフィールドになる。言語ごとの書き方は Step 2・Step 3 で決める。
+  - Rust(Step 2): `#[repr(Rust)] pub struct <Name>` の `pub` のフィールド(型は datatype.md §11)。`description` はフィールドの `///`。Container の関数(`#[juiz_component_container]`)が引数を受けて `Ok(Box::new(<Name> { … }))` を返す。初期値は、引数ならその名前(同じ引数を 2 つ以上の状態に使うときは、最後のほかは `.clone()`、状態が `T?` で引数が `T` なら `Some(…)`)、値なら数・真偽・文字列・空の配列と辞書・`None` はそのまま Rust の式に、そのほか(record・enum・bytes・any・中身のある配列と辞書)は `JuizType::from_value` で辞書の表し方の値から読む。状態に使わない引数は `let _ = …;` で使う。
+  - Python(Step 2): クラス `<Name>`(pkg.md §6.2・`pkg add` と同じ名前。`--idl` の `<Name>State` とは違う)の `__init__(self, <状態>)` で `self.<名前> = <名前>` を並べる。型注釈は pyjuiz の受ける型のほか `bytes`・`T | None`・`list[T]`・`dict[str, T]` も書く(デコレータが読まないため)。`description` は行末のコメント。Container の関数は `return <Name>(<初期値>, …)`。値の初期値は Python の式(record・enum は `<型>.from_value(…)`、bytes は `base64.b64decode(…)` で、そのときだけ `import base64` を足す)。
 - 初期値は次の順に決める。
   1. `init` があれば、その名前の Container の引数の値。引数は同じ Container の `arguments` に無ければならない。
   2. `default` があれば、その値。
@@ -350,7 +352,9 @@ Container(`containers[]`):
 
 ### 7.2 本体の断片
 
-- プリセットの型の関数の中身(`a + b`、`value += step` など)と、プリセットだけが持つもの(Rust の `#[cfg(test)]` のテスト、`ecs` など)は、言語ごとの断片として持つ。置き場所と形は Step 2 で決める。
+- プリセットの型の関数の中身(`a + b`、`value += step` など)と、プリセットだけが持つもの(Rust の `#[cfg(test)]` のテスト、`ecs` など)は、言語ごとの断片として持つ。置き場所と形は Step 2 で決めた:
+  - `juiz_pkg/templates/design/fragments/<lang>/<役割>.<拡張子>.tmpl`。役割は `add`・`increment`・`get`(関数の中身、字下げなし。生成器が 4 つの空白で字下げする)、`header`(ファイルの先頭の説明。今の `-t` のもの)、Rust の `tests`(ファイルの最後に足す `#[cfg(test)]`、Process のあるプリセットだけ)。`common/ecs.conf.tmpl` は `-t component`・`-t container` の app.conf の `ecs`。変数は `name`・`Name`。
+  - 生成器(juiz_idl の `rust_design_items`・`python_design_items`)は、型名 → 本体の表と最後に足すコード(`DesignSkeleton`)を受ける。juiz_pkg が役割を型名(`<name>_add` など)に直して渡す。
 - 生成器は、型ごとに断片があればそれを、無ければ未実装の印を入れる。したがって、プリセットと同じ文書を `create -d` に渡すと、型の形は同じで本体は未実装になる(`-t` とは本体だけが違う)。
 - 断片を選ぶ鍵は「プリセットの種類と型の役割(`add`・`create`・`increment`・`get`)」で、型名ではない(`<name>` によって型名が変わるため)。`create -d` には断片を使わない。
 
@@ -358,6 +362,12 @@ Container(`containers[]`):
 
 - `-t` を文書経由に切り替えるとき(Step 2・Step 3)は、切り替える前の生成物を写したスナップショットのテストを先に足し、切り替えた後の差分を PR に理由と一緒に書く。差分はなるべく出さない。
 - 許す差分: 雛形の直下に `juizdesign.yaml` が増える(Step 1 から)、manifest の引数・戻り値に `schema` が付く(§6.1)、それに伴うマクロ・デコレータの書き方の変化。
+- スナップショットは `juiz_pkg/tests/snapshots/<lang>-<template>.txt`(5 言語 × 3 種類、生成するファイルをすべて 1 つのテキストにしたもの。版は `<version>` に置き換える)。生成物を変えたら `JUIZ_PKG_UPDATE_SNAPSHOTS=1 cargo test -p juiz_pkg snapshots` で書き直し、差分を PR に書く。`create -d` の §3.1 の 2 つめの例(rover)の Rust・Python も `<lang>-design-rover.txt` に置く。
+- Step 2 で出た差分(#595 の PR):
+  - Rust の `-t` のマクロに `typed = "all"` が付いた(manifest に `schema` が付く)。ほかの書き方(説明・既定値の属性の書き方・`fn`・`juiz_component_manifest!` の `[ a, b ]`)は今の `-t` に合わせたので変わらない。Python の `-t` のソースは変わらない。
+  - README の型の表(5 言語)を文書から作るようにした。整数の型が `int` → `long`、戻り値を `` `long` `` と書き、「What it does」の列が文書の `description` になった(`Returns a + b.` など)。
+  - 雛形の `juizdesign.yaml`(5 言語)の先頭のコメントに `scaffold:` の行(§9)が増えた。
+  - app.conf は文書から作る(`common/design/`)ようにしたが、中身は変わらない(5 言語)。
 - サイトのチュートリアル第 1〜3 章は `-t process` と `pkg add` の出力を載せているので、出力が変わったら Step 6(#599)で直す。
 
 ## 8. CLI との関係
@@ -378,6 +388,14 @@ CLI の引数・表示は pkg.md §2.2・§2.5〜§2.7 に書く。ここでは�
 - `idl:` の .jidl(と import するもの)は、文書からの相対パスのまま雛形に写す(§4.3)。組み込みのファイルは写さない。言語ごとのビルドのファイル(Rust の build.rs、C++ の `juiz_generate_types`、Haskell の dev.sh、Zig の `addTypes`)は、写したパスを読む(今の `--idl` の `idl/<file>.jidl` の代わり)。
 - 作り先の規則は pkg.md §8 のまま。ただし作り先が文書のあるディレクトリそのもの(`-o .` など)のときは、その文書と `idl:` のファイル(と import するもの)だけは在ってよく、書き直さない。ほかのファイルがあればエラー。失敗したときは自分が書いたファイルだけを消す。これで「`juiz pkg design` で書いた文書を直して、同じディレクトリに雛形を作る」使い方ができる。
 - 本体はすべて未実装の印(§7.2)。テストのコードは置かない(今の `--idl` と同じ)。
+- Step 2 の実装での決めごと:
+  - Step 2 で作れるのは Rust と Python。`-b cpp`・`-b haskell`・`-b zig`(文書の `language` も)はエラーにする(Step 3、#596)。
+  - 作り先が文書のあるディレクトリそのものかは、どちらも在るときに正規化したパスで比べる。在ってよいのは `-d` に渡した文書(名前は問わない)と、写す .jidl(import するものも)。文書の名前が `juizdesign.yaml` でなければ、`juizdesign.yaml` を新しく書く。
+  - `language:` の行の書き換えは、`component:` の下の block 形式の行の値だけを変え、前後の空白とコメントは残す。
+  - Rust: 写す .jidl(組み込みでない `idl:`)があるときだけ build.rs を置き(`.compile(&[<idl: のパス>, …])`)、src/lib.rs の先頭で `juiz_idl.rs` を `include!` する。juiz_std の型を使えば juiz_std_types に依存して extern にする(pkg.md §6.5 と同じ)。
+  - Python: `idl:` の型(juiz_std を除く)は作るときに `app/python/<名前空間>/…/__init__.py` に書く(pkg.md §6.5 と同じ)。Component のファイルは名前で import されない(juiz が中身を読んで別の名前のモジュールにする)ので、名前空間と Component の名前が同じでもよい。
+  - README は言語ごとの `<lang>/design/README.md.tmpl`。Cargo.toml・pyproject.toml・`app/juizapp.yaml` の `description` は `component.description`。
+  - Rust のマクロ `juiz_component_manifest!` は Component の説明を受けないので、`ComponentManifest.description`(§6.1)はまだ入らない。
 
 ### 8.3 `juiz pkg add`(Step 4)
 
@@ -394,7 +412,7 @@ CLI の引数・表示は pkg.md §2.2・§2.5〜§2.7 に書く。ここでは�
 
 `juiz pkg design`・`juiz pkg create`(`-t`・`--idl`)・`juiz pkg add` が書く文書は、次の形にそろえる(人が読み書きしやすく、`pkg add` が書き足す所を決めやすいように)。
 
-- 先頭に §3.1 の 3 行のコメント。1 行目は JSON Schema(§10)の場所で、`<版>` は juiz の版(pkg.md §7.1)。`create -d` を実装する Step 2 で、4 行目に `#   scaffold: juiz pkg create -d juizdesign.yaml -b <rust|python|cpp|haskell|zig>` を足す(Step 1 の版では、まだ無いコマンドを案内しないため)。
+- 先頭に §3.1 の 3 行のコメント。1 行目は JSON Schema(§10)の場所で、`<版>` は juiz の版(pkg.md §7.1)。4 行目は `#   scaffold: juiz pkg create -d juizdesign.yaml -b <rust|python|cpp|haskell|zig>`(`create -d` を実装した Step 2 で足した。Step 1 の版では、まだ無いコマンドを案内しないため 3 行だった)。
 - キーの順番は §3.2 の表の順。値の無い任意のキーは書かない。
 - 型は block 形式(`- name: …` の後に字下げしたキー)、引数と状態は 1 行の flow 形式(`- { name: a, type: long, default: 0 }`)。`readonly: true` は ContainerProcess の最後のキー(`false` なら書かない)。
 - 既定値・初期値は 1 行の flow 形式で書く。文字列はいつも `"` で囲み、辞書の鍵は名前の順(serde_json の並び)。
@@ -427,6 +445,7 @@ CLI の引数・表示は pkg.md §2.2・§2.5〜§2.7 に書く。ここでは�
 ## 12. テスト
 
 - Step 1: 文書の読み書きと §5 の検査の、合う例・合わない例(規則ごとに 1 つ以上、エラーの道筋と行を含めて)。プリセット 3 つと §3.1 の例が検査を通り、juiz が書いた文書を読んで書き直すと同じ文字列になる。JSON Schema との食い違い(§10)。`create -t` の雛形に `juizdesign.yaml` が置かれる(5 言語 × 3 種類)。`juiz pkg design`・`design check` の CLI。
+- Step 2(済み): juiz_pkg のスナップショット(§7.3)、`create -d` の単体テスト(`-d` と `<name>`・`-t`・`--idl` が一緒に使えない、言語の決め方と W1・language の行の書き換え、言語が決まらない・C++ などのエラー、検査を通らない文書、`idl:` の無い文書の生成物と app.conf、文書のディレクトリに作るときと途中で失敗したとき)、juiz_idl の `rust_design_items`・`python_design_items` の単体テスト(状態の初期値の式・readonly・本体の断片・最後のコード・Python で作れない型)。pkg_cli_test で、.jidl の record と Container の引数・状態・readonly を持つ文書から Rust(slow、ポート 8090)と Python(ポート 8102)の雛形を作り、本体を書いて `juiz pkg add` で型を足し、生成から配布まで(引数 `start` の値から状態が始まる、`type list --long` に record の型、`_get` だけが readonly)を通す。`-t` の今の pkg_cli_test(Rust・Python)も文書経由で通る。
 - Step 2・3: 切り替え前のスナップショットとの比較(§7.3)。`create -d` で §3.1 の 2 つの例から雛形を作り、本体を書いてから生成から配布まで(pkg.md §11 と同じ形、pkg_cli_test)を通し、プラグインの manifest が §6.1 のとおり文書の写しになっていること。Container の引数・状態・readonly が言語ごとのコードに出ること。
 - Step 4: `--idl` の今のテストが文書経由でも通ること、`pkg add` が文書に書き足し、書き足した文書が検査を通ること、`juizdesign.yaml` の無い雛形への `pkg add` が警告で通ること。
 

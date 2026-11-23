@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use crate::cli::{CreateArgs, LicenseKind};
 use crate::render::{render, render_path, Vars};
+use crate::design::generate::{generates_source, DesignPlan, Origin};
 use crate::idl::IdlPlan;
 use crate::{names, templates, Lang, PkgError, Template, JUIZ_VERSION};
 
@@ -70,6 +71,8 @@ pub struct Plan {
     pub windows: bool,
     /// `--idl` で読んだ .jidl (§6.5)。あれば -t の型の代わりに .jidl の宣言を入れる
     pub idl: Option<IdlPlan>,
+    /// 設計文書 (design.md)。-t ではプリセット、-d では渡した文書。--idl では None (設計文書 Step 4 まで)
+    pub design: Option<DesignPlan>,
 }
 
 /// 1970-01-01 からの日数を西暦の年にする (UTC)
@@ -304,8 +307,25 @@ impl Plan {
         windows: bool,
     ) -> Result<(Plan, Vec<String>), PkgError> {
         let mut warnings = Vec::new();
-        let lang = args.lang;
-        names::validate(&args.name, lang)?;
+        // -d: 名前と言語は文書から (design.md §8.2)。-t: プリセットの文書 (§7)
+        let (name, lang, design) = match &args.design {
+            Some(path) => {
+                let (d, w) = DesignPlan::from_file(&expand_tilde(path), args.lang)?;
+                warnings.extend(w);
+                (d.name().to_owned(), d.lang, Some(d))
+            }
+            None => {
+                let name = args.name.clone().expect("clap requires <name> without -d");
+                let lang = args.lang.expect("clap requires -b without -d");
+                names::validate(&name, lang)?;
+                let design = match args.idl {
+                    Some(_) => None,
+                    None => Some(DesignPlan::preset(&name, args.template, lang)?),
+                };
+                (name, lang, design)
+            }
+        };
+        names::validate(&name, lang)?;
 
         if args.hsjuiz_dir.is_some() && lang != Lang::Haskell {
             warnings.push("--hsjuiz-dir is only for -b haskell; ignored".to_owned());
@@ -316,10 +336,10 @@ impl Plan {
         if args.juiz_sdk_dir.is_some() && !lang.uses_sdk() {
             warnings.push("--juiz-sdk-dir is only for -b cpp, -b haskell and -b zig; ignored".to_owned());
         }
-        if lang == Lang::Zig && args.name.len() > names::ZIG_MAX_NAME_LEN {
+        if lang == Lang::Zig && name.len() > names::ZIG_MAX_NAME_LEN {
             return Err(PkgError::new(format!(
                 "invalid package name '{}': for Zig, it must be at most {} characters (the .name of build.zig.zon)",
-                args.name,
+                name,
                 names::ZIG_MAX_NAME_LEN
             )));
         }
@@ -332,7 +352,7 @@ impl Plan {
             Some(p) => {
                 let plan = IdlPlan::load(&expand_tilde(p), lang)?;
                 // 名前によるもの (Haskell のモジュール名の重なり) もファイルを書く前に確かめる
-                plan.source(&args.name)?;
+                plan.source(&name)?;
                 Some(plan)
             }
             None => None,
@@ -422,7 +442,7 @@ impl Plan {
         let mut zigjuiz_rel = None;
         if let (Lang::Zig, Some(zigjuiz_dir)) = (lang, &zigjuiz_dir) {
             // build.zig.zon の依存の .path は雛形からの相対パスでなければならない (Zig は絶対パスを受けない)
-            let dest = absolute_through_links(&args.output.clone().unwrap_or_else(|| PathBuf::from(&args.name)));
+            let dest = absolute_through_links(&args.output.clone().unwrap_or_else(|| PathBuf::from(&name)));
             // zigjuiz の側も在る一番深い親を正規化してそろえる (Windows の TEMP の RUNNER~1 のような短い名前は
             // canonicalize で長い名前になるので、片方だけ正規化すると相対パスがずれる、#579)
             zigjuiz_rel = Some(relative_path(&dest, &absolute_through_links(zigjuiz_dir)).ok_or_else(|| {
@@ -454,12 +474,13 @@ impl Plan {
 
         let (display_dir, cd_dir) = match &args.output {
             Some(o) => (o.display().to_string(), o.display().to_string()),
-            None => (format!("./{}", args.name), args.name.clone()),
+            None => (format!("./{name}"), name.clone()),
         };
 
         Ok((
             Plan {
-                name: args.name.clone(),
+                zig_fingerprint: zig_fingerprint(&name, seed),
+                name,
                 lang,
                 template: args.template,
                 display_dir,
@@ -476,10 +497,10 @@ impl Plan {
                 zigjuiz_dir,
                 zigjuiz_missing,
                 zigjuiz_rel,
-                zig_fingerprint: zig_fingerprint(&args.name, seed),
                 year: current_year(),
                 windows,
                 idl,
+                design,
             },
             warnings,
         ))
@@ -522,16 +543,25 @@ impl Plan {
 
     /// テンプレートの種類の表示 (§9 の 1 行目)
     fn kind_label(&self) -> String {
-        match &self.idl {
-            Some(i) => format!("from {}", i.main),
-            None => self.template.dir().to_owned(),
+        match (&self.idl, &self.design) {
+            (Some(i), _) => format!("from {}", i.main),
+            (None, Some(d)) => d.kind_label(),
+            (None, None) => self.template.dir().to_owned(),
         }
+    }
+
+    /// -d (文書のファイルから作る) か
+    fn from_document(&self) -> bool {
+        matches!(&self.design, Some(DesignPlan { origin: Origin::File { .. }, .. }))
     }
 
     /// 入っている型の表 (README、§4)
     fn types_table(&self) -> String {
         if let Some(i) = &self.idl {
             return i.types_table();
+        }
+        if let Some(d) = &self.design {
+            return d.types_table();
         }
         let n = &self.name;
         let mut s = String::from(
@@ -560,6 +590,10 @@ impl Plan {
     fn call_examples(&self) -> Vec<String> {
         if let Some(i) = &self.idl {
             return i.call_examples();
+        }
+        // -d は文書の型ごと (design.md §6.4)。-t は今までどおりの値で呼ぶ
+        if let (Some(d), true) = (&self.design, self.from_document()) {
+            return d.call_examples();
         }
         let n = &self.name;
         let mut v = Vec::new();
@@ -673,9 +707,14 @@ impl Plan {
             }
         }
         // --idl: 関数の本体を書いてから動かす (§6.5)。ビルドのある言語は scripts/dev.sh の前、Python は pip の後
-        if let Some(i) = &self.idl {
+        let write_bodies = match (&self.idl, &self.design) {
+            (Some(i), _) => Some(i.write_bodies_line(&self.name)),
+            (None, Some(d)) if self.from_document() => Some(write_bodies_line(self.lang, &d.source_path())),
+            _ => None,
+        };
+        if let Some(line) = write_bodies {
             let at = if self.lang.has_build() { lines.len() - 1 } else { lines.len() };
-            lines.insert(at, (i.write_bodies_line(&self.name), ""));
+            lines.insert(at, (line, ""));
         }
         lines.push(("juiz -f app/app.conf -d".into(), "# start (keep it running)"));
         // コメントを並べる幅。コメントの無い長い行 (SDK の用意) は数えない
@@ -741,10 +780,38 @@ impl Plan {
             .set("year", self.year.to_string())
             .set("types_table", self.types_table())
             .set("next_steps", steps.trim_end().to_owned())
-            .set("juiz_idl_dep", self.rust_dep("juiz_idl"));
-        match &self.idl {
-            Some(i) => {
+            .set("juiz_idl_dep", self.rust_dep("juiz_idl"))
+            .set(
+                "description_str",
+                serde_json::to_string(
+                    &self
+                        .design
+                        .as_ref()
+                        .and_then(|d| d.design.component.description.clone())
+                        .unwrap_or_else(|| format!("{}: a juiz component", self.name)),
+                )
+                .unwrap(),
+            )
+            .set_opt("design_conf", self.design.as_ref().map(DesignPlan::conf_types))
+            .set_opt("design_idl_note", self.design.as_ref().and_then(DesignPlan::python_idl_note));
+        match (&self.idl, &self.design) {
+            (None, Some(d)) => {
+                v.set_opt("idl_main", d.idl_label())
+                    .set_opt("idl_compile", (!d.compile.is_empty()).then(|| d.compile_list()))
+                    .set_opt("idl_conf", None)
+                    .set_opt("idl_extern", d.extern_line())
+                    .set_opt("idl_depends", None)
+                    .set_opt("idl_hs_modules", None)
+                    .set_opt("idl_hs_gen_dir", None)
+                    .set_opt("idl_zig_depends", None)
+                    .set_opt(
+                        "juiz_std_types_dep",
+                        (d.uses_juiz_std && self.lang == Lang::Rust).then(|| self.rust_dep("juiz_std_types")),
+                    );
+            }
+            (Some(i), _) => {
                 v.set("idl_main", &i.main)
+                    .set("idl_compile", format!("{:?}", i.main))
                     .set("idl_conf", i.conf_types())
                     .set_opt("idl_extern", i.extern_line())
                     .set_opt("idl_depends", i.depends())
@@ -756,8 +823,9 @@ impl Plan {
                         i.uses_juiz_std.then(|| self.rust_dep("juiz_std_types")),
                     );
             }
-            None => {
+            (None, None) => {
                 v.set_opt("idl_main", None)
+                    .set_opt("idl_compile", None)
                     .set_opt("idl_conf", None)
                     .set_opt("idl_extern", None)
                     .set_opt("idl_depends", None)
@@ -772,14 +840,31 @@ impl Plan {
 
     /// 生成するファイルの一覧を作る (§10.1 の重ね方)
     pub fn files(&self) -> Result<Vec<GeneratedFile>, PkgError> {
-        // --idl では <template> の代わりに idl の層を重ねる (§6.5)
-        let kind = if self.idl.is_some() { "idl" } else { self.template.dir() };
-        let layers = [
-            "common/_base/".to_owned(),
-            format!("common/{kind}/"),
-            format!("{}/_base/", self.lang.dir()),
-            format!("{}/{kind}/", self.lang.dir()),
-        ];
+        // --idl では <template> の代わりに idl の層を重ねる (§6.5)。
+        // 設計文書を通すとき (-t・-d) は app.conf を文書から作る (common/design、design.md §6.3)。
+        // -d は言語の design の層 (README) を重ね、Rust で .jidl を写すときは idl の層 (Cargo.toml・build.rs) も重ねる
+        let lang_dir = self.lang.dir();
+        let mut layers = vec!["common/_base/".to_owned()];
+        match (&self.idl, &self.design) {
+            (Some(_), _) => {
+                layers.push("common/idl/".to_owned());
+                layers.push(format!("{lang_dir}/_base/"));
+                layers.push(format!("{lang_dir}/idl/"));
+            }
+            (None, Some(d)) => {
+                layers.push("common/design/".to_owned());
+                layers.push(format!("{lang_dir}/_base/"));
+                if self.from_document() {
+                    if d.has_build_rs() {
+                        layers.push(format!("{lang_dir}/idl/"));
+                    }
+                    layers.push(format!("{lang_dir}/design/"));
+                } else {
+                    layers.push(format!("{lang_dir}/{}/", self.template.dir()));
+                }
+            }
+            (None, None) => unreachable!("-t always has the preset design"),
+        }
         let vars = self.vars();
         let mut out: BTreeMap<String, String> = BTreeMap::new();
         for layer in &layers {
@@ -799,11 +884,19 @@ impl Plan {
                 out.insert(rel, content);
             }
         }
-        // 設計文書 (design.md、設計文書 Step 1)。-t ではプリセットに雛形の言語を書いたもの。
-        // --idl の文書は設計文書 Step 4 (#597) から
-        if self.idl.is_none() {
-            let (path, text) = self.design_file();
+        // 設計文書 (design.md)。-t ではプリセットに雛形の言語を書いたもの、-d では渡した文書の写し。
+        // --idl の文書は設計文書 Step 4 (#597) から。
+        // Rust・Python は Component のソースも文書から作る (設計文書 Step 2、C++・Haskell・Zig は Step 3)
+        if let Some(d) = &self.design {
+            let (path, text) = d.doc_file();
             out.insert(path, text);
+            for (path, text) in d.idl_files.iter().chain(d.generated.iter()) {
+                out.insert(path.clone(), text.clone());
+            }
+            if generates_source(self.lang) {
+                let (path, text) = d.source()?;
+                out.insert(path, text);
+            }
         }
         // --idl: .jidl の写し、Python の型のコード、juiz_idl の雛形から作る Component のソース
         // (テンプレートの置換は通さない)
@@ -820,12 +913,6 @@ impl Plan {
             .collect())
     }
 
-    /// 雛形の直下に置く設計文書 (pkg.md §2.2、design.md §7.1)
-    pub fn design_file(&self) -> (String, String) {
-        let mut d = crate::design::preset(&self.name, self.template);
-        d.component.language = Some(self.lang);
-        (crate::design::FILE_NAME.to_owned(), crate::design::to_yaml(&d))
-    }
 
     /// 成功したときの表示 (§9)
     pub fn summary(&self) -> String {
@@ -839,6 +926,18 @@ impl Plan {
             self.next_steps(true, self.windows)
         )
     }
+}
+
+/// 生成後の表示の「本体を書く」行 (-d、pkg.md §2.5)
+fn write_bodies_line(lang: Lang, source: &str) -> String {
+    let what = match lang {
+        Lang::Rust => "todo!()",
+        Lang::Python => "raise NotImplementedError",
+        Lang::Cpp => "throw std::runtime_error",
+        Lang::Haskell => "error \"…\"",
+        Lang::Zig => "return error.NotImplemented",
+    };
+    format!("# write the bodies of the functions ({what}) in {source}, then")
 }
 
 /// 作り先の状態 (§8)
@@ -937,13 +1036,113 @@ pub fn create(args: &CreateArgs) -> Result<Created, PkgError> {
     };
     // ファイルを書く前に、一覧と作り先の検査を済ませる
     let files = plan.files()?;
-    check_dest(&dir)?;
-    write_files(&dir, &files, None)?;
+    match in_place_allowed(&plan, &dir)? {
+        // 作り先が文書のあるディレクトリそのもの (design.md §8.2)
+        Some(allowed) => write_files_in_place(&dir, &files, &allowed, None)?,
+        None => {
+            check_dest(&dir)?;
+            write_files(&dir, &files, None)?;
+        }
+    }
     Ok(Created {
         dir,
         files,
         warnings,
         summary: plan.summary(),
+    })
+}
+
+/// -d で作り先が文書のあるディレクトリそのものなら、そこに在ってよいファイル (文書と `idl:` の .jidl、
+/// 雛形のディレクトリからの / 区切りの相対パス) を返す。ほかのファイルがあればエラー (design.md §8.2)
+fn in_place_allowed(plan: &Plan, dir: &Path) -> Result<Option<Vec<String>>, PkgError> {
+    let Some(DesignPlan {
+        origin: Origin::File { dir: doc_dir, path, .. },
+        idl_files,
+        ..
+    }) = &plan.design
+    else {
+        return Ok(None);
+    };
+    let (Ok(a), Ok(b)) = (dir.canonicalize(), doc_dir.canonicalize()) else {
+        return Ok(None);
+    };
+    if a != b {
+        return Ok(None);
+    }
+    let mut allowed: Vec<String> = idl_files.iter().map(|(p, _)| p.clone()).collect();
+    if let Some(n) = path.file_name() {
+        allowed.push(n.to_string_lossy().into_owned());
+    }
+    let mut existing = Vec::new();
+    list_files(&a, &a, &mut existing)
+        .map_err(|e| PkgError::new(format!("cannot read {}: {e}", dir.display())))?;
+    let others: Vec<&String> = existing.iter().filter(|f| !allowed.contains(f)).collect();
+    if !others.is_empty() {
+        return Err(PkgError::new(format!(
+            "{} has files other than the design document and its .jidl files ({}); juiz pkg create does not overwrite files, so give another directory with -o",
+            dir.display(),
+            others.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+        )));
+    }
+    Ok(Some(allowed))
+}
+
+/// ディレクトリの下のファイルを / 区切りの相対パスで並べる
+fn list_files(root: &Path, dir: &Path, out: &mut Vec<String>) -> std::io::Result<()> {
+    for e in std::fs::read_dir(dir)? {
+        let p = e?.path();
+        if p.is_dir() {
+            list_files(root, &p, out)?;
+        } else if let Ok(rel) = p.strip_prefix(root) {
+            out.push(slash(rel));
+        }
+    }
+    Ok(())
+}
+
+/// 文書のあるディレクトリに雛形を書く。在ってよいファイルは書き直さない。
+/// 失敗したら自分が書いたファイルと作ったディレクトリだけを消す (design.md §8.2)
+pub(crate) fn write_files_in_place(
+    dir: &Path,
+    files: &[GeneratedFile],
+    allowed: &[String],
+    fail_at: Option<usize>,
+) -> Result<(), PkgError> {
+    let mut written: Vec<PathBuf> = Vec::new();
+    let mut made: Vec<PathBuf> = Vec::new();
+    let result = (|| -> std::io::Result<()> {
+        for (i, f) in files.iter().enumerate() {
+            if fail_at == Some(i) {
+                return Err(std::io::Error::other("injected failure"));
+            }
+            let path = dir.join(&f.path);
+            if allowed.contains(&f.path) && path.exists() {
+                continue;
+            }
+            // 作るディレクトリを覚える (深い方から消せるように、浅い順に足す)
+            let mut missing = Vec::new();
+            let mut p = path.parent();
+            while let Some(d) = p {
+                if d.exists() {
+                    break;
+                }
+                missing.push(d.to_path_buf());
+                p = d.parent();
+            }
+            made.extend(missing.into_iter().rev());
+            write_one(dir, f)?;
+            written.push(path);
+        }
+        Ok(())
+    })();
+    result.map_err(|e| {
+        for p in &written {
+            let _ = std::fs::remove_file(p);
+        }
+        for d in made.iter().rev() {
+            let _ = std::fs::remove_dir(d);
+        }
+        PkgError::new(format!("failed to write the skeleton in {}: {e}", dir.display()))
     })
 }
 
@@ -990,13 +1189,13 @@ mod tests {
     #[test]
     fn options() {
         let c = parse(&["create", "my_robot", "-b", "RUST"]);
-        assert_eq!(c.lang, Lang::Rust);
+        assert_eq!(c.lang, Some(Lang::Rust));
         assert_eq!(c.template, Template::Component);
         let c = parse(&["create", "my_robot", "--lang", "c++", "-t", "process"]);
-        assert_eq!(c.lang, Lang::Cpp);
+        assert_eq!(c.lang, Some(Lang::Cpp));
         assert_eq!(c.template, Template::Process);
         let c = parse(&["create", "my_robot", "-b", "Python", "--template", "Container"]);
-        assert_eq!(c.lang, Lang::Python);
+        assert_eq!(c.lang, Some(Lang::Python));
         assert_eq!(c.template, Template::Container);
         let e = Cli::try_parse_from(["juiz-pkg", "create", "x", "-b", "go"]).err().unwrap();
         let e = e.to_string();

@@ -1,0 +1,597 @@
+==== .gitignore ====
+# build outputs
+/target
+/build
+/dist-newstyle
+__pycache__/
+/.venv
+*.egg-info/
+# plugins put by scripts/dev.sh, and packages made by scripts/pack.sh
+/app/plugins/
+/dist/
+*.juizapp
+==== README.md ====
+# my_robot
+
+A juiz component written in Haskell. It was made with `juiz pkg create` of juiz <version>.
+
+
+## What is inside
+
+| Type | Kind | Arguments (default) | Returns | What it does |
+| --- | --- | --- | --- | --- |
+| `my_robot` | Container | `initial_value: long` (0) | - | Holds an integer value. |
+| `my_robot_increment` | ContainerProcess | `step: long` (1) | `long` | Adds step to the value and returns it. |
+| `my_robot_get` | ContainerProcess (readonly) | - | `long` | Returns the value. |
+
+| Path | What it is |
+| --- | --- |
+| `src/MyRobot.hs` | The Component. Each function is a type, paired with its manifest and listed in `juizComponent` |
+| `my-robot.cabal` | Builds the plugin `libmy_robot` with a cabal `foreign-library` |
+| `cabal.project` | Where hsjuiz (the Haskell library of juiz) and libjuiz_sdk are |
+| `app/app.conf` | The configuration to start juiz with. It is also the entry of the `.juizapp` package |
+| `app/juizapp.yaml` | The `.juizapp` manifest (name, version, required juiz version) |
+| `scripts/dev.sh` | Build the plugin and put it in `app/plugins/<target>/` |
+| `scripts/pack.sh` | Build, collect the libraries the plugin uses, and make `dist/my_robot-<version>.juizapp` |
+| `scripts/bundle-plugin-deps.sh` | Used by `scripts/pack.sh`. A copy of the script of the same name in juiz <version> |
+
+## Requirements
+
+Linux or macOS. Haskell plugins on Windows are not supported by this skeleton yet (juiz issue #137).
+
+- juiz <version> (`juiz --version`). Install it with `cargo install juiz_app --version <version>` or `pip install juiz-cli==<version>`
+- GHC 9.6 or later and cabal ([GHCup](https://www.haskell.org/ghcup/))
+- libjuiz_sdk <version> in `/opt/juiz-sdk`
+- The juiz source of <version> for hsjuiz, in `/opt/juiz/bindings/hsjuiz` (hsjuiz is not on Hackage yet)
+- To make the package on Linux: patchelf (`apt install patchelf` or `pip install patchelf`)
+
+`cabal.project` has the absolute paths of hsjuiz and libjuiz_sdk that `juiz pkg create` found or expected.
+If you put them somewhere else, or share this project with someone, change the paths in `cabal.project`.
+
+hsjuiz and libjuiz_sdk must be the same version as juiz: juiz does not load a plugin that carries another version of libjuiz_sdk.
+`app/juizapp.yaml` requires `juiz: "=<version>"` for the same reason.
+When you update juiz, get hsjuiz and libjuiz_sdk of the new version, and change `cabal.project` and `app/juizapp.yaml`.
+
+## Build, run and call
+
+```sh
+# once: get hsjuiz <version> (the juiz source) in /opt/juiz/bindings/hsjuiz
+git clone --depth 1 --branch v<version> https://github.com/OpenJUIZ/juiz.git /opt/juiz
+# once: put libjuiz_sdk <version> in /opt/juiz-sdk
+juiz sdk install --dir /opt/juiz-sdk
+scripts/dev.sh                  # build and put the plugin in app/plugins/<target>/
+juiz -f app/app.conf -d         # start (keep it running)
+
+# in another terminal
+juiz container-process call "http://127.0.0.1:8000/container_process/my_robot_increment0::my_robot_increment:my_robot0" '{"step": 1}' -p
+juiz container-process call "http://127.0.0.1:8000/container_process/my_robot_get0::my_robot_get:my_robot0" '{}' -p
+
+scripts/pack.sh                 # make dist/my_robot-0.1.0.juizapp
+juiz run dist/my_robot-0.1.0.juizapp
+```
+
+The first build also builds hsjuiz, so it takes a while.
+The plugin in `app/plugins/<target>/` uses the hsjuiz library in `dist-newstyle`: if you delete `dist-newstyle` or switch GHC, run `scripts/dev.sh` again.
+The package made by `scripts/pack.sh` carries all the libraries the plugin uses, and runs without GHC.
+
+If linking fails on macOS with `tapi error: ... unknown architecture`, the Command Line Tools are newer than the selected Xcode.
+Build with `DEVELOPER_DIR=/Library/Developer/CommandLineTools scripts/dev.sh` (juiz issue #143).
+
+## Versions
+
+The package version is `0.1.0` in both `my-robot.cabal` and `app/juizapp.yaml`. When you release a new version, change both.
+
+## Plugins for several OSes in one package
+
+`scripts/pack.sh` collects the libraries for the OS it runs on.
+For another OS (Linux or macOS), run `scripts/dev.sh` there, then
+`scripts/bundle-plugin-deps.sh app/plugins/<target>/libmy_robot.<so|dylib> <dir>`, and copy `<dir>` to `app/plugins/<target>/` on the machine that makes the package.
+`scripts/pack.sh --no-build` packs those directories as they are.
+==== app/app.conf ====
+# my_robot: start-up configuration of the juiz component my_robot
+#   development: juiz -f app/app.conf -d
+#                (Rust, C++, Haskell and Zig: run scripts/dev.sh first to put the plugin in app/plugins/<target>/)
+#   package:     scripts/pack.sh, then juiz run dist/my_robot-0.1.0.juizapp
+"name": "my_robot"
+"option":
+  "http_broker":
+    "start": true
+    "port": 8000
+"plugins":
+  "components":
+    "my_robot":
+      "language": "haskell"
+      "path": "plugins/{target}"
+"containers":
+  - "type_name": "my_robot"
+    "name": "my_robot0"
+    "initial_value": 0
+    "processes":
+      - "type_name": "my_robot_increment"
+        "name": "my_robot_increment0"
+      - "type_name": "my_robot_get"
+        "name": "my_robot_get0"
+"ecs":
+  # Calls my_robot_increment0 periodically once started (set auto_start: true to start it with juiz)
+  - "type_name": "main_loop_ec"
+    "name": "main_ec"
+    "rate": 1
+    "bind":
+      - "type_name": "my_robot_increment"
+        "name": "my_robot_increment0"
+        "container_name": "my_robot0"
+    "auto_start": false
+==== app/juizapp.yaml ====
+# .juizapp manifest (juiz docs/spec/app-package.md §4). languages, targets, rust and files are added by juiz pack
+format: 1
+name: my_robot
+version: 0.1.0
+kind: app
+description: "my_robot: a juiz component"
+# The package carries libjuiz_sdk <version>, and juiz loads it only with the same version of juiz
+juiz: "=<version>"
+entry: app.conf
+==== cabal.project ====
+-- Build this package together with hsjuiz <version> from the juiz source.
+-- The paths were written by juiz pkg create. When you update juiz, change them to the new version
+-- (hsjuiz and libjuiz_sdk must be the same version as juiz).
+packages: . /opt/juiz/bindings/hsjuiz
+
+-- hsjuiz uses only packages that come with GHC, so the Hackage index is not used (no cabal update needed)
+active-repositories: :none
+
+-- hsjuiz links to libjuiz_sdk. GHC loads libjuiz_sdk with hsjuiz when it runs Template Haskell,
+-- and the plugin built by scripts/dev.sh finds it with this rpath during development
+package hsjuiz
+  extra-lib-dirs: /opt/juiz-sdk/lib
+  ghc-options: -optl-Wl,-rpath,/opt/juiz-sdk/lib
+==== juizdesign.yaml ====
+# yaml-language-server: $schema=https://raw.githubusercontent.com/OpenJUIZ/juiz/v<version>/juiz_pkg/schema/juizdesign.schema.json
+# my_robot: design of the juiz component my_robot (juiz docs/spec/design.md)
+#   check:    juiz pkg design check juizdesign.yaml
+#   scaffold: juiz pkg create -d juizdesign.yaml -b <rust|python|cpp|haskell|zig>
+format: 1
+component:
+  name: my_robot
+  description: "my_robot: a juiz component"
+  language: haskell
+containers:
+  - name: my_robot
+    description: "Holds an integer value."
+    arguments:
+      - { name: initial_value, type: long, default: 0 }
+    state:
+      - { name: value, type: long, init: initial_value }
+    processes:
+      - name: my_robot_increment
+        description: "Adds step to the value and returns it."
+        arguments:
+          - { name: step, type: long, default: 1 }
+        returns: long
+      - name: my_robot_get
+        description: "Returns the value."
+        returns: long
+        readonly: true
+==== my-robot.cabal ====
+cabal-version:      3.0
+name:               my-robot
+version:            0.1.0
+synopsis:           my_robot: a juiz component
+build-type:         Simple
+
+-- The plugin that juiz loads: libmy_robot.so on Linux, libmy_robot.dylib on macOS.
+-- Its name is the key of plugins.components in app/app.conf.
+-- juiz calls the functions from worker threads, so the -threaded RTS is required.
+-- The rpath $ORIGIN / @loader_path lets the plugin find the libraries put next to it in the .juizapp
+-- (scripts/pack.sh collects them with scripts/bundle-plugin-deps.sh).
+foreign-library my_robot
+    type:             native-shared
+    default-language: Haskell2010
+    build-depends:    base >=4.18 && <5
+                    , hsjuiz
+    ghc-options:      -Wall -threaded
+    if os(darwin)
+        ghc-options:  -optl-Wl,-rpath,@loader_path
+    else
+        ghc-options:  -optl-Wl,-rpath,$ORIGIN
+    hs-source-dirs:   src
+    other-modules:    MyRobot
+==== scripts/bundle-plugin-deps.sh ====
+#!/usr/bin/env bash
+# プラグイン(C ABI の共有ライブラリ)と、それが使う共有ライブラリを 1 つのディレクトリに集め、
+# そのディレクトリだけで読み込めるようにする(.juizapp の plugins/<ターゲット名>/ 用、issue #287)。
+#
+# Haskell のプラグインは libjuiz_sdk のほかに GHC の共有ライブラリ(libHSbase-*.so、libHSrts-*.so など)と
+# libffi・libgmp に動的リンクするので、受け取る側に GHC が無くても動くよう、これらを隣に置く。
+# C++ のプラグインは CMake の juiz_sdk_bundle(<target>) で足りるが、ほかのライブラリを使うときはこれも使える。
+#
+# 使い方:
+#   scripts/bundle-plugin-deps.sh <プラグイン> <出力ディレクトリ>
+#       プラグインを出力ディレクトリに写し、依存するライブラリ(OS の基本のライブラリを除く)を同じ所に写して、
+#       どれも隣のライブラリを探すようにする(Linux: RUNPATH を $ORIGIN、macOS: @rpath と @loader_path)。
+#   scripts/bundle-plugin-deps.sh --check <プラグイン>
+#       依存するライブラリが、プラグインと同じディレクトリか OS の基本のライブラリだけで見つかるかを確かめる。
+#       見つからないもの・ほかの場所で見つかったものを並べ、1 つでもあれば 1 で終わる。
+#
+# 要るもの: Linux は ldd と patchelf(pip install patchelf でも入る)、macOS は otool・install_name_tool・codesign。
+# Windows は対象外(C++ は juiz_sdk_bundle が juiz_sdk.dll を隣に写す。Haskell の Windows は #137)。
+#
+# OS の基本のライブラリ(写さないもの):
+#   Linux: glibc(libc・libm・libdl・libpthread・librt・libutil・libresolv・ld-linux)、libgcc_s、libstdc++
+#   macOS: /usr/lib/ と /System/ の下
+set -euo pipefail
+
+usage() {
+    echo "usage: $0 <plugin> <out-dir>" >&2
+    echo "       $0 --check <plugin>" >&2
+    exit 2
+}
+
+check=0
+if [[ "${1:-}" == "--check" ]]; then
+    check=1
+    shift
+fi
+if [[ $check -eq 1 && $# -ne 1 ]] || [[ $check -eq 0 && $# -ne 2 ]]; then
+    usage
+fi
+plugin="$1"
+if [[ ! -f "$plugin" ]]; then
+    echo "error: $plugin がありません" >&2
+    exit 1
+fi
+
+os="$(uname -s)"
+case "$os" in
+    Linux | Darwin) ;;
+    *)
+        echo "error: $os には対応していません(Linux と macOS だけ)" >&2
+        exit 1
+        ;;
+esac
+
+abs_dir() { (cd "$1" && pwd -P); }
+
+# --- Linux -------------------------------------------------------------------
+
+linux_is_system() {
+    case "$1" in
+        linux-vdso.so* | linux-gate.so* | ld-linux*.so* | ld64.so* | \
+        libc.so* | libm.so* | libdl.so* | libpthread.so* | librt.so* | libutil.so* | libresolv.so* | \
+        libgcc_s.so* | libstdc++.so*) return 0 ;;
+    esac
+    return 1
+}
+
+# ldd の出力から「名前<TAB>見つかった場所(無ければ空)」を出す(依存の依存も含む)
+linux_deps() {
+    ldd "$1" | while read -r line; do
+        case "$line" in
+            *"=> not found"*) printf '%s\t\n' "${line%% *}" ;;
+            *" => /"*)
+                name="${line%% *}"
+                path="${line#* => }"
+                path="${path%% (*}"
+                printf '%s\t%s\n' "$name" "$path"
+                ;;
+        esac
+    done
+}
+
+linux_check() {
+    local file="$1" dir bad=0
+    dir="$(abs_dir "$(dirname "$file")")"
+    while IFS=$'\t' read -r name path; do
+        linux_is_system "$name" && continue
+        if [[ -z "$path" ]]; then
+            echo "missing: $name (not found)"
+            bad=1
+        elif [[ "$(abs_dir "$(dirname "$path")")" != "$dir" ]]; then
+            echo "outside: $name (found at $path)"
+            bad=1
+        fi
+    done < <(linux_deps "$file")
+    return $bad
+}
+
+linux_bundle() {
+    local src="$1" out="$2" base
+    command -v patchelf > /dev/null || {
+        echo "error: patchelf がありません(apt install patchelf か pip install patchelf)" >&2
+        exit 1
+    }
+    base="$(basename "$src")"
+    cp -L "$src" "$out/$base"
+    chmod u+w "$out/$base"
+    local files=("$out/$base")
+    while IFS=$'\t' read -r name path; do
+        linux_is_system "$name" && continue
+        if [[ -z "$path" ]]; then
+            echo "error: $base が使う $name が見つかりません" >&2
+            exit 1
+        fi
+        if [[ ! -e "$out/$name" ]]; then
+            cp -L "$path" "$out/$name"
+            chmod u+w "$out/$name"
+            files+=("$out/$name")
+            echo "copied: $name ($path)"
+        fi
+    done < <(linux_deps "$src")
+    for f in "${files[@]}"; do
+        patchelf --set-rpath '$ORIGIN' "$f"
+    done
+}
+
+# --- macOS -------------------------------------------------------------------
+
+mac_is_system() {
+    case "$1" in
+        /usr/lib/* | /System/*) return 0 ;;
+    esac
+    return 1
+}
+
+# LC_RPATH の一覧(@loader_path はそのファイルのディレクトリに置き換える)
+mac_rpaths() {
+    local file="$1" dir
+    dir="$(abs_dir "$(dirname "$file")")"
+    otool -l "$file" | awk '/cmd LC_RPATH/{r=1} r && /path /{print $2; r=0}' |
+        sed -e "s|^@loader_path|$dir|" -e "s|^@executable_path|$dir|"
+}
+
+# 直接の依存の install name(自分の id を除く)
+mac_direct_deps() {
+    local file="$1" id
+    id="$(otool -D "$file" | sed -n 2p)"
+    otool -L "$file" | tail -n +2 | awk '{print $1}' | while read -r dep; do
+        [[ "$dep" == "$id" ]] && continue
+        echo "$dep"
+    done
+}
+
+# install name を実際のファイルに直す。見つからなければ空
+mac_resolve() {
+    local file="$1" dep="$2" dir rp
+    dir="$(abs_dir "$(dirname "$file")")"
+    case "$dep" in
+        @rpath/*)
+            while read -r rp; do
+                if [[ -e "$rp/${dep#@rpath/}" ]]; then
+                    echo "$rp/${dep#@rpath/}"
+                    return
+                fi
+            done < <(mac_rpaths "$file")
+            ;;
+        @loader_path/*) [[ -e "$dir/${dep#@loader_path/}" ]] && echo "$dir/${dep#@loader_path/}" ;;
+        /*) [[ -e "$dep" ]] && echo "$dep" ;;
+    esac
+    return 0
+}
+
+mac_check() {
+    local start="$1" dir bad=0
+    dir="$(abs_dir "$(dirname "$start")")"
+    local queue=("$start") seen=" "
+    while [[ ${#queue[@]} -gt 0 ]]; do
+        local file="${queue[0]}"
+        queue=("${queue[@]:1}")
+        while read -r dep; do
+            mac_is_system "$dep" && continue
+            local path
+            path="$(mac_resolve "$file" "$dep")"
+            if [[ -z "$path" ]]; then
+                echo "missing: $dep (needed by $(basename "$file"))"
+                bad=1
+            elif [[ "$(abs_dir "$(dirname "$path")")" != "$dir" ]]; then
+                echo "outside: $dep (found at $path)"
+                bad=1
+            elif [[ "$seen" != *" $path "* ]]; then
+                seen="$seen$path "
+                queue+=("$path")
+            fi
+        done < <(mac_direct_deps "$file")
+    done
+    return $bad
+}
+
+mac_bundle() {
+    local src="$1" out="$2" base
+    base="$(basename "$src")"
+    cp -L "$src" "$out/$base"
+    chmod u+w "$out/$base"
+    # 写したファイル <TAB> 依存を探すときに使う元のファイル(rpath は元の場所で解く)
+    local queue=("$out/$base"$'\t'"$src") files=("$out/$base")
+    while [[ ${#queue[@]} -gt 0 ]]; do
+        local item="${queue[0]}"
+        queue=("${queue[@]:1}")
+        local copy="${item%%$'\t'*}" orig="${item#*$'\t'}"
+        while read -r dep; do
+            mac_is_system "$dep" && continue
+            local path name
+            path="$(mac_resolve "$orig" "$dep")"
+            if [[ -z "$path" ]]; then
+                echo "error: $(basename "$orig") が使う $dep が見つかりません" >&2
+                exit 1
+            fi
+            name="$(basename "$dep")"
+            if [[ ! -e "$out/$name" ]]; then
+                cp -L "$path" "$out/$name"
+                chmod u+w "$out/$name"
+                install_name_tool -id "@rpath/$name" "$out/$name"
+                files+=("$out/$name")
+                queue+=("$out/$name"$'\t'"$path")
+                echo "copied: $name ($path)"
+            fi
+            if [[ "$dep" != "@rpath/$name" ]]; then
+                install_name_tool -change "$dep" "@rpath/$name" "$copy"
+            fi
+        done < <(mac_direct_deps "$orig")
+    done
+    for f in "${files[@]}"; do
+        # 元の rpath(ビルドした機械の絶対パス)を消し、@loader_path だけにする
+        while read -r rp; do
+            install_name_tool -delete_rpath "$rp" "$f"
+        done < <(otool -l "$f" | awk '/cmd LC_RPATH/{r=1} r && /path /{print $2; r=0}')
+        install_name_tool -add_rpath "@loader_path" "$f"
+        # 書き換えると署名が壊れる(Apple Silicon では署名の無いライブラリを読めない)ので付け直す
+        codesign --force --sign - "$f" 2> /dev/null
+    done
+}
+
+# -----------------------------------------------------------------------------
+
+if [[ $check -eq 1 ]]; then
+    if [[ "$os" == Darwin ]]; then mac_check "$plugin"; else linux_check "$plugin"; fi
+    echo "ok: $(basename "$plugin") needs only the libraries next to it and the system libraries"
+    exit 0
+fi
+
+out="$2"
+mkdir -p "$out"
+if [[ "$(abs_dir "$(dirname "$plugin")")" == "$(abs_dir "$out")" ]]; then
+    echo "error: 出力ディレクトリはプラグインのあるディレクトリと別にしてください" >&2
+    exit 1
+fi
+if [[ "$os" == Darwin ]]; then mac_bundle "$plugin" "$out"; else linux_bundle "$plugin" "$out"; fi
+"$0" --check "$out/$(basename "$plugin")"
+==== scripts/dev.sh ====
+#!/bin/sh
+# Build the plugin and put it in app/plugins/<target>/ (to run app/app.conf during development)
+# usage: scripts/dev.sh [--release]
+#   --release is accepted for the same usage as the other languages. cabal builds with -O1 either way
+#   (to change it, write "optimization: 2" in cabal.project.local)
+# During development the plugin finds libjuiz_sdk with the rpath in cabal.project,
+# and the hsjuiz library in dist-newstyle. scripts/pack.sh puts them all next to the plugin.
+set -eu
+cd "$(dirname "$0")/.."
+if ! command -v juiz >/dev/null 2>&1; then
+  echo "error: juiz is not in PATH. Install juiz <version>:" >&2
+  echo "  cargo install juiz_app --version <version>   (or: pip install juiz-cli==<version>)" >&2
+  exit 1
+fi
+if ! command -v cabal >/dev/null 2>&1 || ! command -v ghc >/dev/null 2>&1; then
+  echo "error: ghc and cabal are not in PATH. Install GHC 9.6 or later and cabal (https://www.haskell.org/ghcup/)." >&2
+  exit 1
+fi
+target=$(juiz pkg target)
+case "$target" in
+  *apple-darwin) lib="libmy_robot.dylib" ;;
+  *windows*)
+    echo "error: Haskell plugins on Windows are not supported by this skeleton yet (juiz issue #137)." >&2
+    exit 1
+    ;;
+  *) lib="libmy_robot.so" ;;
+esac
+cabal build all
+found=$(find dist-newstyle -name "$lib" -type f | head -n 1)
+if [ -z "$found" ]; then
+  echo "error: $lib is not in dist-newstyle" >&2
+  exit 1
+fi
+mkdir -p "app/plugins/$target"
+cp "$found" "app/plugins/$target/"
+echo "app/plugins/$target/$lib"
+==== scripts/pack.sh ====
+#!/bin/sh
+# Make dist/my_robot-<version>.juizapp with juiz pack (juiz docs/spec/app-package.md)
+# usage: scripts/pack.sh [--no-build]
+#   --no-build: do not build; pack the plugin already in app/plugins/<target>/
+# The plugin uses libjuiz_sdk, hsjuiz and the shared libraries of GHC (and libffi, libgmp).
+# scripts/bundle-plugin-deps.sh puts them next to the plugin in the package, so that juiz loads it
+# on machines without GHC. It needs patchelf on Linux (apt install patchelf, or pip install patchelf).
+set -eu
+cd "$(dirname "$0")/.."
+if [ "${1:-}" != "--no-build" ]; then
+  scripts/dev.sh --release
+fi
+target=$(juiz pkg target)
+case "$target" in
+  *apple-darwin) lib="libmy_robot.dylib" ;;
+  *) lib="libmy_robot.so" ;;
+esac
+if [ ! -f "app/plugins/$target/$lib" ]; then
+  echo "error: app/plugins/$target/$lib is not there. Run scripts/dev.sh first." >&2
+  exit 1
+fi
+stage=$(mktemp -d)
+trap 'rm -rf "$stage"' EXIT
+(cd app && tar cf - --exclude=__pycache__ --exclude="plugins/$target" .) | (cd "$stage" && tar xf -)
+# The plugins of this OS: the plugin and the libraries it uses, with the rpath rewritten
+scripts/bundle-plugin-deps.sh "app/plugins/$target/$lib" "$stage/plugins/$target"
+for f in LICENSE-MIT LICENSE-APACHE; do
+  if [ -f "$f" ]; then cp "$f" "$stage/"; fi
+done
+mkdir -p dist
+juiz pack "$stage" -o dist
+==== src/MyRobot.hs ====
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
+-- | my_robot: a juiz component written in Haskell (juiz docs/spec/pkg.md).
+--
+-- Each function below is paired with its manifest, and juizComponent at the end exposes them as the
+-- types of this Component. As in C++, the type name and the arguments (name, description, default)
+-- are written in the manifest; the arguments are passed to the function in the order they are added.
+-- Build with scripts/dev.sh.
+module MyRobot () where
+
+import Juiz
+
+-- | The manifest of the whole Component (the types in this plugin)
+my_robot_component :: ComponentManifest
+my_robot_component = componentManifest "my_robot"
+  & description "my_robot: a juiz component"
+
+-- | State of the container my_robot: one integer value
+newtype MyRobotState = MyRobotState (IORef Int64)
+
+-- | Container my_robot. initial_value is taken from the container entry of app/app.conf
+my_robot_manifest :: ContainerManifest
+my_robot_manifest = containerManifest "my_robot"
+  & description "Holds an integer value."
+  & addIntArg "initial_value" "the initial value" 0
+
+my_robot_create :: Int64 -> IO MyRobotState
+my_robot_create initialValue = MyRobotState <$> newIORef initialValue
+
+-- | ContainerProcess my_robot_increment
+my_robot_increment_manifest :: ProcessManifest
+my_robot_increment_manifest = containerProcessManifest "my_robot_increment" "my_robot"
+  & description "Adds step to the value and returns it."
+  & addIntArg "step" "the value to add" 1
+
+my_robot_increment :: MyRobotState -> Int64 -> IO Int64
+my_robot_increment (MyRobotState ref) step = atomicModifyIORef' ref (\v -> (v + step, v + step))
+
+-- | ContainerProcess my_robot_get. readonly: it only reads the state
+-- (juiz may run readonly container processes of the same container in parallel)
+my_robot_get_manifest :: ProcessManifest
+my_robot_get_manifest = containerProcessManifest "my_robot_get" "my_robot"
+  & description "Returns the value."
+  & readonly True
+
+my_robot_get :: MyRobotState -> IO Int64
+my_robot_get (MyRobotState ref) = readIORef ref
+
+juizComponent 'my_robot_component
+  [ componentContainer 'my_robot_create 'my_robot_manifest
+  , componentContainerProcess 'my_robot_increment 'my_robot_increment_manifest
+  , componentContainerProcess 'my_robot_get 'my_robot_get_manifest
+  ]
+==== <summary> ====
+Created my_robot (haskell, container) in /work/my_robot  [hsjuiz <version>]
+
+Next steps:
+  cd /work/my_robot
+  # once: get hsjuiz <version> (the juiz source) in /opt/juiz/bindings/hsjuiz
+  git clone --depth 1 --branch v<version> https://github.com/OpenJUIZ/juiz.git /opt/juiz
+  # once: put libjuiz_sdk <version> in /opt/juiz-sdk
+  juiz sdk install --dir /opt/juiz-sdk
+  scripts/dev.sh                  # build and put the plugin in app/plugins/<target>/
+  juiz -f app/app.conf -d         # start (keep it running)
+
+  # in another terminal
+  juiz container-process call "http://127.0.0.1:8000/container_process/my_robot_increment0::my_robot_increment:my_robot0" '{"step": 1}' -p
+  juiz container-process call "http://127.0.0.1:8000/container_process/my_robot_get0::my_robot_get:my_robot0" '{}' -p
+
+  scripts/pack.sh                 # make dist/my_robot-0.1.0.juizapp
+  juiz run dist/my_robot-0.1.0.juizapp

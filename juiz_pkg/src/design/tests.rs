@@ -78,7 +78,7 @@ fn container_doc(args: &[&str], state: &[&str]) -> String {
 }
 
 /// §3.1 の 2 つめの例
-const ROVER: &str = r#"format: 1
+pub(crate) const ROVER: &str = r#"format: 1
 component:
   name: rover
   description: "Drives a two-wheeled rover."
@@ -107,7 +107,7 @@ containers:
         returns: juiz_std.geometry.Pose2D
 "#;
 
-const ROVER_JIDL: &str = "namespace rover.types;\n\nrecord Velocity {\n  double v;\n  double w;\n}\n";
+pub(crate) const ROVER_JIDL: &str = "namespace rover.types;\n\nrecord Velocity {\n  double v;\n  double w;\n}\n";
 
 fn rover_dir(name: &str) -> PathBuf {
     let dir = temp(name);
@@ -715,4 +715,139 @@ fn json_schema_agrees() {
     let x = "format: 1\nx-a: 1\ncomponent: { name: my_robot, x-b: 2 }\nprocesses: [{ name: p, x-c: 3 }]\n";
     assert!(schema_ok(&schema, &schema, &yaml_json(x)));
     assert!(parse(x).is_ok());
+}
+
+// ---- create -d (Step 2、§8.2) ----
+
+mod create_d {
+    use super::*;
+    use crate::cli::{PkgArgs, PkgCommand};
+    use crate::create::{create, Plan};
+    use crate::design::generate::rewrite_language;
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct Cli {
+        #[command(flatten)]
+        args: PkgArgs,
+    }
+
+    fn args(v: &[&str]) -> crate::cli::CreateArgs {
+        let mut a = vec!["juiz-pkg", "create"];
+        a.extend_from_slice(v);
+        match Cli::try_parse_from(a).unwrap().args.command {
+            PkgCommand::Create(c) => c,
+            _ => panic!(),
+        }
+    }
+
+    fn plan(v: &[&str]) -> Result<(Plan, Vec<String>), crate::PkgError> {
+        Plan::from_args_with(&args(v), || None, false)
+    }
+
+    #[test]
+    fn options_conflict_with_name_template_and_idl() {
+        for extra in [vec!["my_robot"], vec!["-t", "process"], vec!["--idl", "x.jidl"]] {
+            let mut a = vec!["juiz-pkg", "create", "-d", "juizdesign.yaml"];
+            a.extend(extra.iter());
+            assert!(Cli::try_parse_from(a).is_err(), "{extra:?}");
+        }
+        // -d が無ければ <name> と -b が要る
+        assert!(Cli::try_parse_from(["juiz-pkg", "create", "-b", "rust"]).is_err());
+        assert!(Cli::try_parse_from(["juiz-pkg", "create", "my_robot"]).is_err());
+        assert!(Cli::try_parse_from(["juiz-pkg", "create", "-d", "juizdesign.yaml"]).is_ok());
+    }
+
+    #[test]
+    fn language_comes_from_b_then_the_document() {
+        let dir = rover_dir("create_d_lang");
+        let doc = dir.join(FILE_NAME);
+        let d = doc.to_str().unwrap();
+        // 文書の language
+        let (p, w) = plan(&["-d", d]).unwrap();
+        assert_eq!((p.name.as_str(), p.lang), ("rover", Lang::Rust));
+        assert!(w.is_empty(), "{w:?}");
+        assert_eq!(p.display_dir, "./rover");
+        // -b が違えば W1 を出して -b、写す文書の language の行も書き換える
+        let (p, w) = plan(&["-d", d, "-b", "python"]).unwrap();
+        assert_eq!(p.lang, Lang::Python);
+        assert!(w.len() == 1 && w[0].contains("-b python is not component.language (rust)"), "{w:?}");
+        let files = p.files().unwrap();
+        let copy = &files.iter().find(|f| f.path == FILE_NAME).unwrap().content;
+        assert_eq!(copy, &ROVER.replace("  language: rust\n", "  language: python\n"));
+        // 言語が決まらない・Step 2 で作れない言語
+        std::fs::write(&doc, ROVER.replace("  language: rust\n", "")).unwrap();
+        let e = plan(&["-d", d]).unwrap_err().to_string();
+        assert!(e.contains("give the language with -b"), "{e}");
+        let e = plan(&["-d", d, "-b", "cpp"]).unwrap_err().to_string();
+        assert!(e.contains("#596"), "{e}");
+        // 検査を通らない文書は何も書かずにエラー (すべてのエラーを並べる)
+        std::fs::write(&doc, ROVER.replace("type: rover.types.Velocity }", "type: Velocity }")).unwrap();
+        let e = plan(&["-d", d]).unwrap_err().to_string();
+        assert!(e.contains("juizdesign.yaml:23:") && e.contains("write the full name (rover.types.Velocity)"), "{e}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn files_of_a_document_without_idl() {
+        let dir = temp("create_d_plain");
+        let doc = dir.join("my.yaml");
+        std::fs::write(&doc, container_doc(&["{ name: n, type: long, default: 3 }"], &["{ name: v, type: long, init: n }"])).unwrap();
+        let (p, _) = plan(&["-d", doc.to_str().unwrap(), "-b", "rust"]).unwrap();
+        let files = p.files().unwrap();
+        let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+        // .jidl が無ければ build.rs は置かない
+        assert!(!paths.contains(&"build.rs") && paths.contains(&"juizdesign.yaml"), "{paths:?}");
+        let get = |n: &str| files.iter().find(|f| f.path == n).unwrap().content.clone();
+        let lib = get("src/lib.rs");
+        assert!(lib.starts_with("//! my_robot: a juiz component made from my.yaml (juiz pkg create -d).\n"), "{lib}");
+        assert!(!lib.contains("include!"), "{lib}");
+        assert!(lib.contains("fn c(n: i64) -> JuizResult<Box<C>> {\n    Ok(Box::new(C {\n        v: n,\n    }))\n}\n"), "{lib}");
+        assert!(!get("Cargo.toml").contains("juiz_std_types") && !get("Cargo.toml").contains("juiz_idl"));
+        // app.conf: 型ごとにインスタンス、Container の引数は既定値、ecs は書かない (§6.3)
+        let conf = get("app/app.conf");
+        assert!(conf.ends_with("\"containers\":\n  - \"type_name\": \"c\"\n    \"name\": \"c0\"\n    \"n\": 3\n"), "{conf}");
+        assert!(p.summary().contains("(rust, from my.yaml)"), "{}", p.summary());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn create_in_the_directory_of_the_document() {
+        let dir = rover_dir("create_d_in_place");
+        let doc = dir.join(FILE_NAME);
+        let o = dir.to_str().unwrap();
+        // 文書と .jidl だけなら、そのディレクトリに作る (文書と .jidl は書き直さない)
+        let c = create(&args(&["-d", doc.to_str().unwrap(), "-o", o])).unwrap();
+        assert!(dir.join("src/lib.rs").is_file() && dir.join("build.rs").is_file());
+        assert_eq!(std::fs::read_to_string(&doc).unwrap(), ROVER);
+        assert!(c.summary.contains("from juizdesign.yaml"), "{}", c.summary);
+        // もう一度は作れない (ほかのファイルがある)
+        let e = create(&args(&["-d", doc.to_str().unwrap(), "-o", o])).unwrap_err().to_string();
+        assert!(e.contains("has files other than the design document"), "{e}");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        // 途中で失敗したら、書いたファイルと作ったディレクトリだけを消す
+        let dir = rover_dir("create_d_in_place_fail");
+        let (p, _) = plan(&["-d", dir.join(FILE_NAME).to_str().unwrap(), "-o", dir.to_str().unwrap()]).unwrap();
+        let files = p.files().unwrap();
+        let allowed = vec![FILE_NAME.to_owned(), "idl/rover.jidl".to_owned()];
+        let at = files.iter().position(|f| f.path == "src/lib.rs").unwrap();
+        assert!(crate::create::write_files_in_place(&dir, &files, &allowed, Some(at)).is_err());
+        let mut left: Vec<String> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        left.sort();
+        assert_eq!(left, ["idl", "juizdesign.yaml"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rewrites_only_the_language_line_of_component() {
+        let text = "# x\nformat: 1\ncomponent:\n  name: a\n  language: RUST   # the default\nprocesses:\n  - name: language\n";
+        assert_eq!(
+            rewrite_language(text, Lang::Python).unwrap(),
+            "# x\nformat: 1\ncomponent:\n  name: a\n  language: python   # the default\nprocesses:\n  - name: language\n"
+        );
+        // flow 形式などで行が見つからなければ None
+        assert!(rewrite_language("format: 1\ncomponent: { name: a, language: rust }\n", Lang::Python).is_none());
+        assert!(rewrite_language("format: 1\ncomponent:\n  name: a\nx-language: 1\n", Lang::Python).is_none());
+    }
 }
