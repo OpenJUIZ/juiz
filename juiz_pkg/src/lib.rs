@@ -10,6 +10,8 @@ pub mod design;
 pub mod idl;
 pub mod names;
 pub mod render;
+#[cfg(test)]
+mod snapshots;
 
 mod templates {
     include!(concat!(env!("OUT_DIR"), "/templates.rs"));
