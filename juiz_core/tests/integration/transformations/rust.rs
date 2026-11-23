@@ -13,7 +13,7 @@ const EPS: f64 = 1e-9;
 const H: f64 = std::f64::consts::FRAC_1_SQRT_2;
 const ABIS: [&str; 2] = ["c", "rust"];
 
-const PROCESSES: [&str; 9] = [
+const PROCESSES: [&str; 10] = [
     "rust_part_pose",
     "rust_part_set_pose",
     "rust_part_try",
@@ -23,6 +23,7 @@ const PROCESSES: [&str; 9] = [
     "rust_part_meet",
     "rust_part_lookup",
     "rust_part_set_transform",
+    "rust_part_set_model",
 ];
 
 fn part(name: &str) -> Value {
@@ -346,6 +347,37 @@ fn rust_container_process_sets_transforms() -> JuizResult<()> {
         } else {
             assert!(r == "TransformNotWritableError" || r.contains("readonly"), "{r}");
         }
+        Ok(())
+    })
+}
+
+/// set_model (#564、container-model.md §13.2): C ABI のグルーでも Rust ABI でも、ContainerImpl::set_model で差し替えられる
+#[test]
+fn rust_container_process_replaces_model() -> JuizResult<()> {
+    const SDF: &str = r#"<sdf version="1.9"><model name="m"><link name="l"><visual name="v">
+<geometry><sphere><radius>0.1</radius></sphere></geometry></visual></link></model></sdf>"#;
+    for_each_abi(|system, abi| {
+        let info = call(system, "base0", "rust_part_set_model", jvalue!({"text": SDF, "format": "sdf"}))?;
+        assert_eq!(info["format"], "sdf", "abi: {abi}: {info}");
+        assert_eq!(info["file_name"], "rust.sdf");
+        assert_eq!(info["color"], "#0000ff");
+        assert_eq!(info["sha256"], juiz_core::models::sha256_hex(SDF.as_bytes()));
+        assert_eq!(system.core_broker().lock()?.container_model_info("base0")?, info);
+        // 値の誤り。今のモデルは変えない。Rust ABI ではホストの JuizError を downcast できないので文で確かめる
+        match call(system, "base0", "rust_part_set_model", jvalue!({"text": "not a glb", "format": "glb"})) {
+            Ok(v) => assert_eq!(v, jvalue!("ContainerModelInvalidError"), "abi: {abi}"),
+            Err(e) => {
+                assert_eq!(abi, "rust", "{e:#}");
+                assert!(format!("{e:#}").contains("ContainerModel is invalid"), "{e:#}");
+            }
+        }
+        assert_eq!(system.core_broker().lock()?.container_model_info("base0")?["sha256"], info["sha256"]);
+        // readonly の中からは差し替えられない (§14)
+        let r = call(system, "base0", "rust_part_try_readonly", jvalue!({"op": "set_model"}))?;
+        assert_eq!(r, jvalue!("ContainerModelInvalidError"), "abi: {abi}");
+        // 外す
+        assert_eq!(call(system, "base0", "rust_part_set_model", jvalue!({"text": ""}))?, jvalue!({"cleared": true}));
+        assert_eq!(system.core_broker().lock()?.container_model_info("base0")?, Value::Null);
         Ok(())
     })
 }

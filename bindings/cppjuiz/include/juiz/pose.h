@@ -13,6 +13,8 @@
 // 自分以外の Container の位置は juiz::lookup(base, "lidar0", "robot0") で読む (robot0 から見た lidar0、§7.4、#409)。
 // Transform の値は juiz::set_transform(slam, "map", "odom", juiz::make_transform(0.1, 0, 0)) で書く (§7.5、#410。
 // 自分が端点か、conf の transforms: の writers に入っている Transform だけ)。
+// 3D モデルは juiz::set_model(arm, data, size, "glb") / juiz::clear_model(arm) で差し替える
+// (docs/spec/container-model.md §13.2、#564)。
 // 値は C の構造体 juiz_pose / juiz_pose_stamped (juiz_sdk.h)。四元数の並びは (x, y, z, w)。
 // 平面の移動ロボットは juiz::make_pose_2d(x, y, yaw) / juiz::yaw(pose)、3 次元の向きは
 // juiz::from_rpy / juiz::to_rpy で四元数と roll・pitch・yaw を変換できる (#412)。
@@ -33,7 +35,7 @@
 
 namespace juiz {
 
-    // ContainerPose の読み書きの失敗。code() は juiz_sdk.h の JUIZ_*_ERROR (-901〜-907)
+    // ContainerPose の読み書き・モデルの差し替えの失敗。code() は juiz_sdk.h の JUIZ_*_ERROR (-901〜-908)
     class TransformationsError : public std::runtime_error {
     private:
         int64_t code_;
@@ -72,6 +74,13 @@ namespace juiz {
     class TransformNotFoundError : public TransformationsError {
     public:
         explicit TransformNotFoundError(const std::string& m) : TransformationsError(JUIZ_TRANSFORM_NOT_FOUND_ERROR, m) {}
+    };
+
+    // set_model の値の誤り (形式に合わない・上限超えなど)、readonly の ContainerProcess からの差し替え
+    // (container-model.md §13.2、#564)
+    class ContainerModelInvalidError : public TransformationsError {
+    public:
+        explicit ContainerModelInvalidError(const std::string& m) : TransformationsError(JUIZ_CONTAINER_MODEL_INVALID_ERROR, m) {}
     };
 
     namespace detail {
@@ -116,6 +125,7 @@ namespace juiz {
             case JUIZ_INVALID_POSE_VALUE_ERROR: throw InvalidPoseValueError(message);
             case JUIZ_TRANSFORM_NOT_WRITABLE_ERROR: throw TransformNotWritableError(message);
             case JUIZ_TRANSFORM_NOT_FOUND_ERROR: throw TransformNotFoundError(message);
+            case JUIZ_CONTAINER_MODEL_INVALID_ERROR: throw ContainerModelInvalidError(message);
             default: throw TransformationsError(code, message);
             }
         }
@@ -124,7 +134,7 @@ namespace juiz {
             capsule_map* cm = pose_call_of(container);
             if (!cm) {
                 throw TransformationsNotAttachedError(
-                    "juiz::pose / juiz::set_pose / juiz::lookup / juiz::set_transform can be used only while a container process of the container is running "
+                    "juiz::pose / juiz::set_pose / juiz::lookup / juiz::set_transform / juiz::set_model can be used only while a container process of the container is running "
                     "(on the thread that juiz called it)");
             }
             return cm;
@@ -273,6 +283,80 @@ namespace juiz {
             detail::throw_transformations_error(r);
         }
         return out;
+    }
+
+    // 定義は capsule_map.h (juiz.h が読む)。pose.h だけを読んだ翻訳単位でも set_model を使わなければ要らない
+    int64_t __set_value_obj_value(const Value* src_v, value* val);
+    juiz::Value into_value(value* v);
+
+    namespace detail {
+        // juiz_container_model_set の options: juiz::Value の辞書を空のオブジェクトに写す
+        inline int64_t fill_model_options(void* arg, value* obj) {
+            return __set_value_obj_value(static_cast<const juiz::Value*>(arg), obj);
+        }
+
+        // libjuiz_sdk (Rust) から呼ばれるので、例外を外へ出さない
+        inline void take_model_info(void* arg, value* v) noexcept {
+            try {
+                *static_cast<juiz::Value*>(arg) = juiz::into_value(v);
+            } catch (...) {
+                *static_cast<juiz::Value*>(arg) = juiz::Value();
+            }
+        }
+    }
+
+    // container の 3D モデルを data (size バイト) の中身に差し替える (container-model.md §13.2、#564)。
+    // 差し替えた後のモデル情報 (juiz_std.model.ContainerModelInfo の辞書) を返す。
+    // format は "glb"・"gltf"・"stl"・"sdf"・"other" (空なら options の file_name の拡張子から)。
+    // options は scale・origin・up_axis・color・file_name の辞書 (省けば無し)。
+    // 値の誤り (形式に合わない・上限超えなど) は ContainerModelInvalidError (今のモデルは変わらない)。
+    // readonly の ContainerProcess (Container を const T* で受け取る) からは呼べない (§14)
+    template<typename U>
+    juiz::Value set_model(U* container, const void* data, size_t size, const std::string& format,
+                          const juiz::Value& options = juiz::Value::object()) {
+        static_assert(!std::is_const_v<U>,
+            "juiz::set_model can not be called from a readonly container process (the container is const)");
+        if (!options.isNull() && !options.isObjectValue()) {
+            throw ContainerModelInvalidError("model options must be a dictionary");
+        }
+        capsule_map* cm = detail::require_pose_call(static_cast<const void*>(container));
+        juiz::Value info;
+        int64_t r = juiz_container_model_set(cm, static_cast<const uint8_t*>(data), size,
+            format.empty() ? nullptr : format.c_str(),
+            options.isObjectValue() ? detail::fill_model_options : nullptr,
+            const_cast<juiz::Value*>(&options),
+            detail::take_model_info, &info);
+        if (r != JUIZ_OK) {
+            detail::throw_transformations_error(r);
+        }
+        return info;
+    }
+
+    // set_model の、中身を std::string (バイト列) で渡すもの。SDF の文字列などに
+    template<typename U>
+    juiz::Value set_model(U* container, const std::string& data, const std::string& format,
+                          const juiz::Value& options = juiz::Value::object()) {
+        return set_model(container, static_cast<const void*>(data.data()), data.size(), format, options);
+    }
+
+    // set_model の、中身を std::vector<uint8_t> で渡すもの
+    template<typename U>
+    juiz::Value set_model(U* container, const std::vector<uint8_t>& data, const std::string& format,
+                          const juiz::Value& options = juiz::Value::object()) {
+        return set_model(container, static_cast<const void*>(data.data()), data.size(), format, options);
+    }
+
+    // container の 3D モデルを外す (§13.2)。conf や型の既定のモデルにも戻らない。
+    // readonly の ContainerProcess からは呼べない
+    template<typename U>
+    void clear_model(U* container) {
+        static_assert(!std::is_const_v<U>,
+            "juiz::clear_model can not be called from a readonly container process (the container is const)");
+        capsule_map* cm = detail::require_pose_call(static_cast<const void*>(container));
+        int64_t r = juiz_container_model_clear(cm);
+        if (r != JUIZ_OK) {
+            detail::throw_transformations_error(r);
+        }
     }
 
     // juiz_std.geometry.Transform の辞書にする

@@ -18,6 +18,10 @@
 --
 -- > (t, _) <- setTransform "map" "odom" (ContainerTransform (0.1, 0, 0) (0, 0, 0, 1))
 --
+-- 3D モデルは 'setModel' / 'clearModel' で差し替える (docs/spec/container-model.md §13.2、#564):
+--
+-- > info <- setModel closedGlb "glb" (object ["file_name" .= ("closed.glb" :: Text)])
+--
 -- ContainerProcess の関数は Container の状態だけを受け取り、Container そのものは受け取らないので、
 -- 読み書きの相手は「今呼ばれている ContainerProcess の Container」になる。juiz が呼んだスレッドの上
 -- (関数の中) でだけ使える。'Control.Concurrent.forkIO' した先や、関数から戻った後では
@@ -32,6 +36,8 @@ module Juiz.Pose
   , ContainerTransform (..)
   , identityTransform
   , setTransform
+  , setModel
+  , clearModel
   , transformToValue
   , transformStampedToValue
   , poseToValue
@@ -43,18 +49,21 @@ module Juiz.Pose
 import Control.Exception (finally)
 import Control.Monad (when)
 import Data.Int (Int32, Int64)
+import Data.IORef (newIORef, readIORef, writeIORef)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.ByteString as BS
 import qualified Data.Text.Encoding as TE
 import Foreign.C.String (CString, peekCString)
+import Foreign.C.Types (CSize (..))
 import Foreign.Marshal.Alloc (allocaBytes)
-import Foreign.Ptr (Ptr, nullPtr)
+import Foreign.Ptr (FunPtr, Ptr, castPtr, nullFunPtr, nullPtr)
 import Foreign.Storable (peekByteOff, pokeByteOff)
 
+import Juiz.Capsule (fill, peekValue, withCallback, withLockCallback)
 import Juiz.Error
-import Juiz.Internal.FFI (CCapsuleMap)
+import Juiz.Internal.FFI (ArrayCallback, CCapsuleMap, LockCallback, arrayTrampoline)
 import Juiz.Value
 
 -- | 位置姿勢 (@juiz_std.geometry.Pose@)。位置 (x, y, z) [m] と四元数 (x, y, z, w)
@@ -98,6 +107,12 @@ foreign import ccall safe "juiz_container_pose_lookup"
   c_juiz_container_pose_lookup :: Ptr CCapsuleMap -> CString -> CString -> Ptr () -> IO Int64
 foreign import ccall safe "juiz_container_transform_set"
   c_juiz_container_transform_set :: Ptr CCapsuleMap -> CString -> CString -> Ptr () -> Ptr () -> IO Int64
+foreign import ccall safe "juiz_container_model_set"
+  c_juiz_container_model_set
+    :: Ptr CCapsuleMap -> Ptr () -> CSize -> CString
+    -> FunPtr LockCallback -> Ptr () -> FunPtr ArrayCallback -> Ptr () -> IO Int64
+foreign import ccall safe "juiz_container_model_clear"
+  c_juiz_container_model_clear :: Ptr CCapsuleMap -> IO Int64
 foreign import ccall unsafe "juiz_container_pose_last_error"
   c_juiz_container_pose_last_error :: IO CString
 
@@ -114,7 +129,7 @@ currentPoseCall = do
   _ <- c_hsjuiz_swap_pose_call cm
   when (cm == nullPtr) $
     throwJuiz juizTransformationsNotAttachedError
-      "containerPose / setContainerPose / lookupContainerPose / setTransform can be used only inside a container process (on the thread that juiz called it)"
+      "containerPose / setContainerPose / lookupContainerPose / setTransform / setModel can be used only inside a container process (on the thread that juiz called it)"
   pure cm
 
 -- juiz_pose_stamped の並び: position (0, 8, 16)、orientation (24, 32, 40, 48)、stamp.sec 56、stamp.nanosec 64
@@ -184,6 +199,44 @@ setTransform source destination (ContainerTransform t q) = do
           c_juiz_container_transform_set cm src dst inp out >>= check
           (ContainerPose t' q', stamp) <- peekStamped out
           pure (ContainerTransform t' q', stamp)
+
+-- | 今呼ばれている ContainerProcess の Container の 3D モデルを、bytes の中身に差し替える
+-- (docs/spec/container-model.md §13.2、#564)。差し替えた後のモデル情報
+-- (@juiz_std.model.ContainerModelInfo@ の辞書) を返す。
+--
+-- format は @glb@・@gltf@・@stl@・@sdf@・@other@ (空なら options の @file_name@ の拡張子から決める)。
+-- options は @scale@・@origin@・@up_axis@・@color@・@file_name@ の辞書 ('JNull' なら無し)。
+-- 値の誤り (形式に合わない・上限超えなど) と readonly の ContainerProcess からの差し替えは
+-- 'juizContainerModelInvalidError' (今のモデルは変わらない)
+setModel :: BS.ByteString -> Text -> Value -> IO Value
+setModel bytes format options = do
+  cm <- currentPoseCall
+  case options of
+    JNull -> pure ()
+    JObject _ -> pure ()
+    _ -> throwJuiz juizContainerModelInvalidError "model options must be a dictionary"
+  info <- newIORef JNull
+  code <-
+    withOptions $ \optFn optArg ->
+      withCallback arrayTrampoline (\guarded v -> guarded (peekValue v >>= writeIORef info)) $ \infoFn infoArg ->
+        BS.useAsCStringLen bytes $ \(p, n) ->
+          withFormat $ \fmt ->
+            c_juiz_container_model_set cm (castPtr p) (fromIntegral n) fmt optFn optArg infoFn infoArg
+  check code
+  readIORef info
+  where
+    withOptions act = case options of
+      JObject _ -> withLockCallback (fill options) act
+      _ -> act nullFunPtr nullPtr
+    withFormat act
+      | T.null format = act nullPtr
+      | otherwise = withUtf8 format act
+
+-- | 今呼ばれている ContainerProcess の Container の 3D モデルを外す (§13.2)。conf や型の既定のモデルにも戻らない
+clearModel :: IO ()
+clearModel = do
+  cm <- currentPoseCall
+  c_juiz_container_model_clear cm >>= check
 
 -- | @juiz_std.geometry.Transform@ の辞書にする
 transformToValue :: ContainerTransform -> Value

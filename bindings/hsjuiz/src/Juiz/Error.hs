@@ -23,6 +23,7 @@ module Juiz.Error
   , juizTransformationsError
   , juizTransformNotWritableError
   , juizTransformNotFoundError
+  , juizContainerModelInvalidError
   ) where
 
 import Control.Exception (Exception, throwIO)
@@ -105,3 +106,8 @@ juizTransformNotWritableError = -906
 -- | 'Juiz.Pose.setTransform' の Transform が無い (§7.5、#410)
 juizTransformNotFoundError :: Int64
 juizTransformNotFoundError = -907
+
+-- | 'Juiz.Pose.setModel' の値の誤り (形式に合わない・上限超えなど)、readonly の ContainerProcess からの差し替え
+-- (docs/spec/container-model.md §13.2、#564)
+juizContainerModelInvalidError :: Int64
+juizContainerModelInvalidError = -908

@@ -157,7 +157,7 @@ containers:
 - 状態の型が `pub fn deinit(self: *State) void` を持っていれば、juiz が Container を削除するときに呼んでから解放します。
 - ContainerProcess の関数の形は `fn (self: *State, [ctx: juiz.Context], [args: Args]) R` です。`self` は Container の状態へのポインタです。
 - **`self` を `*const State` で受けると readonly の ContainerProcess** になります(マニフェストに `readonly: true`)。juiz は Container を読み出しロックで呼ぶので、
-  同じ Container の readonly 同士は並行に走ります。readonly の中から `juiz.setPose` / `juiz.setTransform` を呼ぶとコンパイルエラーです。
+  同じ Container の readonly 同士は並行に走ります。readonly の中から `juiz.setPose` / `juiz.setTransform` / `juiz.setModel` / `juiz.clearModel` を呼ぶとコンパイルエラーです。
 - オプションは、`exportContainer` が `.type_name`(必須)・`.description`・`.args`、`exportContainerProcess` が `.type_name`(必須)・`.container_type`(必須)・
   `.description`・`.args`・`.use_memo` です。
 
@@ -249,6 +249,8 @@ fn moveForward(self: *Robot, ctx: juiz.Context, args: struct { distance: f64 = 0
 | `juiz.setPose(self, reference, pose)` | 自分を、基準 `reference` から見て `pose` にする(§7.2)。書いた後の値を返す。readonly からは呼べない |
 | `juiz.lookup(self, target, reference)` | 自分以外の Container `target` を、基準 `reference` から見て読む(§7.4、tf の lookupTransform)。readonly からも呼べる |
 | `juiz.setTransform(self, source, destination, transform)` | Transform(source → destination)の値を書く(§7.5)。自分が端点か conf の `writers` に入っているときだけ。readonly からは呼べない |
+| `juiz.setModel(self, allocator, data, format, options)` | 自分の 3D モデルを `data` の中身に差し替え、モデル情報(`juiz.Value`、`allocator` に作る)を返す(container-model.md §13.2、#564)。`format` は `"glb"` など(空なら `options` の `file_name` から)、`options` は `.null` か `scale`・`color` などの `.object`。readonly からは呼べない |
+| `juiz.clearModel(self)` | 自分の 3D モデルを外す。readonly からは呼べない |
 | `juiz.poseLastError()` | このスレッドで最後に失敗した読み書きの、juiz が返した理由の文 |
 
 - 値の型は `juiz.Pose`(`position`・`orientation`)、`juiz.PoseStamped`(`pose`・`stamp`)、`juiz.Transform`(`translation`・`rotation`)、
@@ -257,7 +259,7 @@ fn moveForward(self: *Robot, ctx: juiz.Context, args: struct { distance: f64 = 0
   `juiz.fromRpy(roll, pitch, yaw)`、`juiz.toRpy(q)`、`juiz.yaw(q)`、`juiz.quaternion_identity`(角度は rad、規則は Rust の juiz_sdk と同じ)。
 - 辞書にする関数: `juiz.poseToValue`、`juiz.poseStampedToValue`、`juiz.transformToValue`、`juiz.transformStampedToValue`(第 1 引数は `ctx.allocator` など)。
 - 失敗は `juiz.PoseError` のエラーで返ります: `error.TransformationsNotAttached`(-901、ContainerProcess の外から呼んだときも)、`error.NoCommonAnchor`(-902)、
-  `error.PoseNotWritable`(-903)、`error.InvalidPoseValue`(-904)、`error.TransformationsError`(-905)、`error.TransformNotWritable`(-906)、`error.TransformNotFound`(-907)。
+  `error.PoseNotWritable`(-903)、`error.InvalidPoseValue`(-904)、`error.TransformationsError`(-905)、`error.TransformNotWritable`(-906)、`error.TransformNotFound`(-907)、`error.ContainerModelInvalid`(-908、`setModel` の値の誤り)。
   関数がこのエラーをそのまま返す(`try`)と、zigjuiz は -1101 のエラー文に juiz が返した理由も入れます
   (`zig_part_pose returned error.NoCommonAnchor: <理由>`)。
 - zigjuiz は ContainerProcess を呼ぶ間だけ、`self` と juiz が渡した口をそのスレッドに覚えておきます。`self` を取っておいて、呼び出しの外や別のスレッドから使うことはできません。

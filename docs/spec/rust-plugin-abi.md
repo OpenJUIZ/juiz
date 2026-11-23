@@ -352,6 +352,9 @@ int64_t (*container_call)(void* handle, const juiz_frame_in* args, const juiz_fr
 - グルーは `pose_port` を読み、`PortRegistry` をプラグインの中の `ContainerImpl<T>` の `ContainerPoseHandle` に呼び出しの間だけつなぐ。
   利用者の関数は今まで通り `c.pose("map")` / `c.set_pose(...)` を呼ぶ。読み書きはホストの登録所で行い、エラーの種類はコード(-9xx)で
   受け取ってプラグインの juiz_sdk の `JuizError` に戻す。
+- 3D モデルの差し替え `c.set_model(...)` / `c.clear_model()`(container-model.md §13.2、#564)も同じ口を通す。`PortRegistry::set_model` は
+  base64 を入れた `model` の JSON を口の `set_model` に渡し、モデル情報の JSON を受け取る。値の誤りは
+  `JUIZ_CONTAINER_MODEL_INVALID_ERROR`(-908)で受け取り、`ContainerModelInvalidError` に戻す。
 - ヘッダに任意のキーを足すだけなので ABI の版は 1 のまま(§9.1)。古いグルーは `pose_port` を無視し、古いホストは付けない。
   どちらの場合も読み書きは `TransformationsNotAttachedError` になる。
 - Process(kind 1)には付けない。IPC・qmp のフレームでは使わない(受け手は読まない)。

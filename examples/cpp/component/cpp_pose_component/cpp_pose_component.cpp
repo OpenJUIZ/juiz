@@ -170,6 +170,42 @@ std::optional<std::string> cpp_part_try_readonly_transform(const CppPart* part, 
 }
 COMPONENT_CONTAINER_PROCESS_FACTORY(CppPart, cpp_part_try_readonly_transform_manif, cpp_part_try_readonly_transform);
 
+// 3D モデルを text (空なら外す) に差し替え、差し替えた後のモデル情報を返す (#564、container-model.md §13.2)。
+// 値の誤りはエラーの種類 (例外のクラス名) を返す
+static auto cpp_part_set_model_manif = ProcessManifest("cpp_part_set_model")
+    .add_string_arg("text", "モデルの中身 (空なら外す)", "")
+    .add_string_arg("format", "形式", "sdf")
+    .add_string_arg("color", "表示色", "#00ff00");
+std::optional<juiz::Value> cpp_part_set_model(CppPart* part, const std::string& text, const std::string& format,
+                                              const std::string& color) {
+    try {
+        if (text.empty()) {
+            juiz::clear_model(part);
+            return juiz::Value{{"cleared", true}};
+        }
+        return juiz::set_model(part, text, format, juiz::Value{{"color", color}, {"file_name", std::string("cpp.") + format}});
+    } catch (juiz::ContainerModelInvalidError&) {
+        return juiz::Value("ContainerModelInvalidError");
+    }
+}
+COMPONENT_CONTAINER_PROCESS_FACTORY(CppPart, cpp_part_set_model_manif, cpp_part_set_model);
+
+// readonly の中からモデルを差し替えようとする (#564)。juiz::set_model は const の Container では static_assert で
+// 止まるので、libjuiz_sdk の C の関数を直接呼ぶ。juiz が渡す口が JUIZ_CONTAINER_MODEL_INVALID_ERROR を返す
+static auto cpp_part_try_readonly_model_manif = ProcessManifest("cpp_part_try_readonly_model")
+    .readonly();
+std::optional<std::string> cpp_part_try_readonly_model(const CppPart* part) {
+    capsule_map* cm = juiz::detail::require_pose_call(part);
+    const std::string sdf = "<sdf/>";
+    int64_t r = juiz_container_model_set(cm, reinterpret_cast<const uint8_t*>(sdf.data()), sdf.size(), "sdf",
+                                         nullptr, nullptr, nullptr, nullptr);
+    if (r == JUIZ_CONTAINER_MODEL_INVALID_ERROR) {
+        return std::string("ContainerModelInvalidError");
+    }
+    return std::string("returned ") + std::to_string(r);
+}
+COMPONENT_CONTAINER_PROCESS_FACTORY(CppPart, cpp_part_try_readonly_model_manif, cpp_part_try_readonly_model);
+
 // 四元数と角度の変換 (#412)。roll・pitch・yaw から作った四元数、それを戻した roll・pitch・yaw、
 // make_pose_2d(x, y, yaw) とその yaw を返す (Container は要らない)
 static auto cpp_pose_angles_manif = ProcessManifest("cpp_pose_angles")
@@ -204,6 +240,8 @@ auto component_manifest() {
         .add_process(cpp_part_lookup_manifest())
         .add_process(cpp_part_set_transform_manifest())
         .add_process(cpp_part_try_readonly_transform_manifest())
+        .add_process(cpp_part_set_model_manifest())
+        .add_process(cpp_part_try_readonly_model_manifest())
       );
 }
 DEFINE_COMPONENT_MANIFEST_ENTRY_POINT(component_manifest)

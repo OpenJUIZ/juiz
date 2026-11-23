@@ -437,7 +437,7 @@ Step 3 で決めたこと:
 
 | エラー | いつ |
 |---|---|
-| `ContainerModelInvalidError` | `model` のキーの型・値の誤り(§5.1)、上限超え(§5.4)、形式の判定に合わない(§3.1)、API からの作成に `model`(§5.5) |
+| `ContainerModelInvalidError` | `model` のキーの型・値の誤り(§5.1)、上限超え(§5.4)、形式の判定に合わない(§3.1)、API からの作成に `model`(§5.5)、readonly の ContainerProcess からの差し替え(§13.2)。C ABI ではコード `JUIZ_CONTAINER_MODEL_INVALID_ERROR`(-908) |
 | `ContainerModelFileNotFoundError` | `path` のファイルが無い・開けない(作成時、取り出し時) |
 | `ContainerHasNoModelError` | モデルの無い Container に `container/model` |
 
@@ -531,7 +531,18 @@ juiz import sdf  <file> (引数は urdf と同じ)
   - Rust: `ContainerImpl::set_model(&mut self, data: &[u8], format: &str, options: &Value)`・`clear_model()`。`options` は `scale`・`origin`・`up_axis`・`color`・`file_name` の辞書(無ければ `Value::Null`)。`ContainerPoseHandle::set_model(&Value)`(上の JSON の `model` の値)・`set_model_bytes`・`clear_model` もある。
   - Python: `juiz.set_model(container, data: bytes, format=None, **options)`・`juiz.clear_model(container)`。値の誤りは `juiz.ContainerModelInvalidError`。
   - readonly ContainerProcess(transformations.md §14)の中からは差し替えられない(`ContainerModelInvalidError`)。
-  - C ABI(C++・Haskell・Rust の C ABI プラグイン)の口はまだ無い(別 issue)。既定の実装は「対応していない」エラーを返す。
+  - C ABI(C++・Haskell・Zig・Rust の C ABI プラグイン、#564): ContainerPose の口 `JuizPosePort`(transformations.md §12.3)に関数 `set_model` を足した(下)。書き方は次の表。値の誤り・readonly からの差し替えは、どの言語でもコード `JUIZ_CONTAINER_MODEL_INVALID_ERROR`(-908)で運び、各言語の `ContainerModelInvalidError` に戻す。`TransformationsRegistry::set_model` の既定の実装(「対応していない」エラー)は、口を通さない登録所のためにそのまま残す。
+
+| 言語 | 書き方 |
+|---|---|
+| C | `juiz_container_model_set(cm, data, size, "glb", options, options_arg, info, info_arg)`・`juiz_container_model_clear(cm)`。`options`(NULL 可)は空の辞書の `value*` に `scale` などを書く関数、`info`(NULL 可)は差し替えた後のモデル情報の `value*` を受け取る関数(`capsule_lock_as_value_with_arg` と同じ形の callback)。エラー文は `juiz_container_pose_last_error()` |
+| C++ | `juiz::set_model(arm, data, size, "glb", juiz::Value{{"scale", 0.5}})`(中身は `std::string`・`std::vector<uint8_t>` でも渡せる)が `juiz::Value` のモデル情報を返す。`juiz::clear_model(arm)`。例外 `juiz::ContainerModelInvalidError`。Container が `const T*`(readonly)なら static_assert で止まる |
+| Haskell | `setModel bytes "glb" (object ["scale" .= (0.5 :: Double)])` が `Value` のモデル情報を返す(`bytes` は `ByteString`、options は `JNull` でも可)。`clearModel`。エラーは `juizContainerModelInvalidError` |
+| Zig | `juiz.setModel(self, allocator, data, "glb", options)` が `juiz.Value` のモデル情報を返す(options は `.null` か `.object`)。`juiz.clearModel(self)`。エラーは `error.ContainerModelInvalid`。readonly(`*const`)ではコンパイルエラー |
+| Rust(C ABI) | Rust ネイティブと同じ `c.set_model(data, format, &options)`・`c.clear_model()`。グルーの登録所(`PortRegistry`)が口の `set_model` を呼ぶ |
+
+  - 口の関数は `set_model(ctx, model, data, info, error)`。`model` は上の JSON の `model` の値(UTF-8 の JSON、`null` で外す)、`data` はモデルの中身のバイト列。`data` のポインタが null でなければ、ホストが base64 にして `model` の `data` に入れる(プラグインが base64 にしなくてよいように。C・C++・Haskell・Zig は中身をそのまま渡す。Rust の C ABI のグルーは base64 を入れた `model` を渡し、`data` は null)。成功なら `info` に差し替えた後のモデル情報の JSON(外したら `null`)を書く。
+  - 表の後ろに足したので表の版は 1 のまま。`struct_size` が `set_model` を含まない古いホストの口では `JUIZ_TRANSFORMATIONS_ERROR`(「juiz を新しくする」旨の文)。readonly の ContainerProcess に渡す口の `set_model` は、何もせずに `JUIZ_CONTAINER_MODEL_INVALID_ERROR` を返す。
 - **CLI**: `juiz container set-model <id> <file> [--format] [--scale] [--up-axis] [--color]` はファイルの中身を送り、差し替えた後のモデル情報を表示する。`juiz container set-model <id> --clear` で外す。
 - **pyjuiz のクライアント**: `SystemProxy.set_model(container, data, format=None, **options)`・`clear_model(container)`、`ContainerProxy.set_model(data, format=None, **options)`・`clear_model()`。
 - **押し出し配信(SSE)は入れない**(Step 10 で検討した結果)。管理画面はもともと `system/profile` を数秒ごとに取っていて、SHA-256 が変われば取り直すので、形の変わり目は問い合わせで足りる。秒間何回も形が変わる使い方(点群の動画など)はモデルではなく Topic で流す。
