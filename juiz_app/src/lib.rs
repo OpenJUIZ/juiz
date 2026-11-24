@@ -798,7 +798,11 @@ where
     }
     // juiz pkg も系を作らない (docs/spec/pkg.md §2.1)
     if let Some(SubCommands::Pkg { args }) = &args.subcommand {
-        return match juiz_pkg::cli::run(args) {
+        // design check --plugin・design --from-plugin のプラグインは juiz_core で開く (docs/spec/design.md §8.5・§8.6)
+        let loader = |path: &std::path::Path, lang: juiz_pkg::Lang| {
+            juiz_core::load_component_manifest_file(path, lang.plugin_language()).map_err(|e| format!("{e:#}"))
+        };
+        return match juiz_pkg::cli::run_with(args, &loader) {
             Ok(_) => 0,
             Err(e) => {
                 eprintln!("error: {e}");

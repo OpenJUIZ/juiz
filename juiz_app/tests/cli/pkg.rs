@@ -133,6 +133,28 @@ fn pkg_design_and_check() {
     let text = std::fs::read_to_string(&doc).unwrap();
     assert!(text.contains("idl:\n  - idl/arm.jidl\nprocesses:\n  - name: move_to\n    description: \"Moves\"\n"), "{text}");
     assert!(run(&["pkg", "design", "check", path_str(&doc), "-b", "zig"]).status.success());
+    // juiz pkg design --from-plugin (設計文書 Step 5): 型付きと型の無い引数が混ざったテスト用のプラグインから起こす。
+    // 型の無い引数は警告、record は idl/<name>.jidl に書く
+    let lib = crate::common::plugin_file("native_pose_component");
+    let doc = dir.join("from_plugin").join("juizdesign.yaml");
+    let r = run(&["pkg", "design", "--from-plugin", &lib, "-o", path_str(&doc)]);
+    assert!(!r.status.success());
+    assert!(String::from_utf8_lossy(&r.stderr).contains("give -b"), "{r:?}");
+    let r = run(&["pkg", "design", "--from-plugin", &lib, "-b", "rust", "-o", path_str(&doc)]);
+    assert!(r.status.success(), "{r:?}");
+    let err = String::from_utf8_lossy(&r.stderr);
+    assert!(err.contains("warning: processes[0].arguments[0]: the plugin gives no type (schema) for the argument 'x', so it was written as double"), "{err}");
+    assert!(doc.parent().unwrap().join("idl").join("native_pose_component.jidl").is_file());
+    let text = std::fs::read_to_string(&doc).unwrap();
+    assert!(text.contains("  name: native_pose_component\n  language: rust\n") && text.contains("    returns: robot.geometry.Pose2D\n"), "{text}");
+    let r = run(&["pkg", "design", "check", path_str(&doc), "--plugin", &lib]);
+    assert!(r.status.success(), "{r:?}");
+    assert!(String::from_utf8_lossy(&r.stdout).contains("matches the plugin"), "{r:?}");
+    // 食い違いはエラー (P1)
+    std::fs::write(&doc, text.replace("  name: native_pose_component\n", "  name: other_component\n")).unwrap();
+    let r = run(&["pkg", "design", "check", path_str(&doc), "--plugin", &lib]);
+    assert!(!r.status.success());
+    assert!(String::from_utf8_lossy(&r.stderr).contains("error: component.name: the component name is 'other_component', but the plugin's is 'native_pose_component'"), "{r:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -558,6 +580,56 @@ containers:
     )
 }
 
+/// 雛形のプラグイン (dev.sh でビルドしたもの、Python はソース)
+fn skeleton_plugin(app: &Path, name: &str, lang: &str) -> PathBuf {
+    if lang == "python" {
+        return app.join("app").join("python").join(format!("{name}.py"));
+    }
+    let ext = if cfg!(target_os = "macos") { "dylib" } else if cfg!(windows) { "dll" } else { "so" };
+    let dir = app.join("app").join("plugins").join(juiz_core::HOST_TARGET);
+    [format!("lib{name}.{ext}"), format!("{name}.{ext}")]
+        .iter()
+        .map(|f| dir.join(f))
+        .find(|p| p.is_file())
+        .unwrap_or_else(|| panic!("no plugin of {name} in {}", dir.display()))
+}
+
+/// 設計文書 Step 5 (design.md §8.5・§8.6): 雛形の文書がビルドしたプラグインと合い (`design check --plugin`)、
+/// プラグインから起こした文書 (`design --from-plugin`) もそのプラグインと合う
+fn check_against_plugin(app: &Path, dir: &Path, name: &str, lang: &str) {
+    let lib = skeleton_plugin(app, name, lang);
+    let out = juiz()
+        .args(["pkg", "design", "check", "juizdesign.yaml", "--plugin", path_str(&lib)])
+        .current_dir(app)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success() && stdout.contains("matches the plugin"), "{out:?}");
+    assert!(!String::from_utf8_lossy(&out.stderr).contains("error"), "{out:?}");
+
+    let from = dir.join("from_plugin");
+    let doc = from.join("juizdesign.yaml");
+    let out = juiz()
+        .args(["pkg", "design", "--from-plugin", path_str(&lib), "-b", lang, "-o", path_str(&doc)])
+        .current_dir(app)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let text = std::fs::read_to_string(&doc).unwrap();
+    // record は .jidl に、Container の状態はプラグインに無いので書かない
+    assert!(text.contains(&format!("  - idl/{name}.jidl\n")) && text.contains("type: pkg_design.types.Vec2"), "{text}");
+    assert!(std::fs::read_to_string(from.join("idl").join(format!("{name}.jidl"))).unwrap().contains("record Vec2"));
+    assert!(!text.contains("state:"), "{text}");
+    let out = juiz()
+        .args(["pkg", "design", "check", path_str(&doc), "--plugin", path_str(&lib)])
+        .current_dir(app)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    assert!(!String::from_utf8_lossy(&out.stderr).contains("error"), "{out:?}");
+    let _ = std::fs::remove_dir_all(&from);
+}
+
 /// `create -d` (pkg.md §2.5、design.md §12 の Step 2): 文書から作った雛形の本体を書き、`juiz pkg add` で型を足してから、
 /// ビルド→起動→call→型と readonly の確認→pack→juiz run を通す。文書は雛形の外のディレクトリに置く
 fn design_build_run_pack(
@@ -615,6 +687,7 @@ fn design_build_run_pack(
     if build {
         script(&app, "dev.sh", &[]);
     }
+    check_against_plugin(&app, &dir, name, lang);
     let h = format!("http://127.0.0.1:{port}");
     let scale = format!("{h}/process/pkg_design_scale0::pkg_design_scale");
     let add = format!("{h}/container_process/pkg_design_counter_add0::pkg_design_counter_add:pkg_design_counter0");

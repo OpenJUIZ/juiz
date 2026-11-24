@@ -1,6 +1,6 @@
 # 雛形生成コマンド(juiz pkg)仕様
 
-- 状態: 確定(juiz pkg Step 0、issue #456、2026-11-09)。Step 1(#457、2026-11-10)で Rust・Python を実装し、実装に合わせて §2.2・§5・§6.1・§6.2・§10.2・§11 を書き足した。Step 2(#458、2026-11-10)で C++ を実装し、§2.2・§3・§5.2・§6.3・§7.1・§9・§10.2・§11 を書き足した。Step 4(#460、2026-11-10)で `--idl` を Rust だけ実装し、§2.2・§6.5・§7・§9・§10・§11・§12 を書き足した。Step 5(#461、2026-11-10)で `juiz pkg add` を実装し、§1・§2.4・§10.1・§11・§12 を書き足した。#468(2026-11-11)で `--idl` を Python・C++・Haskell に広げ、§2.2・§6.5・§9・§10・§11・§12 を書き直した。Zig Step 5(#577、2026-11-22)で Zig を足し、§1・§2・§3・§5・§6.5・§6.6・§7・§10・§11・§12 を書き足した。設計文書 Step 0(#593、2026-11-23)で、設計文書 `juizdesign.yaml` を経由する 3 つのモード(§2.2・§2.5〜§2.7)を足し、§1・§2.4・§4・§5・§13 を書き足した(文書そのものの仕様は [design.md](design.md))。設計文書 Step 1(#594、2026-11-23)で `-t` の雛形に文書を置くことと `juiz pkg design`・`design check` を実装し、§2.2・§2.6・§2.7・§10・§11 を書き足した。設計文書 Step 4(#597、2026-11-24)で `--idl` を設計文書経由にし、`juiz pkg design --idl` と `pkg add` の文書への書き足しを実装して、§2.2・§2.4・§2.6・§6.5・§11 を書き足した。
+- 状態: 確定(juiz pkg Step 0、issue #456、2026-11-09)。Step 1(#457、2026-11-10)で Rust・Python を実装し、実装に合わせて §2.2・§5・§6.1・§6.2・§10.2・§11 を書き足した。Step 2(#458、2026-11-10)で C++ を実装し、§2.2・§3・§5.2・§6.3・§7.1・§9・§10.2・§11 を書き足した。Step 4(#460、2026-11-10)で `--idl` を Rust だけ実装し、§2.2・§6.5・§7・§9・§10・§11・§12 を書き足した。Step 5(#461、2026-11-10)で `juiz pkg add` を実装し、§1・§2.4・§10.1・§11・§12 を書き足した。#468(2026-11-11)で `--idl` を Python・C++・Haskell に広げ、§2.2・§6.5・§9・§10・§11・§12 を書き直した。Zig Step 5(#577、2026-11-22)で Zig を足し、§1・§2・§3・§5・§6.5・§6.6・§7・§10・§11・§12 を書き足した。設計文書 Step 0(#593、2026-11-23)で、設計文書 `juizdesign.yaml` を経由する 3 つのモード(§2.2・§2.5〜§2.7)を足し、§1・§2.4・§4・§5・§13 を書き足した(文書そのものの仕様は [design.md](design.md))。設計文書 Step 1(#594、2026-11-23)で `-t` の雛形に文書を置くことと `juiz pkg design`・`design check` を実装し、§2.2・§2.6・§2.7・§10・§11 を書き足した。設計文書 Step 4(#597、2026-11-24)で `--idl` を設計文書経由にし、`juiz pkg design --idl` と `pkg add` の文書への書き足しを実装して、§2.2・§2.4・§2.6・§6.5・§11 を書き足した。設計文書 Step 5(#598、2026-11-24)で `design --from-plugin` と `design check --plugin` を足し、§2.6・§2.7 を書き足した。
 - 親 issue: #455。検討の経緯と比較はプロジェクトの計画書 juiz-pkg-plan.md(2026-11-09 確定)にある
 - 関連: アプリ配布形式 [app-package.md](app-package.md)(雛形はそのまま `juiz pack` できる形にする)、Rust プラグインの C ABI [rust-plugin-abi.md](rust-plugin-abi.md)(雛形の Rust プラグインは C ABI)、データ型 [datatype.md](datatype.md) §18(`rust-skeleton`、Step 4 の `--idl`)
 - この文書は Step 1〜6(#457〜#462)の実装の基準になる。実装で仕様を変えるときは、同じ PR でこの文書を直す
@@ -146,18 +146,20 @@ juiz pkg create -d <juizdesign.yaml> [-b <lang>] [-o <dir>]
 - 生成物は `--idl`(§6.5)と同じ形にそろえる。`idl:` の .jidl は文書からの相対パスのまま写す(`--idl` の `idl/<file>.jidl` の代わり)。app.conf は design.md §6.3、README の型の表と生成後の表示は design.md §6.4。
 - 生成後の表示(§9)の 1 行目の種類は `from <文書のファイル名>`。「本体を書く」行は §6.5 と同じ。
 
-### 2.6 `juiz pkg design`(設計文書だけ、設計文書 Step 1・4)
+### 2.6 `juiz pkg design`(設計文書だけ、設計文書 Step 1・4・5)
 
 ```
 juiz pkg design <name> [-b <lang>] [-t <template> | --idl <file.jidl>] [-o <file>]
+juiz pkg design [<name>] --from-plugin <plugin> [-b <lang>] [-o <file>]
 ```
 
 | オプション | 既定 | 意味 |
 | --- | --- | --- |
-| `<name>` | (必須) | Component の名前(§3。`-b` を付ければその言語の規則も) |
+| `<name>` | (必須。`--from-plugin` では省ける) | Component の名前(§3。`-b` を付ければその言語の規則も)。`--from-plugin` で省けばプラグインの Component の名前 |
 | `-b`, `--lang <lang>` | なし | 文書の `component.language` に書く。付ければ言語の規則でも検査する |
 | `-t`, `--template <template>` | `component` | プリセット(design.md §7) |
 | `--idl <file.jidl>` | なし | .jidl の宣言から文書を作る(design.md §6.2・§8.4、Step 4)。`-t` とは一緒に使えない |
+| `--from-plugin <plugin>` | なし | ビルドしたプラグインの manifest から文書を作る(design.md §8.6、Step 5)。言語は `-b`(.py なら省ける)。record・enum は文書の隣の `idl/<name>.jidl` に書く。`-t`・`--idl` とは一緒に使えない。juiz-pkg 単体では使えない(プラグインを開けない) |
 | `-o`, `--output <file>` | `./juizdesign.yaml` | 書くファイル |
 
 - 雛形は作らず、設計文書を 1 つ書く。利用者が書き直して `create -d` に渡す使い方。
@@ -167,16 +169,17 @@ juiz pkg design <name> [-b <lang>] [-t <template> | --idl <file.jidl>] [-o <file
 - 書く前の検査で `-b` が無いときの W3(design.md §5.4)は出さない(プリセットなので)。
 - `check` は §2.7 のサブコマンドなので、`juiz pkg design check` は名前 `check` の文書にはならない(名前 `check` の文書は書けない)。
 
-### 2.7 `juiz pkg design check`(設計文書 Step 1)
+### 2.7 `juiz pkg design check`(設計文書 Step 1・5)
 
 ```
-juiz pkg design check <file> [-b <lang>]
+juiz pkg design check <file> [-b <lang>] [--plugin <plugin>]
 ```
 
 - 設計文書を design.md §5 で検査する。言語は `-b`、無ければ文書の `component.language`、どちらも無ければ言語によらない検査だけ(design.md §8.1)。
 - 通れば 1 行(`ok: <file> (component <name>: <n> processes, <n> containers, <n> container processes)`)と警告を出して終了コード 0。エラーがあれば、すべてのエラーを `<file>:<行>:<桁>: error: <道筋>: <文>` の形で出して 0 以外。
   - `ok:` の行は標準出力、エラーと警告(`<file>:<行>:<桁>: warning: …`)は標準エラー出力。エラーのときは最後に `error: <file> is not a valid design document (<n> errors)` を出す。型の数は 1 のとき単数形(`1 process`)。
   - 文書全体のこと(F4・W3 など)は道筋を書かない(`<file>: warning: <文>`)。位置が分からないとき(YAML の文書が 2 つあるなど)は `<file>: error: …`。
+- `--plugin <plugin>`(設計文書 Step 5)を付けると、検査が通ったときに、ビルドしたプラグインの manifest と文書を突き合わせる(design.md §8.5)。食い違いは検査のエラー・警告と同じ形で並べ、通れば `ok:` の行の最後に `matches the plugin <plugin>` を付ける。プラグインの言語は `-b`、`component.language`、拡張子 .py の順に決める。juiz-pkg 単体では使えない。
 - ファイルは何も書かない。
 
 ## 3. 名前の規則

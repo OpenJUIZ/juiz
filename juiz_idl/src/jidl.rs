@@ -144,6 +144,24 @@ pub fn to_jidl(t: &DataType) -> String {
     out
 }
 
+/// 名前付き型 (record・enum) の宣言を並べた .jidl の中身 (`juiz pkg design --from-plugin`、docs/spec/design.md §8.5)。
+/// ファイルの名前空間は `ns` (違う名前空間の型には `@namespace` を付ける)。`imports` は `import idl` するパス。
+/// `types` は宣言する型で、並べた順に書く (宣言の順は自由、仕様 §9.2)
+pub fn jidl_file(ns: &str, imports: &[String], types: &[DataType]) -> String {
+    let mut out = format!("namespace {ns};\n");
+    if !imports.is_empty() {
+        out.push('\n');
+        for i in imports {
+            out.push_str(&format!("import idl {};\n", serde_json::to_string(i).unwrap()));
+        }
+    }
+    for d in types.iter().filter(|d| matches!(d, DataType::Record(_) | DataType::Enum(_))) {
+        out.push('\n');
+        out.push_str(&declaration(d, ns));
+    }
+    out
+}
+
 /// 名前付き型 1 つの宣言。`ns` はファイルの名前空間 (違えば `@namespace` を付ける)
 pub(crate) fn declaration(d: &DataType, ns: &str) -> String {
     let mut out = String::new();
