@@ -1,6 +1,6 @@
 # 設計文書(juizdesign.yaml)仕様
 
-- 状態: 確定(Step 0、issue #593、2026-11-23)。Step 1(#594、2026-11-23)で文書の読み書き・検査・プリセット・`juiz pkg design`・`design check` を実装し、実装に合わせて §3.1・§5・§9・§13 を書き足した。Step 2(#595、2026-11-23)で Rust・Python の文書からの生成・`create -d`・`-t` の文書経由を実装し、§3.3・§5・§7.2・§7.3・§8.2・§9・§12 を書き足した。Step 3(#596、2026-11-23)で C++・Haskell・Zig の文書からの生成と `-t` の文書経由を実装し、§3.3・§7.1・§7.3・§8.2・§12 を書き足した
+- 状態: 確定(Step 0、issue #593、2026-11-23)。Step 1(#594、2026-11-23)で文書の読み書き・検査・プリセット・`juiz pkg design`・`design check` を実装し、実装に合わせて §3.1・§5・§9・§13 を書き足した。Step 2(#595、2026-11-23)で Rust・Python の文書からの生成・`create -d`・`-t` の文書経由を実装し、§3.3・§5・§7.2・§7.3・§8.2・§9・§12 を書き足した。Step 3(#596、2026-11-23)で C++・Haskell・Zig の文書からの生成と `-t` の文書経由を実装し、§3.3・§7.1・§7.3・§8.2・§12 を書き足した。Step 4(#597、2026-11-24)で `--idl` の文書経由・`juiz pkg design --idl`・`juiz pkg add` の文書への書き足しを実装し、§6.2・§7.3・§8.3・§8.4・§12 を書き足した。
 - 親 issue: #592。計画と経緯はプロジェクトの計画書 pkg-design-doc-plan.md(2026-11-23 確定、§6 の 9 項目はすべて推奨どおり)にある
 - 関連: 雛形生成 [pkg.md](pkg.md)(§2.5〜§2.7 に CLI の 3 モード)、データ型 [datatype.md](datatype.md)(型の書き方 §9.2、辞書での値 §4、manifest §6、skeleton §18・§20.6・§21.6・§22.4・§26.4)、[manifest-profile.md](manifest-profile.md)
 - この文書は Step 1〜6(#594〜#599)の実装の基準になる。実装で仕様を変えるときは、同じ PR でこの文書を直す
@@ -321,6 +321,11 @@ Container(`containers[]`):
 | `readonly`・Container の `arguments`・`state` | (無い) |
 
 - .jidl から文書を作るとき(Step 4、`juiz pkg design --idl`・`create --idl`)は、宣言のある名前空間が 1 つでなければならない(pkg.md §6.5 と同じ)。型の参照は完全名に直し、`idl:` にはその .jidl を書く(§8.4)。Container の `arguments`・`state` は空、`readonly` は書かない(`false`)。
+- Step 4 の実装での決めごと:
+  - 宣言の説明(`/** … */`)は `description` に、引数の既定値は辞書の表し方(datatype.md §4)のまま `default` に写す。戻り値が `void` なら `returns` を書かない。`component.description` は書かない(雛形の説明は今までどおり `"<name>: a juiz component"`)。
+  - 型の式は juiz_idl の `type_expression`(完全名で書く JIDL の型の式)で書く。`T?` は null が先の union だけで、null が後のものは `union { T, null }` と書く(文書の型の式は既定値によらず読むため)。
+  - `create --idl` の文書は `idl:` に `idl/<file>.jidl`(雛形の中のパス)を書き、`component.language` に `-b` を書く。文書は §5 の検査(言語の規則も)を通してから雛形を作る。検査のエラーは `--idl <file>: <道筋>: <文>` の形で出す(N6・T6 のキーワードなど、今までの `--idl` のエラーの文はそのまま入る)。
+  - `create --idl` は `create -d` と同じ生成器(`*_design_items`)・同じテンプレートの層(`common/design`、`<lang>/design` など)で作る。ちがうのは、生成後の表示の 1 行目(`from idl/<file>.jidl`)、ソースの先頭の説明(`made from idl/<file>.jidl (juiz pkg create --idl)`)、README の 1 段落目(テンプレートの変数 `made_with`)だけ。`--idl` だけが使っていたテンプレート(`<lang>/idl/README.md`、`common/idl/app/app.conf`、`haskell/idl/` の .cabal、`zig/idl/build.zig`)は消した。
 - 文書から雛形を作るときは、文書を juiz_idl のシグネチャの表現に直し、今の `*_skeleton_items` を「Container の引数・状態・readonly・本体の断片も出せる」ように広げたものを使う(言語ごとの生成器を新しく書かない、Step 2・Step 3)。
 
 ### 6.3 app/app.conf
@@ -377,7 +382,12 @@ Container(`containers[]`):
   - Haskell: 状態の型の前の説明のコメントが 1 行変わった。
   - Zig: `<name>_get` が `!i64` を返す(関数はすべて `!T`)。Component の説明の最後の句点が無くなり、引数の説明が文書のもの(`the …`)になった。
   - Python のソースは変わらない。
-- サイトのチュートリアル第 1〜3 章は `-t process` と `pkg add` の出力を載せているので、出力が変わったら Step 6(#599)で直す。
+- Step 4 で出た差分(#597 の PR、`--idl` の生成物。切り替える前のものを先に `juiz_pkg/tests/snapshots/<lang>-idl.txt` に固定した):
+  - 雛形の直下に `juizdesign.yaml` が増えた(.jidl から作った文書、§6.2)。
+  - Component のソースは `create -d` と同じ書き方になった。Rust: 関数の `pub` と `#[allow(unused_imports)]`・関数の前の説明のコメントが無くなり、既定値の属性が `default = { speed = 1.0 }` の書き方に、Container に `typed = "all"` と説明が付き、状態の型に `#[repr(Rust)]` が付いた。Python: 状態のクラスが `<Name>State` から `<Name>` に(§3.3、pkg.md §6.2 と同じ名前)。C++: ContainerProcess が `(void)container;` も書く。Haskell: 関数名に付けていた `_process` などが無くなり(`turn`)、引数の名前が lowerCamel に(`_fromPose`)。Zig: `const std = @import("std");` が付き、要素が複数行の形に。どの言語も先頭の説明が「型は juizdesign.yaml が決める」に変わった。
+  - README は `-d` と同じもの(`<lang>/design/README.md.tmpl`)。1 段落目は `.jidl` から文書を通して作ったことを書く。型の表の `void` の戻り値が `` `null` `` から `-` に。「Changing the .jidl」の節が「Changing the design」になった。
+  - Rust の build.rs のコメントのパスが `` `idl/robot.jidl` `` と囲まれ、Zig の build.zig は `-d` と同じもの(`.depends` が 1 つなら `&.{b.path(…)}` の書き方、`.builtins` の説明のコメント)。app.conf の中身は変わらない。
+- サイトのチュートリアル第 1〜3 章は `-t process` と `pkg add` の出力を載せているので、出力が変わったら Step 6(#599)で直す。Step 4 で `pkg add` の表示の `Edited` の行に `juizdesign.yaml` が増えた。
 
 ## 8. CLI との関係
 
@@ -416,10 +426,17 @@ CLI の引数・表示は pkg.md §2.2・§2.5〜§2.7 に書く。ここでは�
 - `juizdesign.yaml` が無い(Step 1 より前に作った雛形)ときは、文書を直さずに警告する。
 - 文書が §5 の検査を通らないとき、書き足す所が見つからない(flow 形式など)ときはエラーにし、手で足すよう案内する。3 つのファイルの書き換えは、全部の中身を作ってから書き、途中で失敗したら元に戻す(pkg.md §2.4 と同じ)。
 - 書き足した文書が §5 の検査を通ることを確かめる。
+- Step 4 の実装での決めごと:
+  - 足す型はプリセットの `component`(§7.1)の Process・Container の写し(Process は名前だけ `<name>` に変える)。説明・既定値もプリセットと同じ。
+  - 書き足す所は、最上位の `processes:`・`containers:` の行から、次の最上位の行(字下げの無いキー。字下げの無い `- ` の要素は配列の中とみなす)の前まで。その範囲の末尾の空行とコメントの前に入れる。要素の字下げは、範囲の中の最初の `- ` の行に合わせる(無ければ 2 つの空白)。`processes: []` は block の形に直して足す。ほかの flow 形式(`[ {…} ]`)とタブの字下げはエラー。
+  - 書き換える前の文書も §5 の検査(雛形の言語の規則も)を通らなければならない。通らなければ、何も変えずにエラーにし、`juiz pkg design check` で直すか文書を消してから足し直すよう案内する。
+  - 足す型名が文書に既にあればエラー(conf に無くても)。
+  - `juizdesign.yaml` が無いときの警告は `warning: juizdesign.yaml is not in this skeleton (…), so only the source and app/app.conf were changed`。表示の `Edited` の行には書き換えたファイルを並べる。
 
 ### 8.4 `juiz pkg design --idl`(Step 4)
 
 - `idl:` には、渡した .jidl の、出力する文書のディレクトリからの相対パスを書く。.jidl か、それが import するファイルが文書のディレクトリの外にあればエラー(§4.3。`-o` で置き場所を変えるよう案内する)。
+- Step 4 の実装での決めごと: 文書の形は §6.2 の Step 4 の決めごとのとおり。`-b` を付けたら `component.language` に書き、言語の規則でも検査する(付けなければ言語によらない検査だけ)。.jidl が文書のディレクトリの外にあるときのエラーは、.jidl の隣(`<.jidl のディレクトリ>/juizdesign.yaml`)を `-o` に勧める。`-t` とは一緒に使えない(clap の `conflicts_with`)。
 
 ## 9. 文書の書き方(juiz が書くとき)
 
@@ -461,7 +478,7 @@ CLI の引数・表示は pkg.md §2.2・§2.5〜§2.7 に書く。ここでは�
 - Step 2(済み): juiz_pkg のスナップショット(§7.3)、`create -d` の単体テスト(`-d` と `<name>`・`-t`・`--idl` が一緒に使えない、言語の決め方と W1・language の行の書き換え、言語が決まらない・C++ などのエラー、検査を通らない文書、`idl:` の無い文書の生成物と app.conf、文書のディレクトリに作るときと途中で失敗したとき)、juiz_idl の `rust_design_items`・`python_design_items` の単体テスト(状態の初期値の式・readonly・本体の断片・最後のコード・Python で作れない型)。pkg_cli_test で、.jidl の record と Container の引数・状態・readonly を持つ文書から Rust(slow、ポート 8090)と Python(ポート 8102)の雛形を作り、本体を書いて `juiz pkg add` で型を足し、生成から配布まで(引数 `start` の値から状態が始まる、`type list --long` に record の型、`_get` だけが readonly)を通す。`-t` の今の pkg_cli_test(Rust・Python)も文書経由で通る。
 - Step 3(済み): スナップショット(§7.3、rover の文書から C++・Haskell・Zig も)、`create -d` の言語の単体テスト、`design check` の雛形の検査を 5 言語の Process・Container で行う。pkg_cli_test で、Step 2 と同じ文書(Zig は状態 `label` を既定値で始める)から C++(slow、ポート 8103)・Haskell(slow、ポート 8104、GHC が無ければ飛ばす)・Zig(slow、ポート 8105)の雛形を作り、本体を書いて生成から配布までを通す。
 - Step 2・3: 切り替え前のスナップショットとの比較(§7.3)。`create -d` で §3.1 の 2 つの例から雛形を作り、本体を書いてから生成から配布まで(pkg.md §11 と同じ形、pkg_cli_test)を通し、プラグインの manifest が §6.1 のとおり文書の写しになっていること。Container の引数・状態・readonly が言語ごとのコードに出ること。
-- Step 4: `--idl` の今のテストが文書経由でも通ること、`pkg add` が文書に書き足し、書き足した文書が検査を通ること、`juizdesign.yaml` の無い雛形への `pkg add` が警告で通ること。
+- Step 4(済み): `--idl` の今のテストが文書経由でも通ること、`pkg add` が文書に書き足し、書き足した文書が検査を通ること、`juizdesign.yaml` の無い雛形への `pkg add` が警告で通ること。実装したもの: `--idl` の 5 言語のスナップショット(切り替えの前後、§7.3)、.jidl から作る文書の単体テスト(型の式・既定値・説明・`idl:`、5 言語の検査を通ること、今までの `--idl` のエラー)、`juiz pkg design --idl`(文書のディレクトリの外の .jidl、`-b`、`-t` と一緒に使えない)、`pkg add` の書き足し方(末尾の空行・コメント、字下げの無い要素、`[]`、配列が無いとき、flow 形式のエラー)、検査を通らない文書・文書にだけある型名・文書の無い雛形、3 つめのファイルで失敗したときに元に戻すこと、5 言語 × 3 種類の雛形に足した文書がその言語の検査を通ること。pkg_cli_test の `add_types`(すべての生成から配布までのテストで使う)で、文書に書き足して `design check` が通ること・同じ名前を足すエラーで文書も変わらないことを確かめ、`--idl` のテストで雛形の文書が `design check` を通ることを確かめる。`pkg_design_and_check` に `pkg design --idl` と文書の無い雛形への `pkg add` を足した。
 
 ## 13. Step との対応
 

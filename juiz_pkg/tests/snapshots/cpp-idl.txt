@@ -57,7 +57,7 @@ juiz_generate_types(my_robot
 # my_robot
 
 A juiz component written in C++. It was made with `juiz pkg create --idl` of juiz <version>,
-from the process / container declarations of `idl/robot.jidl`.
+from the process / container declarations of `idl/robot.jidl`, through the design document `juizdesign.yaml`.
 
 
 ## What is inside
@@ -67,13 +67,15 @@ from the process / container declarations of `idl/robot.jidl`.
 | `turn` | Process | `goal: robot.common.Goal`, `pose: juiz_std.geometry.Pose2D`, `speed: double` (1.0) | `double` | Turns |
 | `wheel` | Container | - | - | A wheel |
 | `spin` | ContainerProcess | `n: long` (1), `mode: robot.common.Mode` ("FAST") | `long` | - |
-| `stop` | ContainerProcess | - | `null` | - |
+| `stop` | ContainerProcess | - | - | - |
 
 | Path | What it is |
 | --- | --- |
-| `idl/robot.jidl` | The types and the declarations (JIDL) |
+| `juizdesign.yaml` | The design document: the types of this Component (`juiz pkg design check juizdesign.yaml` checks it) |
+| `idl/robot.jidl` | The record and enum types (JIDL) the design document uses (`idl:`) |
 | `src/my_robot.cpp` | The Component. Each `COMPONENT_*_FACTORY` is a type, listed in `my_robot_component_manifest()`. Write the bodies (`throw`) |
-| `CMakeLists.txt` | Builds the plugin with libjuiz_sdk (`find_package(juiz_sdk <version> EXACT)`), and generates the C++ types of the `.jidl` (`juiz_generate_types`, `juiz_idl.h`) |
+| `CMakeLists.txt` | Builds the plugin with libjuiz_sdk (`find_package(juiz_sdk <version> EXACT)`) |
+| `idl/robot.jidl` | CMake generates their C++ types in `juiz_idl.h` when it builds (`juiz_generate_types` in `CMakeLists.txt`) |
 | `app/app.conf` | The configuration to start juiz with. It is also the entry of the `.juizapp` package |
 | `app/juizapp.yaml` | The `.juizapp` manifest (name, version, required juiz version) |
 | `scripts/dev.sh`, `scripts/dev.ps1` | Build the plugin and put it with libjuiz_sdk in `app/plugins/<target>/` |
@@ -82,7 +84,7 @@ from the process / container declarations of `idl/robot.jidl`.
 ## Requirements
 
 - juiz <version> (`juiz --version`). Install it with `cargo install juiz_app --version <version>` or `pip install juiz-cli==<version>`
-- juiz in PATH when you build (CMake runs `juiz idl` to generate the C++ types of the `.jidl`)
+- juiz in PATH when you build, if `idl:` has `idl/robot.jidl` (CMake runs `juiz idl` to generate the C++ types)
 - CMake 3.16 or later and a C++17 compiler (on Windows, Visual Studio 2022 with "Desktop development with C++")
 - libjuiz_sdk <version> in `~/.juiz/sdk/<version>` (`%USERPROFILE%\.juiz\sdk\<version>` on Windows).
   Install it with `juiz sdk install` (it downloads libjuiz_sdk of the same version as juiz;
@@ -95,7 +97,7 @@ To use libjuiz_sdk in another directory, run `JUIZ_SDK_DIR=<dir> scripts/dev.sh`
 
 ## Write, build, run and call
 
-The functions in `src/my_robot.cpp` have the arguments and the return values of the `.jidl`, and their bodies throw
+The functions in `src/my_robot.cpp` have the arguments and the return values written in `juizdesign.yaml`, and their bodies throw
 `std::runtime_error`: calling one before you write it fails. The example calls below use the default values, or a value of the type.
 
 ```sh
@@ -116,12 +118,13 @@ juiz run dist/my_robot-0.1.0.juizapp
 
 On Windows, use `scripts\dev.ps1` and `scripts\pack.ps1` instead of the `.sh` scripts.
 
-## Changing the .jidl
+## Changing the design
 
-The build generates the C++ types of `idl/robot.jidl` again when it changes (with `juiz idl`, so juiz must be in PATH when you build).
-When you change the declarations, change the functions and the manifests in `src/my_robot.cpp` and `app/app.conf` to match
-(`juiz idl -g cpp-skeleton -o <dir> idl/robot.jidl` writes the functions of all the declarations again, to copy from).
-When the `.jidl` imports another file, add it to `DEPENDS` of `juiz_generate_types` in `CMakeLists.txt`.
+`juiz pkg create -d` does not change a skeleton it has made. When you change `juizdesign.yaml`, change the functions and the manifests in
+`src/my_robot.cpp` and `app/app.conf` to match (`juiz pkg create -d juizdesign.yaml -b cpp -o <dir>` writes a new skeleton, to copy from).
+`juiz pkg add` adds a type to `src/my_robot.cpp` and `app/app.conf`.
+The build generates the C++ types of `idl/robot.jidl` again when they change (with `juiz idl`, so juiz must be in PATH when you build).
+When a `.jidl` of `idl:` imports another file, add it to `DEPENDS` of `juiz_generate_types` in `CMakeLists.txt`.
 
 ## Versions
 
@@ -177,6 +180,35 @@ namespace robot; import idl "juiz_std/geometry.jidl"; import idl "common/goal.ji
 process double turn(robot.common.Goal goal, juiz_std.geometry.Pose2D pose, double speed = 1.0);
 /** A wheel */
 container wheel { container_process long spin(long n = 1, robot.common.Mode mode = "FAST"); container_process void stop(); }
+==== juizdesign.yaml ====
+# yaml-language-server: $schema=https://raw.githubusercontent.com/OpenJUIZ/juiz/v<version>/juiz_pkg/schema/juizdesign.schema.json
+# my_robot: design of the juiz component my_robot (juiz docs/spec/design.md)
+#   check:    juiz pkg design check juizdesign.yaml
+#   scaffold: juiz pkg create -d juizdesign.yaml -b <rust|python|cpp|haskell|zig>
+format: 1
+component:
+  name: my_robot
+  language: cpp
+idl:
+  - idl/robot.jidl
+processes:
+  - name: turn
+    description: "Turns"
+    arguments:
+      - { name: goal, type: robot.common.Goal }
+      - { name: pose, type: juiz_std.geometry.Pose2D }
+      - { name: speed, type: double, default: 1.0 }
+    returns: double
+containers:
+  - name: wheel
+    description: "A wheel"
+    processes:
+      - name: spin
+        arguments:
+          - { name: n, type: long, default: 1 }
+          - { name: mode, type: robot.common.Mode, default: "FAST" }
+        returns: long
+      - name: stop
 ==== scripts/dev.ps1 ====
 # Build the plugin and put it with juiz_sdk.dll in app\plugins\<target>\ (to run app\app.conf during development)
 # usage: scripts\dev.ps1 [-Release]
@@ -293,20 +325,18 @@ juiz pack "$stage" -o dist
 // my_robot: a juiz component made from idl/robot.jidl (juiz pkg create --idl).
 //
 // Write the body of each function (replace the `(void)…;` and `throw` lines).
-// The arguments and the return values are typed by the .jidl: the record and enum types are
-// in juiz_idl.h, which CMake generates from idl/robot.jidl (juiz_generate_types in CMakeLists.txt).
-// When you change idl/robot.jidl, change the functions and the manifests here to match.
-
+// The arguments and the return values are typed by juizdesign.yaml: when you change it,
+// change the functions and the manifests here to match.
+// The record and enum types are in juiz_idl.h, which CMake generates from idl/robot.jidl (juiz_generate_types).
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
 #include <string>
-#include <vector>
 
 #include "juiz/juiz.h"
 #include "juiz_idl.h"
 
-// Turns
+// Process turn. The arguments are passed in the order they are added to the manifest
 static auto turn_manif = ProcessManifest("turn")
     .description("Turns")
     .add_typed_arg<::robot::common::Goal>("goal", "")
@@ -320,38 +350,39 @@ std::optional<double> turn(const ::robot::common::Goal& goal, const ::juiz_std::
 }
 COMPONENT_PROCESS_FACTORY(turn_manif, turn);
 
-// State of the container wheel (the JIDL does not type it: add the members you need)
-struct WheelState {
+// State of the container wheel
+class Wheel {
+public:
 };
 
-// A wheel
+// Container wheel
 static auto wheel_manif = ContainerManifest("wheel")
     .description("A wheel");
-WheelState* wheel(juiz::CapsuleMap args) {
+Wheel* wheel(juiz::CapsuleMap args) {
     (void)args;
-    return new WheelState();
+    return new Wheel();
 }
 COMPONENT_CONTAINER_FACTORY(wheel_manif, wheel);
 
+// ContainerProcess spin
 static auto spin_manif = ProcessManifest("spin")
-    .container_type("wheel")
-    .add_int_arg("n", "", INT64_C(1))
+    .add_int_arg("n", "", 1)
     .add_typed_arg_value<::robot::common::Mode>("mode", "", juiz::Value(std::string("FAST")));
-std::optional<int64_t> spin(WheelState* container, int64_t n, ::robot::common::Mode mode) {
+std::optional<int64_t> spin(Wheel* container, int64_t n, ::robot::common::Mode mode) {
     (void)container;
     (void)n;
     (void)mode;
     throw std::runtime_error("write the body of spin");
 }
-COMPONENT_CONTAINER_PROCESS_FACTORY(WheelState, spin_manif, spin);
+COMPONENT_CONTAINER_PROCESS_FACTORY(Wheel, spin_manif, spin);
 
-static auto stop_manif = ProcessManifest("stop")
-    .container_type("wheel");
-std::optional<juiz::Value> stop(WheelState* container) {
+// ContainerProcess stop
+static auto stop_manif = ProcessManifest("stop");
+std::optional<juiz::Value> stop(Wheel* container) {
     (void)container;
     throw std::runtime_error("write the body of stop");
 }
-COMPONENT_CONTAINER_PROCESS_FACTORY(WheelState, stop_manif, stop);
+COMPONENT_CONTAINER_PROCESS_FACTORY(Wheel, stop_manif, stop);
 
 // The manifest of the whole Component (the types in this plugin)
 auto my_robot_component_manifest() {

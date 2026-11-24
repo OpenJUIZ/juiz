@@ -7,7 +7,7 @@ mod check;
 pub mod command;
 pub mod generate;
 mod read;
-mod write;
+pub(crate) mod write;
 pub mod yaml;
 
 use serde_json::Value;

@@ -116,6 +116,23 @@ fn pkg_design_and_check() {
     let r = run(&["pkg", "design", "check", path_str(&app.join("juizdesign.yaml"))]);
     assert!(r.status.success(), "{r:?}");
     assert!(String::from_utf8_lossy(&r.stdout).contains("(component my_robot: 1 process, 0 containers, 0 container processes)"));
+    // juizdesign.yaml の無い雛形 (設計文書より前に作ったもの) への pkg add は警告して、ソースと conf だけを直す
+    std::fs::remove_file(app.join("juizdesign.yaml")).unwrap();
+    let r = run(&["pkg", "add", "process", "my_mul", "-C", path_str(&app)]);
+    assert!(r.status.success(), "{r:?}");
+    assert!(String::from_utf8_lossy(&r.stderr).contains("warning: juizdesign.yaml is not in this skeleton"), "{r:?}");
+    assert!(String::from_utf8_lossy(&r.stdout).contains("Edited app/python/my_robot.py, app/app.conf\n"), "{r:?}");
+    assert!(!app.join("juizdesign.yaml").exists());
+    // juiz pkg design --idl: .jidl の宣言から文書を作る (idl: は文書からの相対パス)
+    let idl_dir = dir.join("from_idl");
+    std::fs::create_dir_all(idl_dir.join("idl")).unwrap();
+    std::fs::write(idl_dir.join("idl").join("arm.jidl"), "namespace arm; /** Moves */ process double move_to(double x = 0.5);\n").unwrap();
+    let doc = idl_dir.join("juizdesign.yaml");
+    let r = run(&["pkg", "design", "my_arm", "--idl", path_str(&idl_dir.join("idl").join("arm.jidl")), "-o", path_str(&doc)]);
+    assert!(r.status.success(), "{r:?}");
+    let text = std::fs::read_to_string(&doc).unwrap();
+    assert!(text.contains("idl:\n  - idl/arm.jidl\nprocesses:\n  - name: move_to\n    description: \"Moves\"\n"), "{text}");
+    assert!(run(&["pkg", "design", "check", path_str(&doc), "-b", "zig"]).status.success());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -269,12 +286,21 @@ fn add_types(app: &Path, name: &str) {
         let stdout = String::from_utf8_lossy(&out.stdout);
         assert!(stdout.starts_with(&format!("Added {kind} {t} to {name} ")), "{stdout}");
     }
+    // juizdesign.yaml にも書き足し、書き足した文書は検査を通る (design.md §8.3、設計文書 Step 4)
+    let doc_path = app.join("juizdesign.yaml");
+    let doc = std::fs::read_to_string(&doc_path).unwrap();
+    for t in [&sum, &arm, &format!("{arm}_increment"), &format!("{arm}_get")] {
+        assert!(doc.contains(&format!("- name: {t}\n")), "{t}\n{doc}");
+    }
+    let out = run(&["pkg", "design", "check", path_str(&doc_path)]);
+    assert!(out.status.success(), "{out:?}");
     // 同じ名前をもう一度足すとエラーで、何も変えない
     let conf = std::fs::read_to_string(app.join("app").join("app.conf")).unwrap();
     let out = run(&["pkg", "add", "process", &sum, "-C", path_str(app)]);
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("already"), "{out:?}");
     assert_eq!(conf, std::fs::read_to_string(app.join("app").join("app.conf")).unwrap());
+    assert_eq!(doc, std::fs::read_to_string(&doc_path).unwrap());
 }
 
 /// add_types で足した型を呼ぶ
@@ -422,6 +448,11 @@ record Goal { juiz_std.geometry.Pose2D pose; double tolerance = 0.5; }
     let app = create(&dir, name, lang, &args);
     set_port(&app, port);
     assert!(app.join("idl").join("common").join("goal.jidl").is_file());
+    // .jidl から作った設計文書が雛形の直下にあり、検査を通る (設計文書 Step 4)
+    let doc = std::fs::read_to_string(app.join("juizdesign.yaml")).unwrap();
+    assert!(doc.contains("idl:\n  - idl/robot.jidl\n") && doc.contains("  - name: pkg_idl_remaining\n"), "{doc}");
+    let out = run(&["pkg", "design", "check", path_str(&app.join("juizdesign.yaml"))]);
+    assert!(out.status.success(), "{out:?}");
 
     // 本体を書く (利用者がすること)
     let src = app.join(source);
@@ -1067,12 +1098,12 @@ mod slow {
             "src/PkgHsIdl.hs",
             &[
                 (
-                    "pkg_idl_remaining_process _goal _from_pose = error \"write the body of pkg_idl_remaining\"",
-                    "pkg_idl_remaining_process goal fromPose =\n  Juiz_std.Geometry.pose2DTheta (Pkg_idl.Common.goalPose goal)\n    - Juiz_std.Geometry.pose2DTheta fromPose + Pkg_idl.Common.goalTolerance goal",
+                    "pkg_idl_remaining _goal _fromPose = error \"write the body of pkg_idl_remaining\"",
+                    "pkg_idl_remaining goal fromPose =\n  Juiz_std.Geometry.pose2DTheta (Pkg_idl.Common.goalPose goal)\n    - Juiz_std.Geometry.pose2DTheta fromPose + Pkg_idl.Common.goalTolerance goal",
                 ),
                 (
-                    "pkg_idl_double_process _container _step = error \"write the body of pkg_idl_double\"",
-                    "pkg_idl_double_process _container step = pure (step * 2)",
+                    "pkg_idl_double _ _step = error \"write the body of pkg_idl_double\"",
+                    "pkg_idl_double _ step = pure (step * 2)",
                 ),
             ],
         );

@@ -1,41 +1,50 @@
-//! `juiz pkg create --idl` (docs/spec/pkg.md §6.5、issue #460・#468)
+//! `juiz pkg create --idl` の .jidl を読む (docs/spec/pkg.md §6.5、design.md §6.2、issue #460・#468・#597)
 //!
-//! .jidl の `process` / `container` 宣言から、型付きの関数 (本体は未実装) の Component を作る。
-//! 関数は juiz_idl の各言語の雛形 (datatype.md §18・§20.6・§21.6・§22.4) をそのまま使い、
-//! コンポーネントの名前だけ `<name>` にする。
+//! 設計文書 Step 4 (#597) から、`--idl` は「.jidl → 設計文書 → 雛形」の 1 本の道になった。
+//! ここでは .jidl を読んで設計文書にする ([`IdlSource`]) だけで、雛形は設計文書から作る (design/generate.rs)。
+//! [`IdlPlan`] は、設計文書の検査が juiz_idl の各言語の雛形 (`*_skeleton_items`) で作れるかを確かめるのに使う。
 
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 
-use juiz_idl::{
-    ExternNamespace, GenerateOptions, IdlModel, OutputKind, ProcessSignature, Signatures,
-};
+use juiz_idl::{ExternNamespace, GenerateOptions, IdlModel, ProcessSignature, Signatures};
 use juiz_types::DataType;
 use serde_json::{Map, Value};
 
+use crate::design::{ArgumentDesign, ComponentDesign, ContainerDesign, Design, ProcessDesign};
 use crate::{names, Lang, PkgError};
 
 /// juiz_std の型の名前空間 (juiz_std_types のものを使う、datatype.md §24.2)
 const JUIZ_STD: &str = "juiz_std";
 const JUIZ_STD_RUST_PATH: &str = "::juiz_std_types::juiz_std";
 
-/// .jidl を読んで決めたもの
+/// juiz_idl の `*_skeleton_items` で Component のソースを作るためのもの。
+/// 設計文書の検査 (design.md §5 の N6・T6) が、その言語で作れるかを確かめるのに使う
 #[derive(Debug, Clone)]
 pub struct IdlPlan {
     pub lang: Lang,
-    /// 作るときに書く型のコード (雛形のディレクトリからの相対パス、中身)。Python の app/python/<a>/<b>/__init__.py
-    pub generated: Vec<(String, String)>,
-    /// Haskell の型のモジュール (.cabal の other-modules。scripts/dev.sh が gen/ に作る)
+    /// Haskell の型のモジュール (Component のモジュールとぶつからないかを見る)
     pub hs_modules: Vec<String>,
-    /// 雛形の idl/ に写すファイル (雛形のディレクトリからの / 区切りの相対パス、中身)
-    pub files: Vec<(String, String)>,
-    /// build.rs に書く .jidl (`idl/<ファイル名>`)
+    /// ソースの先頭の説明に書くファイル
     pub main: String,
     /// 宣言のある名前空間の宣言
     pub signatures: Signatures,
-    /// juiz_std の型を使うか (juiz_std_types に依存し、extern にする)
+    /// juiz_std の型を使うか (Rust は juiz_std_types のものを extern にする)
     pub uses_juiz_std: bool,
-    /// 名前付き型 (呼び出しの例の値を作るため)
-    pub types: Vec<DataType>,
+}
+
+/// `--idl` で渡した .jidl を読んだもの。設計文書を作る元 (design.md §6.2・§8.4、設計文書 Step 4)
+#[derive(Debug, Clone)]
+pub struct IdlSource {
+    /// 渡したパス (エラーの表示に使う)
+    pub path: PathBuf,
+    /// .jidl のあるディレクトリ (正規化したもの)
+    pub dir: PathBuf,
+    /// 渡した .jidl (`dir` からの / 区切りの相対パス)
+    pub main: String,
+    /// 渡した .jidl と、それが import するもの (`dir` からの / 区切りの相対パス)。組み込みのものは入らない
+    pub files: Vec<String>,
+    /// 宣言のある名前空間の宣言
+    pub signatures: Signatures,
 }
 
 fn err(path: &Path, msg: impl std::fmt::Display) -> PkgError {
@@ -43,7 +52,7 @@ fn err(path: &Path, msg: impl std::fmt::Display) -> PkgError {
 }
 
 /// `base` からの相対パスにする。`base` の外なら None
-fn relative_under(path: &Path, base: &Path) -> Option<String> {
+pub(crate) fn relative_under(path: &Path, base: &Path) -> Option<String> {
     let rel = path.strip_prefix(base).ok()?;
     let parts: Vec<String> = rel
         .components()
@@ -59,100 +68,135 @@ fn is_juiz_std(namespace: &str) -> bool {
     namespace == JUIZ_STD || namespace.starts_with("juiz_std.")
 }
 
-impl IdlPlan {
-    /// .jidl を読んで検査する (ファイルはまだ書かない)
-    pub fn load(path: &Path, lang: Lang) -> Result<IdlPlan, PkgError> {
+impl IdlSource {
+    /// .jidl を読む。宣言のある名前空間が 1 つで、import するものが同じディレクトリの下にあること (pkg.md §6.5)。
+    /// その言語で作れるかは、作った設計文書の検査 (design.md §5) で確かめる
+    pub fn load(path: &Path) -> Result<IdlSource, PkgError> {
         if !path.is_file() {
             return Err(err(path, "no such file"));
         }
         let model = juiz_idl::load_files(&[path]).map_err(|e| err(path, e))?;
-        let signatures = Self::signatures(&model, path)?;
-        let uses_juiz_std = model
-            .types
-            .iter()
-            .any(|t| matches!(t, DataType::Record(r) if is_juiz_std(&r.namespace))
-                || matches!(t, DataType::Enum(e) if is_juiz_std(&e.namespace)));
-        // 写すファイル: 渡した .jidl と、同じディレクトリの下から import したもの (同じ並びで idl/ に置く)
-        let main_abs = path
-            .canonicalize()
-            .map_err(|e| err(path, e))?;
-        let base = main_abs.parent().unwrap_or(Path::new("/")).to_path_buf();
+        let signatures = signatures(&model, path)?;
+        let main_abs = path.canonicalize().map_err(|e| err(path, e))?;
+        let dir = main_abs.parent().unwrap_or(Path::new("/")).to_path_buf();
         let mut files = Vec::new();
         let mut main = String::new();
         for f in &model.files {
             let abs = f.canonicalize().map_err(|e| err(f, e))?;
-            let rel = relative_under(&abs, &base).ok_or_else(|| {
+            let rel = relative_under(&abs, &dir).ok_or_else(|| {
                 err(
                     path,
                     format!(
                         "it imports {}, which is not in the directory of the .jidl (only files under {} are copied to idl/)",
                         f.display(),
-                        base.display()
+                        dir.display()
                     ),
                 )
             })?;
-            let text = std::fs::read_to_string(&abs).map_err(|e| err(f, e))?;
-            let rel = format!("idl/{rel}");
             if abs == main_abs {
                 main = rel.clone();
             }
-            files.push((rel, text.replace("\r\n", "\n")));
+            files.push(rel);
         }
-        // 型のコード: Python は作るときに app/python/ に書き (juiz_std は pyjuiz のもの)、
-        // C++・Haskell はビルドのときに作るので、ここでは作れるか (名前空間の循環など) だけ確かめる
-        let mut generated = Vec::new();
-        let mut hs_modules = Vec::new();
-        match lang {
-            Lang::Rust => {}
-            Lang::Python => {
-                let options = GenerateOptions {
-                    externs: vec![ExternNamespace {
-                        namespace: JUIZ_STD.to_owned(),
-                        rust_path: None,
-                    }],
-                };
-                let files = juiz_idl::generate_with(&model, &[OutputKind::Python], &options)
-                    .map_err(|e| err(path, e))?;
-                for f in files {
-                    generated.push((
-                        format!("app/python/{}", f.path.to_string_lossy().replace('\\', "/")),
-                        f.contents,
-                    ));
-                }
-            }
-            Lang::Cpp => {
-                juiz_idl::generate(&model, &[OutputKind::Cpp]).map_err(|e| err(path, e))?;
-            }
-            // Zig は build.zig の juiz.addTypes がビルドのときに作る (§6.6)
-            Lang::Zig => {
-                juiz_idl::generate(&model, &[OutputKind::Zig]).map_err(|e| err(path, e))?;
-            }
-            Lang::Haskell => {
-                let files = juiz_idl::generate(&model, &[OutputKind::Haskell])
-                    .map_err(|e| err(path, e))?;
-                for f in files {
-                    let p = f.path.to_string_lossy().replace('\\', "/");
-                    if let Some(m) = p.strip_suffix(".hs") {
-                        hs_modules.push(m.replace('/', "."));
-                    }
-                }
-            }
-        }
-        let plan = IdlPlan {
-            lang,
-            generated,
-            hs_modules,
-            files,
+        Ok(IdlSource {
+            path: path.to_path_buf(),
+            dir,
             main,
+            files,
             signatures,
-            uses_juiz_std,
-            types: model.types.clone(),
-        };
-        // 生成できるかを先に確かめる (その言語のキーワードの名前、使えない型など)
-        plan.source("x").map_err(|e| err(path, e))?;
-        Ok(plan)
+        })
     }
 
+    /// .jidl の宣言を設計文書にする (design.md §6.2)。型の参照は完全名、`idl:` は `idl_entry` だけ。
+    /// Container の引数・状態は空、readonly は書かない
+    pub fn design(&self, name: &str, language: Option<Lang>, idl_entry: &str) -> Result<Design, PkgError> {
+        let type_of = |schema: &juiz_types::TypeSchema, what: &str| {
+            schema
+                .data_type()
+                .map_err(|e| err(&self.path, format!("{what}: {e}")))
+        };
+        let process = |p: &ProcessSignature| -> Result<ProcessDesign, PkgError> {
+            let mut arguments = Vec::new();
+            for a in &p.arguments {
+                let t = type_of(&a.schema, &format!("{} argument {}", p.type_name, a.name))?;
+                arguments.push(ArgumentDesign {
+                    name: a.name.clone(),
+                    type_expr: juiz_idl::type_expression(&t),
+                    default: a.default.clone(),
+                    description: a.description.clone(),
+                });
+            }
+            let returns = match type_of(&p.output_schema, &p.type_name)? {
+                DataType::Null => None,
+                t => Some(juiz_idl::type_expression(&t)),
+            };
+            Ok(ProcessDesign {
+                name: p.type_name.clone(),
+                description: p.description.clone(),
+                arguments,
+                returns,
+                readonly: false,
+            })
+        };
+        let mut processes = Vec::new();
+        for p in &self.signatures.processes {
+            processes.push(process(p)?);
+        }
+        let mut containers = Vec::new();
+        for c in &self.signatures.containers {
+            let mut cps = Vec::new();
+            for p in &c.container_processes {
+                cps.push(process(p)?);
+            }
+            containers.push(ContainerDesign {
+                name: c.type_name.clone(),
+                description: c.description.clone(),
+                arguments: Vec::new(),
+                state: Vec::new(),
+                processes: cps,
+            });
+        }
+        Ok(Design {
+            component: ComponentDesign {
+                name: name.to_owned(),
+                description: None,
+                language,
+            },
+            idl: vec![idl_entry.to_owned()],
+            processes,
+            containers,
+            positions: Vec::new(),
+        })
+    }
+}
+
+/// 宣言のある名前空間は 1 つだけ (1 雛形 = 1 Component、pkg.md §4)
+fn signatures(model: &IdlModel, path: &Path) -> Result<Signatures, PkgError> {
+    let with_decls: Vec<&Signatures> = model
+        .signatures
+        .iter()
+        .filter(|s| !s.processes.is_empty() || !s.containers.is_empty())
+        .filter(|s| !is_juiz_std(&s.namespace))
+        .collect();
+    match with_decls.as_slice() {
+        [] => Err(err(path, "it has no process or container declaration")),
+        [s] => Ok((*s).clone()),
+        many => Err(err(
+            path,
+            format!(
+                "process / container declarations are in {} namespaces ({}); a package is one Component, so put them in one namespace",
+                many.len(),
+                {
+                    let mut v: Vec<&str> = many.iter().map(|s| s.namespace.as_str()).collect();
+                    v.sort();
+                    v.join(", ")
+                }
+            ),
+        )),
+    }
+}
+
+impl IdlPlan {
     /// 雛形の Component のソース (雛形のディレクトリからの相対パス、中身)。
     /// juiz_idl の雛形の出力をそのまま入れるので、テンプレートの置換は通さない
     pub fn source(&self, name: &str) -> Result<(String, String), PkgError> {
@@ -226,88 +270,6 @@ impl IdlPlan {
         })
     }
 
-    /// Zig の build.zig の addTypes の .depends (渡した .jidl のほかの写しを b.path で並べたもの)
-    pub fn zig_depends(&self) -> String {
-        self.files
-            .iter()
-            .map(|(p, _)| p.as_str())
-            .filter(|p| *p != self.main)
-            .map(|p| format!("b.path(\"{p}\")"))
-            .collect::<Vec<_>>()
-            .join(", ")
-    }
-
-    /// C++ の juiz_generate_types の DEPENDS (渡した .jidl のほかの写し、空白区切り)。無ければ None
-    pub fn depends(&self) -> Option<String> {
-        let v: Vec<&str> = self
-            .files
-            .iter()
-            .map(|(p, _)| p.as_str())
-            .filter(|p| *p != self.main)
-            .collect();
-        (!v.is_empty()).then(|| v.join(" "))
-    }
-
-    /// Haskell の .cabal の other-modules に足す型のモジュール (`, A.B` を並べたもの)
-    pub fn hs_other_modules(&self) -> String {
-        self.hs_modules
-            .iter()
-            .map(|m| format!("\n                    , {m}"))
-            .collect()
-    }
-
-    /// 本体を書く関数のあるファイル (生成後の表示の「本体を書く」行)
-    pub fn source_path(&self, name: &str) -> String {
-        match self.lang {
-            Lang::Rust => "src/lib.rs".to_owned(),
-            Lang::Python => format!("app/python/{name}.py"),
-            Lang::Cpp => format!("src/{name}.cpp"),
-            Lang::Haskell => format!("src/{}.hs", names::camel(name)),
-            Lang::Zig => format!("src/{name}.zig"),
-        }
-    }
-
-    /// 生成後の表示の「本体を書く」行
-    pub fn write_bodies_line(&self, name: &str) -> String {
-        let what = match self.lang {
-            Lang::Rust => "todo!()",
-            Lang::Python => "raise NotImplementedError",
-            Lang::Cpp => "throw std::runtime_error",
-            Lang::Haskell => "error \"…\"",
-            Lang::Zig => "return error.NotImplemented",
-        };
-        format!(
-            "# write the bodies of the functions ({what}) in {}, then",
-            self.source_path(name)
-        )
-    }
-
-    /// 宣言のある名前空間は 1 つだけ (1 雛形 = 1 Component、pkg.md §4)
-    fn signatures(model: &IdlModel, path: &Path) -> Result<Signatures, PkgError> {
-        let with_decls: Vec<&Signatures> = model
-            .signatures
-            .iter()
-            .filter(|s| !s.processes.is_empty() || !s.containers.is_empty())
-            .filter(|s| !is_juiz_std(&s.namespace))
-            .collect();
-        match with_decls.as_slice() {
-            [] => Err(err(path, "it has no process or container declaration")),
-            [s] => Ok((*s).clone()),
-            many => Err(err(
-                path,
-                format!(
-                    "process / container declarations are in {} namespaces ({}); a package is one Component, so put them in one namespace",
-                    many.len(),
-                    {
-                        let mut v: Vec<&str> = many.iter().map(|s| s.namespace.as_str()).collect();
-                        v.sort();
-                        v.join(", ")
-                    }
-                ),
-            )),
-        }
-    }
-
     fn options(&self) -> GenerateOptions {
         GenerateOptions {
             externs: if self.uses_juiz_std {
@@ -347,140 +309,6 @@ impl IdlPlan {
         })
     }
 
-    /// app.conf の processes と containers (pkg.md §5.1 と同じキーと順番)
-    pub fn conf_types(&self) -> String {
-        let mut s = String::new();
-        if !self.signatures.processes.is_empty() {
-            s.push_str("\"processes\":\n");
-            for p in &self.signatures.processes {
-                s.push_str(&format!(
-                    "  - \"type_name\": \"{0}\"\n    \"name\": \"{0}0\"\n",
-                    p.type_name
-                ));
-            }
-        }
-        if !self.signatures.containers.is_empty() {
-            s.push_str("\"containers\":\n");
-            for c in &self.signatures.containers {
-                s.push_str(&format!(
-                    "  - \"type_name\": \"{0}\"\n    \"name\": \"{0}0\"\n",
-                    c.type_name
-                ));
-                if !c.container_processes.is_empty() {
-                    s.push_str("    \"processes\":\n");
-                    for p in &c.container_processes {
-                        s.push_str(&format!(
-                            "      - \"type_name\": \"{0}\"\n        \"name\": \"{0}0\"\n",
-                            p.type_name
-                        ));
-                    }
-                }
-            }
-        }
-        s.trim_end().to_owned()
-    }
-
-    /// 入っている型の表 (README、pkg.md §4 の表と同じ列)
-    pub fn types_table(&self) -> String {
-        let mut s = String::from(
-            "| Type | Kind | Arguments (default) | Returns | What it does |\n| --- | --- | --- | --- | --- |\n",
-        );
-        let row = |s: &mut String, kind: &str, p: &ProcessSignature| {
-            s.push_str(&format!(
-                "| `{}` | {kind} | {} | `{}` | {} |\n",
-                p.type_name,
-                arguments_cell(p),
-                p.output_schema.name,
-                cell(p.description.as_deref())
-            ));
-        };
-        for p in &self.signatures.processes {
-            row(&mut s, "Process", p);
-        }
-        for c in &self.signatures.containers {
-            s.push_str(&format!(
-                "| `{}` | Container | - | - | {} |\n",
-                c.type_name,
-                cell(c.description.as_deref())
-            ));
-            for p in &c.container_processes {
-                row(&mut s, "ContainerProcess", p);
-            }
-        }
-        s.trim_end().to_owned()
-    }
-
-    /// 呼び出しの例 (pkg.md §9)。引数は既定値、無ければ型から作った値
-    pub fn call_examples(&self) -> Vec<String> {
-        let mut v = Vec::new();
-        for p in &self.signatures.processes {
-            v.push(format!(
-                "juiz process call \"http://127.0.0.1:8000/process/{0}0::{0}\" '{1}' -p",
-                p.type_name,
-                self.example_arguments(p)
-            ));
-        }
-        for c in &self.signatures.containers {
-            for p in &c.container_processes {
-                v.push(format!(
-                    "juiz container-process call \"http://127.0.0.1:8000/container_process/{0}0::{0}:{1}0\" '{2}' -p",
-                    p.type_name,
-                    c.type_name,
-                    self.example_arguments(p)
-                ));
-            }
-        }
-        v
-    }
-
-    fn example_arguments(&self, p: &ProcessSignature) -> String {
-        let mut m = Map::new();
-        for a in &p.arguments {
-            let v = match &a.default {
-                Some(d) => d.clone(),
-                None => a
-                    .schema
-                    .data_type()
-                    .map(|t| example_value(&t))
-                    .unwrap_or(Value::Null),
-            };
-            m.insert(a.name.clone(), v);
-        }
-        // ' は shell の '…' の中に書けないので逃がす
-        serde_json::to_string(&Value::Object(m))
-            .unwrap()
-            .replace('\'', "'\\''")
-    }
-}
-
-/// 表の 1 つのセル (| と改行を逃がす)
-fn cell(s: Option<&str>) -> String {
-    match s {
-        Some(s) if !s.trim().is_empty() => s
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
-            .replace('|', "\\|"),
-        _ => "-".to_owned(),
-    }
-}
-
-fn arguments_cell(p: &ProcessSignature) -> String {
-    if p.arguments.is_empty() {
-        return "-".to_owned();
-    }
-    p.arguments
-        .iter()
-        .map(|a| {
-            let d = a
-                .default
-                .as_ref()
-                .map(|d| format!(" ({})", serde_json::to_string(d).unwrap().replace('|', "\\|")))
-                .unwrap_or_default();
-            format!("`{}: {}`{d}", a.name, a.schema.name)
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
 }
 
 /// 型に合う値 (辞書の表し方、datatype.md §4)。record のフィールドは既定値があればそれを使う
@@ -522,10 +350,12 @@ pub(crate) fn write_jidl(dir: &Path, name: &str, text: &str) -> std::path::PathB
     p
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use crate::design::generate::DesignPlan;
+    use crate::design::to_yaml;
 
     fn temp(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("juiz_pkg_idl_{name}_{}", std::process::id()));
@@ -538,7 +368,7 @@ import idl "juiz_std/geometry.jidl";
 import idl "common/goal.jidl";
 /** Distance | to the goal */
 process double distance(my_robot.common.Goal goal, juiz_std.geometry.Pose2D from_pose);
-container arm { container_process long move_by(long step = 1, string note = "it's"); }
+container arm { container_process long move_by(long step = 1, string note = "it's", long? limit, union { string, null } tag = "x"); container_process void stop(); }
 "#;
     const GOAL: &str = r#"namespace my_robot.common;
 import idl "juiz_std/geometry.jidl";
@@ -546,82 +376,97 @@ enum Mode { FAST, SLOW } = SLOW;
 record Goal { juiz_std.geometry.Pose2D pose; double tolerance = 0.1; Mode mode; long id; }
 "#;
 
+    /// .jidl → 設計文書 (design.md §6.2)
     #[test]
-    fn loads_declarations_and_imports() {
+    fn loads_and_makes_a_design() {
         let d = temp("load");
         write_jidl(&d.join("common"), "goal.jidl", GOAL);
         let p = write_jidl(&d, "robot.jidl", ROBOT);
-        let plan = IdlPlan::load(&p, Lang::Rust).unwrap();
-        let paths: Vec<&str> = plan.files.iter().map(|(p, _)| p.as_str()).collect();
-        assert_eq!(paths, ["idl/robot.jidl", "idl/common/goal.jidl"]);
-        assert_eq!(plan.main, "idl/robot.jidl");
-        assert!(plan.uses_juiz_std);
-        assert_eq!(plan.signatures.namespace, "my_robot");
+        let src = IdlSource::load(&p).unwrap();
+        assert_eq!(src.main, "robot.jidl");
+        assert_eq!(src.files, ["robot.jidl", "common/goal.jidl"]);
+        assert_eq!(src.signatures.namespace, "my_robot");
+        let design = src.design("my_pkg", Some(Lang::Rust), "idl/robot.jidl").unwrap();
+        let yaml = to_yaml(&design);
+        assert!(yaml.contains("component:\n  name: my_pkg\n  language: rust\nidl:\n  - idl/robot.jidl\nprocesses:\n  - name: distance\n    description: \"Distance | to the goal\"\n    arguments:\n      - { name: goal, type: my_robot.common.Goal }\n      - { name: from_pose, type: juiz_std.geometry.Pose2D }\n    returns: double\n"), "{yaml}");
+        assert!(yaml.contains("containers:\n  - name: arm\n    processes:\n      - name: move_by\n        arguments:\n          - { name: step, type: long, default: 1 }\n          - { name: note, type: string, default: \"it's\" }\n          - { name: limit, type: \"long?\" }\n          - { name: tag, type: \"union { string, null }\", default: \"x\" }\n        returns: long\n      - name: stop\n"), "{yaml}");
+        // 書いた文書を読み直すと同じもの
+        assert_eq!(crate::design::parse(&yaml).unwrap().processes, design.processes);
+        let _ = std::fs::remove_dir_all(&d);
+    }
 
-        let lib = plan.lib_rs("my_pkg").unwrap();
+    /// `create --idl` の文書: .jidl は雛形の idl/ に置く
+    #[test]
+    fn design_plan_from_idl() {
+        let d = temp("plan");
+        write_jidl(&d.join("common"), "goal.jidl", GOAL);
+        let p = write_jidl(&d, "robot.jidl", ROBOT);
+        let plan = DesignPlan::from_idl(&p, "my_pkg", Lang::Rust).unwrap();
+        let paths: Vec<&str> = plan.idl_files.iter().map(|(p, _)| p.as_str()).collect();
+        assert_eq!(paths, ["idl/robot.jidl", "idl/common/goal.jidl"]);
+        assert_eq!(plan.design.idl, ["idl/robot.jidl"]);
+        assert_eq!(plan.compile, ["idl/robot.jidl"]);
+        assert!(plan.uses_juiz_std);
+        assert_eq!(plan.kind_label(), "from idl/robot.jidl");
+        let (path, doc) = plan.doc_file();
+        assert_eq!(path, "juizdesign.yaml");
+        assert!(doc.contains("idl:\n  - idl/robot.jidl\n"), "{doc}");
+        let (_, lib) = plan.source().unwrap();
+        assert!(lib.starts_with("//! my_pkg: a juiz component made from idl/robot.jidl (juiz pkg create --idl).\n"), "{lib}");
+        assert!(lib.contains("typed by juizdesign.yaml"), "{lib}");
         assert!(lib.contains("include!(concat!(env!(\"OUT_DIR\"), \"/juiz_idl.rs\"));"), "{lib}");
-        assert!(lib.contains("component_name = \"my_pkg\""), "{lib}");
         assert!(
-            lib.contains("pub fn distance(goal: crate::my_robot::common::Goal, from_pose: ::juiz_std_types::juiz_std::geometry::Pose2D) -> JuizResult<f64>"),
+            lib.contains("goal: crate::my_robot::common::Goal") && lib.contains("from_pose: ::juiz_std_types::juiz_std::geometry::Pose2D"),
             "{lib}"
         );
-        assert!(lib.contains("container: &mut ContainerImpl<Arm>"), "{lib}");
-        assert!(!lib.contains("名前空間"), "{lib}");
-
-        let conf = plan.conf_types();
-        assert!(conf.starts_with("\"processes\":\n  - \"type_name\": \"distance\"\n    \"name\": \"distance0\"\n\"containers\":\n"), "{conf}");
-        assert!(conf.contains("      - \"type_name\": \"move_by\"\n        \"name\": \"move_by0\""), "{conf}");
-
         let table = plan.types_table();
         assert!(table.contains("| `distance` | Process | `goal: my_robot.common.Goal`, `from_pose: juiz_std.geometry.Pose2D` | `double` | Distance \\| to the goal |"), "{table}");
-        assert!(table.contains("| `move_by` | ContainerProcess | `step: long` (1), `note: string` (\"it's\") | `long` | - |"), "{table}");
-
         let calls = plan.call_examples();
-        assert_eq!(calls.len(), 2);
-        assert!(calls[0].contains("/process/distance0::distance"), "{}", calls[0]);
         assert!(calls[0].contains(r#""tolerance":0.1"#) && calls[0].contains(r#""mode":"SLOW""#) && calls[0].contains(r#""theta":0.0"#), "{}", calls[0]);
         assert!(calls[1].contains("/container_process/move_by0::move_by:arm0"), "{}", calls[1]);
-        assert!(calls[1].contains(r#"'{"note":"it'\''s","step":1}'"#), "{}", calls[1]);
+        assert!(calls[1].contains(r#""note":"it'\''s""#), "{}", calls[1]);
         let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
     fn errors() {
         let d = temp("errors");
+        let load = |p: &Path, lang: Lang| DesignPlan::from_idl(p, "my_pkg", lang).map(|_| ()).map_err(|e| e.to_string());
         // 5 つの言語で読める
         let p = write_jidl(&d, "a.jidl", "namespace a; process long f(long x);");
         for lang in [Lang::Rust, Lang::Python, Lang::Cpp, Lang::Haskell, Lang::Zig] {
-            assert!(IdlPlan::load(&p, lang).is_ok(), "{lang:?}");
+            assert!(load(&p, lang).is_ok(), "{lang:?}");
         }
         // 無いファイル・文法の誤り
-        assert!(IdlPlan::load(&d.join("none.jidl"), Lang::Rust).unwrap_err().to_string().contains("no such file"));
+        assert!(load(&d.join("none.jidl"), Lang::Rust).unwrap_err().contains("no such file"));
         let p = write_jidl(&d, "bad.jidl", "namespace a; process long f(");
-        assert!(IdlPlan::load(&p, Lang::Rust).unwrap_err().to_string().contains("bad.jidl"));
+        assert!(load(&p, Lang::Rust).unwrap_err().contains("bad.jidl"));
         // 宣言が無い・名前空間が 2 つ
         let p = write_jidl(&d, "types.jidl", "namespace a; record R { long x; }");
-        assert!(IdlPlan::load(&p, Lang::Rust).unwrap_err().to_string().contains("no process or container"));
+        assert!(load(&p, Lang::Rust).unwrap_err().contains("no process or container"));
         write_jidl(&d, "other.jidl", "namespace b; process long g();");
         let p = write_jidl(&d, "two.jidl", "namespace a; import idl \"other.jidl\"; process long f();");
-        let e = IdlPlan::load(&p, Lang::Rust).unwrap_err().to_string();
+        let e = load(&p, Lang::Rust).unwrap_err();
         assert!(e.contains("a, b"), "{e}");
         // ディレクトリの外の import
         write_jidl(&d, "outside.jidl", "namespace o; record O { long x; }");
         let p = write_jidl(&d.join("sub"), "in.jidl", "namespace i; import idl \"../outside.jidl\"; process o.O f();");
-        let e = IdlPlan::load(&p, Lang::Rust).unwrap_err().to_string();
+        let e = load(&p, Lang::Rust).unwrap_err();
         assert!(e.contains("not in the directory"), "{e}");
-        // その言語のキーワード (Haskell は関数名に _process などを付けるので書ける)
+        // その言語のキーワード (文書の検査 N6 で見つかる。Haskell は関数名に _process などを付けるので書ける)
         let p = write_jidl(&d, "kw.jidl", "namespace a; process long `loop`(long x);");
-        assert!(IdlPlan::load(&p, Lang::Rust).unwrap_err().to_string().contains("keyword"));
+        let e = load(&p, Lang::Rust).unwrap_err();
+        assert!(e.starts_with(&format!("--idl {}: processes[0]", p.display())) && e.contains("keyword"), "{e}");
         let p = write_jidl(&d, "kwpy.jidl", "namespace a; process long `lambda`(long x);");
-        assert!(IdlPlan::load(&p, Lang::Python).unwrap_err().to_string().contains("Python keyword"));
+        assert!(load(&p, Lang::Python).unwrap_err().contains("Python keyword"));
         let p = write_jidl(&d, "kwcpp.jidl", "namespace a; process long `delete`(long x);");
-        assert!(IdlPlan::load(&p, Lang::Cpp).unwrap_err().to_string().contains("C++ keyword"));
-        assert!(IdlPlan::load(&p, Lang::Haskell).is_ok());
+        assert!(load(&p, Lang::Cpp).unwrap_err().contains("C++ keyword"));
+        assert!(load(&p, Lang::Haskell).is_ok());
         // Python: 既定値のある引数の後ろに、既定値の無い record の引数は書けない
         let p = write_jidl(&d, "order.jidl", "namespace o; record R { long x; } process long f(long a = 1, o.R r);");
-        let e = IdlPlan::load(&p, Lang::Python).unwrap_err().to_string();
+        let e = load(&p, Lang::Python).unwrap_err();
         assert!(e.contains("argument r has no default but comes after a"), "{e}");
-        assert!(IdlPlan::load(&p, Lang::Cpp).is_ok());
+        assert!(load(&p, Lang::Cpp).is_ok());
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -629,7 +474,7 @@ record Goal { juiz_std.geometry.Pose2D pose; double tolerance = 0.1; Mode mode; 
     fn no_juiz_std() {
         let d = temp("nostd");
         let p = write_jidl(&d, "a.jidl", "namespace a; process long f(long x);");
-        let plan = IdlPlan::load(&p, Lang::Rust).unwrap();
+        let plan = DesignPlan::from_idl(&p, "my_pkg", Lang::Rust).unwrap();
         assert!(!plan.uses_juiz_std);
         assert!(plan.extern_line().is_none());
         let _ = std::fs::remove_dir_all(&d);

@@ -10,7 +10,7 @@
 # my_robot
 
 A juiz component written in Zig. It was made with `juiz pkg create --idl` of juiz <version>,
-from the process / container declarations of `idl/robot.jidl`.
+from the process / container declarations of `idl/robot.jidl`, through the design document `juizdesign.yaml`.
 
 
 ## What is inside
@@ -20,13 +20,15 @@ from the process / container declarations of `idl/robot.jidl`.
 | `turn` | Process | `goal: robot.common.Goal`, `pose: juiz_std.geometry.Pose2D`, `speed: double` (1.0) | `double` | Turns |
 | `wheel` | Container | - | - | A wheel |
 | `spin` | ContainerProcess | `n: long` (1), `mode: robot.common.Mode` ("FAST") | `long` | - |
-| `stop` | ContainerProcess | - | `null` | - |
+| `stop` | ContainerProcess | - | - | - |
 
 | Path | What it is |
 | --- | --- |
-| `idl/robot.jidl` | The types and the declarations (JIDL) |
+| `juizdesign.yaml` | The design document: the types of this Component (`juiz pkg design check juizdesign.yaml` checks it) |
+| `idl/robot.jidl` | The record and enum types (JIDL) the design document uses (`idl:`) |
 | `src/my_robot.zig` | The Component. Each function is a type, listed in `juiz.exportComponent` at the end. Write the bodies (`return error.NotImplemented`) |
-| `build.zig` | Generates the Zig types of the `.jidl` (`juiz.addTypes`), builds the plugin `libmy_robot` with zigjuiz, and puts it with libjuiz_sdk in `zig-out/plugins/` |
+| `build.zig` | Builds the plugin `libmy_robot` with zigjuiz, and puts it with libjuiz_sdk in `zig-out/plugins/` |
+| `idl/robot.jidl` | `build.zig` generates their Zig types when it builds (`juiz.addTypes`) |
 | `build.zig.zon` | The Zig package. It points to zigjuiz (the Zig library of juiz) |
 | `app/app.conf` | The configuration to start juiz with. It is also the entry of the `.juizapp` package |
 | `app/juizapp.yaml` | The `.juizapp` manifest (name, version, required juiz version) |
@@ -42,7 +44,7 @@ Zig builds it with its default ABI (`x86_64-windows-gnu`); Visual Studio is not 
 - juiz <version> (`juiz --version`). Install it with `cargo install juiz_app --version <version>` or `pip install juiz-cli==<version>`
 - Zig 0.17.x ([ziglang.org](https://ziglang.org/download/), or `pip install ziglang==0.17.1` and `ZIG="python3 -m ziglang" scripts/dev.sh`).
   zigjuiz supports only this version of Zig
-- `juiz-idl` or `juiz` in PATH: the build generates the types with `juiz-idl -g zig` (or `juiz idl -g zig`)
+- `juiz-idl` or `juiz` in PATH, if `idl:` has `idl/robot.jidl`: the build generates the types with `juiz-idl -g zig` (or `juiz idl -g zig`)
 - libjuiz_sdk <version> in `/opt/juiz-sdk`. Install it with `juiz sdk install` (`juiz sdk path` prints where it is)
 - The juiz source of <version> for zigjuiz, in `/opt/juiz/bindings/zigjuiz`
 - zigjuiz <version>, the Zig library of juiz. `scripts/dev.sh` adds it to `build.zig.zon` the first time (it needs the network once):
@@ -57,7 +59,7 @@ To use libjuiz_sdk in another directory, run `JUIZ_SDK_DIR=<dir> scripts/dev.sh`
 
 ## Write, build, run and call
 
-The functions in `src/my_robot.zig` have the arguments and the return values of the `.jidl`, and their bodies are
+The functions in `src/my_robot.zig` have the arguments and the return values written in `juizdesign.yaml`, and their bodies are
 `return error.NotImplemented`: calling one before you write it fails. The example calls below use the default values, or a value of the type.
 
 ```sh
@@ -81,12 +83,13 @@ juiz run dist/my_robot-0.1.0.juizapp
 A function returns an error (`error.Overflow` and so on) to fail a call; juiz reports it and keeps running.
 A panic stops juiz, so the release build keeps the safety checks (ReleaseSafe).
 
-## Changing the .jidl
+## Changing the design
 
-`zig build` generates the Zig types of `idl/robot.jidl` again when it changes (the module `juiz_types`).
-When you change the declarations, change the functions and the parts of `juiz.exportComponent` in `src/my_robot.zig` and `app/app.conf` to match
-(`juiz idl -g zig-skeleton -o <dir> idl/robot.jidl` writes the functions of all the declarations again, to copy from).
-When the `.jidl` imports another file, add it to `.depends` of `juiz.addTypes` in `build.zig`.
+`juiz pkg create -d` does not change a skeleton it has made. When you change `juizdesign.yaml`, change the functions and the parts of
+`juiz.exportComponent` in `src/my_robot.zig` and `app/app.conf` to match (`juiz pkg create -d juizdesign.yaml -b zig -o <dir>` writes a new skeleton, to copy from).
+`juiz pkg add` adds a type to `src/my_robot.zig` and `app/app.conf`.
+`zig build` generates the Zig types of `idl/robot.jidl` again when they change (the module `juiz_types`).
+When a `.jidl` of `idl:` imports another file, add it to `.depends` of `juiz.addTypes` in `build.zig`.
 
 ## Versions
 
@@ -160,11 +163,12 @@ pub fn build(b: *std.Build) void {
         // --release builds with ReleaseSafe (keeps the safety checks such as out-of-bounds access)
         .optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSafe }),
     });
-    // The Zig types (record, enum) of the .jidl, generated with `juiz-idl -g zig` when it changes.
-    // List the files that it imports in .depends, so that a change in them also generates the types again
+    // The Zig types (record, enum) of idl: in juizdesign.yaml, generated with `juiz-idl -g zig` when they change.
+    // .depends lists the files that they import, so that a change in them also generates the types again.
+    // .builtins lists the types built into juiz-idl (juiz_std/…), which have no file
     const types = juiz.addTypes(.{
         .files = &.{b.path("idl/robot.jidl")},
-        .depends = &.{ b.path("idl/common/goal.jidl") },
+        .depends = &.{b.path("idl/common/goal.jidl")},
     });
     const lib = juiz.addPlugin(.{
         .name = "my_robot",
@@ -202,6 +206,35 @@ namespace robot; import idl "juiz_std/geometry.jidl"; import idl "common/goal.ji
 process double turn(robot.common.Goal goal, juiz_std.geometry.Pose2D pose, double speed = 1.0);
 /** A wheel */
 container wheel { container_process long spin(long n = 1, robot.common.Mode mode = "FAST"); container_process void stop(); }
+==== juizdesign.yaml ====
+# yaml-language-server: $schema=https://raw.githubusercontent.com/OpenJUIZ/juiz/v<version>/juiz_pkg/schema/juizdesign.schema.json
+# my_robot: design of the juiz component my_robot (juiz docs/spec/design.md)
+#   check:    juiz pkg design check juizdesign.yaml
+#   scaffold: juiz pkg create -d juizdesign.yaml -b <rust|python|cpp|haskell|zig>
+format: 1
+component:
+  name: my_robot
+  language: zig
+idl:
+  - idl/robot.jidl
+processes:
+  - name: turn
+    description: "Turns"
+    arguments:
+      - { name: goal, type: robot.common.Goal }
+      - { name: pose, type: juiz_std.geometry.Pose2D }
+      - { name: speed, type: double, default: 1.0 }
+    returns: double
+containers:
+  - name: wheel
+    description: "A wheel"
+    processes:
+      - name: spin
+        arguments:
+          - { name: n, type: long, default: 1 }
+          - { name: mode, type: robot.common.Mode, default: "FAST" }
+        returns: long
+      - name: stop
 ==== scripts/dev.ps1 ====
 # Build the plugin and put it with juiz_sdk.dll in app\plugins\<target>\ (to run app\app.conf during development)
 # usage: scripts\dev.ps1 [-Release] [-Target <target>]
@@ -445,9 +478,10 @@ juiz pack "$stage" -o dist
 //! my_robot: a juiz component made from idl/robot.jidl (juiz pkg create --idl).
 //!
 //! Write the body of each function (replace the `return error.NotImplemented` lines).
-//! The arguments and the return values are typed by the .jidl: the record and enum types are in
-//! the module juiz_types, which build.zig generates from idl/robot.jidl (juiz.addTypes).
-//! When you change idl/robot.jidl, change the functions and the parts here to match.
+//! The arguments and the return values are typed by juizdesign.yaml: when you change it,
+//! change the functions and the parts here to match.
+//! The record and enum types are in the module juiz_types, which build.zig generates from idl/robot.jidl (juiz.addTypes).
+const std = @import("std");
 const juiz = @import("juiz");
 const types = @import("juiz_types");
 
@@ -458,10 +492,10 @@ fn turn(args: struct { goal: types.robot.common.Goal, pose: types.juiz_std.geome
     return error.NotImplemented;
 }
 
-/// State of the container wheel (the JIDL does not type it: add the fields you need)
-pub const WheelState = struct {};
+/// State of the container `wheel`.
+const WheelState = struct {};
 
-/// A wheel
+/// Makes the state of a container `wheel`.
 fn wheel_create() WheelState {
     return .{};
 }
@@ -483,10 +517,24 @@ comptime {
     juiz.exportComponent(.{
         .type_name = "my_robot",
         .parts = .{
-            juiz.processPart(turn, .{ .type_name = "turn", .description = "Turns", .args = .{ .goal = "", .pose = "", .speed = "" } }),
-            juiz.containerPart(wheel_create, .{ .type_name = "wheel", .description = "A wheel" }),
-            juiz.containerProcessPart(spin, .{ .type_name = "spin", .container_type = "wheel", .args = .{ .n = "", .mode = "" } }),
-            juiz.containerProcessPart(stop, .{ .type_name = "stop", .container_type = "wheel" }),
+            juiz.processPart(turn, .{
+                .type_name = "turn",
+                .description = "Turns",
+                .args = .{ .goal = "", .pose = "", .speed = "" },
+            }),
+            juiz.containerPart(wheel_create, .{
+                .type_name = "wheel",
+                .description = "A wheel",
+            }),
+            juiz.containerProcessPart(spin, .{
+                .type_name = "spin",
+                .container_type = "wheel",
+                .args = .{ .n = "", .mode = "" },
+            }),
+            juiz.containerProcessPart(stop, .{
+                .type_name = "stop",
+                .container_type = "wheel",
+            }),
         },
     });
 }

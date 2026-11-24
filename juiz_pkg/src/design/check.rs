@@ -381,20 +381,17 @@ impl<'a> Checker<'a> {
     // ---- 言語の規則 (N6・T6) ----
 
     fn idl_plan(&self, lang: Lang, signatures: Signatures, hs_modules: &[String]) -> IdlPlan {
-        let types = self.model.as_ref().map(|m| m.types.clone()).unwrap_or_default();
+        let types = self.model.as_ref().map(|m| m.types.as_slice()).unwrap_or_default();
         let uses_juiz_std = types.iter().any(|t| {
             t.full_name()
                 .is_some_and(|n| n.starts_with("juiz_std.") && matches!(t, DataType::Record(_) | DataType::Enum(_)))
         });
         IdlPlan {
             lang,
-            generated: Vec::new(),
             hs_modules: hs_modules.to_vec(),
-            files: Vec::new(),
             main: super::FILE_NAME.to_owned(),
             signatures,
             uses_juiz_std,
-            types,
         }
     }
 
