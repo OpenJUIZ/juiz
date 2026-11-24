@@ -1071,6 +1071,18 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 
+    /// 足すコードは create -t component の雛形と同じ形 (typed = "all"・引数の説明つき、#611)
+    #[test]
+    fn rust_snippets_match_create() {
+        let d = skeleton("rust", "component", "same");
+        let src = std::fs::read_to_string(d.join("src/lib.rs")).unwrap();
+        let process = snippet(AddKind::Process, "my_robot_add", Lang::Rust).unwrap();
+        let container = snippet(AddKind::Container, "my_robot", Lang::Rust).unwrap();
+        assert!(src.contains(process.trim_end()), "{process}\n---\n{src}");
+        assert!(src.contains(container.trim_end()), "{container}\n---\n{src}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
     #[test]
     fn rust_container_only_gets_processes() {
         let d = skeleton("rust", "container", "rc");
