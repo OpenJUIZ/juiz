@@ -133,8 +133,9 @@ fn pkg_design_and_check() {
     let text = std::fs::read_to_string(&doc).unwrap();
     assert!(text.contains("idl:\n  - idl/arm.jidl\nprocesses:\n  - name: move_to\n    description: \"Moves\"\n"), "{text}");
     assert!(run(&["pkg", "design", "check", path_str(&doc), "-b", "zig"]).status.success());
-    // juiz pkg design --from-plugin (設計文書 Step 5): 型の無い今のサンプルのプラグインから起こし、警告を出す
-    let lib = crate::common::plugin_file("example_component");
+    // juiz pkg design --from-plugin (設計文書 Step 5): 型付きと型の無い引数が混ざったテスト用のプラグインから起こす。
+    // 型の無い引数は警告、record は idl/<name>.jidl に書く
+    let lib = crate::common::plugin_file("native_pose_component");
     let doc = dir.join("from_plugin").join("juizdesign.yaml");
     let r = run(&["pkg", "design", "--from-plugin", &lib, "-o", path_str(&doc)]);
     assert!(!r.status.success());
@@ -142,17 +143,18 @@ fn pkg_design_and_check() {
     let r = run(&["pkg", "design", "--from-plugin", &lib, "-b", "rust", "-o", path_str(&doc)]);
     assert!(r.status.success(), "{r:?}");
     let err = String::from_utf8_lossy(&r.stderr);
-    assert!(err.contains("warning: processes[0].arguments[0]: the plugin gives no type (schema) for the argument 'arg1', so it was written as long"), "{err}");
+    assert!(err.contains("warning: processes[0].arguments[0]: the plugin gives no type (schema) for the argument 'x', so it was written as double"), "{err}");
+    assert!(doc.parent().unwrap().join("idl").join("native_pose_component.jidl").is_file());
     let text = std::fs::read_to_string(&doc).unwrap();
-    assert!(text.contains("  name: example_component\n  language: rust\n") && text.contains("    returns: any\n"), "{text}");
+    assert!(text.contains("  name: native_pose_component\n  language: rust\n") && text.contains("    returns: robot.geometry.Pose2D\n"), "{text}");
     let r = run(&["pkg", "design", "check", path_str(&doc), "--plugin", &lib]);
     assert!(r.status.success(), "{r:?}");
     assert!(String::from_utf8_lossy(&r.stdout).contains("matches the plugin"), "{r:?}");
     // 食い違いはエラー (P1)
-    std::fs::write(&doc, text.replace("  name: example_component\n", "  name: other_component\n")).unwrap();
+    std::fs::write(&doc, text.replace("  name: native_pose_component\n", "  name: other_component\n")).unwrap();
     let r = run(&["pkg", "design", "check", path_str(&doc), "--plugin", &lib]);
     assert!(!r.status.success());
-    assert!(String::from_utf8_lossy(&r.stderr).contains("error: component.name: the component name is 'other_component', but the plugin's is 'example_component'"), "{r:?}");
+    assert!(String::from_utf8_lossy(&r.stderr).contains("error: component.name: the component name is 'other_component', but the plugin's is 'native_pose_component'"), "{r:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
