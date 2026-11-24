@@ -147,3 +147,46 @@ fn create_design_snapshots() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// .jidl の例 (`create --idl` のスナップショット、設計文書 Step 4)。別ファイルの record・enum と juiz_std を使う
+pub(crate) const ROBOT_JIDL: &str = "namespace robot; import idl \"juiz_std/geometry.jidl\"; import idl \"common/goal.jidl\";\n\
+/** Turns */\n\
+process double turn(robot.common.Goal goal, juiz_std.geometry.Pose2D pose, double speed = 1.0);\n\
+/** A wheel */\n\
+container wheel { container_process long spin(long n = 1, robot.common.Mode mode = \"FAST\"); container_process void stop(); }\n";
+
+pub(crate) const GOAL_JIDL: &str = "namespace robot.common; import idl \"juiz_std/geometry.jidl\";\n\
+enum Mode { FAST, SLOW } = SLOW;\n\
+record Goal { juiz_std.geometry.Pose2D pose; double tolerance = 0.1; Mode mode; }\n";
+
+/// `create --idl` で作る雛形 (5 言語、設計文書 Step 4 で文書経由に切り替える前後を比べる)
+#[cfg(unix)]
+#[test]
+fn create_idl_snapshots() {
+    let dir = std::env::temp_dir().join(format!("juiz_pkg_snapshot_idl_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("common")).unwrap();
+    std::fs::write(dir.join("common/goal.jidl"), GOAL_JIDL).unwrap();
+    let idl = dir.join("robot.jidl");
+    std::fs::write(&idl, ROBOT_JIDL).unwrap();
+    for lang in LANGS {
+        let plan = plan_for(&[
+            "create",
+            "my_robot",
+            "-b",
+            lang.dir(),
+            "--idl",
+            idl.to_str().unwrap(),
+            "-o",
+            "/work/my_robot",
+            "--juiz-sdk-dir",
+            "/opt/juiz-sdk",
+            "--hsjuiz-dir",
+            "/opt/juiz/bindings/hsjuiz",
+            "--zigjuiz-dir",
+            "/opt/juiz/bindings/zigjuiz",
+        ]);
+        assert_snapshot(&format!("{}-idl", lang.dir()), &render_plan(&plan));
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

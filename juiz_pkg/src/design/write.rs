@@ -6,7 +6,7 @@
 use serde_json::Value;
 use yaml_rust2::Yaml;
 
-use super::{ArgumentDesign, Design, ProcessDesign, StateDesign, FILE_NAME, FORMAT};
+use super::{ArgumentDesign, ContainerDesign, Design, ProcessDesign, StateDesign, FILE_NAME, FORMAT};
 use crate::JUIZ_VERSION;
 
 /// そのまま (引用符なしで) 書いても同じ文字列として読める字の並びか
@@ -96,7 +96,8 @@ fn list(out: &mut String, pad: &str, key: &str, lines: Vec<String>) {
     }
 }
 
-fn process(out: &mut String, pad: &str, p: &ProcessDesign) {
+/// Process・ContainerProcess 1 つ (`<pad>- name: …`)
+pub(crate) fn process(out: &mut String, pad: &str, p: &ProcessDesign) {
     out.push_str(&format!("{pad}- name: {}\n", word(&p.name)));
     let pad = format!("{pad}  ");
     if let Some(d) = &p.description {
@@ -108,6 +109,23 @@ fn process(out: &mut String, pad: &str, p: &ProcessDesign) {
     }
     if p.readonly {
         out.push_str(&format!("{pad}readonly: true\n"));
+    }
+}
+
+/// Container 1 つ (`<pad>- name: …`)
+pub(crate) fn container(out: &mut String, pad: &str, c: &ContainerDesign) {
+    out.push_str(&format!("{pad}- name: {}\n", word(&c.name)));
+    let pad = format!("{pad}  ");
+    if let Some(desc) = &c.description {
+        out.push_str(&format!("{pad}description: {}\n", quoted(desc)));
+    }
+    list(out, &pad, "arguments", c.arguments.iter().map(argument).collect());
+    list(out, &pad, "state", c.state.iter().map(state).collect());
+    if !c.processes.is_empty() {
+        out.push_str(&format!("{pad}processes:\n"));
+        for p in &c.processes {
+            process(out, &format!("{pad}  "), p);
+        }
     }
 }
 
@@ -141,18 +159,7 @@ pub fn to_yaml(d: &Design) -> String {
     if !d.containers.is_empty() {
         out.push_str("containers:\n");
         for c in &d.containers {
-            out.push_str(&format!("  - name: {}\n", word(&c.name)));
-            if let Some(desc) = &c.description {
-                out.push_str(&format!("    description: {}\n", quoted(desc)));
-            }
-            list(&mut out, "    ", "arguments", c.arguments.iter().map(argument).collect());
-            list(&mut out, "    ", "state", c.state.iter().map(state).collect());
-            if !c.processes.is_empty() {
-                out.push_str("    processes:\n");
-                for p in &c.processes {
-                    process(&mut out, "      ", p);
-                }
-            }
+            container(&mut out, "  ", c);
         }
     }
     out

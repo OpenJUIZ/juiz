@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use super::{check, parse, preset, to_yaml, Report, FILE_NAME};
 use crate::cli::{DesignArgs, DesignCheckArgs};
+use crate::idl::{relative_under, IdlSource};
 use crate::PkgError;
 
 /// `juiz pkg design` の結果
@@ -19,13 +20,11 @@ fn shown(p: &Path) -> String {
     p.display().to_string()
 }
 
-/// 設計文書だけを書く (§2.6)。`-t` のプリセットに `-b` の言語を書いたもの
+/// 設計文書だけを書く (§2.6)。`-t` のプリセット、または `--idl` の .jidl から作った文書 (Step 4) に `-b` の言語を書いたもの
 pub fn design(name: &str, args: &DesignArgs) -> Result<Written, PkgError> {
     let template = args.template;
     let path = args.output.clone().unwrap_or_else(|| PathBuf::from(FILE_NAME));
     let label = shown(&path);
-    let mut d = preset(name, template);
-    d.component.language = args.lang;
     // 書き先がある (ファイルでもディレクトリでも) ならエラー (上書きしない、pkg.md §8)
     if std::fs::symlink_metadata(&path).is_ok() {
         return Err(PkgError::new(format!(
@@ -37,6 +36,30 @@ pub fn design(name: &str, args: &DesignArgs) -> Result<Written, PkgError> {
         .filter(|p| !p.as_os_str().is_empty())
         .map(Path::to_path_buf)
         .unwrap_or_else(|| PathBuf::from("."));
+    let d = match &args.idl {
+        // .jidl の宣言から (design.md §6.2・§8.4)。`idl:` は文書のディレクトリからの相対パス
+        Some(jidl) => {
+            let src = IdlSource::load(jidl)?;
+            let main = src.dir.join(Path::new(&src.main));
+            let rel = base
+                .canonicalize()
+                .ok()
+                .and_then(|b| relative_under(&main, &b))
+                .ok_or_else(|| {
+                    PkgError::new(format!(
+                        "--idl {}: the .jidl is not in the directory of {label}, and idl: of the document must be a path in that directory; write the document there with -o {}",
+                        jidl.display(),
+                        src.dir.join(FILE_NAME).display()
+                    ))
+                })?;
+            src.design(name, args.lang, &rel)?
+        }
+        None => {
+            let mut d = preset(name, template);
+            d.component.language = args.lang;
+            d
+        }
+    };
     let report = check(&d, args.lang, &base);
     if !report.is_ok() {
         return Err(PkgError::new(format!(

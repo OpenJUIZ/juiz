@@ -88,6 +88,12 @@ pub(crate) fn type_expr(t: &DataType, ns: &str, default_is_null: bool) -> String
     }
 }
 
+/// 型の式を完全名で書く (設計文書の `type`・`returns`、docs/spec/design.md §6.2)。
+/// `T?` は null が先の union (`union { null, T }`) のときだけ使い、ほかは `union { T, null }` と書く
+pub fn type_expression(t: &DataType) -> String {
+    type_expr(t, "", true)
+}
+
 pub(crate) fn doc_comment(doc: &Option<String>, pad: &str) -> String {
     match doc {
         Some(d) => format!("{pad}/** {} */\n", d.replace("*/", "* /")),

@@ -1,7 +1,8 @@
 //! `juiz pkg add process|container <name>` (docs/spec/pkg.md §2.4)
 //!
 //! `juiz pkg create` で作った雛形の Component に、型を 1 つ (Container なら ContainerProcess 2 つと一緒に) 足す。
-//! 新しいファイルは作らず、Component のソース 1 つと app/app.conf の 2 つを書き換える
+//! 新しいファイルは作らず、Component のソース 1 つと app/app.conf、雛形の直下の juizdesign.yaml (設計文書 Step 4、
+//! design.md §8.3) を書き換える
 //! (1 雛形 = 1 Component、§4)。足すコードは templates/add/<lang>/<kind>.tmpl。
 
 use std::path::{Path, PathBuf};
@@ -43,6 +44,7 @@ pub struct EditedFile {
 #[derive(Debug, Clone)]
 pub struct Added {
     pub files: Vec<EditedFile>,
+    pub warnings: Vec<String>,
     pub summary: String,
 }
 
@@ -598,6 +600,138 @@ fn edit_conf(conf: &str, kind: AddKind, name: &str) -> Result<String, PkgError> 
     Ok(join(&lines))
 }
 
+// ---- 設計文書 (juizdesign.yaml、design.md §8.3) ----
+
+/// 足す型の文書の書き方 (プリセットと同じ型、design.md §7.1)
+fn design_entries(kind: AddKind, name: &str, pad: &str) -> String {
+    let preset = crate::design::preset(name, crate::Template::Component);
+    let mut out = String::new();
+    match kind {
+        AddKind::Process => {
+            let mut p = preset.processes[0].clone();
+            p.name = name.to_owned();
+            crate::design::write::process(&mut out, pad, &p);
+        }
+        AddKind::Container => crate::design::write::container(&mut out, pad, &preset.containers[0]),
+    }
+    out
+}
+
+/// 最上位のキーの行か (字下げが無く、コメント・空行でない)。字下げの無い配列の要素 (`- …`) は除く。
+/// `---` なども区切りとして扱う
+fn is_top_line(line: &str) -> bool {
+    let body = line.trim_end();
+    !body.is_empty() && !line.starts_with([' ', '\t', '#']) && !(body == "-" || body.starts_with("- "))
+}
+
+/// `processes:`・`containers:` の配列の末尾に、足す型を §9 の書き方で書き足す (design.md §8.3)。
+/// 配列が無ければ文書の末尾に作る。flow 形式など、書き足す所が見つからなければエラー
+pub(crate) fn edit_design(text: &str, kind: AddKind, name: &str) -> Result<String, PkgError> {
+    let key = match kind {
+        AddKind::Process => "processes",
+        AddKind::Container => "containers",
+    };
+    let mut lines: Vec<String> = text.split_inclusive('\n').map(str::to_owned).collect();
+    if let Some(last) = lines.last_mut() {
+        if !last.ends_with('\n') {
+            last.push('\n');
+        }
+    }
+    let manual = |what: &str| {
+        err(format!(
+            "{}: {what}; add the {} {name} to it by hand (or write {key} in the block style)",
+            crate::design::FILE_NAME,
+            kind.dir()
+        ))
+    };
+    let at = lines.iter().position(|l| l.starts_with(&format!("{key}:")));
+    let Some(at) = at else {
+        // 配列が無い: 文書の末尾に作る
+        lines.push(format!("{key}:\n"));
+        lines.push(design_entries(kind, name, "  "));
+        return Ok(lines.concat());
+    };
+    let rest = lines[at][key.len() + 1..].trim();
+    let rest = rest.split(" #").next().unwrap_or("").trim();
+    match rest {
+        "" | "#" => {}
+        "[]" => lines[at] = format!("{key}:\n"),
+        _ => return Err(manual(&format!("'{}' is not in the block style", lines[at].trim_end()))),
+    }
+    let end = lines[at + 1..]
+        .iter()
+        .position(|l| is_top_line(l))
+        .map(|i| at + 1 + i)
+        .unwrap_or(lines.len());
+    // 配列の要素の字下げ (最初の `- ` の行に合わせる)
+    let pad = lines[at + 1..end]
+        .iter()
+        .find(|l| l.trim_start().starts_with("- ") || l.trim() == "-")
+        .map(|l| l[..l.len() - l.trim_start().len()].to_owned())
+        .unwrap_or_else(|| "  ".to_owned());
+    if pad.contains('\t') {
+        return Err(manual("the items are indented with tabs"));
+    }
+    // 末尾の空行とコメントの前に入れる
+    let mut insert = end;
+    while insert > at + 1 && (lines[insert - 1].trim().is_empty() || lines[insert - 1].trim_start().starts_with('#')) {
+        insert -= 1;
+    }
+    lines.insert(insert, design_entries(kind, name, &pad));
+    Ok(lines.concat())
+}
+
+/// juizdesign.yaml を書き換えた中身。文書が無ければ None。
+/// 書き換える前と後の文書が §5 の検査を通り、足した型が入っていることを確かめる
+fn plan_design(dir: &Path, pkg: &Package, kind: AddKind, name: &str) -> Result<Option<EditedFile>, PkgError> {
+    use crate::design::{check, parse, FILE_NAME};
+    let path = dir.join(FILE_NAME);
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let before = read(dir, FILE_NAME)?;
+    let invalid = |text: &str, when: &str| -> Option<String> {
+        let d = match parse(text) {
+            Ok(d) => d,
+            Err(r) => return Some(r.error_text(FILE_NAME)),
+        };
+        let r = check(&d, Some(pkg.lang), dir);
+        (!r.is_ok()).then(|| format!("{when}:\n{}", r.error_text(FILE_NAME)))
+    };
+    if let Some(e) = invalid(&before, "it does not pass juiz pkg design check") {
+        return Err(err(format!(
+            "{FILE_NAME} is not a valid design document, so nothing was added; fix it (juiz pkg design check {FILE_NAME}) or remove it, then add again. {e}"
+        )));
+    }
+    let design = parse(&before).expect("checked");
+    let in_doc = |t: &str| {
+        design.processes.iter().any(|p| p.name == t)
+            || design.containers.iter().any(|c| c.name == t || c.processes.iter().any(|p| p.name == t))
+    };
+    for t in type_names(kind, name) {
+        if in_doc(&t) {
+            return Err(err(format!("{t} is already in {FILE_NAME}; choose another name")));
+        }
+    }
+    let after = edit_design(&before, kind, name)?;
+    if let Some(e) = invalid(&after, "the edited document does not pass juiz pkg design check") {
+        return Err(err(format!("{FILE_NAME}: could not add {} {name} ({e}); add it by hand", kind.dir())));
+    }
+    let added = parse(&after).expect("checked");
+    let has = |t: &str| {
+        added.processes.iter().any(|p| p.name == t)
+            || added.containers.iter().any(|c| c.name == t || c.processes.iter().any(|p| p.name == t))
+    };
+    if let Some(t) = type_names(kind, name).into_iter().find(|t| !has(t)) {
+        return Err(not_a_skeleton(FILE_NAME, &format!("a place to add {t}")));
+    }
+    Ok(Some(EditedFile {
+        path: FILE_NAME.to_owned(),
+        before,
+        after,
+    }))
+}
+
 // ---- まとめ ----
 
 /// 書き換えた後の中身を作る (ファイルはまだ書かない)
@@ -659,21 +793,23 @@ pub fn plan(dir: &Path, kind: AddKind, name: &str) -> Result<(Package, Vec<Edite
         }
     }
 
-    Ok((
-        pkg,
-        vec![
-            EditedFile {
-                path: src_path,
-                before: src,
-                after: new_src,
-            },
-            EditedFile {
-                path: "app/app.conf".to_owned(),
-                before: conf,
-                after: new_conf,
-            },
-        ],
-    ))
+    // 設計文書 (設計文書 Step 4)。無い雛形 (Step 1 より前に作ったもの) では書き換えない
+    let design = plan_design(dir, &pkg, kind, name)?;
+
+    let mut files = vec![
+        EditedFile {
+            path: src_path,
+            before: src,
+            after: new_src,
+        },
+        EditedFile {
+            path: "app/app.conf".to_owned(),
+            before: conf,
+            after: new_conf,
+        },
+    ];
+    files.extend(design);
+    Ok((pkg, files))
 }
 
 /// 書く。途中で失敗したら、書いたものを元に戻す
@@ -756,13 +892,29 @@ pub fn summary(
     s
 }
 
+/// juizdesign.yaml の無い雛形 (設計文書 Step 1 より前に作ったもの) への警告 (design.md §8.3)
+fn no_design_warning(files: &[EditedFile]) -> Vec<String> {
+    if files.iter().any(|f| f.path == crate::design::FILE_NAME) {
+        Vec::new()
+    } else {
+        vec![format!(
+            "{} is not in this skeleton (made before juiz pkg had design documents), so only the source and app/app.conf were changed",
+            crate::design::FILE_NAME
+        )]
+    }
+}
+
 /// 型を足す
 pub fn add(args: &AddArgs) -> Result<Added, PkgError> {
     let dir: PathBuf = args.dir.clone();
     let (pkg, files) = plan(&dir, args.kind, &args.name)?;
     write_edits(&dir, &files, None)?;
     let summary = summary(&pkg, args.kind, &args.name, &files, cfg!(windows));
-    Ok(Added { files, summary })
+    Ok(Added {
+        warnings: no_design_warning(&files),
+        files,
+        summary,
+    })
 }
 
 #[cfg(test)]
@@ -879,6 +1031,18 @@ mod tests {
                 }
                 let src = std::fs::read_to_string(d.join(pkg.source_path())).unwrap();
                 assert!(!src.contains("{{"), "{lang} {template}");
+                // juizdesign.yaml にも足し、その言語の検査を通る (design.md §8.3)
+                let doc = crate::design::parse(&std::fs::read_to_string(d.join("juizdesign.yaml")).unwrap()).unwrap();
+                assert!(crate::design::check(&doc, Some(pkg.lang), &d).is_ok(), "{lang} {template}");
+                let names: Vec<&str> = doc
+                    .processes
+                    .iter()
+                    .map(|p| p.name.as_str())
+                    .chain(doc.containers.iter().flat_map(|c| std::iter::once(c.name.as_str()).chain(c.processes.iter().map(|p| p.name.as_str()))))
+                    .collect();
+                for w in ["my_mul", "arm", "arm_increment", "arm_get"] {
+                    assert!(names.contains(&w), "{lang} {template}: {w} not in {names:?}");
+                }
                 for w in ["my_mul", "arm", "arm_increment", "arm_get"] {
                     assert!(contains_word(&src, w), "{lang} {template}: {w}\n{src}");
                 }
@@ -966,7 +1130,7 @@ mod tests {
         assert!(e.to_string().contains("already"), "{e}");
         let _ = std::fs::remove_dir_all(&d);
 
-        // --idl の雛形 (juiz_idl の zig-skeleton) は 1 行の要素で std を読み込んでいない
+        // --idl の雛形 (設計文書 Step 4 から文書経由。-d と同じ形) にも足せる
         let d = temp("zig_idl_add");
         let jidl = crate::idl::write_jidl(&d.join("src"), "a.jidl", "namespace a; process long f(long x);");
         let o = d.join("pkg");
@@ -975,8 +1139,8 @@ mod tests {
         crate::create::write_files(&o, &p.files().unwrap(), None).unwrap();
         let (_, files) = plan(&o, AddKind::Process, "sum").unwrap();
         let src = &files[0].after;
-        assert!(src.contains("const std = @import(\"std\");\nconst juiz = @import(\"juiz\");"), "{src}");
-        assert!(src.contains("juiz.processPart(f, .{ .type_name = \"f\""), "{src}");
+        assert_eq!(src.matches("const std = @import(\"std\");").count(), 1, "{src}");
+        assert!(src.contains("juiz.processPart(f, .{\n"), "{src}");
         assert!(src.contains("            juiz.processPart(sum, .{\n"), "{src}");
         let _ = std::fs::remove_dir_all(&d);
     }
@@ -1084,17 +1248,81 @@ mod tests {
     #[test]
     fn rollback_on_failure() {
         let d = skeleton("python", "component", "rb");
-        let before: Vec<String> = ["app/python/my_robot.py", "app/app.conf"]
-            .iter()
-            .map(|p| std::fs::read_to_string(d.join(p)).unwrap())
-            .collect();
+        let paths = ["app/python/my_robot.py", "app/app.conf", "juizdesign.yaml"];
+        let read_all = || -> Vec<String> { paths.iter().map(|p| std::fs::read_to_string(d.join(p)).unwrap()).collect() };
+        let before = read_all();
         let (_, files) = plan(&d, AddKind::Process, "my_mul").unwrap();
-        assert!(write_edits(&d, &files, Some(1)).is_err());
-        let after: Vec<String> = ["app/python/my_robot.py", "app/app.conf"]
-            .iter()
-            .map(|p| std::fs::read_to_string(d.join(p)).unwrap())
-            .collect();
-        assert_eq!(before, after);
+        // 2 つめ・3 つめ (juizdesign.yaml) の書き込みで失敗したら、書いたものを元に戻す
+        for at in [1, 2] {
+            assert!(write_edits(&d, &files, Some(at)).is_err());
+            assert_eq!(before, read_all(), "fail at {at}");
+        }
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// juizdesign.yaml への書き足し方 (design.md §8.3)
+    #[test]
+    fn design_edits() {
+        let head = "format: 1\ncomponent:\n  name: my_robot\n";
+        // 配列の末尾 (後ろの空行・コメントの前) に、プリセットと同じ形で足す
+        let doc = format!("{head}processes:\n  - name: a\n    returns: long\n\n# containers\ncontainers:\n  - name: c\n");
+        let out = edit_design(&doc, AddKind::Process, "my_mul").unwrap();
+        assert_eq!(
+            out,
+            format!("{head}processes:\n  - name: a\n    returns: long\n  - name: my_mul\n    description: \"Returns a + b.\"\n    arguments:\n      - {{ name: a, type: long, default: 0, description: \"the first value\" }}\n      - {{ name: b, type: long, default: 0, description: \"the second value\" }}\n    returns: long\n\n# containers\ncontainers:\n  - name: c\n")
+        );
+        let out = edit_design(&doc, AddKind::Container, "arm").unwrap();
+        assert!(out.ends_with("containers:\n  - name: c\n  - name: arm\n    description: \"Holds an integer value.\"\n    arguments:\n      - { name: initial_value, type: long, default: 0, description: \"the initial value\" }\n    state:\n      - { name: value, type: long, init: initial_value }\n    processes:\n      - name: arm_increment\n        description: \"Adds step to the value and returns it.\"\n        arguments:\n          - { name: step, type: long, default: 1, description: \"the value to add\" }\n        returns: long\n      - name: arm_get\n        description: \"Returns the value.\"\n        returns: long\n        readonly: true\n"), "{out}");
+        // 要素の字下げは文書に合わせる
+        let doc = format!("{head}processes:\n- name: a\n  returns: long");
+        let out = edit_design(&doc, AddKind::Process, "my_mul").unwrap();
+        assert!(out.contains("  returns: long\n- name: my_mul\n  description:"), "{out}");
+        // 配列が無ければ文書の末尾に作る。`[]` は block の形に直す
+        let out = edit_design(&doc, AddKind::Container, "arm").unwrap();
+        assert!(out.contains("  returns: long\ncontainers:\n  - name: arm\n"), "{out}");
+        let doc = format!("{head}processes: []  # none yet\ncontainers:\n  - name: c\n");
+        let out = edit_design(&doc, AddKind::Process, "my_mul").unwrap();
+        assert!(out.contains("processes:\n  - name: my_mul\n"), "{out}");
+        // flow の形には書き足せない
+        let doc = format!("{head}processes: [{{ name: a }}]\n");
+        let e = edit_design(&doc, AddKind::Process, "my_mul").unwrap_err().to_string();
+        assert!(e.contains("by hand") && e.contains("block style"), "{e}");
+    }
+
+    /// juizdesign.yaml の無い雛形・検査を通らない文書・文書に既にある型
+    #[test]
+    fn design_document_cases() {
+        // 無ければ警告して、ソースと conf だけを書き換える
+        let d = skeleton("rust", "process", "nodoc");
+        std::fs::remove_file(d.join("juizdesign.yaml")).unwrap();
+        let (_, files) = plan(&d, AddKind::Process, "my_mul").unwrap();
+        let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, ["src/lib.rs", "app/app.conf"]);
+        let w = no_design_warning(&files);
+        assert!(w.len() == 1 && w[0].contains("juizdesign.yaml is not in this skeleton"), "{w:?}");
+        let _ = std::fs::remove_dir_all(&d);
+        // 検査を通らない文書はエラーで、何も変えない
+        let d = skeleton("python", "process", "baddoc");
+        let doc = std::fs::read_to_string(d.join("juizdesign.yaml")).unwrap();
+        std::fs::write(d.join("juizdesign.yaml"), doc.replace("returns: long", "returns: Pose")).unwrap();
+        let e = plan(&d, AddKind::Process, "my_mul").unwrap_err().to_string();
+        assert!(e.contains("not a valid design document") && e.contains("unknown type 'Pose'"), "{e}");
+        // 文書にだけ同じ名前の型があってもエラー
+        std::fs::write(d.join("juizdesign.yaml"), doc.replace("name: my_robot_add", "name: my_mul")).unwrap();
+        let e = plan(&d, AddKind::Process, "my_mul").unwrap_err().to_string();
+        assert!(e.contains("my_mul is already in juizdesign.yaml"), "{e}");
+        let _ = std::fs::remove_dir_all(&d);
+        // --idl の雛形の文書 (idl: を持つ) にも足せる
+        let d = temp("idl_doc_add");
+        crate::idl::write_jidl(&d.join("src/common"), "goal.jidl", crate::snapshots::GOAL_JIDL);
+        let jidl = crate::idl::write_jidl(&d.join("src"), "robot.jidl", crate::snapshots::ROBOT_JIDL);
+        let o = d.join("pkg");
+        let args = create_args(&["create", "my_robot", "-b", "python", "--idl", jidl.to_str().unwrap(), "-o", o.to_str().unwrap()]);
+        let (p, _) = crate::create::Plan::from_args_with(&args, || None, false).unwrap();
+        crate::create::write_files(&o, &p.files().unwrap(), None).unwrap();
+        let (_, files) = plan(&o, AddKind::Container, "arm").unwrap();
+        assert_eq!(files[2].path, "juizdesign.yaml");
+        assert!(files[2].after.contains("      - name: stop\n  - name: arm\n"), "{}", files[2].after);
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -1103,7 +1331,7 @@ mod tests {
         let d = skeleton("cpp", "component", "sum");
         let (pkg, files) = plan(&d, AddKind::Process, "my_mul").unwrap();
         let s = summary(&pkg, AddKind::Process, "my_mul", &files, false);
-        assert!(s.starts_with("Added process my_mul to my_robot (c++): my_mul\nEdited src/my_robot.cpp, app/app.conf\n"), "{s}");
+        assert!(s.starts_with("Added process my_mul to my_robot (c++): my_mul\nEdited src/my_robot.cpp, app/app.conf, juizdesign.yaml\n"), "{s}");
         assert!(s.contains("scripts/dev.sh"));
         assert!(s.contains("/process/my_mul0::my_mul"));
         let s = summary(&pkg, AddKind::Container, "arm", &files, true);

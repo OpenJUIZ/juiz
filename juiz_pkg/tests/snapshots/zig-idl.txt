@@ -1,0 +1,560 @@
+==== .gitignore ====
+# build outputs
+/zig-out
+/.zig-cache
+# plugins put by scripts/dev.sh, and packages made by scripts/pack.sh
+/app/plugins/
+/dist/
+*.juizapp
+==== README.md ====
+# my_robot
+
+A juiz component written in Zig. It was made with `juiz pkg create --idl` of juiz <version>,
+from the process / container declarations of `idl/robot.jidl`, through the design document `juizdesign.yaml`.
+
+
+## What is inside
+
+| Type | Kind | Arguments (default) | Returns | What it does |
+| --- | --- | --- | --- | --- |
+| `turn` | Process | `goal: robot.common.Goal`, `pose: juiz_std.geometry.Pose2D`, `speed: double` (1.0) | `double` | Turns |
+| `wheel` | Container | - | - | A wheel |
+| `spin` | ContainerProcess | `n: long` (1), `mode: robot.common.Mode` ("FAST") | `long` | - |
+| `stop` | ContainerProcess | - | - | - |
+
+| Path | What it is |
+| --- | --- |
+| `juizdesign.yaml` | The design document: the types of this Component (`juiz pkg design check juizdesign.yaml` checks it) |
+| `idl/robot.jidl` | The record and enum types (JIDL) the design document uses (`idl:`) |
+| `src/my_robot.zig` | The Component. Each function is a type, listed in `juiz.exportComponent` at the end. Write the bodies (`return error.NotImplemented`) |
+| `build.zig` | Builds the plugin `libmy_robot` with zigjuiz, and puts it with libjuiz_sdk in `zig-out/plugins/` |
+| `idl/robot.jidl` | `build.zig` generates their Zig types when it builds (`juiz.addTypes`) |
+| `build.zig.zon` | The Zig package. It points to zigjuiz (the Zig library of juiz) |
+| `app/app.conf` | The configuration to start juiz with. It is also the entry of the `.juizapp` package |
+| `app/juizapp.yaml` | The `.juizapp` manifest (name, version, required juiz version) |
+| `scripts/dev.sh`, `scripts/dev.ps1` | Build the plugin and put it with libjuiz_sdk in `app/plugins/<target>/` (`--target` / `-Target` for another machine) |
+| `scripts/pack.sh`, `scripts/pack.ps1` | Build in release mode and make `dist/my_robot-<version>.juizapp` |
+
+## Requirements
+
+Linux, macOS or Windows (x86_64). On Windows, use `scripts\dev.ps1` and `scripts\pack.ps1` instead of the `.sh` scripts:
+the plugin is `my_robot.dll`, and `juiz_sdk.dll` goes next to it (Windows has no rpath).
+Zig builds it with its default ABI (`x86_64-windows-gnu`); Visual Studio is not needed.
+
+- juiz <version> (`juiz --version`). Install it with `cargo install juiz_app --version <version>` or `pip install juiz-cli==<version>`
+- Zig 0.17.x ([ziglang.org](https://ziglang.org/download/), or `pip install ziglang==0.17.1` and `ZIG="python3 -m ziglang" scripts/dev.sh`).
+  zigjuiz supports only this version of Zig
+- `juiz-idl` or `juiz` in PATH, if `idl:` has `idl/robot.jidl`: the build generates the types with `juiz-idl -g zig` (or `juiz idl -g zig`)
+- libjuiz_sdk <version> in `/opt/juiz-sdk`. Install it with `juiz sdk install` (`juiz sdk path` prints where it is)
+- The juiz source of <version> for zigjuiz, in `/opt/juiz/bindings/zigjuiz`
+- zigjuiz <version>, the Zig library of juiz. `scripts/dev.sh` adds it to `build.zig.zon` the first time (it needs the network once):
+
+`build.zig.zon` points to zigjuiz with the path `../../opt/juiz/bindings/zigjuiz`, relative to this directory (Zig does not take an absolute path there).
+If you move this project or zigjuiz, change the path in `build.zig.zon`.
+
+zigjuiz and libjuiz_sdk must be the same version as juiz: juiz does not load a plugin that carries another version of libjuiz_sdk.
+`app/juizapp.yaml` requires `juiz: "=<version>"` for the same reason.
+When you update juiz, get zigjuiz and libjuiz_sdk of the new version, and change `build.zig.zon` and `app/juizapp.yaml`.
+To use libjuiz_sdk in another directory, run `JUIZ_SDK_DIR=<dir> scripts/dev.sh` (`$env:JUIZ_SDK_DIR = "<dir>"` before `scripts\dev.ps1` on Windows, or `zig build -Djuiz-sdk=<dir>`).
+
+## Write, build, run and call
+
+The functions in `src/my_robot.zig` have the arguments and the return values written in `juizdesign.yaml`, and their bodies are
+`return error.NotImplemented`: calling one before you write it fails. The example calls below use the default values, or a value of the type.
+
+```sh
+# once: get zigjuiz <version> (the juiz source) in /opt/juiz/bindings/zigjuiz
+git clone --depth 1 --branch v<version> https://github.com/OpenJUIZ/juiz.git /opt/juiz
+# once: put libjuiz_sdk <version> in /opt/juiz-sdk
+juiz sdk install --dir /opt/juiz-sdk
+# write the bodies of the functions (return error.NotImplemented) in src/my_robot.zig, then
+scripts/dev.sh                  # build and put the plugin and libjuiz_sdk in app/plugins/<target>/
+juiz -f app/app.conf -d         # start (keep it running)
+
+# in another terminal
+juiz process call "http://127.0.0.1:8000/process/turn0::turn" '{"goal":{"mode":"SLOW","pose":{"position":{"x":0.0,"y":0.0},"theta":0.0},"tolerance":0.1},"pose":{"position":{"x":0.0,"y":0.0},"theta":0.0},"speed":1.0}' -p
+juiz container-process call "http://127.0.0.1:8000/container_process/spin0::spin:wheel0" '{"mode":"FAST","n":1}' -p
+juiz container-process call "http://127.0.0.1:8000/container_process/stop0::stop:wheel0" '{}' -p
+
+scripts/pack.sh                 # make dist/my_robot-0.1.0.juizapp
+juiz run dist/my_robot-0.1.0.juizapp
+```
+
+A function returns an error (`error.Overflow` and so on) to fail a call; juiz reports it and keeps running.
+A panic stops juiz, so the release build keeps the safety checks (ReleaseSafe).
+
+## Changing the design
+
+`juiz pkg create -d` does not change a skeleton it has made. When you change `juizdesign.yaml`, change the functions and the parts of
+`juiz.exportComponent` in `src/my_robot.zig` and `app/app.conf` to match (`juiz pkg create -d juizdesign.yaml -b zig -o <dir>` writes a new skeleton, to copy from).
+`juiz pkg add` adds a type to `src/my_robot.zig` and `app/app.conf`.
+`zig build` generates the Zig types of `idl/robot.jidl` again when they change (the module `juiz_types`).
+When a `.jidl` of `idl:` imports another file, add it to `.depends` of `juiz.addTypes` in `build.zig`.
+
+## Versions
+
+The package version is `0.1.0` in both `build.zig.zon` and `app/juizapp.yaml`. When you release a new version, change both.
+
+## Plugins for several machines in one package
+
+Zig builds for other machines from this one. Install libjuiz_sdk of each target once, build for it, and make the package:
+
+```sh
+juiz sdk install --target aarch64-unknown-linux-gnu
+scripts/dev.sh --release --target aarch64-unknown-linux-gnu   # app/plugins/aarch64-unknown-linux-gnu/
+juiz sdk install --target aarch64-apple-darwin
+scripts/dev.sh --release --target aarch64-apple-darwin        # app/plugins/aarch64-apple-darwin/
+scripts/pack.sh                                               # builds for this machine, packs every app/plugins/<target>/
+```
+
+The targets are x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu, x86_64-apple-darwin, aarch64-apple-darwin and x86_64-pc-windows-msvc.
+On Windows, run `scripts\dev.ps1 -Release -Target <target>` and `scripts\pack.ps1`.
+Each `app/plugins/<target>/` holds the plugin and libjuiz_sdk of that target.
+==== app/app.conf ====
+# my_robot: start-up configuration of the juiz component my_robot
+#   development: juiz -f app/app.conf -d
+#                (Rust, C++, Haskell and Zig: run scripts/dev.sh first to put the plugin in app/plugins/<target>/)
+#   package:     scripts/pack.sh, then juiz run dist/my_robot-0.1.0.juizapp
+"name": "my_robot"
+"option":
+  "http_broker":
+    "start": true
+    "port": 8000
+"plugins":
+  "components":
+    "my_robot":
+      "language": "zig"
+      "path": "plugins/{target}"
+"processes":
+  - "type_name": "turn"
+    "name": "turn0"
+"containers":
+  - "type_name": "wheel"
+    "name": "wheel0"
+    "processes":
+      - "type_name": "spin"
+        "name": "spin0"
+      - "type_name": "stop"
+        "name": "stop0"
+==== app/juizapp.yaml ====
+# .juizapp manifest (juiz docs/spec/app-package.md §4). languages, targets, rust and files are added by juiz pack
+format: 1
+name: my_robot
+version: 0.1.0
+kind: app
+description: "my_robot: a juiz component"
+# The package carries libjuiz_sdk <version>, and juiz loads it only with the same version of juiz
+juiz: "=<version>"
+entry: app.conf
+==== build.zig ====
+//! Builds the juiz plugin libmy_robot (a shared library) with zigjuiz.
+//!
+//!   zig build --release            puts the plugin and libjuiz_sdk in zig-out/plugins/
+//!   zig build -Djuiz-sdk=<dir>     uses libjuiz_sdk extracted in <dir> (default: `juiz sdk path`)
+//!   zig build -Djuiz-idl=<path>    uses this juiz-idl to generate the types (default: juiz-idl in PATH, or `juiz idl`)
+//!
+//! scripts/dev.sh runs this and copies zig-out/plugins/ to app/plugins/<target>/.
+const std = @import("std");
+const zigjuiz = @import("zigjuiz");
+
+pub fn build(b: *std.Build) void {
+    const juiz = zigjuiz.init(b, .{
+        .target = b.standardTargetOptions(.{}),
+        // --release builds with ReleaseSafe (keeps the safety checks such as out-of-bounds access)
+        .optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSafe }),
+    });
+    // The Zig types (record, enum) of idl: in juizdesign.yaml, generated with `juiz-idl -g zig` when they change.
+    // .depends lists the files that they import, so that a change in them also generates the types again.
+    // .builtins lists the types built into juiz-idl (juiz_std/…), which have no file
+    const types = juiz.addTypes(.{
+        .files = &.{b.path("idl/robot.jidl")},
+        .depends = &.{b.path("idl/common/goal.jidl")},
+    });
+    const lib = juiz.addPlugin(.{
+        .name = "my_robot",
+        .root_source_file = b.path("src/my_robot.zig"),
+        .imports = &.{.{ .name = "juiz_types", .module = types }},
+    });
+    // zig-out/plugins/: the plugin and libjuiz_sdk side by side, with the rpath $ORIGIN (@loader_path on macOS)
+    juiz.installBundle(lib, .{});
+}
+==== build.zig.zon ====
+.{
+    // my_robot: a juiz component written in Zig (juiz pkg create of juiz <version>)
+    .name = .my_robot,
+    .version = "0.1.0",
+    // A random id of this package (its upper 32 bits are the checksum of .name). Keep it when you copy the project
+    .fingerprint = 0x1234567800000001,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        // zigjuiz <version>: the Zig library of juiz, in the juiz source (a path relative to this directory: ../../opt/juiz/bindings/zigjuiz)
+        .zigjuiz = .{ .path = "../../opt/juiz/bindings/zigjuiz" },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
+==== idl/common/goal.jidl ====
+namespace robot.common; import idl "juiz_std/geometry.jidl";
+enum Mode { FAST, SLOW } = SLOW;
+record Goal { juiz_std.geometry.Pose2D pose; double tolerance = 0.1; Mode mode; }
+==== idl/robot.jidl ====
+namespace robot; import idl "juiz_std/geometry.jidl"; import idl "common/goal.jidl";
+/** Turns */
+process double turn(robot.common.Goal goal, juiz_std.geometry.Pose2D pose, double speed = 1.0);
+/** A wheel */
+container wheel { container_process long spin(long n = 1, robot.common.Mode mode = "FAST"); container_process void stop(); }
+==== juizdesign.yaml ====
+# yaml-language-server: $schema=https://raw.githubusercontent.com/OpenJUIZ/juiz/v<version>/juiz_pkg/schema/juizdesign.schema.json
+# my_robot: design of the juiz component my_robot (juiz docs/spec/design.md)
+#   check:    juiz pkg design check juizdesign.yaml
+#   scaffold: juiz pkg create -d juizdesign.yaml -b <rust|python|cpp|haskell|zig>
+format: 1
+component:
+  name: my_robot
+  language: zig
+idl:
+  - idl/robot.jidl
+processes:
+  - name: turn
+    description: "Turns"
+    arguments:
+      - { name: goal, type: robot.common.Goal }
+      - { name: pose, type: juiz_std.geometry.Pose2D }
+      - { name: speed, type: double, default: 1.0 }
+    returns: double
+containers:
+  - name: wheel
+    description: "A wheel"
+    processes:
+      - name: spin
+        arguments:
+          - { name: n, type: long, default: 1 }
+          - { name: mode, type: robot.common.Mode, default: "FAST" }
+        returns: long
+      - name: stop
+==== scripts/dev.ps1 ====
+# Build the plugin and put it with juiz_sdk.dll in app\plugins\<target>\ (to run app\app.conf during development)
+# usage: scripts\dev.ps1 [-Release] [-Target <target>]
+#   -Target <target>: cross-build for another machine, one of x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu,
+#                     x86_64-apple-darwin, aarch64-apple-darwin, x86_64-pc-windows-msvc (default: this machine, `juiz pkg target`).
+#                     It uses libjuiz_sdk of that target: install it once with `juiz sdk install --target <target>`
+#   $env:JUIZ_SDK_DIR = "<dir>"   uses libjuiz_sdk extracted in <dir> (default: `juiz sdk path`)
+#   $env:ZIG = "<command>"        uses this zig (default: zig). Zig 0.17.x is needed
+param([switch]$Release, [string]$Target = "")
+$ErrorActionPreference = "Stop"
+Set-Location (Join-Path $PSScriptRoot "..")
+
+# runs a command and stops if it fails. Its messages on stderr (zig prints its progress there) are not errors
+function Invoke-Checked([string]$Exe, [string[]]$Arguments) {
+    $saved = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $Exe @Arguments
+    } finally {
+        $ErrorActionPreference = $saved
+    }
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
+# runs a command and returns its output (trimmed), or $null if it fails
+function Get-Output([string]$Exe, [string[]]$Arguments) {
+    $saved = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $out = (& $Exe @Arguments 2>$null | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0) { return $null }
+        return $out
+    } catch {
+        return $null
+    } finally {
+        $ErrorActionPreference = $saved
+    }
+}
+
+if (-not (Get-Command juiz -ErrorAction SilentlyContinue)) {
+    Write-Host "error: juiz is not in PATH. Install juiz <version>:"
+    Write-Host "  cargo install juiz_app --version <version>   (or: pip install juiz-cli==<version>)"
+    exit 1
+}
+# $env:ZIG may be a command with arguments, such as "python -m ziglang"
+$zigWords = @(if ($env:ZIG) { $env:ZIG -split "\s+" | Where-Object { $_ } } else { "zig" })
+$zig = $zigWords[0]
+$zigArgs = @($zigWords | Select-Object -Skip 1)
+$zigVersion = $null
+if (Get-Command $zig -ErrorAction SilentlyContinue) {
+    $zigVersion = Get-Output $zig ($zigArgs + @("version"))
+}
+if (-not $zigVersion) {
+    Write-Host "error: $($zigWords -join ' ') is not found. Install Zig 0.17.x (https://ziglang.org/download/, or: pip install ziglang==0.17.1 and `$env:ZIG = `"python -m ziglang`")."
+    exit 1
+}
+if (-not $zigVersion.StartsWith("0.17.")) {
+    Write-Host "error: zigjuiz <version> needs Zig 0.17.x, but $($zigWords -join ' ') is $zigVersion."
+    exit 1
+}
+# zigjuiz <version> from the GitHub release of juiz, the first time (zig fetch writes its .url and .hash in build.zig.zon)
+if (-not (Select-String -Path build.zig.zon -Pattern '^\s*\.zigjuiz\s*=' -Quiet)) {
+    Write-Output "adding zigjuiz <version> to build.zig.zon: zig fetch --save=zigjuiz https://github.com/OpenJUIZ/juiz/releases/download/v<version>/zigjuiz-<version>.tar.gz"
+    Invoke-Checked $zig ($zigArgs + @("fetch", "--save=zigjuiz", "https://github.com/OpenJUIZ/juiz/releases/download/v<version>/zigjuiz-<version>.tar.gz"))
+}
+$hostTarget = Get-Output juiz @("pkg", "target")
+if (-not $Target) { $Target = $hostTarget }
+# the Zig name of the target (the plugin goes to app\plugins\<target>\ with the name that juiz uses)
+$zigTargets = @{
+    "x86_64-unknown-linux-gnu"  = "x86_64-linux-gnu"
+    "aarch64-unknown-linux-gnu" = "aarch64-linux-gnu"
+    "x86_64-apple-darwin"       = "x86_64-macos"
+    "aarch64-apple-darwin"      = "aarch64-macos"
+    # Windows: Zig's default ABI (gnu) links to juiz_sdk.dll.lib of libjuiz_sdk; the plugin is <name>.dll next to juiz_sdk.dll
+    "x86_64-pc-windows-msvc"    = "x86_64-windows"
+}
+if (-not $zigTargets.ContainsKey($Target)) {
+    Write-Host "error: $Target is not a target of libjuiz_sdk ($($zigTargets.Keys -join ', '))."
+    exit 1
+}
+$sdkDir = $env:JUIZ_SDK_DIR
+if (-not $sdkDir -and $Target -ne $hostTarget) {
+    $sdkDir = Get-Output juiz @("sdk", "path", "--target", $Target)
+    if (-not $sdkDir) {
+        Write-Host "error: install libjuiz_sdk for $Target first: juiz sdk install --target $Target"
+        exit 1
+    }
+}
+if (-not $sdkDir) { $sdkDir = "/opt/juiz-sdk" }  # --juiz-sdk-dir of juiz pkg create
+$buildArgs = @("build")
+if ($Release) { $buildArgs += "--release" }
+# for this machine, build for the native target (the same as the plugins juiz loads here)
+if ($Target -ne $hostTarget) { $buildArgs += "-Dtarget=$($zigTargets[$Target])" }
+if ($sdkDir) { $buildArgs += "-Djuiz-sdk=$sdkDir" }
+if (Test-Path zig-out\plugins) { Remove-Item -Recurse -Force zig-out\plugins }
+Invoke-Checked $zig ($zigArgs + $buildArgs)
+$dest = Join-Path "app\plugins" $Target
+New-Item -ItemType Directory -Force -Path $dest | Out-Null
+foreach ($f in Get-ChildItem -File zig-out\plugins) {
+    Copy-Item $f.FullName $dest
+    Write-Output (Join-Path $dest $f.Name)
+}
+==== scripts/dev.sh ====
+#!/bin/sh
+# Build the plugin and put it with libjuiz_sdk in app/plugins/<target>/ (to run app/app.conf during development)
+# usage: scripts/dev.sh [--release] [--target <target>]
+#   --target <target>: cross-build for another machine, one of x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu,
+#                      x86_64-apple-darwin, aarch64-apple-darwin, x86_64-pc-windows-msvc (default: this machine, `juiz pkg target`).
+#                      It uses libjuiz_sdk of that target: install it once with `juiz sdk install --target <target>`
+#   JUIZ_SDK_DIR=<dir> scripts/dev.sh   uses libjuiz_sdk extracted in <dir> (default: `juiz sdk path`)
+#   ZIG=<command> scripts/dev.sh        uses this zig (default: zig). Zig 0.17.x is needed
+set -eu
+cd "$(dirname "$0")/.."
+if ! command -v juiz >/dev/null 2>&1; then
+  echo "error: juiz is not in PATH. Install juiz <version>:" >&2
+  echo "  cargo install juiz_app --version <version>   (or: pip install juiz-cli==<version>)" >&2
+  exit 1
+fi
+zig="${ZIG:-zig}"
+if ! zig_version=$($zig version 2>/dev/null); then
+  echo "error: $zig is not found. Install Zig 0.17.x (https://ziglang.org/download/, or: pip install ziglang==0.17.1 and ZIG=\"python3 -m ziglang\")." >&2
+  exit 1
+fi
+case "$zig_version" in
+  0.17.*) ;;
+  *)
+    echo "error: zigjuiz <version> needs Zig 0.17.x, but $zig is $zig_version." >&2
+    exit 1
+    ;;
+esac
+release=
+target=
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --release) release=1 ;;
+    --target)
+      if [ $# -lt 2 ]; then
+        echo "error: --target needs a target, such as aarch64-unknown-linux-gnu" >&2
+        exit 1
+      fi
+      target=$2
+      shift
+      ;;
+    *)
+      echo "error: unknown option $1 (usage: scripts/dev.sh [--release] [--target <target>])" >&2
+      exit 1
+      ;;
+  esac
+  shift
+done
+# zigjuiz <version> from the GitHub release of juiz, the first time (zig fetch writes its .url and .hash in build.zig.zon)
+if ! grep -q '^ *\.zigjuiz *=' build.zig.zon; then
+  echo "adding zigjuiz <version> to build.zig.zon: zig fetch --save=zigjuiz https://github.com/OpenJUIZ/juiz/releases/download/v<version>/zigjuiz-<version>.tar.gz"
+  $zig fetch --save=zigjuiz "https://github.com/OpenJUIZ/juiz/releases/download/v<version>/zigjuiz-<version>.tar.gz"
+fi
+host=$(juiz pkg target)
+if [ -z "$target" ]; then
+  target=$host
+fi
+# the Zig name of the target (the plugin goes to app/plugins/<target>/ with the name that juiz uses)
+case "$target" in
+  x86_64-unknown-linux-gnu) zig_target=x86_64-linux-gnu ;;
+  aarch64-unknown-linux-gnu) zig_target=aarch64-linux-gnu ;;
+  x86_64-apple-darwin) zig_target=x86_64-macos ;;
+  aarch64-apple-darwin) zig_target=aarch64-macos ;;
+  # Windows: Zig's default ABI (gnu) links to juiz_sdk.dll.lib of libjuiz_sdk; the plugin is <name>.dll next to juiz_sdk.dll
+  x86_64-pc-windows-msvc) zig_target=x86_64-windows ;;
+  *)
+    echo "error: $target is not a target of libjuiz_sdk (x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu, x86_64-apple-darwin, aarch64-apple-darwin, x86_64-pc-windows-msvc)." >&2
+    exit 1
+    ;;
+esac
+sdk_dir="${JUIZ_SDK_DIR:-}"
+if [ -z "$sdk_dir" ] && [ "$target" != "$host" ]; then
+  if ! sdk_dir=$(juiz sdk path --target "$target"); then
+    echo "error: install libjuiz_sdk for $target first: juiz sdk install --target $target" >&2
+    exit 1
+  fi
+fi
+if [ -z "$sdk_dir" ]; then sdk_dir="/opt/juiz-sdk"; fi  # --juiz-sdk-dir of juiz pkg create
+set --
+if [ -n "$release" ]; then set -- "$@" --release; fi
+# for this machine, build for the native target (the same as the plugins juiz loads here)
+if [ "$target" != "$host" ]; then set -- "$@" "-Dtarget=$zig_target"; fi
+if [ -n "$sdk_dir" ]; then set -- "$@" "-Djuiz-sdk=$sdk_dir"; fi
+rm -rf zig-out/plugins
+$zig build "$@"
+mkdir -p "app/plugins/$target"
+for f in zig-out/plugins/*; do
+  cp "$f" "app/plugins/$target/"
+  echo "app/plugins/$target/$(basename "$f")"
+done
+==== scripts/pack.ps1 ====
+# Make dist\my_robot-<version>.juizapp with juiz pack (juiz docs/spec/app-package.md)
+# usage: scripts\pack.ps1 [-NoBuild]
+#   -NoBuild: do not build; pack the plugins already in app\plugins\<target>\
+# Every app\plugins\<target>\ goes into the package: to carry plugins for other machines too,
+# run scripts\dev.ps1 -Release -Target <target> for each of them first.
+param([switch]$NoBuild)
+$ErrorActionPreference = "Stop"
+Set-Location (Join-Path $PSScriptRoot "..")
+if (-not $NoBuild) {
+    & (Join-Path $PSScriptRoot "dev.ps1") -Release
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+$stage = Join-Path ([System.IO.Path]::GetTempPath()) ("juiz-pack-" + [System.Guid]::NewGuid())
+New-Item -ItemType Directory -Path $stage | Out-Null
+try {
+    Copy-Item -Recurse -Path "app\*" -Destination $stage
+    Get-ChildItem -Path $stage -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force
+    foreach ($f in @("LICENSE-MIT", "LICENSE-APACHE")) {
+        if (Test-Path $f) { Copy-Item $f $stage }
+    }
+    New-Item -ItemType Directory -Force -Path dist | Out-Null
+    juiz pack $stage -o dist
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+} finally {
+    Remove-Item -Recurse -Force $stage
+}
+==== scripts/pack.sh ====
+#!/bin/sh
+# Make dist/my_robot-<version>.juizapp with juiz pack (juiz docs/spec/app-package.md)
+# usage: scripts/pack.sh [--no-build]
+#   --no-build: do not build; pack the plugins already in app/plugins/<target>/
+# Every app/plugins/<target>/ goes into the package: to carry plugins for other machines too,
+# run scripts/dev.sh --release --target <target> for each of them first.
+set -eu
+cd "$(dirname "$0")/.."
+if [ "${1:-}" != "--no-build" ]; then
+  scripts/dev.sh --release
+fi
+stage=$(mktemp -d)
+trap 'rm -rf "$stage"' EXIT
+(cd app && tar cf - --exclude=__pycache__ .) | (cd "$stage" && tar xf -)
+for f in LICENSE-MIT LICENSE-APACHE; do
+  if [ -f "$f" ]; then cp "$f" "$stage/"; fi
+done
+mkdir -p dist
+juiz pack "$stage" -o dist
+==== src/my_robot.zig ====
+//! my_robot: a juiz component made from idl/robot.jidl (juiz pkg create --idl).
+//!
+//! Write the body of each function (replace the `return error.NotImplemented` lines).
+//! The arguments and the return values are typed by juizdesign.yaml: when you change it,
+//! change the functions and the parts here to match.
+//! The record and enum types are in the module juiz_types, which build.zig generates from idl/robot.jidl (juiz.addTypes).
+const std = @import("std");
+const juiz = @import("juiz");
+const types = @import("juiz_types");
+
+/// Turns
+fn turn(args: struct { goal: types.robot.common.Goal, pose: types.juiz_std.geometry.Pose2D, speed: f64 = 1.0 }) !f64 {
+    _ = args;
+    // write the body of turn
+    return error.NotImplemented;
+}
+
+/// State of the container `wheel`.
+const WheelState = struct {};
+
+/// Makes the state of a container `wheel`.
+fn wheel_create() WheelState {
+    return .{};
+}
+
+fn spin(self: *WheelState, args: struct { n: i64 = 1, mode: types.robot.common.Mode = .fast }) !i64 {
+    _ = self;
+    _ = args;
+    // write the body of spin
+    return error.NotImplemented;
+}
+
+fn stop(self: *WheelState) !void {
+    _ = self;
+    // write the body of stop
+    return error.NotImplemented;
+}
+
+comptime {
+    juiz.exportComponent(.{
+        .type_name = "my_robot",
+        .parts = .{
+            juiz.processPart(turn, .{
+                .type_name = "turn",
+                .description = "Turns",
+                .args = .{ .goal = "", .pose = "", .speed = "" },
+            }),
+            juiz.containerPart(wheel_create, .{
+                .type_name = "wheel",
+                .description = "A wheel",
+            }),
+            juiz.containerProcessPart(spin, .{
+                .type_name = "spin",
+                .container_type = "wheel",
+                .args = .{ .n = "", .mode = "" },
+            }),
+            juiz.containerProcessPart(stop, .{
+                .type_name = "stop",
+                .container_type = "wheel",
+            }),
+        },
+    });
+}
+==== <summary> ====
+Created my_robot (zig, from idl/robot.jidl) in /work/my_robot  [zigjuiz <version>]
+
+Next steps:
+  cd /work/my_robot
+  # once: get zigjuiz <version> (the juiz source) in /opt/juiz/bindings/zigjuiz
+  git clone --depth 1 --branch v<version> https://github.com/OpenJUIZ/juiz.git /opt/juiz
+  # once: put libjuiz_sdk <version> in /opt/juiz-sdk
+  juiz sdk install --dir /opt/juiz-sdk
+  # write the bodies of the functions (return error.NotImplemented) in src/my_robot.zig, then
+  scripts/dev.sh                  # build and put the plugin and libjuiz_sdk in app/plugins/<target>/
+  juiz -f app/app.conf -d         # start (keep it running)
+
+  # in another terminal
+  juiz process call "http://127.0.0.1:8000/process/turn0::turn" '{"goal":{"mode":"SLOW","pose":{"position":{"x":0.0,"y":0.0},"theta":0.0},"tolerance":0.1},"pose":{"position":{"x":0.0,"y":0.0},"theta":0.0},"speed":1.0}' -p
+  juiz container-process call "http://127.0.0.1:8000/container_process/spin0::spin:wheel0" '{"mode":"FAST","n":1}' -p
+  juiz container-process call "http://127.0.0.1:8000/container_process/stop0::stop:wheel0" '{}' -p
+
+  scripts/pack.sh                 # make dist/my_robot-0.1.0.juizapp
+  juiz run dist/my_robot-0.1.0.juizapp

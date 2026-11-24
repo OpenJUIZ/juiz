@@ -472,7 +472,7 @@ fn diag_format() {
 
 // ---- コマンド ----
 
-fn design_args(args: &[&str]) -> crate::cli::DesignArgs {
+fn try_design_args(args: &[&str]) -> Result<crate::cli::DesignArgs, clap::Error> {
     use clap::Parser;
     #[derive(Parser)]
     struct Cli {
@@ -481,10 +481,14 @@ fn design_args(args: &[&str]) -> crate::cli::DesignArgs {
     }
     let mut v = vec!["juiz-pkg", "design"];
     v.extend_from_slice(args);
-    match Cli::try_parse_from(v).unwrap().args.command {
-        crate::cli::PkgCommand::Design(d) => d,
+    match Cli::try_parse_from(v)?.args.command {
+        crate::cli::PkgCommand::Design(d) => Ok(d),
         _ => unreachable!(),
     }
+}
+
+fn design_args(args: &[&str]) -> crate::cli::DesignArgs {
+    try_design_args(args).unwrap()
 }
 
 #[test]
@@ -511,6 +515,48 @@ fn design_command() {
     let c = command::check_file(&crate::cli::DesignCheckArgs { file: out.clone(), lang: None }).unwrap();
     assert_eq!(c.ok_line.as_deref(), Some(format!("ok: {} (component my_robot: 0 processes, 1 container, 2 container processes)", out.display()).as_str()));
     assert!(c.lines.is_empty(), "{:?}", c.lines);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// `juiz pkg design --idl` (design.md §6.2・§8.4、Step 4)
+#[test]
+fn design_command_from_idl() {
+    let dir = temp("design_command_idl");
+    crate::idl::write_jidl(&dir.join("idl/common"), "goal.jidl", crate::snapshots::GOAL_JIDL);
+    let jidl = crate::idl::write_jidl(&dir.join("idl"), "robot.jidl", crate::snapshots::ROBOT_JIDL);
+    let out = dir.join(FILE_NAME);
+    let args = design_args(&["my_robot", "--idl", jidl.to_str().unwrap(), "-o", out.to_str().unwrap()]);
+    let w = command::design("my_robot", &args).unwrap();
+    let text = std::fs::read_to_string(&out).unwrap();
+    assert_eq!(text, w.content);
+    // idl: は文書のディレクトリからの相対パス、型は完全名、Container の引数・状態は無い
+    assert!(text.contains("component:\n  name: my_robot\nidl:\n  - idl/robot.jidl\nprocesses:\n  - name: turn\n"), "{text}");
+    assert!(text.contains("      - { name: goal, type: robot.common.Goal }\n"), "{text}");
+    assert!(text.contains("containers:\n  - name: wheel\n    description: \"A wheel\"\n    processes:\n      - name: spin\n"), "{text}");
+    assert!(w.summary.contains("(component my_robot: 1 process, 1 container, 2 container processes)"), "{}", w.summary);
+    assert!(w.summary.contains("juiz pkg create -d"), "{}", w.summary);
+    // 書いた文書は 5 つの言語で check を通る
+    for lang in [Lang::Rust, Lang::Python, Lang::Cpp, Lang::Haskell, Lang::Zig] {
+        let c = command::check_file(&crate::cli::DesignCheckArgs { file: out.clone(), lang: Some(lang) }).unwrap();
+        assert!(c.ok_line.is_some() && c.lines.is_empty(), "{lang:?} {:?}", c.lines);
+    }
+    // .jidl が文書のディレクトリの外にあるとエラー (何も書かない)
+    let other = dir.join("other/juizdesign.yaml");
+    std::fs::create_dir_all(dir.join("other")).unwrap();
+    let args = design_args(&["my_robot", "--idl", jidl.to_str().unwrap(), "-o", other.to_str().unwrap()]);
+    let e = command::design("my_robot", &args).unwrap_err().to_string();
+    assert!(e.contains("not in the directory of") && e.contains("-o "), "{e}");
+    assert!(!other.exists());
+    // -b を付ければ language を書き、言語の規則でも確かめる
+    let kw = crate::idl::write_jidl(&dir, "kw.jidl", "namespace a; process long `loop`(long x);");
+    let args = design_args(&["my_robot", "-b", "rust", "--idl", kw.to_str().unwrap(), "-o", dir.join("kw.yaml").to_str().unwrap()]);
+    let e = command::design("my_robot", &args).unwrap_err().to_string();
+    assert!(e.contains("keyword"), "{e}");
+    let args = design_args(&["my_robot", "-b", "haskell", "--idl", kw.to_str().unwrap(), "-o", dir.join("kw.yaml").to_str().unwrap()]);
+    command::design("my_robot", &args).unwrap();
+    assert!(std::fs::read_to_string(dir.join("kw.yaml")).unwrap().contains("  language: haskell\n"));
+    // -t とは一緒に使えない
+    assert!(try_design_args(&["x", "-t", "process", "--idl", "a.jidl"]).is_err());
     let _ = std::fs::remove_dir_all(dir);
 }
 

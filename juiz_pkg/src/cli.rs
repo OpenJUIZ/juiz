@@ -107,6 +107,11 @@ pub struct DesignArgs {
     #[arg(short = 't', long = "template", default_value = "component", ignore_case = true)]
     pub template: Template,
 
+    /// Write the types of the process / container declarations of this .jidl instead of a preset.
+    /// The .jidl must be in the directory of the document (idl: refers to it by a relative path)
+    #[arg(long = "idl", value_name = "FILE.jidl", conflicts_with = "template")]
+    pub idl: Option<PathBuf>,
+
     /// File to write (default: ./juizdesign.yaml). It must not exist
     #[arg(short = 'o', long = "output")]
     pub output: Option<PathBuf>,
@@ -155,6 +160,9 @@ pub fn run(args: &PkgArgs) -> Result<(), PkgError> {
         }
         PkgCommand::Add(a) => {
             let added = crate::add::add(a)?;
+            for w in &added.warnings {
+                eprintln!("warning: {w}");
+            }
             print!("{}", added.summary);
             Ok(())
         }
