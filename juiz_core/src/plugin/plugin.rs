@@ -251,3 +251,32 @@ impl JuizObjectPlugin {
 pub trait Plugin {
     fn profile_full(&self) -> JuizResult<Value>;
 }
+
+/// プラグインのファイルを 1 つ開き、その ComponentManifest を読む。系は作らない
+/// (`juiz pkg design check --plugin`・`juiz pkg design --from-plugin`、docs/spec/design.md §6.1・§8.5)。
+///
+/// `language` は conf の plugins の `language` と同じ (`rust`・`python`・`c++`・`haskell`・`zig`)。
+/// Rust のプラグインは C ABI の入口があればそれで読む (conf の `abi` を省いたときと同じ)。
+pub fn load_component_manifest_file(
+    path: &std::path::Path,
+    language: &str,
+) -> JuizResult<ComponentManifest> {
+    if !path.is_file() {
+        return Err(anyhow::anyhow!("{} is not a file", path.display()));
+    }
+    // Python のプラグインは作業ディレクトリがあれば path をそのまま読むので、絶対パスにしておく
+    let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let plugin = match language {
+        "rust" => JuizObjectPlugin::new_rust(path)?,
+        "python" => JuizObjectPlugin::new_python(path)?,
+        "c++" => JuizObjectPlugin::new_cpp(path, "component_manifest")?,
+        "haskell" => JuizObjectPlugin::new_haskell(path, "component_manifest")?,
+        "zig" => JuizObjectPlugin::new_zig(path, "component_manifest")?,
+        _ => {
+            return Err(anyhow::anyhow!(
+                "unknown plugin language '{language}' (rust, python, c++, haskell or zig)"
+            ))
+        }
+    };
+    plugin.load_component_manifest(std::env::current_dir().ok())
+}

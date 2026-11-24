@@ -560,7 +560,8 @@ fn check_name(name: &str, file: &str, pos: Pos) -> Result<(), IdlError> {
 }
 
 /// 型の中の名前付き型 (record と enum) を外側から順に集める
-pub(crate) fn collect_named(t: &DataType, out: &mut Vec<DataType>) {
+/// `t` が使う名前付き型 (record・enum) を、使われる側が先になる順で `out` に足す (重ねない)
+pub fn collect_named(t: &DataType, out: &mut Vec<DataType>) {
     match t {
         DataType::Array(i) | DataType::Map(i) => collect_named(i, out),
         DataType::Optional { inner, .. } => collect_named(inner, out),

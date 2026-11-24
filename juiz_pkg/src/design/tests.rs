@@ -497,22 +497,22 @@ fn design_command() {
     let out = dir.join("sub/juizdesign.yaml");
     let args = design_args(&["my_robot", "-b", "python", "-t", "container", "-o", out.to_str().unwrap()]);
     assert!(args.command.is_none());
-    let w = command::design("my_robot", &args).unwrap();
+    let w = command::design(Some("my_robot"), &args, &plugin::no_loader).unwrap();
     let text = std::fs::read_to_string(&out).unwrap();
     assert_eq!(text, w.content);
     assert!(text.contains("  language: python\n"));
     assert!(!text.contains("processes:\n  - name: my_robot_add"));
     assert!(w.summary.starts_with(&format!("Wrote {} (component my_robot: 0 processes, 1 container, 2 container processes)", out.display())), "{}", w.summary);
     // 上書きしない
-    let e = command::design("my_robot", &args).unwrap_err();
+    let e = command::design(Some("my_robot"), &args, &plugin::no_loader).unwrap_err();
     assert!(e.to_string().contains("already exists"), "{e}");
     // 言語の名前の規則
     let args = design_args(&["arm_2", "-b", "haskell", "-o", dir.join("h.yaml").to_str().unwrap()]);
-    let e = command::design("arm_2", &args).unwrap_err().to_string();
+    let e = command::design(Some("arm_2"), &args, &plugin::no_loader).unwrap_err().to_string();
     assert!(e.contains("component.name"), "{e}");
     assert!(!dir.join("h.yaml").exists());
     // 書いた文書は check を通る
-    let c = command::check_file(&crate::cli::DesignCheckArgs { file: out.clone(), lang: None }).unwrap();
+    let c = command::check_file(&crate::cli::DesignCheckArgs { file: out.clone(), lang: None, plugin: None }, &plugin::no_loader).unwrap();
     assert_eq!(c.ok_line.as_deref(), Some(format!("ok: {} (component my_robot: 0 processes, 1 container, 2 container processes)", out.display()).as_str()));
     assert!(c.lines.is_empty(), "{:?}", c.lines);
     let _ = std::fs::remove_dir_all(dir);
@@ -526,7 +526,7 @@ fn design_command_from_idl() {
     let jidl = crate::idl::write_jidl(&dir.join("idl"), "robot.jidl", crate::snapshots::ROBOT_JIDL);
     let out = dir.join(FILE_NAME);
     let args = design_args(&["my_robot", "--idl", jidl.to_str().unwrap(), "-o", out.to_str().unwrap()]);
-    let w = command::design("my_robot", &args).unwrap();
+    let w = command::design(Some("my_robot"), &args, &plugin::no_loader).unwrap();
     let text = std::fs::read_to_string(&out).unwrap();
     assert_eq!(text, w.content);
     // idl: は文書のディレクトリからの相対パス、型は完全名、Container の引数・状態は無い
@@ -537,23 +537,23 @@ fn design_command_from_idl() {
     assert!(w.summary.contains("juiz pkg create -d"), "{}", w.summary);
     // 書いた文書は 5 つの言語で check を通る
     for lang in [Lang::Rust, Lang::Python, Lang::Cpp, Lang::Haskell, Lang::Zig] {
-        let c = command::check_file(&crate::cli::DesignCheckArgs { file: out.clone(), lang: Some(lang) }).unwrap();
+        let c = command::check_file(&crate::cli::DesignCheckArgs { file: out.clone(), lang: Some(lang), plugin: None }, &plugin::no_loader).unwrap();
         assert!(c.ok_line.is_some() && c.lines.is_empty(), "{lang:?} {:?}", c.lines);
     }
     // .jidl が文書のディレクトリの外にあるとエラー (何も書かない)
     let other = dir.join("other/juizdesign.yaml");
     std::fs::create_dir_all(dir.join("other")).unwrap();
     let args = design_args(&["my_robot", "--idl", jidl.to_str().unwrap(), "-o", other.to_str().unwrap()]);
-    let e = command::design("my_robot", &args).unwrap_err().to_string();
+    let e = command::design(Some("my_robot"), &args, &plugin::no_loader).unwrap_err().to_string();
     assert!(e.contains("not in the directory of") && e.contains("-o "), "{e}");
     assert!(!other.exists());
     // -b を付ければ language を書き、言語の規則でも確かめる
     let kw = crate::idl::write_jidl(&dir, "kw.jidl", "namespace a; process long `loop`(long x);");
     let args = design_args(&["my_robot", "-b", "rust", "--idl", kw.to_str().unwrap(), "-o", dir.join("kw.yaml").to_str().unwrap()]);
-    let e = command::design("my_robot", &args).unwrap_err().to_string();
+    let e = command::design(Some("my_robot"), &args, &plugin::no_loader).unwrap_err().to_string();
     assert!(e.contains("keyword"), "{e}");
     let args = design_args(&["my_robot", "-b", "haskell", "--idl", kw.to_str().unwrap(), "-o", dir.join("kw.yaml").to_str().unwrap()]);
-    command::design("my_robot", &args).unwrap();
+    command::design(Some("my_robot"), &args, &plugin::no_loader).unwrap();
     assert!(std::fs::read_to_string(dir.join("kw.yaml")).unwrap().contains("  language: haskell\n"));
     // -t とは一緒に使えない
     assert!(try_design_args(&["x", "-t", "process", "--idl", "a.jidl"]).is_err());
@@ -572,17 +572,17 @@ fn check_command() {
     }
     let dir = rover_dir("check_command");
     let file = dir.join(FILE_NAME);
-    let c = command::check_file(&crate::cli::DesignCheckArgs { file: file.clone(), lang: None }).unwrap();
+    let c = command::check_file(&crate::cli::DesignCheckArgs { file: file.clone(), lang: None, plugin: None }, &plugin::no_loader).unwrap();
     assert!(c.ok_line.as_deref().unwrap().ends_with("(component rover: 1 process, 1 container, 2 container processes)"));
     // エラーはすべて <file>:<行>:<桁>: error: の形で
     std::fs::write(&file, ROVER.replace("type: double, init", "type: string, init").replace("returns: juiz_std.geometry.Pose2D\n      - name", "returns: Pose2D\n      - name")).unwrap();
-    let c = command::check_file(&crate::cli::DesignCheckArgs { file: file.clone(), lang: Some(Lang::Rust) }).unwrap();
+    let c = command::check_file(&crate::cli::DesignCheckArgs { file: file.clone(), lang: Some(Lang::Rust), plugin: None }, &plugin::no_loader).unwrap();
     assert_eq!(c.ok_line, None);
     assert_eq!(c.lines.len(), 2, "{:#?}", c.lines);
     let f = file.display().to_string();
     assert!(c.lines[0].starts_with(&format!("{f}:17:")) && c.lines[0].contains(": error: containers[0].state[0].init: "), "{:#?}", c.lines);
     assert!(c.lines[1].starts_with(&format!("{f}:24:")) && c.lines[1].contains(": error: containers[0].processes[0].returns: unknown type 'Pose2D'; write the full name (juiz_std.geometry.Pose2D)"), "{:#?}", c.lines);
-    assert!(command::check_file(&crate::cli::DesignCheckArgs { file: dir.join("none.yaml"), lang: None }).is_err());
+    assert!(command::check_file(&crate::cli::DesignCheckArgs { file: dir.join("none.yaml"), lang: None, plugin: None }, &plugin::no_loader).is_err());
     let _ = std::fs::remove_dir_all(dir);
 }
 

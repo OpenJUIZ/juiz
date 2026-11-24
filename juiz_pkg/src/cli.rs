@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use clap::{Args, Subcommand, ValueEnum};
 
 use crate::add::AddKind;
+use crate::design::plugin::PluginLoader;
 use crate::{Lang, PkgError, Template};
 
 /// 雛形を作る (juiz pkg / juiz-pkg)
@@ -95,8 +96,8 @@ pub struct DesignArgs {
     #[command(subcommand)]
     pub command: Option<DesignCommand>,
 
-    /// Component name ([a-z][a-z0-9_]*)
-    #[arg(required = true)]
+    /// Component name ([a-z][a-z0-9_]*). With --from-plugin: default the name of the plugin's Component
+    #[arg(required_unless_present = "from_plugin")]
     pub name: Option<String>,
 
     /// Language: written as component.language, and its rules are checked too
@@ -111,6 +112,11 @@ pub struct DesignArgs {
     /// The .jidl must be in the directory of the document (idl: refers to it by a relative path)
     #[arg(long = "idl", value_name = "FILE.jidl", conflicts_with = "template")]
     pub idl: Option<PathBuf>,
+
+    /// Write the types of this built plugin (its manifest) instead of a preset. The language of the plugin is
+    /// -b (a .py file is Python without -b). Its record and enum types are written to idl/<name>.jidl beside the document
+    #[arg(long = "from-plugin", value_name = "PLUGIN", conflicts_with_all = ["template", "idl"])]
+    pub from_plugin: Option<PathBuf>,
 
     /// File to write (default: ./juizdesign.yaml). It must not exist
     #[arg(short = 'o', long = "output")]
@@ -131,6 +137,11 @@ pub struct DesignCheckArgs {
     /// Language whose rules are checked too (default: component.language of the document)
     #[arg(short = 'b', long = "lang", ignore_case = true)]
     pub lang: Option<Lang>,
+
+    /// Also check that this built plugin has the types of the document (its manifest matches the document).
+    /// The plugin is opened as the language of -b or component.language (a .py file is Python)
+    #[arg(long = "plugin", value_name = "PLUGIN")]
+    pub plugin: Option<PathBuf>,
 }
 
 #[derive(Args, Clone, Debug)]
@@ -147,8 +158,14 @@ pub struct AddArgs {
     pub dir: PathBuf,
 }
 
-/// サブコマンドを実行する
+/// サブコマンドを実行する。プラグインを開くもの (`design check --plugin`・`design --from-plugin`) はエラーになる
+/// (juiz-pkg 単体。juiz は [`run_with`] で開く関数を渡す)
 pub fn run(args: &PkgArgs) -> Result<(), PkgError> {
+    run_with(args, &crate::design::plugin::no_loader)
+}
+
+/// サブコマンドを実行する。`loader` はプラグインを開いて ComponentManifest を読む関数 (design.md §8.5・§8.6)
+pub fn run_with(args: &PkgArgs, loader: PluginLoader) -> Result<(), PkgError> {
     match &args.command {
         PkgCommand::Create(c) => {
             let created = crate::create::create(c)?;
@@ -172,7 +189,7 @@ pub fn run(args: &PkgArgs) -> Result<(), PkgError> {
         }
         PkgCommand::Design(d) => match (&d.command, &d.name) {
             (Some(DesignCommand::Check(c)), _) => {
-                let checked = crate::design::command::check_file(c)?;
+                let checked = crate::design::command::check_file(c, loader)?;
                 for l in &checked.lines {
                     eprintln!("{l}");
                 }
@@ -189,12 +206,15 @@ pub fn run(args: &PkgArgs) -> Result<(), PkgError> {
                     ))),
                 }
             }
-            (None, Some(name)) => {
-                let written = crate::design::command::design(name, d)?;
+            (None, name) if name.is_some() || d.from_plugin.is_some() => {
+                let written = crate::design::command::design(name.as_deref(), d, loader)?;
+                for w in &written.warnings {
+                    eprintln!("warning: {w}");
+                }
                 print!("{}", written.summary);
                 Ok(())
             }
-            (None, None) => Err(PkgError::new("give a component name: juiz pkg design <name>")),
+            (None, _) => Err(PkgError::new("give a component name: juiz pkg design <name>")),
         },
     }
 }

@@ -75,10 +75,10 @@ pub use haskell_skeleton::{
 };
 pub use zig::generate_zig;
 pub use zig_skeleton::{generate_zig_skeleton, zig_design_items, zig_skeleton_file, zig_skeleton_items};
-pub use jidl::{to_jidl, type_expression};
+pub use jidl::{jidl_file, to_jidl, type_expression};
 pub use json_schema::{json_schema_of, JSON_SCHEMA_DIALECT};
 pub use model::{
-    load_files, load_files_with, load_str, ArgumentSignature, ContainerSignature, IdlModel,
+    collect_named, load_files, load_files_with, load_str, ArgumentSignature, ContainerSignature, IdlModel,
     LoadOptions, ProcessSignature, Signatures, StateInit, StateSignature, IMPORT_PATH_ENV,
 };
 pub use parser::{parse_idl, Declaration, FieldDecl, IdlFile, ProcessDecl, TypeExpr};

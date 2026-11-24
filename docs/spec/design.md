@@ -1,6 +1,6 @@
 # 設計文書(juizdesign.yaml)仕様
 
-- 状態: 確定(Step 0、issue #593、2026-11-23)。Step 1(#594、2026-11-23)で文書の読み書き・検査・プリセット・`juiz pkg design`・`design check` を実装し、実装に合わせて §3.1・§5・§9・§13 を書き足した。Step 2(#595、2026-11-23)で Rust・Python の文書からの生成・`create -d`・`-t` の文書経由を実装し、§3.3・§5・§7.2・§7.3・§8.2・§9・§12 を書き足した。Step 3(#596、2026-11-23)で C++・Haskell・Zig の文書からの生成と `-t` の文書経由を実装し、§3.3・§7.1・§7.3・§8.2・§12 を書き足した。Step 4(#597、2026-11-24)で `--idl` の文書経由・`juiz pkg design --idl`・`juiz pkg add` の文書への書き足しを実装し、§6.2・§7.3・§8.3・§8.4・§12 を書き足した。
+- 状態: 確定(Step 0、issue #593、2026-11-23)。Step 1(#594、2026-11-23)で文書の読み書き・検査・プリセット・`juiz pkg design`・`design check` を実装し、実装に合わせて §3.1・§5・§9・§13 を書き足した。Step 2(#595、2026-11-23)で Rust・Python の文書からの生成・`create -d`・`-t` の文書経由を実装し、§3.3・§5・§7.2・§7.3・§8.2・§9・§12 を書き足した。Step 3(#596、2026-11-23)で C++・Haskell・Zig の文書からの生成と `-t` の文書経由を実装し、§3.3・§7.1・§7.3・§8.2・§12 を書き足した。Step 4(#597、2026-11-24)で `--idl` の文書経由・`juiz pkg design --idl`・`juiz pkg add` の文書への書き足しを実装し、§6.2・§7.3・§8.3・§8.4・§12 を書き足した。Step 5(#598、2026-11-24)でプラグインとの突き合わせ(`design check --plugin`)とプラグインから文書を起こすこと(`design --from-plugin`)を実装し、§6.1・§8.5・§8.6・§11・§12 を書き足した。
 - 親 issue: #592。計画と経緯はプロジェクトの計画書 pkg-design-doc-plan.md(2026-11-23 確定、§6 の 9 項目はすべて推奨どおり)にある
 - 関連: 雛形生成 [pkg.md](pkg.md)(§2.5〜§2.7 に CLI の 3 モード)、データ型 [datatype.md](datatype.md)(型の書き方 §9.2、辞書での値 §4、manifest §6、skeleton §18・§20.6・§21.6・§22.4・§26.4)、[manifest-profile.md](manifest-profile.md)
 - この文書は Step 1〜6(#594〜#599)の実装の基準になる。実装で仕様を変えるときは、同じ PR でこの文書を直す
@@ -285,7 +285,7 @@ Container(`containers[]`):
 
 ### 6.1 manifest
 
-文書から作った雛形のプラグインの manifest は、次のとおり文書の写しになる。Step 5(#598、任意)の `design check --plugin` は、この表で突き合わせる。
+文書から作った雛形のプラグインの manifest は、次のとおり文書の写しになる。`design check --plugin`(Step 5、§8.5)はこの表で突き合わせ、`design --from-plugin`(§8.6)はこの表を逆にたどる。
 
 | 文書 | manifest(juiz_sdk) |
 | --- | --- |
@@ -438,6 +438,41 @@ CLI の引数・表示は pkg.md §2.2・§2.5〜§2.7 に書く。ここでは�
 - `idl:` には、渡した .jidl の、出力する文書のディレクトリからの相対パスを書く。.jidl か、それが import するファイルが文書のディレクトリの外にあればエラー(§4.3。`-o` で置き場所を変えるよう案内する)。
 - Step 4 の実装での決めごと: 文書の形は §6.2 の Step 4 の決めごとのとおり。`-b` を付けたら `component.language` に書き、言語の規則でも検査する(付けなければ言語によらない検査だけ)。.jidl が文書のディレクトリの外にあるときのエラーは、.jidl の隣(`<.jidl のディレクトリ>/juizdesign.yaml`)を `-o` に勧める。`-t` とは一緒に使えない(clap の `conflicts_with`)。
 
+### 8.5 `juiz pkg design check --plugin`(Step 5)
+
+ビルドしたプラグインを開いて ComponentManifest を読み、文書と §6.1 の表で突き合わせる。文書の検査(§5)が通ったときだけ突き合わせる(通らなければプラグインは開かない)。
+
+- プラグインの言語は `-b`、無ければ `component.language`。どちらも無ければ、拡張子が `.py` なら Python、ほかはエラー(`-b` を案内する)。.so・.dylib・.dll からは Rust・C++・Haskell・Zig を見分けられないため。
+- プラグインは juiz(juiz_core)が conf の plugins と同じ読み方で開く(Rust は C ABI の入口があればそれ、Haskell は RTS を初期化する)。系は作らない。juiz-pkg 単体(juiz_core を持たない)では開けず、`juiz pkg …` で打つよう案内するエラーにする。
+- 食い違いは §5 と同じ形(`<file>:<行>:<桁>: error: <道筋>: <文>`)で、検査のエラー・警告と同じ所に並べる。プラグインにだけある型は道筋を書かない(`<file>: error: the plugin has the process 'x', which is not in the document`)。通れば `ok: <file> (…) matches the plugin <lib>`。
+- 規則(エラー):
+  - P1. `component.name` が `ComponentManifest.type_name` と同じ。
+  - P2. Process・Container・(Container ごとの)ContainerProcess の型名の集まりが同じ。文書にだけある型は文書のその型、プラグインにだけある型は文書全体(ContainerProcess は Container の `processes`)のエラー。
+  - P3. 引数(Process・ContainerProcess・Container)の名前の集まりが同じ。型は、プラグインに `schema` があれば表示名と指紋(datatype.md §5)で比べ、無ければ `type_name`(datatype.md §6 の表)だけを比べる。既定値は、文書の既定値(§4.2 の「既定値なし」を除いたもの)とプラグインの `default`(`null` は「既定値なし」)を、数は値で(`2` と `2.0` は同じ)比べる。`image` の引数の既定値は比べない。
+  - P4. 戻り値の型(`returns`、省けば `void`)が `output_schema` と同じ。
+  - P5. ContainerProcess の `readonly` が同じ。
+- 規則(警告、終了コードは 0):
+  - P3 の型が `schema` を持たず `type_name` だけを比べた。引数の名前がそろっていて順番だけが違う。
+  - P4 の `output_schema` が無く比べなかった(型の無い Process)。
+  - P6. 説明(Component・型・引数)が違う。Component の説明は、プラグインの説明が空なら比べない(Rust のマクロは Component の説明を持てない、§8.2)。
+  - P7. `component.language` がプラグインの `language` と違う。
+  - プラグインの Process が Topic を publish・subscribe する(文書に書けない、§11)。
+  - C++ の Container の引数: cppjuiz の `ContainerManifest` は引数を持てず manifest に出ないので、プラグインの言語が C++ で引数が空なら、P3 の代わりに「比べなかった」警告を 1 つ出す。
+- 状態(`state`)・`idl:` は manifest に出ないので比べない(§6.1)。
+- Step 5 の確かめで分かったこと: C++ の `create -d` の雛形は、`long`・`double` などの引数を型の無い `add_int_arg`・`add_float_arg` で、record でない戻り値を `returns<T>()` 無しで書く。そのため `schema`・`output_schema` が無いという警告が出る(エラーではない)。C++ の雛形に `pkg add` で足した型も同じ。
+
+### 8.6 `juiz pkg design --from-plugin`(Step 5)
+
+ビルドしたプラグイン(サンプル、teleop_twist など文書の無いものも)を開いて ComponentManifest を読み、§6.1 の表を逆にたどって文書を書く。
+
+- `<name>` は省けて、省けば `ComponentManifest.type_name`。渡せば `component.name` をそれにする。`-t`・`--idl` とは一緒に使えない。言語の決め方は §8.5 と同じ(`-b`、無ければ `.py` なら Python)。`component.language` に書く。
+- 型付きの引数・戻り値は `schema`・`output_schema` を型の式(§6.2 の Step 4 の決めごとと同じ `type_expression`)にする。`output_schema` が `null` の型なら `returns` を書かない。既定値は `default`(`null` と `image` の引数のものは書かない)。説明は空でなければ書く。`readonly` は ContainerProcess の `readonly`。
+- record・enum は、juiz_std の型なら組み込みのファイル(`juiz_std/geometry.jidl` など、名前空間 `juiz_std.<x>` から決める)を `idl:` に書く。ほかの型は、文書の隣の `idl/<component.name>.jidl` に宣言を書き(名前空間は最初に出てきた型のもの、違う名前空間の型には `@namespace`、フィールドが使う juiz_std は `import idl`)、`idl:` の先頭にそのパスを書く。.jidl が在ればエラー(上書きしない、`-o` で置き場所を変えるよう案内する)。
+- 型の無い引数(`schema` が無い)は `type_name` から型を決めて警告する: `Bool` → `boolean`、`Int` → `long`、`Float` → `double`、`String` → `string`、`Array` → `array<any>`、`Image` → `image`、`Object` → `any`。型の無い戻り値(`output_schema` が無い)は `any` にして警告する(`void` か値を返すかを manifest から決められないため)。
+- 書けないもの: Container の状態(manifest に無い。表示で `state:` を書き足すよう案内する)、Topic(警告)、C++ の Container の引数(manifest に無い、§8.5。警告)。
+- 書く前に §5 の検査(`-b` の言語の規則も)を通す。通らなければ書いた .jidl を消してエラーにし、`component.name` のエラーなら `<name>` を渡すよう案内する。
+- 書き方は §9。表示は、書いたファイルと型の数、書いた .jidl、Container があれば状態の案内、次に打つコマンド(`juiz pkg design check <file> --plugin <lib>`、`juiz pkg create -d <file>`)。警告は標準エラー出力に `warning: <道筋>: <文>` の形で出す。
+
 ## 9. 文書の書き方(juiz が書くとき)
 
 `juiz pkg design`・`juiz pkg create`(`-t`・`--idl`)・`juiz pkg add` が書く文書は、次の形にそろえる(人が読み書きしやすく、`pkg add` が書き足す所を決めやすいように)。
@@ -469,7 +504,7 @@ CLI の引数・表示は pkg.md §2.2・§2.5〜§2.7 に書く。ここでは�
 | 戻り値の説明 | 書けない(`returns` は型の式だけ) | `returns: { type: …, description: … }` も受ける |
 | 型の短い名前 | 完全名だけ | 文書に既定の名前空間を書くキー |
 | 文書の中の record・enum | 書けない(.jidl に書く、計画 §6 の 4) | |
-| 逆向き(プラグインの manifest と文書の突き合わせ、プラグインから文書を起こす) | Step 5(#598、任意)で `design check --plugin`・`design --from-plugin` | |
+| 逆向きで書けないもの(プラグインから文書を起こすときの Container の状態・C++ の Container の引数・型の無い戻り値の `void`) | Step 5(#598)の `design --from-plugin` は状態を空、型の無い戻り値を `any` にする(§8.6) | プラグインの manifest に状態・戻り値の型を足す、cppjuiz の `ContainerManifest` に引数を足す |
 | 複数 Component の文書 | 書けない(1 文書 = 1 Component) | |
 
 ## 12. テスト
@@ -477,6 +512,7 @@ CLI の引数・表示は pkg.md §2.2・§2.5〜§2.7 に書く。ここでは�
 - Step 1: 文書の読み書きと §5 の検査の、合う例・合わない例(規則ごとに 1 つ以上、エラーの道筋と行を含めて)。プリセット 3 つと §3.1 の例が検査を通り、juiz が書いた文書を読んで書き直すと同じ文字列になる。JSON Schema との食い違い(§10)。`create -t` の雛形に `juizdesign.yaml` が置かれる(5 言語 × 3 種類)。`juiz pkg design`・`design check` の CLI。
 - Step 2(済み): juiz_pkg のスナップショット(§7.3)、`create -d` の単体テスト(`-d` と `<name>`・`-t`・`--idl` が一緒に使えない、言語の決め方と W1・language の行の書き換え、言語が決まらない・C++ などのエラー、検査を通らない文書、`idl:` の無い文書の生成物と app.conf、文書のディレクトリに作るときと途中で失敗したとき)、juiz_idl の `rust_design_items`・`python_design_items` の単体テスト(状態の初期値の式・readonly・本体の断片・最後のコード・Python で作れない型)。pkg_cli_test で、.jidl の record と Container の引数・状態・readonly を持つ文書から Rust(slow、ポート 8090)と Python(ポート 8102)の雛形を作り、本体を書いて `juiz pkg add` で型を足し、生成から配布まで(引数 `start` の値から状態が始まる、`type list --long` に record の型、`_get` だけが readonly)を通す。`-t` の今の pkg_cli_test(Rust・Python)も文書経由で通る。
 - Step 3(済み): スナップショット(§7.3、rover の文書から C++・Haskell・Zig も)、`create -d` の言語の単体テスト、`design check` の雛形の検査を 5 言語の Process・Container で行う。pkg_cli_test で、Step 2 と同じ文書(Zig は状態 `label` を既定値で始める)から C++(slow、ポート 8103)・Haskell(slow、ポート 8104、GHC が無ければ飛ばす)・Zig(slow、ポート 8105)の雛形を作り、本体を書いて生成から配布までを通す。
+- Step 5(済み): 突き合わせの単体テスト(文書のシグネチャから §6.1 の表のとおりに作った manifest と合うこと、P1〜P5 のエラーを 1 つずつ、警告と位置、C++ の Container の引数)、プラグインから起こした文書(record・enum の .jidl と juiz_std の `idl:`、文書と同じ型になって往復で突き合わせが通ること、型の無いプラグインの型の決め方と警告)、コマンド(偽の読み込み関数で `check --plugin`・`--from-plugin`、上書きしない・失敗で .jidl を消す・名前の案内・`-b` の案内・一緒に使えないオプション・juiz-pkg 単体のエラー)。pkg_cli_test の `create -d` の生成から配布までのテスト(5 言語)で、ビルドしたプラグインと雛形の文書が `check --plugin` で合い、`--from-plugin` で起こした文書(record の .jidl つき)もそのプラグインと合うことを確かめる。
 - Step 2・3: 切り替え前のスナップショットとの比較(§7.3)。`create -d` で §3.1 の 2 つの例から雛形を作り、本体を書いてから生成から配布まで(pkg.md §11 と同じ形、pkg_cli_test)を通し、プラグインの manifest が §6.1 のとおり文書の写しになっていること。Container の引数・状態・readonly が言語ごとのコードに出ること。
 - Step 4(済み): `--idl` の今のテストが文書経由でも通ること、`pkg add` が文書に書き足し、書き足した文書が検査を通ること、`juizdesign.yaml` の無い雛形への `pkg add` が警告で通ること。実装したもの: `--idl` の 5 言語のスナップショット(切り替えの前後、§7.3)、.jidl から作る文書の単体テスト(型の式・既定値・説明・`idl:`、5 言語の検査を通ること、今までの `--idl` のエラー)、`juiz pkg design --idl`(文書のディレクトリの外の .jidl、`-b`、`-t` と一緒に使えない)、`pkg add` の書き足し方(末尾の空行・コメント、字下げの無い要素、`[]`、配列が無いとき、flow 形式のエラー)、検査を通らない文書・文書にだけある型名・文書の無い雛形、3 つめのファイルで失敗したときに元に戻すこと、5 言語 × 3 種類の雛形に足した文書がその言語の検査を通ること。pkg_cli_test の `add_types`(すべての生成から配布までのテストで使う)で、文書に書き足して `design check` が通ること・同じ名前を足すエラーで文書も変わらないことを確かめ、`--idl` のテストで雛形の文書が `design check` を通ることを確かめる。`pkg_design_and_check` に `pkg design --idl` と文書の無い雛形への `pkg add` を足した。
 
@@ -489,5 +525,5 @@ CLI の引数・表示は pkg.md §2.2・§2.5〜§2.7 に書く。ここでは�
 | 2 文書 → 雛形(Rust・Python)、`create -d`、`-t` を文書経由に | #595 | §3.3、§6、§7.2、§7.3、§8.2 |
 | 3 文書 → 雛形(C++・Haskell・Zig) | #596 | 同上 |
 | 4 `--idl` を文書経由に、`juiz pkg design --idl`、`pkg add` が文書も直す | #597 | §6.2、§8.3、§8.4 |
-| 5(任意)逆向き | #598 | §6.1、§11 |
+| 5(任意)逆向き: `design check --plugin`・`design --from-plugin` | #598 | §6.1、§8.5、§8.6、§11 |
 | 6 サイト・サンプル・リリース | #599 | §7.3 |

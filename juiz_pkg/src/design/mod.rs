@@ -6,6 +6,7 @@
 mod check;
 pub mod command;
 pub mod generate;
+pub mod plugin;
 mod read;
 pub(crate) mod write;
 pub mod yaml;
@@ -190,3 +191,6 @@ pub fn preset_text(name: &str, template: Template) -> String {
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+#[cfg(test)]
+mod plugin_tests;
