@@ -117,8 +117,8 @@ processes:
   - name: my_robot_add
     description: "Returns a + b."
     arguments:
-      - { name: a, type: long, default: 0 }
-      - { name: b, type: long, default: 0 }
+      - { name: a, type: long, default: 0, description: "the first value" }
+      - { name: b, type: long, default: 0, description: "the second value" }
     returns: long
 ==== scripts/dev.ps1 ====
 # Build the plugin and put it in app\plugins\<target>\ (to run app\app.conf during development)
@@ -227,7 +227,13 @@ use juiz_sdk::prelude::*;
 #[juiz_component_process(
     typed = "all"
     description = "Returns a + b."
-    arguments = { default = { a = 0 b = 0 } }
+    arguments = {
+        default = { a = 0 b = 0 }
+        description = {
+            a = "the first value"
+            b = "the second value"
+        }
+    }
 )]
 fn my_robot_add(a: i64, b: i64) -> JuizResult<i64> {
     Ok(a + b)

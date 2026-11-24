@@ -13,7 +13,9 @@ use crate::haskell::{
     atom, doc_lines, hs_type, lower_first, module_name, string_literal, value_literal,
 };
 use crate::rust_skeleton::camel_case;
-use crate::{ContainerSignature, GeneratedFile, IdlError, ProcessSignature, Signatures};
+use crate::{
+    ContainerSignature, DesignSkeleton, GeneratedFile, IdlError, ProcessSignature, Signatures, StateInit,
+};
 
 fn generate_error(message: String) -> IdlError {
     IdlError::Generate { message }
@@ -339,4 +341,371 @@ mod tests {
         assert_eq!(haskell_skeleton_module("my_robot"), "MyRobotComponent");
         assert_eq!(haskell_skeleton_module("robot.arm_v2"), "RobotArmV2Component");
     }
+}
+
+// ---- 設計文書から作る雛形 (docs/spec/design.md §6.2、設計文書 Step 3) ----
+
+/// Haskell のキーワード (変数名にできないもの)
+const HS_KEYWORDS: [&str; 22] = [
+    "case", "class", "data", "default", "deriving", "do", "else", "foreign", "if", "import", "in",
+    "infix", "infixl", "infixr", "instance", "let", "module", "newtype", "of", "then", "type", "where",
+];
+
+/// 設計文書の雛形の型の書き方。hsjuiz (`import Juiz`) の出す名前 (`Int64`・`Text`・`Map`・`Value`) を使う
+fn design_type(t: &DataType) -> Result<String, IdlError> {
+    Ok(match t {
+        DataType::Null => "()".to_owned(),
+        DataType::Long => "Int64".to_owned(),
+        DataType::String => "Text".to_owned(),
+        DataType::Any => "Value".to_owned(),
+        DataType::Image => "Image".to_owned(),
+        DataType::Array(items) => format!("[{}]", design_type(items)?),
+        DataType::Map(values) => format!("Map Text {}", atom(design_type(values)?)),
+        DataType::Optional { inner, .. } => format!("Maybe {}", atom(design_type(inner)?)),
+        t => hs_type(t, "")?,
+    })
+}
+
+/// 変数名 (`initial_value` → `initialValue`)。本体の無い関数では `_` を前に付ける
+fn design_var(name: &str, used: bool) -> String {
+    let v = lower_first(&camel_case(name));
+    let v = if v.is_empty() { "x".to_owned() } else { v };
+    if !used {
+        format!("_{v}")
+    } else if HS_KEYWORDS.contains(&v.as_str()) {
+        format!("{v}'")
+    } else {
+        v
+    }
+}
+
+/// 状態の IORef の変数名。状態が 1 つなら `ref`、2 つ以上なら `<名前>Ref`
+fn ref_vars(c: &ContainerSignature, used: bool) -> Vec<String> {
+    if c.state.len() == 1 {
+        return vec![if used { "ref".to_owned() } else { "_ref".to_owned() }];
+    }
+    c.state
+        .iter()
+        .map(|s| {
+            let v = format!("{}Ref", lower_first(&camel_case(&s.name)));
+            if used { v } else { format!("_{v}") }
+        })
+        .collect()
+}
+
+/// 状態の初期値の式 (design.md §3.3・§4.4)
+fn state_value(t: &DataType, v: &Value) -> Result<String, IdlError> {
+    Ok(match (t, v) {
+        (DataType::Optional { .. }, Value::Null) => "Nothing".to_owned(),
+        (DataType::Boolean, Value::Bool(b)) => (if *b { "True" } else { "False" }).to_owned(),
+        (DataType::Int | DataType::Long, Value::Number(n)) if n.is_i64() => number(n.to_string()),
+        (DataType::Float | DataType::Double, Value::Number(n)) => number(format!("{:?}", n.as_f64().unwrap_or(0.0))),
+        (DataType::String, Value::String(s)) => string_literal(s),
+        (DataType::Array(_), Value::Array(a)) if a.is_empty() => "[]".to_owned(),
+        // そのほかは辞書の表し方の値から読む
+        _ => format!(
+            "(either (error . show) id (fromValue ({})) :: {})",
+            value_literal(v),
+            design_type(t)?
+        ),
+    })
+}
+
+fn design_body(name: &str, design: &DesignSkeleton) -> Option<String> {
+    design.bodies.get(name).map(|b| {
+        let b = b.trim_end_matches('\n');
+        if b.contains('\n') {
+            format!(
+                "\n{}",
+                b.lines().map(|l| if l.is_empty() { "\n".to_owned() } else { format!("  {l}\n") }).collect::<String>()
+            )
+        } else {
+            format!(" {b}\n")
+        }
+    })
+}
+
+/// 設計文書の Process・ContainerProcess: マニフェストと関数。`container` は (状態の型, Container)
+fn design_process(
+    p: &ProcessSignature,
+    container: Option<(&str, &ContainerSignature)>,
+    design: &DesignSkeleton,
+) -> Result<String, IdlError> {
+    let fname = lower_first(&p.type_name);
+    let manifest = format!("{fname}_manifest");
+    let mut out = match container {
+        None => format!("-- | Process {}\n", p.type_name),
+        Some(_) if p.readonly => format!(
+            "-- | ContainerProcess {}. readonly: it only reads the state\n\
+             -- (juiz may run readonly container processes of the same container in parallel)\n",
+            p.type_name
+        ),
+        Some(_) => format!("-- | ContainerProcess {}\n", p.type_name),
+    };
+    out.push_str(&format!("{manifest} :: ProcessManifest\n{manifest} = "));
+    match container {
+        Some((_, c)) => out.push_str(&format!(
+            "containerProcessManifest {} {}",
+            string_literal(&p.type_name),
+            string_literal(&c.type_name)
+        )),
+        None => out.push_str(&format!("processManifest {}", string_literal(&p.type_name))),
+    }
+    if let Some(d) = &p.description {
+        out.push_str(&format!("\n  & description {}", string_literal(d)));
+    }
+    for a in p.arguments.iter() {
+        out.push_str(&format!("\n  & {}", argument_line(a)?));
+    }
+    if p.readonly {
+        out.push_str("\n  & readonly True");
+    }
+    out.push_str("\n\n");
+    let body = design_body(&p.type_name, design);
+    let used = body.is_some();
+    let mut types = Vec::new();
+    let mut vars = Vec::new();
+    if let Some((state, c)) = container {
+        types.push(state.to_owned());
+        vars.push(if c.state.is_empty() {
+            "_".to_owned()
+        } else {
+            format!("({state} {})", ref_vars(c, used).join(" "))
+        });
+    }
+    for a in p.arguments.iter() {
+        types.push(design_type(&schema_type(&a.schema)?)?);
+        vars.push(design_var(&a.name, used));
+    }
+    let ret = design_type(&schema_type(&p.output_schema)?)?;
+    types.push(if container.is_some() { format!("IO {}", atom(ret)) } else { ret });
+    out.push_str(&format!("{fname} :: {}\n", types.join(" -> ")));
+    let mut head = fname.clone();
+    for v in vars.iter() {
+        head.push(' ');
+        head.push_str(v);
+    }
+    match body {
+        Some(b) => out.push_str(&format!("{head} ={b}")),
+        None => out.push_str(&format!(
+            "{head} = error {}\n",
+            string_literal(&format!("write the body of {}", p.type_name))
+        )),
+    }
+    Ok(out)
+}
+
+/// 設計文書の Container: 状態の型 (`<Name>State`、状態ごとの IORef)、マニフェスト、`<name>_create`
+fn design_container(c: &ContainerSignature, design: &DesignSkeleton) -> Result<String, IdlError> {
+    let state = state_name(&c.type_name);
+    let fname = lower_first(&c.type_name);
+    let manifest = format!("{fname}_manifest");
+    let create = format!("{fname}_create");
+    let mut field_types = Vec::new();
+    for s in c.state.iter() {
+        field_types.push(format!("(IORef {})", atom(design_type(&schema_type(&s.schema)?)?)));
+    }
+    let names: Vec<&str> = c.state.iter().map(|s| s.name.as_str()).collect();
+    let mut out = match names.as_slice() {
+        [] => format!("-- | State of the container {}\n", c.type_name),
+        [one] => format!("-- | State of the container {}: the IORef of {one}\n", c.type_name),
+        many => format!("-- | State of the container {}: the IORefs of {}\n", c.type_name, many.join(", ")),
+    };
+    for s in c.state.iter() {
+        if let Some(d) = &s.description {
+            out.push_str(&format!("--   {}: {}\n", s.name, d.lines().collect::<Vec<_>>().join(" ")));
+        }
+    }
+    match field_types.len() {
+        0 => out.push_str(&format!("data {state} = {state}\n\n")),
+        1 => out.push_str(&format!("newtype {state} = {state} {}\n\n", field_types[0])),
+        _ => out.push_str(&format!("data {state} = {state} {}\n\n", field_types.join(" "))),
+    }
+    let args: Vec<&str> = c.arguments.iter().map(|a| a.name.as_str()).collect();
+    match args.as_slice() {
+        [] => out.push_str(&format!("-- | Container {}\n", c.type_name)),
+        [one] => out.push_str(&format!(
+            "-- | Container {}. {one} is taken from the container entry of app/app.conf\n",
+            c.type_name
+        )),
+        many => out.push_str(&format!(
+            "-- | Container {}. {} are taken from the container entry of app/app.conf\n",
+            c.type_name,
+            many.join(", ")
+        )),
+    }
+    out.push_str(&format!(
+        "{manifest} :: ContainerManifest\n{manifest} = containerManifest {}",
+        string_literal(&c.type_name)
+    ));
+    if let Some(d) = &c.description {
+        out.push_str(&format!("\n  & description {}", string_literal(d)));
+    }
+    for a in c.arguments.iter() {
+        out.push_str(&format!("\n  & {}", argument_line(a)?));
+    }
+    out.push_str("\n\n");
+    // 引数から状態を作る
+    let mut types = Vec::new();
+    let mut vars = Vec::new();
+    let mut inits = Vec::new();
+    for a in c.arguments.iter() {
+        types.push(design_type(&schema_type(&a.schema)?)?);
+        let used = c.state.iter().any(|s| matches!(&s.init, StateInit::Argument(n) if *n == a.name));
+        vars.push(design_var(&a.name, used));
+    }
+    for s in c.state.iter() {
+        let t = schema_type(&s.schema)?;
+        let e = match &s.init {
+            StateInit::Argument(arg) => {
+                let a = c.arguments.iter().find(|a| a.name == *arg).ok_or_else(|| {
+                    generate_error(format!(
+                        "the state {} of the container {} is initialized by '{arg}', which is not an argument",
+                        s.name, c.type_name
+                    ))
+                })?;
+                let v = design_var(arg, true);
+                let at = schema_type(&a.schema)?;
+                if matches!(t, DataType::Optional { .. }) && !matches!(at, DataType::Optional { .. }) {
+                    format!("(Just {v})")
+                } else {
+                    v
+                }
+            }
+            StateInit::Value(v) => {
+                let e = state_value(&t, v)?;
+                if e.starts_with('-') { format!("({e})") } else { e }
+            }
+        };
+        inits.push(format!("newIORef {e}"));
+    }
+    types.push(format!("IO {state}"));
+    out.push_str(&format!("{create} :: {}\n", types.join(" -> ")));
+    let mut head = create.clone();
+    for v in vars.iter() {
+        head.push(' ');
+        head.push_str(v);
+    }
+    match inits.as_slice() {
+        [] => out.push_str(&format!("{head} = pure {state}\n")),
+        [first, rest @ ..] => {
+            out.push_str(&format!("{head} = {state} <$> {first}"));
+            for r in rest {
+                out.push_str(&format!(" <*> {r}"));
+            }
+            out.push('\n');
+        }
+    }
+    for p in c.container_processes.iter() {
+        out.push('\n');
+        out.push_str(&design_process(p, Some((&state, c)), design)?);
+    }
+    Ok(out)
+}
+
+/// 設計文書から作る雛形 (docs/spec/design.md §6.2)。[`haskell_skeleton_items`] と同じ並びで、
+/// 関数の名前は型名 (`<型名>`・`<型名>_manifest`・`<Container>_create`)、Container の引数・状態
+/// (`<Name>State` の IORef)、ContainerProcess の readonly、本体の断片 (`design.bodies`)、Component の説明も出す。
+/// ファイルの先頭の説明 (`design.header`) はプラグマの後に置く。`juiz pkg create -d`・`-t` が src/<Name>.hs に使う
+pub fn haskell_design_items(
+    s: &Signatures,
+    component_name: &str,
+    module: &str,
+    design: &DesignSkeleton,
+) -> Result<String, IdlError> {
+    let mut names = Names {
+        defined: BTreeMap::new(),
+    };
+    let component = format!("{}_component", lower_first(component_name));
+    names.define(&component, "the Component manifest".to_owned())?;
+    let mut modules = BTreeSet::new();
+    for p in s.processes.iter() {
+        names.define(&lower_first(&p.type_name), format!("process {}", p.type_name))?;
+        names.define(&fn_name(&p.type_name, "manifest"), format!("process {}", p.type_name))?;
+    }
+    for c in s.containers.iter() {
+        names.define(&fn_name(&c.type_name, "manifest"), format!("container {}", c.type_name))?;
+        names.define(&fn_name(&c.type_name, "create"), format!("container {}", c.type_name))?;
+        names.define(&state_name(&c.type_name), format!("the state type of container {}", c.type_name))?;
+        for p in c.container_processes.iter() {
+            names.define(&lower_first(&p.type_name), format!("container_process {}", p.type_name))?;
+            names.define(&fn_name(&p.type_name, "manifest"), format!("container_process {}", p.type_name))?;
+        }
+        for a in c.arguments.iter() {
+            collect_modules(&schema_type(&a.schema)?, &mut modules)?;
+        }
+        for st in c.state.iter() {
+            collect_modules(&schema_type(&st.schema)?, &mut modules)?;
+        }
+    }
+    let all = s
+        .processes
+        .iter()
+        .chain(s.containers.iter().flat_map(|c| c.container_processes.iter()));
+    for p in all {
+        for schema in p.arguments.iter().map(|a| &a.schema).chain([&p.output_schema]) {
+            collect_modules(&schema_type(schema)?, &mut modules)?;
+        }
+    }
+    let mut body = format!(
+        "\n-- | The manifest of the whole Component (the types in this plugin)\n{component} :: ComponentManifest\n{component} = componentManifest {}\n",
+        string_literal(component_name)
+    );
+    if let Some(d) = &design.description {
+        body.insert_str(body.len() - 1, &format!("\n  & description {}", string_literal(d)));
+    }
+    let mut entries = Vec::new();
+    for p in s.processes.iter() {
+        body.push('\n');
+        body.push_str(&design_process(p, None, design)?);
+        entries.push(format!(
+            "componentProcess '{} '{}",
+            lower_first(&p.type_name),
+            fn_name(&p.type_name, "manifest")
+        ));
+    }
+    for c in s.containers.iter() {
+        body.push('\n');
+        body.push_str(&design_container(c, design)?);
+        entries.push(format!(
+            "componentContainer '{} '{}",
+            fn_name(&c.type_name, "create"),
+            fn_name(&c.type_name, "manifest")
+        ));
+        for p in c.container_processes.iter() {
+            entries.push(format!(
+                "componentContainerProcess '{} '{}",
+                lower_first(&p.type_name),
+                fn_name(&p.type_name, "manifest")
+            ));
+        }
+    }
+    body.push_str(&format!("\njuizComponent '{component}\n"));
+    for (i, e) in entries.iter().enumerate() {
+        body.push_str(&format!("  {} {e}\n", if i == 0 { "[" } else { "," }));
+    }
+    body.push_str("  ]\n");
+
+    let mut out = String::from("{-# LANGUAGE OverloadedStrings #-}\n{-# LANGUAGE TemplateHaskell #-}\n");
+    out.push_str(&design.header);
+    out.push_str(&format!("module {module} () where\n\n"));
+    // 使うものだけ import する
+    let qualified = [
+        ("HB.", "import qualified Data.ByteString as HB"),
+        ("HI.", "import qualified Data.Int as HI"),
+        ("HM.", "import qualified Data.Map.Strict as HM"),
+        ("JV.", "import qualified Juiz.Value as JV"),
+    ];
+    for (prefix, line) in qualified {
+        if body.contains(prefix) {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out.push_str("import Juiz\n");
+    for m in modules.iter() {
+        out.push_str(&format!("import qualified {m}\n"));
+    }
+    out.push_str(&body);
+    Ok(out)
 }

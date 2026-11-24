@@ -3,7 +3,8 @@
 //! `juiz pkg create -t`(プリセット)と `juiz pkg create -d`(文書のファイル)の両方が通る。
 //! 文書を juiz_idl のシグネチャにし、juiz_idl の設計文書用の雛形 (`rust_design_items`・`python_design_items`)
 //! で Component のソースを作る。-t は本体の断片 (templates/design/fragments/) を入れ、-d は未実装の印のまま。
-//! Step 2 でソースを文書から作るのは Rust と Python。C++・Haskell・Zig は Step 3 (#596)。
+//! Rust・Python は Step 2 (#595)、C++・Haskell・Zig は Step 3 (#596) (`cpp_design_items`・`haskell_design_items`・
+//! `zig_design_items`)。
 
 use std::path::{Path, PathBuf};
 
@@ -49,6 +50,10 @@ pub struct DesignPlan {
     pub idl_files: Vec<(String, String)>,
     /// build.rs で読む .jidl (`idl:` の組み込みでないもの)
     pub compile: Vec<String>,
+    /// `idl:` のすべて (組み込みのものも、先頭の `./` を外したもの)。C++・Haskell・Zig のビルドが型を作るときに読む
+    pub entries: Vec<String>,
+    /// Haskell の型のモジュール (.cabal の other-modules。scripts/dev.sh が gen/ に作る)
+    pub hs_modules: Vec<String>,
     /// Python: 作るときに書く型のコード (雛形のディレクトリからの相対パス、中身)
     pub generated: Vec<(String, String)>,
     /// juiz_std の型を使うか (Rust は juiz_std_types に依存し、extern にする)
@@ -57,11 +62,6 @@ pub struct DesignPlan {
 
 fn is_juiz_std(namespace: &str) -> bool {
     namespace == JUIZ_STD || namespace.starts_with("juiz_std.")
-}
-
-/// 文書から雛形のソースを作る言語 (Step 2 は Rust と Python)
-pub fn generates_source(lang: Lang) -> bool {
-    matches!(lang, Lang::Rust | Lang::Python)
 }
 
 /// 本体の断片 (templates/design/fragments/<lang>/<役割>.<ext>.tmpl) を置換して読む
@@ -115,12 +115,6 @@ impl DesignPlan {
                 )))
             }
         };
-        if !generates_source(lang) {
-            return Err(PkgError::new(format!(
-                "juiz pkg create -d makes Rust and Python skeletons in this version (C++, Haskell and Zig come later, juiz issue #596); -b {} is not supported yet",
-                lang.dir()
-            )));
-        }
         let dir = path
             .parent()
             .filter(|p| !p.as_os_str().is_empty())
@@ -215,6 +209,19 @@ impl DesignPlan {
                 ));
             }
         }
+        // `idl:` のすべて (C++ の juiz_generate_types・Haskell の dev.sh・Zig の addTypes が読む)
+        let entries: Vec<String> = design.idl.iter().map(|p| p.trim_start_matches("./").to_owned()).collect();
+        // Haskell の型のモジュール (.cabal の other-modules)
+        let mut hs_modules = Vec::new();
+        if lang == Lang::Haskell && !model.types.is_empty() {
+            let files = juiz_idl::generate(model, &[OutputKind::Haskell]).map_err(|e| PkgError::new(e.to_string()))?;
+            for f in files {
+                let p = f.path.to_string_lossy().replace('\\', "/");
+                if let Some(m) = p.strip_suffix(".hs") {
+                    hs_modules.push(m.replace('/', "."));
+                }
+            }
+        }
         Ok(DesignPlan {
             design,
             origin,
@@ -222,6 +229,8 @@ impl DesignPlan {
             resolved,
             idl_files,
             compile,
+            entries,
+            hs_modules,
             generated,
             uses_juiz_std,
         })
@@ -256,18 +265,20 @@ impl DesignPlan {
         }
     }
 
-    /// 本体の断片 (§7.2)。-t のプリセットだけ。鍵は型の役割 (`<name>_add` の `add` など) で、型名ではない
+    /// 本体の断片 (§7.2)。-t のプリセットだけ。鍵は型の役割 (`<name>_add` の `add` など) で、型名ではない。
+    /// C++・Haskell・Zig のファイルの先頭の説明と Component の説明もここに入れる
     fn skeleton(&self) -> DesignSkeleton {
-        let mut s = DesignSkeleton::default();
+        let mut s = DesignSkeleton {
+            header: self.header(),
+            description: self.design.component.description.clone(),
+            types: !self.entries.is_empty(),
+            ..Default::default()
+        };
         let Some(template) = self.preset_template() else {
             return s;
         };
         let name = self.name();
-        let (dir, ext) = match self.lang {
-            Lang::Rust => ("rust", "rs"),
-            Lang::Python => ("python", "py"),
-            _ => return s,
-        };
+        let (dir, ext) = lang_fragments(self.lang);
         let mut roles = Vec::new();
         if template.has_process() {
             roles.push((format!("{name}_add"), "add"));
@@ -343,13 +354,90 @@ impl DesignPlan {
                 };
                 (format!("app/python/{name}.py"), format!("{head}{items}"))
             }
-            other => {
-                return Err(PkgError::new(format!(
-                    "making the {} source from a design document is not supported yet (juiz issue #596)",
-                    other.dir()
-                )))
+            Lang::Cpp => {
+                let text = juiz_idl::cpp_design_items(sigs, name, &skeleton).map_err(e)?;
+                (format!("src/{name}.cpp"), text)
+            }
+            Lang::Haskell => {
+                let module = names::camel(name);
+                if let Some(m) = self.hs_modules.iter().find(|m| **m == module) {
+                    return Err(PkgError::new(format!(
+                        "the Haskell module of a namespace of the types is {m}, the same as the module of the component; use another component name or namespace"
+                    )));
+                }
+                let text = juiz_idl::haskell_design_items(sigs, name, &module, &skeleton).map_err(e)?;
+                (format!("src/{module}.hs"), text)
+            }
+            Lang::Zig => {
+                let text = juiz_idl::zig_design_items(sigs, name, &skeleton).map_err(e)?;
+                (format!("src/{name}.zig"), text)
             }
         })
+    }
+
+    /// C++・Haskell・Zig のファイルの先頭の説明。-t は断片の `header`、-d は文書から作ったことと本体の書き方
+    fn header(&self) -> String {
+        let name = self.name();
+        let (dir, ext) = lang_fragments(self.lang);
+        if let Origin::Preset(_) = self.origin {
+            return fragment(dir, &format!("header.{ext}"), name).unwrap_or_default();
+        }
+        let from = match &self.origin {
+            Origin::File { label, .. } => label.as_str(),
+            Origin::Preset(_) => FILE_NAME,
+        };
+        let types = self.design_idl_label();
+        match self.lang {
+            Lang::Cpp => {
+                let mut h = format!(
+                    "// {name}: a juiz component made from {from} (juiz pkg create -d).\n\
+                     //\n\
+                     // Write the body of each function (replace the `(void)…;` and `throw` lines).\n\
+                     // The arguments and the return values are typed by {from}: when you change it,\n\
+                     // change the functions and the manifests here to match.\n"
+                );
+                if let Some(t) = types {
+                    h.push_str(&format!(
+                        "// The record and enum types are in juiz_idl.h, which CMake generates from {} (juiz_generate_types).\n",
+                        t.replace('`', "")
+                    ));
+                }
+                h
+            }
+            Lang::Haskell => {
+                let mut h = format!(
+                    "-- | {name}: a juiz component made from {from} (juiz pkg create -d).\n\
+                     --\n\
+                     -- Write the body of each function (replace the @error \"write the body of …\"@ lines).\n\
+                     -- The arguments and the return values are typed by {from}: when you change it,\n\
+                     -- change the functions and the manifests here to match.\n"
+                );
+                if let Some(t) = types {
+                    h.push_str(&format!(
+                        "-- The record and enum types are in the modules that scripts/dev.sh generates in gen/ from {}.\n",
+                        t.replace('`', "")
+                    ));
+                }
+                h
+            }
+            Lang::Zig => {
+                let mut h = format!(
+                    "//! {name}: a juiz component made from {from} (juiz pkg create -d).\n\
+                     //!\n\
+                     //! Write the body of each function (replace the `return error.NotImplemented` lines).\n\
+                     //! The arguments and the return values are typed by {from}: when you change it,\n\
+                     //! change the functions and the parts here to match.\n"
+                );
+                if let Some(t) = types {
+                    h.push_str(&format!(
+                        "//! The record and enum types are in the module juiz_types, which build.zig generates from {} (juiz.addTypes).\n",
+                        t.replace('`', "")
+                    ));
+                }
+                h
+            }
+            Lang::Rust | Lang::Python => String::new(),
+        }
     }
 
     /// 雛形の直下に置く文書 (pkg.md §2.2、design.md §8.2)
@@ -474,10 +562,69 @@ impl DesignPlan {
 
     /// 本体を書く関数のあるファイル
     pub fn source_path(&self) -> String {
+        let name = self.name();
         match self.lang {
-            Lang::Python => format!("app/python/{}.py", self.name()),
-            _ => "src/lib.rs".to_owned(),
+            Lang::Python => format!("app/python/{name}.py"),
+            Lang::Rust => "src/lib.rs".to_owned(),
+            Lang::Cpp => format!("src/{name}.cpp"),
+            Lang::Haskell => format!("src/{}.hs", names::camel(name)),
+            Lang::Zig => format!("src/{name}.zig"),
         }
+    }
+
+    /// C++・Haskell・Zig の README に書く `idl:` の並び (`` `idl/a.jidl`, `juiz_std/geometry.jidl` ``)。無ければ None
+    pub fn design_idl_label(&self) -> Option<String> {
+        (!self.entries.is_empty())
+            .then(|| self.entries.iter().map(|p| format!("`{p}`")).collect::<Vec<_>>().join(", "))
+    }
+
+    /// C++ の juiz_generate_types の IDL・Haskell の dev.sh の `juiz idl` に渡す `idl:` (空白区切り)。無ければ None
+    pub fn idl_list(&self) -> Option<String> {
+        (!self.entries.is_empty()).then(|| self.entries.join(" "))
+    }
+
+    /// C++ の juiz_generate_types の DEPENDS (写した .jidl のうち `idl:` に無いもの = import した先)。無ければ None
+    pub fn idl_depends(&self) -> Option<String> {
+        let v: Vec<&str> = self
+            .idl_files
+            .iter()
+            .map(|(p, _)| p.as_str())
+            .filter(|p| !self.entries.iter().any(|e| e == p))
+            .collect();
+        (!v.is_empty()).then(|| v.join(" "))
+    }
+
+    /// Zig の build.zig の addTypes: .files (写した .jidl のうち `idl:` にあるもの)、
+    /// .depends (import した先)、.builtins (組み込みのもの、無ければ None)。`&.{ b.path("…"), … }` の形
+    pub fn zig_types(&self) -> (String, String, Option<String>) {
+        let (files, depends, builtins) = self.zig_type_items();
+        (zig_list(&files), zig_list(&depends), builtins.map(|b| zig_list(&b)))
+    }
+
+    fn zig_type_items(&self) -> (String, String, Option<String>) {
+        let copied = |p: &str| self.idl_files.iter().any(|(f, _)| f == p);
+        let files = self
+            .entries
+            .iter()
+            .filter(|p| copied(p))
+            .map(|p| format!("b.path(\"{p}\")"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let depends = self
+            .idl_files
+            .iter()
+            .map(|(p, _)| p.as_str())
+            .filter(|p| !self.entries.iter().any(|e| e == p))
+            .map(|p| format!("b.path(\"{p}\")"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let builtins: Vec<String> = self.entries.iter().filter(|p| !copied(p)).map(|p| format!("\"{p}\"")).collect();
+        (files, depends, (!builtins.is_empty()).then(|| builtins.join(", ")))
+    }
+
+    /// Haskell の .cabal の other-modules に足す型のモジュール (`, A.B` を並べたもの)
+    pub fn hs_other_modules(&self) -> String {
+        self.hs_modules.iter().map(|m| format!("\n                    , {m}")).collect()
     }
 
     /// build.rs の compile の並び (`"idl/a.jidl", "idl/b.jidl"`)
@@ -506,6 +653,28 @@ impl DesignPlan {
                 self.compile.join(" ")
             )
         })
+    }
+}
+
+/// Zig のスライスのリテラル (zig fmt の書き方: 空なら `&.{}`、1 つなら `&.{a}`、2 つ以上なら `&.{ a, b }`)
+fn zig_list(items: &str) -> String {
+    if items.is_empty() {
+        "&.{}".to_owned()
+    } else if items.contains(", ") {
+        format!("&.{{ {items} }}")
+    } else {
+        format!("&.{{{items}}}")
+    }
+}
+
+/// 言語ごとの本体の断片のディレクトリと拡張子 (templates/design/fragments/<dir>/<役割>.<ext>.tmpl)
+fn lang_fragments(lang: Lang) -> (&'static str, &'static str) {
+    match lang {
+        Lang::Rust => ("rust", "rs"),
+        Lang::Python => ("python", "py"),
+        Lang::Cpp => ("cpp", "cpp"),
+        Lang::Haskell => ("haskell", "hs"),
+        Lang::Zig => ("zig", "zig"),
     }
 }
 

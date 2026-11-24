@@ -11,7 +11,9 @@ use juiz_types::{DataType, TypeSchema};
 
 use crate::rust_skeleton::camel_case;
 use crate::zig::{any_literal, doc_lines, ident, string_literal, value_literal, zig_type, Scope};
-use crate::{ContainerSignature, GeneratedFile, IdlError, ProcessSignature, Signatures};
+use crate::{
+    ContainerSignature, DesignSkeleton, GeneratedFile, IdlError, ProcessSignature, Signatures, StateInit,
+};
 
 /// 生成した型のモジュールを読み込む名前 (雛形の中で `types.robot.geometry.Pose2D` のように使う)
 const TYPES: &str = "types";
@@ -334,4 +336,246 @@ mod tests {
         assert_eq!(zig_skeleton_file("my_robot"), "my_robot_component.zig");
         assert_eq!(zig_skeleton_file("robot.arm"), "robot_arm_component.zig");
     }
+}
+
+// ---- 設計文書から作る雛形 (docs/spec/design.md §6.2、設計文書 Step 3) ----
+
+/// 4 つの空白で字下げする (空の行はそのまま)
+fn indent(code: &str) -> String {
+    code.trim_end_matches('\n')
+        .lines()
+        .map(|l| if l.is_empty() { "\n".to_owned() } else { format!("    {l}\n") })
+        .collect()
+}
+
+/// 引数の struct (`args: struct { a: i64 = 0 }`)。引数が無ければ None
+fn args_param(arguments: &[crate::ArgumentSignature], what: &str) -> Result<Option<String>, IdlError> {
+    if arguments.is_empty() {
+        return Ok(None);
+    }
+    let fields = arguments
+        .iter()
+        .map(|a| argument_field(a, what))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Some(format!("args: struct {{ {} }}", fields.join(", "))))
+}
+
+/// `.args = .{ .a = "…" }` (引数が無ければ None。zigjuiz はすべての引数の説明を求める)
+fn args_docs(arguments: &[crate::ArgumentSignature]) -> Option<String> {
+    if arguments.is_empty() {
+        return None;
+    }
+    Some(format!(
+        ".args = .{{ {} }}",
+        arguments
+            .iter()
+            .map(|a| format!(".{} = {}", ident(&a.name), string_literal(a.description.as_deref().unwrap_or(""))))
+            .collect::<Vec<_>>()
+            .join(", ")
+    ))
+}
+
+/// 設計文書の Process・ContainerProcess の関数。`state` は ContainerProcess の状態の型
+fn design_function(p: &ProcessSignature, state: Option<&str>, design: &DesignSkeleton) -> Result<String, IdlError> {
+    let what = if state.is_some() {
+        format!("container_process {}", p.type_name)
+    } else {
+        format!("process {}", p.type_name)
+    };
+    let mut params = Vec::new();
+    let mut discard = Vec::new();
+    if let Some(s) = state {
+        let ptr = if p.readonly { "*const " } else { "*" };
+        params.push(format!("self: {ptr}{}", ident(s)));
+        discard.push("self");
+    }
+    if let Some(a) = args_param(&p.arguments, &what)? {
+        params.push(a);
+        discard.push("args");
+    }
+    let ret = return_type(&schema_type(&p.output_schema)?)?;
+    let doc = match (&p.description, p.readonly) {
+        (Some(d), true) => Some(format!("{d} It takes the state as *const, so it is readonly.")),
+        (None, true) => Some("It takes the state as *const, so it is readonly.".to_owned()),
+        (d, false) => d.clone(),
+    };
+    let mut out = doc_lines(&doc, "");
+    out.push_str(&format!("fn {}({}) !{ret} {{\n", ident(&p.type_name), params.join(", ")));
+    match design.bodies.get(&p.type_name) {
+        Some(b) => out.push_str(&indent(b)),
+        None => {
+            for d in discard {
+                out.push_str(&format!("    _ = {d};\n"));
+            }
+            out.push_str(&format!(
+                "    // write the body of {}\n    return error.NotImplemented;\n",
+                p.type_name
+            ));
+        }
+    }
+    out.push_str("}\n");
+    Ok(out)
+}
+
+/// 設計文書の Container: 状態の struct と、引数から状態を作る関数 (`<name>_create`)
+fn design_container(c: &ContainerSignature, design: &DesignSkeleton) -> Result<String, IdlError> {
+    let state = state_name(&c.type_name);
+    let what = format!("container {}", c.type_name);
+    let mut out = format!("/// State of the container `{}`.\nconst {} = struct {{", c.type_name, ident(&state));
+    let mut inits = Vec::new();
+    let mut uses_args = false;
+    if c.state.is_empty() {
+        out.push_str("};\n\n");
+    } else {
+        out.push('\n');
+        for s in c.state.iter() {
+            let t = schema_type(&s.schema)?;
+            let ty = zig_type(&t, Scope::Index(TYPES))?;
+            out.push_str(&doc_lines(&s.description, "    "));
+            out.push_str(&format!("    {}: {ty},\n", ident(&s.name)));
+            let expr = match &s.init {
+                StateInit::Argument(arg) => {
+                    let a = c.arguments.iter().find(|a| a.name == *arg).ok_or_else(|| {
+                        generate_error(format!(
+                            "the state {} of the {what} is initialized by '{arg}', which is not an argument",
+                            s.name
+                        ))
+                    })?;
+                    // 引数の受け取り方 (配列・辞書・any は juiz.Value) が状態の型と違えば作れない
+                    let at = arg_type(&schema_type(&a.schema)?, &format!("{what} argument '{arg}'"))?;
+                    let inner = match &t {
+                        DataType::Optional { inner, .. } => zig_type(inner, Scope::Index(TYPES))?,
+                        _ => ty.clone(),
+                    };
+                    if at != ty && at != inner {
+                        return Err(generate_error(format!(
+                            "the state {} of the {what} cannot be initialized by the argument '{arg}' in the Zig skeleton: the argument is received as {at}, not {ty}",
+                            s.name
+                        )));
+                    }
+                    // 引数のメモリ (文字列など) は Container を作る関数が戻ると解放されるので、メモリを持たない型だけ
+                    if !plain_data(&t) {
+                        return Err(generate_error(format!(
+                            "the state {} of the {what} cannot be initialized by the argument '{arg}' in the Zig skeleton: the memory of a {} argument is freed when the container is made (use default, or copy it in a ContainerProcess)",
+                            s.name,
+                            t.display_name()
+                        )));
+                    }
+                    uses_args = true;
+                    format!("args.{}", ident(arg))
+                }
+                StateInit::Value(v) => value_literal(&t, v, Scope::Index(TYPES))
+                    .map_err(|e| generate_error(format!("the state {} of the {what}: {e}", s.name)))?,
+            };
+            inits.push(format!(".{} = {expr}", ident(&s.name)));
+        }
+        out.push_str("};\n\n");
+    }
+    let names: Vec<&str> = c.arguments.iter().map(|a| a.name.as_str()).collect();
+    out.push_str(&format!("/// Makes the state of a container `{}`.", c.type_name));
+    match names.as_slice() {
+        [] => out.push('\n'),
+        [one] => out.push_str(&format!(" {one} comes from the entry of the container in app.conf\n")),
+        many => out.push_str(&format!(" {} come from the entry of the container in app.conf\n", many.join(", "))),
+    }
+    let param = args_param(&c.arguments, &what)?.unwrap_or_default();
+    out.push_str(&format!("fn {}({param}) {} {{\n", ident(&create_name(&c.type_name)), ident(&state)));
+    if !param.is_empty() && !uses_args {
+        out.push_str("    _ = args;\n");
+    }
+    if inits.is_empty() {
+        out.push_str("    return .{};\n}\n");
+    } else {
+        out.push_str(&format!("    return .{{ {} }};\n}}\n", inits.join(", ")));
+    }
+    for p in c.container_processes.iter() {
+        out.push('\n');
+        out.push_str(&design_function(p, Some(&state), design)?);
+    }
+    Ok(out)
+}
+
+/// メモリを持たない型か (真偽・数・enum、それだけの record と `T?`)
+fn plain_data(t: &DataType) -> bool {
+    match t {
+        DataType::Boolean
+        | DataType::Int
+        | DataType::Long
+        | DataType::Float
+        | DataType::Double
+        | DataType::Enum(_) => true,
+        DataType::Optional { inner, .. } => plain_data(inner),
+        DataType::Record(r) => r.fields.iter().all(|f| plain_data(&f.data_type)),
+        _ => false,
+    }
+}
+
+/// exportComponent の要素 1 つ (複数行)
+fn design_part(kind: &str, func: &str, options: Vec<String>) -> String {
+    let mut out = format!("            juiz.{kind}({func}, .{{\n");
+    for o in options {
+        out.push_str(&format!("                {o},\n"));
+    }
+    out.push_str("            }),\n");
+    out
+}
+
+/// 設計文書から作る雛形 (docs/spec/design.md §6.2)。[`zig_skeleton_items`] と同じ並びで、ファイルの先頭の説明
+/// (`design.header`)、Container の引数・状態 (`<Name>State` のフィールド)、ContainerProcess の readonly
+/// (`*const` で受ける)、本体の断片 (`design.bodies`)、Component の説明も出す。`juiz pkg create -d`・`-t` が使う
+pub fn zig_design_items(
+    s: &Signatures,
+    component_name: &str,
+    design: &DesignSkeleton,
+) -> Result<String, IdlError> {
+    // 名前の重なりは zig_skeleton_items と同じ規則で確かめる
+    zig_skeleton_items(s, component_name, "")?;
+    let mut out = design.header.clone();
+    out.push_str("const std = @import(\"std\");\nconst juiz = @import(\"juiz\");\n");
+    if design.types {
+        out.push_str("const types = @import(\"juiz_types\");\n");
+    }
+    let mut parts = String::new();
+    for p in s.processes.iter() {
+        out.push('\n');
+        out.push_str(&design_function(p, None, design)?);
+        let mut o = vec![format!(".type_name = {}", string_literal(&p.type_name))];
+        if let Some(d) = &p.description {
+            o.push(format!(".description = {}", string_literal(d)));
+        }
+        o.extend(args_docs(&p.arguments));
+        parts.push_str(&design_part("processPart", &ident(&p.type_name), o));
+    }
+    for c in s.containers.iter() {
+        out.push('\n');
+        out.push_str(&design_container(c, design)?);
+        let mut o = vec![format!(".type_name = {}", string_literal(&c.type_name))];
+        if let Some(d) = &c.description {
+            o.push(format!(".description = {}", string_literal(d)));
+        }
+        o.extend(args_docs(&c.arguments));
+        parts.push_str(&design_part("containerPart", &ident(&create_name(&c.type_name)), o));
+        for p in c.container_processes.iter() {
+            let mut o = vec![
+                format!(".type_name = {}", string_literal(&p.type_name)),
+                format!(".container_type = {}", string_literal(&c.type_name)),
+            ];
+            if let Some(d) = &p.description {
+                o.push(format!(".description = {}", string_literal(d)));
+            }
+            o.extend(args_docs(&p.arguments));
+            parts.push_str(&design_part("containerProcessPart", &ident(&p.type_name), o));
+        }
+    }
+    out.push_str(&format!(
+        "\ncomptime {{\n    juiz.exportComponent(.{{\n        .type_name = {},\n",
+        string_literal(component_name)
+    ));
+    if let Some(d) = &design.description {
+        out.push_str(&format!("        .description = {},\n", string_literal(d)));
+    }
+    out.push_str("        .parts = .{\n");
+    out.push_str(&parts);
+    out.push_str("        },\n    });\n}\n");
+    Ok(out)
 }

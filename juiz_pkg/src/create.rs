@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use crate::cli::{CreateArgs, LicenseKind};
 use crate::render::{render, render_path, Vars};
-use crate::design::generate::{generates_source, DesignPlan, Origin};
+use crate::design::generate::{DesignPlan, Origin};
 use crate::idl::IdlPlan;
 use crate::{names, templates, Lang, PkgError, Template, JUIZ_VERSION};
 
@@ -796,14 +796,23 @@ impl Plan {
             .set_opt("design_idl_note", self.design.as_ref().and_then(DesignPlan::python_idl_note));
         match (&self.idl, &self.design) {
             (None, Some(d)) => {
-                v.set_opt("idl_main", d.idl_label())
+                // -d の C++・Haskell は `idl:` をビルドで読む (idl_main は空白区切りの並び)。Rust・Python は README の表示
+                let raw = matches!(self.lang, Lang::Cpp | Lang::Haskell) && self.from_document();
+                let (zig_files, zig_depends, zig_builtins) = d.zig_types();
+                let zig = self.lang == Lang::Zig && self.from_document() && !d.entries.is_empty();
+                let hs = self.lang == Lang::Haskell && self.from_document();
+                v.set_opt("idl_main", if raw { d.idl_list() } else { d.idl_label() })
                     .set_opt("idl_compile", (!d.compile.is_empty()).then(|| d.compile_list()))
                     .set_opt("idl_conf", None)
                     .set_opt("idl_extern", d.extern_line())
-                    .set_opt("idl_depends", None)
-                    .set_opt("idl_hs_modules", None)
-                    .set_opt("idl_hs_gen_dir", None)
-                    .set_opt("idl_zig_depends", None)
+                    .set_opt("idl_depends", if raw { d.idl_depends() } else { None })
+                    .set_opt("idl_hs_modules", hs.then(|| d.hs_other_modules()))
+                    .set_opt("idl_hs_gen_dir", (hs && !d.entries.is_empty()).then(|| "gen".to_owned()))
+                    .set_opt("hs_source_dirs", hs.then(|| if d.entries.is_empty() { "src".to_owned() } else { "src gen".to_owned() }))
+                    .set_opt("idl_zig_depends", zig.then_some(zig_depends))
+                    .set_opt("idl_zig_files", zig.then_some(zig_files))
+                    .set_opt("idl_zig_builtins", if zig { zig_builtins } else { None })
+                    .set_opt("design_idl_label", d.design_idl_label())
                     .set_opt(
                         "juiz_std_types_dep",
                         (d.uses_juiz_std && self.lang == Lang::Rust).then(|| self.rust_dep("juiz_std_types")),
@@ -818,6 +827,10 @@ impl Plan {
                     .set("idl_hs_modules", i.hs_other_modules())
                     .set_opt("idl_hs_gen_dir", (self.lang == Lang::Haskell).then(|| "gen".to_owned()))
                     .set("idl_zig_depends", i.zig_depends())
+                    .set_opt("idl_zig_files", None)
+                    .set_opt("idl_zig_builtins", None)
+                    .set_opt("hs_source_dirs", None)
+                    .set_opt("design_idl_label", None)
                     .set_opt(
                         "juiz_std_types_dep",
                         i.uses_juiz_std.then(|| self.rust_dep("juiz_std_types")),
@@ -832,6 +845,10 @@ impl Plan {
                     .set_opt("idl_hs_modules", None)
                     .set_opt("idl_hs_gen_dir", None)
                     .set_opt("idl_zig_depends", None)
+                    .set_opt("idl_zig_files", None)
+                    .set_opt("idl_zig_builtins", None)
+                    .set_opt("hs_source_dirs", None)
+                    .set_opt("design_idl_label", None)
                     .set_opt("juiz_std_types_dep", None);
             }
         }
@@ -855,12 +872,16 @@ impl Plan {
                 layers.push("common/design/".to_owned());
                 layers.push(format!("{lang_dir}/_base/"));
                 if self.from_document() {
-                    if d.has_build_rs() {
-                        layers.push(format!("{lang_dir}/idl/"));
+                    // .jidl の型を作るビルドのファイル: Rust の Cargo.toml・build.rs、C++ の CMakeLists.txt
+                    // (juiz_generate_types)、Haskell の .cabal (gen/)、Zig の build.zig (addTypes)
+                    let types = !d.entries.is_empty();
+                    match self.lang {
+                        Lang::Rust if d.has_build_rs() => layers.push(format!("{lang_dir}/idl/")),
+                        Lang::Cpp if types => layers.push(format!("{lang_dir}/idl/")),
+                        Lang::Zig if types => layers.push("zig/design-idl/".to_owned()),
+                        _ => {}
                     }
                     layers.push(format!("{lang_dir}/design/"));
-                } else {
-                    layers.push(format!("{lang_dir}/{}/", self.template.dir()));
                 }
             }
             (None, None) => unreachable!("-t always has the preset design"),
@@ -886,17 +907,15 @@ impl Plan {
         }
         // 設計文書 (design.md)。-t ではプリセットに雛形の言語を書いたもの、-d では渡した文書の写し。
         // --idl の文書は設計文書 Step 4 (#597) から。
-        // Rust・Python は Component のソースも文書から作る (設計文書 Step 2、C++・Haskell・Zig は Step 3)
+        // Component のソースも文書から作る (Rust・Python は設計文書 Step 2、C++・Haskell・Zig は Step 3)
         if let Some(d) = &self.design {
             let (path, text) = d.doc_file();
             out.insert(path, text);
             for (path, text) in d.idl_files.iter().chain(d.generated.iter()) {
                 out.insert(path.clone(), text.clone());
             }
-            if generates_source(self.lang) {
-                let (path, text) = d.source()?;
-                out.insert(path, text);
-            }
+            let (path, text) = d.source()?;
+            out.insert(path, text);
         }
         // --idl: .jidl の写し、Python の型のコード、juiz_idl の雛形から作る Component のソース
         // (テンプレートの置換は通さない)
@@ -1310,7 +1329,7 @@ mod tests {
         let src = get("src/my_robot.zig");
         assert!(src.contains("fn my_robot_add(args: struct { a: i64 = 0, b: i64 = 0 }) !i64 {"), "{src}");
         assert!(src.contains("const MyRobotState = struct {"), "{src}");
-        assert!(src.contains("fn my_robot_get(self: *const MyRobotState) i64 {"), "{src}");
+        assert!(src.contains("fn my_robot_get(self: *const MyRobotState) !i64 {"), "{src}");
         assert!(src.contains("        .type_name = \"my_robot\",\n"), "{src}");
         // --juiz-sdk-dir は dev.sh の既定になる
         let dev = get("scripts/dev.sh");

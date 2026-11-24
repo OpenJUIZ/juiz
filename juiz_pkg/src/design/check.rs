@@ -428,7 +428,18 @@ impl<'a> Checker<'a> {
             Lang::Python => juiz_idl::python_design_items(&plan.signatures, &Default::default())
                 .map(|_| ())
                 .map_err(e),
-            _ => Ok(()),
+            Lang::Cpp => juiz_idl::cpp_design_items(&plan.signatures, &self.design.component.name, &Default::default())
+                .map(|_| ())
+                .map_err(e),
+            Lang::Haskell => {
+                let module = names::camel(&self.design.component.name);
+                juiz_idl::haskell_design_items(&plan.signatures, &self.design.component.name, &module, &Default::default())
+                    .map(|_| ())
+                    .map_err(e)
+            }
+            Lang::Zig => juiz_idl::zig_design_items(&plan.signatures, &self.design.component.name, &Default::default())
+                .map(|_| ())
+                .map_err(e),
         }
     }
 
@@ -475,6 +486,7 @@ impl<'a> Checker<'a> {
                 hs_modules.retain(|m| *m != module);
             }
         }
+        let processes_full = processes.clone();
         for (i, p) in processes.into_iter().enumerate() {
             if let Err(e) = self.try_skeleton(lang, sigs(vec![p], vec![]), &hs_modules) {
                 self.error(format!("processes[{i}]"), format!("cannot be made in {label}: {e}"));
@@ -542,8 +554,13 @@ impl<'a> Checker<'a> {
                 }
             }
         }
-        // 設計文書から作る雛形 (Rust・Python、§6.2): Container の引数・状態・readonly も入れて作れるか
-        if matches!(lang, Lang::Rust | Lang::Python) && self.report.errors.is_empty() {
+        // 設計文書から作る雛形 (§6.2): Container の引数・状態・readonly も入れて作れるか
+        if self.report.errors.is_empty() {
+            for (i, p) in processes_full.iter().enumerate() {
+                if let Err(e) = self.try_design(lang, sigs(vec![p.clone()], vec![])) {
+                    self.error(format!("processes[{i}]"), format!("cannot be made in {label}: {e}"));
+                }
+            }
             for (i, c) in full_containers.iter().enumerate() {
                 if let Err(e) = self.try_design(lang, sigs(vec![], vec![c.clone()])) {
                     self.error(format!("containers[{i}]"), format!("cannot be made in {label}: {e}"));

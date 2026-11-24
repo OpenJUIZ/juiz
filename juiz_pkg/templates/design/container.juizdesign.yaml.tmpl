@@ -10,14 +10,14 @@ containers:
   - name: {{name}}
     description: "Holds an integer value."
     arguments:
-      - { name: initial_value, type: long, default: 0 }
+      - { name: initial_value, type: long, default: 0, description: "the initial value" }
     state:
       - { name: value, type: long, init: initial_value }
     processes:
       - name: {{name}}_increment
         description: "Adds step to the value and returns it."
         arguments:
-          - { name: step, type: long, default: 1 }
+          - { name: step, type: long, default: 1, description: "the value to add" }
         returns: long
       - name: {{name}}_get
         description: "Returns the value."

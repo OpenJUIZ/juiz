@@ -195,21 +195,21 @@ processes:
   - name: my_robot_add
     description: "Returns a + b."
     arguments:
-      - { name: a, type: long, default: 0 }
-      - { name: b, type: long, default: 0 }
+      - { name: a, type: long, default: 0, description: "the first value" }
+      - { name: b, type: long, default: 0, description: "the second value" }
     returns: long
 containers:
   - name: my_robot
     description: "Holds an integer value."
     arguments:
-      - { name: initial_value, type: long, default: 0 }
+      - { name: initial_value, type: long, default: 0, description: "the initial value" }
     state:
       - { name: value, type: long, init: initial_value }
     processes:
       - name: my_robot_increment
         description: "Adds step to the value and returns it."
         arguments:
-          - { name: step, type: long, default: 1 }
+          - { name: step, type: long, default: 1, description: "the value to add" }
         returns: long
       - name: my_robot_get
         description: "Returns the value."
@@ -485,30 +485,30 @@ fn my_robot_increment(self: *MyRobotState, args: struct { step: i64 = 1 }) !i64 
 }
 
 /// Returns the value. It takes the state as *const, so it is readonly.
-fn my_robot_get(self: *const MyRobotState) i64 {
+fn my_robot_get(self: *const MyRobotState) !i64 {
     return self.value;
 }
 
 comptime {
     juiz.exportComponent(.{
         .type_name = "my_robot",
-        .description = "my_robot: a juiz component.",
+        .description = "my_robot: a juiz component",
         .parts = .{
             juiz.processPart(my_robot_add, .{
                 .type_name = "my_robot_add",
                 .description = "Returns a + b.",
-                .args = .{ .a = "first value", .b = "second value" },
+                .args = .{ .a = "the first value", .b = "the second value" },
             }),
             juiz.containerPart(my_robot_create, .{
                 .type_name = "my_robot",
                 .description = "Holds an integer value.",
-                .args = .{ .initial_value = "initial value" },
+                .args = .{ .initial_value = "the initial value" },
             }),
             juiz.containerProcessPart(my_robot_increment, .{
                 .type_name = "my_robot_increment",
                 .container_type = "my_robot",
                 .description = "Adds step to the value and returns it.",
-                .args = .{ .step = "value to add" },
+                .args = .{ .step = "the value to add" },
             }),
             juiz.containerProcessPart(my_robot_get, .{
                 .type_name = "my_robot_get",

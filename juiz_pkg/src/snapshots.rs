@@ -116,7 +116,7 @@ fn create_template_snapshots() {
     }
 }
 
-/// `create -d` で §3.1 の 2 つめの例 (rover) から作る雛形 (Rust・Python)
+/// `create -d` で §3.1 の 2 つめの例 (rover) から作る雛形 (5 言語)
 #[cfg(unix)]
 #[test]
 fn create_design_snapshots() {
@@ -126,8 +126,23 @@ fn create_design_snapshots() {
     std::fs::write(dir.join("idl/rover.jidl"), crate::design::tests::ROVER_JIDL).unwrap();
     let doc = dir.join("juizdesign.yaml");
     std::fs::write(&doc, crate::design::tests::ROVER).unwrap();
-    for lang in ["rust", "python"] {
-        let plan = plan_for(&["create", "-d", doc.to_str().unwrap(), "-b", lang, "-o", "/work/rover"]);
+    for lang in ["rust", "python", "cpp", "haskell", "zig"] {
+        // SDK などの場所は -t と同じく決めて渡す (既定は HOME で変わるため)
+        let plan = plan_for(&[
+            "create",
+            "-d",
+            doc.to_str().unwrap(),
+            "-b",
+            lang,
+            "-o",
+            "/work/rover",
+            "--juiz-sdk-dir",
+            "/opt/juiz-sdk",
+            "--hsjuiz-dir",
+            "/opt/juiz/bindings/hsjuiz",
+            "--zigjuiz-dir",
+            "/opt/juiz/bindings/zigjuiz",
+        ]);
         assert_snapshot(&format!("{lang}-design-rover"), &render_plan(&plan));
     }
     let _ = std::fs::remove_dir_all(&dir);

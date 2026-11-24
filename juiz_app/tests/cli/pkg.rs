@@ -93,7 +93,7 @@ fn pkg_design_and_check() {
     // check: エラーはすべて <file>:<行>:<桁>: error: <道筋>: の形で並べ、0 以外で終わる
     std::fs::write(
         &file,
-        text.replace("type: long, default: 1 }", "type: long, default: one }")
+        text.replace("type: long, default: 1,", "type: long, default: one,")
             .replace("returns: long\n        readonly: true", "returns: Count\n        readonly: true"),
     )
     .unwrap();
@@ -481,8 +481,14 @@ record Goal { juiz_std.geometry.Pose2D pose; double tolerance = 0.5; }
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// `create -d` の文書 (設計文書 Step 2、design.md §12): .jidl の record、Container の引数・状態・readonly
+/// `create -d` の文書 (設計文書 Step 2・3、design.md §12): .jidl の record、Container の引数・状態・readonly。
+/// Zig は文字列の引数で状態を始められない (引数のメモリは Container を作ると解放される) ので、label は既定値で始める
 fn design_doc(name: &str, lang: &str) -> String {
+    let label_state = if lang == "zig" {
+        "{ name: label, type: string, default: \"c\" }"
+    } else {
+        "{ name: label, type: string, init: label }"
+    };
     format!(
         r#"format: 1
 component:
@@ -506,7 +512,7 @@ containers:
       - {{ name: label, type: string, default: "c" }}
     state:
       - {{ name: count, type: long, init: start, description: "the count" }}
-      - {{ name: label, type: string, init: label }}
+      - {label_state}
       - {{ name: history, type: "array<long>" }}
       - {{ name: last, type: "pkg_design.types.Vec2?" }}
     processes:
@@ -523,7 +529,15 @@ containers:
 
 /// `create -d` (pkg.md §2.5、design.md §12 の Step 2): 文書から作った雛形の本体を書き、`juiz pkg add` で型を足してから、
 /// ビルド→起動→call→型と readonly の確認→pack→juiz run を通す。文書は雛形の外のディレクトリに置く
-fn design_build_run_pack(lang: &str, name: &str, port: u16, build: bool, source: &str, bodies: &[(&str, &str)]) {
+fn design_build_run_pack(
+    lang: &str,
+    name: &str,
+    port: u16,
+    build: bool,
+    extra: &[&str],
+    source: &str,
+    bodies: &[(&str, &str)],
+) {
     let dir = work_dir(&format!("pkg_cli_{lang}_design"));
     let design = dir.join("design");
     std::fs::create_dir_all(design.join("idl")).unwrap();
@@ -539,10 +553,12 @@ fn design_build_run_pack(lang: &str, name: &str, port: u16, build: bool, source:
 
     let app = dir.join(name);
     let repo = repo_root();
-    let out = run(&[
+    let mut args = vec![
         "pkg", "create", "-d", path_str(&doc), "-o", path_str(&app),
         "--juiz-source", path_str(&repo), "--license", "mit-apache", "--author", "juiz test",
-    ]);
+    ];
+    args.extend_from_slice(extra);
+    let out = run(&args);
     assert!(out.status.success(), "{out:?}");
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains(&format!("Created {name} ({lang}, from juizdesign.yaml)")), "{stdout}");
@@ -617,6 +633,7 @@ fn pkg_create_python_design_runs_and_packs() {
         "pkg_py_design",
         8102,
         false,
+        &[],
         "app/python/pkg_py_design.py",
         &[
             (
@@ -815,6 +832,7 @@ mod slow {
             "pkg_rust_design",
             8090,
             true,
+            &[],
             "src/lib.rs",
             &[
                 (
@@ -897,6 +915,106 @@ mod slow {
                 (
                     "    _ = self;\n    _ = args;\n    // write the body of pkg_idl_double\n    return error.NotImplemented;",
                     "    _ = self;\n    return args.step * 2;",
+                ),
+            ],
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// C++ の create -d (設計文書 Step 3): CMake の juiz_generate_types が `idl:` の型を juiz_idl.h に作る
+    #[cfg(unix)]
+    #[test]
+    fn pkg_create_cpp_design_builds_runs_and_packs() {
+        let dir = temp_dir("pkg_cli_cpp_design_sdk");
+        let sdk = sdk_from_workspace(&dir);
+        design_build_run_pack(
+            "cpp",
+            "pkg_cpp_design",
+            8103,
+            true,
+            &["--juiz-sdk-dir", path_str(&sdk)],
+            "src/pkg_cpp_design.cpp",
+            &[
+                (
+                    "    (void)v;\n    (void)k;\n    throw std::runtime_error(\"write the body of pkg_design_scale\");",
+                    "    ::pkg_design::types::Vec2 r;\n    r.x = v.x * k;\n    r.y = v.y * k;\n    return r;",
+                ),
+                (
+                    "    (void)container;\n    (void)step;\n    throw std::runtime_error(\"write the body of pkg_design_counter_add\");",
+                    "    container->count += step;\n    container->history.push_back(step);\n    return container->count;",
+                ),
+                (
+                    "    (void)container;\n    throw std::runtime_error(\"write the body of pkg_design_counter_get\");",
+                    "    return container->count;",
+                ),
+            ],
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Haskell の create -d (設計文書 Step 3): scripts/dev.sh が `idl:` の型を gen/ に作る
+    #[cfg(unix)]
+    #[test]
+    fn pkg_create_haskell_design_builds_runs_and_packs() {
+        if let Some(reason) = haskell_tools_missing() {
+            eprintln!("skip: {reason}");
+            return;
+        }
+        let dir = temp_dir("pkg_cli_haskell_design_sdk");
+        let sdk = sdk_from_workspace(&dir);
+        design_build_run_pack(
+            "haskell",
+            "pkg_hs_design",
+            8104,
+            true,
+            &["--juiz-sdk-dir", path_str(&sdk)],
+            "src/PkgHsDesign.hs",
+            &[
+                (
+                    "pkg_design_scale _v _k = error \"write the body of pkg_design_scale\"",
+                    "pkg_design_scale v k =\n  Pkg_design.Types.Vec2 (Pkg_design.Types.vec2X v * k) (Pkg_design.Types.vec2Y v * k)",
+                ),
+                (
+                    "pkg_design_counter_add (PkgDesignCounterState _countRef _labelRef _historyRef _lastRef) _step = error \"write the body of pkg_design_counter_add\"",
+                    "pkg_design_counter_add (PkgDesignCounterState countRef _labelRef historyRef _lastRef) step = do\n  modifyIORef' historyRef (++ [step])\n  atomicModifyIORef' countRef (\\v -> (v + step, v + step))",
+                ),
+                (
+                    "pkg_design_counter_get (PkgDesignCounterState _countRef _labelRef _historyRef _lastRef) = error \"write the body of pkg_design_counter_get\"",
+                    "pkg_design_counter_get (PkgDesignCounterState countRef _labelRef _historyRef _lastRef) = readIORef countRef",
+                ),
+            ],
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Zig の create -d (設計文書 Step 3): build.zig の juiz.addTypes が `idl:` の型を作る。Windows でも走らせる
+    #[test]
+    fn pkg_create_zig_design_builds_runs_and_packs() {
+        if let Some(reason) = zig_missing() {
+            eprintln!("skip: {reason}");
+            return;
+        }
+        let dir = work_dir("pkg_cli_zig_design_sdk");
+        let sdk = zig_sdk_from_workspace(&dir);
+        design_build_run_pack(
+            "zig",
+            "pkg_zig_design",
+            8105,
+            true,
+            &["--juiz-sdk-dir", path_str(&sdk)],
+            "src/pkg_zig_design.zig",
+            &[
+                (
+                    "    _ = args;\n    // write the body of pkg_design_scale\n    return error.NotImplemented;",
+                    "    return .{ .x = args.v.x * args.k, .y = args.v.y * args.k };",
+                ),
+                (
+                    "    _ = self;\n    _ = args;\n    // write the body of pkg_design_counter_add\n    return error.NotImplemented;",
+                    "    self.count += args.step;\n    return self.count;",
+                ),
+                (
+                    "    _ = self;\n    // write the body of pkg_design_counter_get\n    return error.NotImplemented;",
+                    "    return self.count;",
                 ),
             ],
         );
