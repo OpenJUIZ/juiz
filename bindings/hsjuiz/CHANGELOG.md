@@ -3,6 +3,10 @@
 hsjuiz の版は juiz(crates.io の juiz_app、PyPI の pyjuiz / juiz-cli)と同じ番号にそろえています。
 使う libjuiz_sdk も同じ版にしてください。
 
+## 0.3.5
+
+- hsjuiz の API は 0.3.4 から変えていない(juiz pkg の設計文書 juizdesign.yaml 対応 #592 の公開に版をそろえた)。
+
 ## 0.3.4
 
 - `Juiz.Pose` に `setModel` / `clearModel` を足した。ContainerProcess の中から、その Container の 3D モデルを差し替える・外す
