@@ -56,6 +56,10 @@ pub struct System {
     spin_callback: Option<Box<SpinCallbackFunctionType>>,
     working_dir: Option<PathBuf>,
     subsystem_check: Option<Box<SubsystemCheckFunctionType>>,
+    /// この機械の名前の登録 (docs/spec/naming.md §5)。drop で登録ファイルを消す
+    naming: Option<crate::naming::Registered>,
+    /// 登録のときに同じ名前の相手の死活を確かめる方法と、つなげる種類 (§6)
+    naming_probe: (Box<dyn crate::naming::ProfileProbe>, Vec<String>),
 }
 
 fn check_system_manifest(manifest: Value) -> JuizResult<Value> {
@@ -111,6 +115,11 @@ impl System {
             spin_callback: None,
             working_dir: None,
             subsystem_check: None,
+            naming: None,
+            naming_probe: (
+                Box::new(crate::naming::CoreProbe),
+                crate::naming::core_kinds(),
+            ),
         })
     }
 
@@ -135,6 +144,55 @@ impl System {
     pub fn set_subsystem_check(mut self, check: Box<SubsystemCheckFunctionType>) -> Self {
         self.subsystem_check = Some(check);
         self
+    }
+
+    /// 名前の登録のときに、同じ名前の相手の死活を確かめる方法とつなげる種類を決める
+    /// (docs/spec/naming.md §6。juiz コマンドは qmp なども確かめられるようにする)
+    pub fn set_naming_probe(
+        mut self,
+        probe: Box<dyn crate::naming::ProfileProbe>,
+        kinds: Vec<String>,
+    ) -> Self {
+        self.naming_probe = (probe, kinds);
+        self
+    }
+
+    /// この System の名前の登録 (登録していなければ None)
+    pub fn naming_registration(&self) -> Option<&crate::naming::Registration> {
+        self.naming.as_ref().map(|r| &r.registration)
+    }
+
+    /// 動き続ける System を、この機械の名前の一覧に登録する (docs/spec/naming.md §5.1)。
+    /// 登録済みなら何もしない。`option.naming.unique: true` で同じ名前があればエラー
+    pub fn register_name(&mut self) -> JuizResult<()> {
+        if self.naming.is_some() {
+            return Ok(());
+        }
+        let (manifest, brokers) = {
+            let cb = self.core_broker().lock()?;
+            let manifest = cb.worker().manifest();
+            let profiles = cb.worker().store().brokers_profile_full()?;
+            let pairs: Vec<(String, String)> = profiles
+                .iter()
+                .map(|p| (p.type_name.clone(), p.name.clone()))
+                .collect();
+            let brokers = crate::naming::brokers_from_profiles(
+                pairs.iter().map(|(t, n)| (t.as_str(), n.as_str())),
+            );
+            (manifest, brokers)
+        };
+        let uuid = self.store.uuid()?.to_string();
+        let (probe, kinds) = &self.naming_probe;
+        self.naming =
+            crate::naming::register_system(&manifest, &uuid, brokers, probe.as_ref(), kinds)?;
+        Ok(())
+    }
+
+    /// 名前の登録を消す (docs/spec/naming.md §5.2)
+    fn unregister_name(&mut self) {
+        if let Some(r) = self.naming.take() {
+            r.unregister();
+        }
     }
 
     pub(crate) fn subsystem_check(&self) -> Option<&SubsystemCheckFunctionType> {
@@ -350,6 +408,8 @@ impl System {
     /// 0xC000013A で終わってしまう (issue #307)。
     ///
     pub fn wait_for_signal(&mut self) -> JuizResult<()> {
+        // 動き続ける System だけが名前を登録する (docs/spec/naming.md §5.1)
+        self.register_name()?;
         let term = Arc::new(AtomicBool::new(false));
         for sig in STOP_SIGNALS {
             let _ = signal_hook::flag::register(*sig, Arc::clone(&term));
@@ -372,6 +432,8 @@ impl System {
     fn stop(&mut self) -> JuizResult<()> {
         // ほかの System とつないでいたら、止まる前に相手から自分の登録を外してもらう (issue #303)
         self.core_broker().leave_connected_systems()?;
+        // 止まりかけの System が引かれないよう、ブローカーより先に名前の登録を消す (docs/spec/naming.md §5.2)
+        self.unregister_name();
         for (type_name, broker) in self.store.lock()?.brokers.iter() {
             log::info!("ブローカ({type_name:})を停止します。");
             let _ = broker.lock_mut()?.stop()?;
@@ -394,6 +456,11 @@ impl System {
     pub fn run(&mut self) -> JuizResult<()> {
         log::trace!("【呼出】System::run()");
         log::info!("【run】Juizシステム({})開始しました。", self.store.uuid()?);
+        if let Err(e) = self.register_name() {
+            self.stop()?;
+            self.cleanup()?;
+            return Err(e);
+        }
         // self.setup().context("System::setup() in System::run() failed.")?;
         self.wait_for_signal()
             .context("System::wait_for_signal() in System::run() failed.")?;
@@ -413,6 +480,11 @@ impl System {
             "【run_and_do】Juizシステム({})スタートしました。",
             self.store.uuid()?
         );
+        if let Err(e) = self.register_name() {
+            self.stop()?;
+            self.cleanup()?;
+            return Err(e);
+        }
         (func)(self).context("User function passed for System::run_and_do() failed.")?;
         self.wait_for_signal()
             .context("System::wait_for_signal() in System::run_and_do() failed.")?;

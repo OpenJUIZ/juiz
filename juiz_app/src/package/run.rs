@@ -51,6 +51,8 @@ pub(crate) struct RunOptions {
     pub no_prompt: bool,
     /// `--forget-depends`(§15.6)
     pub forget_depends: bool,
+    /// `--no-register`(この機械の名前の一覧に登録しない、docs/spec/naming.md §10)
+    pub no_register: bool,
     /// `--launched`(§17.3)。関連付けからの起動と、基礎を別窓で起動するとき(§15.7)に付く。窓のタイトルと止め方を出し、エラーで終わったら待つ
     #[allow(dead_code)]
     pub launched: bool,
@@ -238,10 +240,14 @@ fn start(prepared: &Prepared, conf: &Path, opts: &RunOptions, data: &Path) -> Re
     if precheck::precheck(&mut manifest, &ctx, &mut precheck::RealEnv)? == precheck::Outcome::Exit {
         return Ok(());
     }
+    if opts.no_register {
+        juiz_core::naming::set_register_option(&mut manifest, false);
+    }
     let working_dir = conf.parent().unwrap_or(app_dir);
     let mut system = System::new(manifest)?
         .set_working_dir(working_dir)
-        .set_subsystem_check(subsystem_check(m, deps, &installed));
+        .set_subsystem_check(subsystem_check(m, deps, &installed))
+        .set_naming_probe(Box::new(crate::name::AppProbe), crate::name::app_kinds());
     if let Some(flag) = http_flag {
         system = system.start_http_broker(flag);
     }

@@ -41,6 +41,16 @@ impl Daemon {
         Daemon { child, log }
     }
 
+    /// 子プロセスの pid
+    pub fn pid(&self) -> u32 {
+        self.child.id()
+    }
+
+    /// 子プロセスが終わるのを待つ (kill した後など)
+    pub fn wait_exit(&mut self) {
+        let _ = self.child.wait();
+    }
+
     pub fn log_text(&self) -> String {
         std::fs::read_to_string(&self.log).unwrap_or_default()
     }

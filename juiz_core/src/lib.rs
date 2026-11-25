@@ -13,6 +13,8 @@ mod topics;
 /// Transformations (Container の位置姿勢と座標変換) の登録所と Anchor (docs/spec/transformations.md)
 /// Container の 3D モデル (docs/spec/container-model.md、issue #381)
 pub mod models;
+/// ネーミングサービス: 名前から System のブローカーの接続先を引く (docs/spec/naming.md)
+pub mod naming;
 pub mod transformations;
 
 pub mod types;

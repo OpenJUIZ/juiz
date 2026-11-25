@@ -10,7 +10,7 @@ use crate::prelude::*;
 pub const DEFAULT_IPC_NAME: &str = "juiz";
 
 /// ソケットを置くディレクトリを指定する環境変数
-pub const IPC_DIR_ENV: &str = "JUIZ_IPC_DIR";
+pub const IPC_DIR_ENV: &str = crate::naming::IPC_DIR_ENV;
 
 /// 名前は `[A-Za-z0-9_-]` と `.` からなる 1〜64 文字で、`.` で始まらない
 pub fn validate_ipc_name(name: &str) -> JuizResult<()> {
@@ -33,8 +33,7 @@ pub fn validate_ipc_name(name: &str) -> JuizResult<()> {
 
 #[cfg(unix)]
 mod unix {
-    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
 
     use juiz_sdk::anyhow::anyhow;
 
@@ -47,48 +46,10 @@ mod unix {
     #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "freebsd")))]
     const MAX_SOCKET_PATH: usize = 107;
 
-    fn uid() -> u32 {
-        // SAFETY: getuid は失敗しない
-        unsafe { libc::getuid() }
-    }
-
-    fn create_dir_0700(dir: &Path) -> JuizResult<()> {
-        if !dir.exists() {
-            std::fs::DirBuilder::new()
-                .recursive(true)
-                .mode(0o700)
-                .create(dir)
-                .map_err(|e| anyhow!("can not create ipc directory {}: {e}", dir.display()))?;
-        }
-        Ok(())
-    }
-
-    /// ソケットを置くディレクトリ。無ければモード 0700 で作る
+    /// ソケットを置くディレクトリ。無ければモード 0700 で作る。
+    /// 置き場所の規則はネーミングサービスの登録ファイルと共通 ([`crate::naming::runtime_dir`])
     pub fn ipc_socket_dir() -> JuizResult<PathBuf> {
-        if let Some(dir) = std::env::var_os(IPC_DIR_ENV).filter(|d| !d.is_empty()) {
-            let dir = PathBuf::from(dir);
-            create_dir_0700(&dir)?;
-            return Ok(dir);
-        }
-        if let Some(runtime) = std::env::var_os("XDG_RUNTIME_DIR").filter(|d| !d.is_empty()) {
-            let dir = PathBuf::from(runtime).join("juiz");
-            create_dir_0700(&dir)?;
-            return Ok(dir);
-        }
-        let dir = PathBuf::from(format!("/tmp/juiz-{}", uid()));
-        create_dir_0700(&dir)?;
-        // 他人が先に用意した場所には繋がない
-        let meta = std::fs::symlink_metadata(&dir)
-            .map_err(|e| anyhow!("can not read ipc directory {}: {e}", dir.display()))?;
-        if !meta.is_dir() || meta.uid() != uid() || meta.permissions().mode() & 0o777 != 0o700 {
-            return Err(anyhow!(JuizError::InvalidValueError {
-                message: format!(
-                    "ipc directory {} must be a directory owned by you with mode 0700. Remove it or set {IPC_DIR_ENV}",
-                    dir.display()
-                )
-            }));
-        }
-        Ok(dir)
+        crate::naming::runtime_dir()
     }
 
     /// 名前のソケットのパス `<dir>/<name>.sock`

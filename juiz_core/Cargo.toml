@@ -71,7 +71,7 @@ interprocess = { workspace = true, optional = true }
 widestring = { version = "1", optional = true }
 # 共有メモリ (名前付きファイルマッピング、docs/spec/large-data.md §6.6) と名前付きパイプの操作、
 # コンソール窓の × で閉じたときの後始末 (Win32_System_Console、docs/spec/app-package.md §17.4、#395)
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Console", "Win32_System_IO", "Win32_System_Memory", "Win32_System_Pipes"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Console", "Win32_System_IO", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_Threading"] }
 
 [dev-dependencies]
 # ベンチ (tests/integration/image_transfer_bench.rs) で qmp ブローカーも測るため。
