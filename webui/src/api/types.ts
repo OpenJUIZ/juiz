@@ -295,3 +295,21 @@ export interface ConnectionProfile {
   source_process_id: ProcessRef;
   destination_process_id: ProcessRef;
 }
+
+/** GET /api/naming/list の要素。この機械の名前の一覧の登録 1 つ(docs/spec/naming.md §3.2・§9.4) */
+export interface NameRegistration {
+  format: number;
+  name: string;
+  /** ルートは "" */
+  namespace: string;
+  uuid: string;
+  pid: number;
+  host: string;
+  juiz_version: string;
+  started_at: string;
+  package?: { name?: string; version?: string; kind?: string };
+  brokers: { type_name: string; id: string; port?: number }[];
+  /** check=true のとき: system/profile に応答したか */
+  alive?: boolean;
+  machine: string;
+}

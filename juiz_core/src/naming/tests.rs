@@ -479,3 +479,60 @@ fn rfc3339_format() {
     assert_eq!(s.len(), 20, "{s}");
     assert!(s.ends_with('Z') && s.as_bytes()[10] == b'T', "{s}");
 }
+
+#[test]
+fn name_spec_parses_urls_and_server_names() {
+    // name://<名前>[@<機械>][?ns=…&type=…] (§9.1)
+    let s = NameSpec::parse_url("name://mobile_sim").unwrap().unwrap();
+    assert_eq!(s.query, NameQuery::parse("mobile_sim").unwrap());
+    assert_eq!(s.kind, None);
+    let s = NameSpec::parse_url("name://mobile_sim?ns=robot1&type=http")
+        .unwrap()
+        .unwrap();
+    assert_eq!(s.query.namespace.as_deref(), Some("robot1"));
+    assert_eq!(s.kind.as_deref(), Some("http"));
+    let s = NameSpec::parse_url("name://mobile_sim?ns=/").unwrap().unwrap();
+    assert_eq!(s.query.namespace.as_deref(), Some(""));
+    let s = NameSpec::parse_url("name://mobile_sim@robot1-pc/").unwrap().unwrap();
+    assert_eq!(s.query.host.as_deref(), Some("robot1-pc"));
+    assert!(NameSpec::parse_url("http://127.0.0.1:8000").unwrap().is_none());
+    // ネームスペースは / で書かない。知らないクエリはエラー
+    let e = NameSpec::parse_url("name://robot1/mobile_sim").unwrap_err();
+    assert!(e.to_string().contains("ns=robot1"), "{e}");
+    let e = NameSpec::parse_url("name://mobile_sim?port=1").unwrap_err();
+    assert!(e.to_string().contains("unknown query 'port=1'"), "{e}");
+    assert!(NameSpec::parse_url("name://mobile_sim?ns=a b").is_err());
+
+    // -s の値 (§9.2): :// も : も無ければ名前
+    let s = NameSpec::parse_server("robot1/mobile_sim").unwrap().unwrap();
+    assert_eq!(s.query, NameQuery::parse("robot1/mobile_sim").unwrap());
+    assert!(NameSpec::parse_server("name://mobile_sim").unwrap().is_some());
+    assert!(NameSpec::parse_server("http://127.0.0.1:8000").unwrap().is_none());
+    assert!(NameSpec::parse_server("localhost:8000").unwrap().is_none());
+    assert!(NameSpec::parse_server("ipc://juiz").unwrap().is_none());
+    assert!(NameSpec::parse_server("my system").is_err());
+
+    assert_eq!(
+        split_broker_url("http://127.0.0.1:8001/"),
+        ("http".to_owned(), "127.0.0.1:8001".to_owned())
+    );
+}
+
+#[test]
+fn resolved_selects_broker_by_kind() {
+    let dir = temp_names_dir("resolved");
+    let reg = NameRegistry::at(&dir);
+    let probe = FakeProbe::default().with("ipc://sys", Probe::Uuid("u1".into()));
+    let r = reg.register(&request("sys", "", "u1"), &probe, &kinds()).unwrap();
+    let q = NameQuery::parse("sys").unwrap();
+    let c = reg.resolve(&q, &probe, &kinds()).unwrap();
+    let res = Resolved::new(c.clone(), None, &kinds()).unwrap();
+    assert_eq!(res.url, "ipc://sys");
+    assert_eq!(res.type_and_name(), ("ipc".to_owned(), "sys".to_owned()));
+    let res = Resolved::new(c.clone(), Some("http"), &kinds()).unwrap();
+    assert_eq!(res.url, "http://127.0.0.1:8001");
+    let e = Resolved::new(c, Some("zenoh"), &kinds()).unwrap_err();
+    assert_eq!(e.to_string(), "sys has no zenoh broker (it has: ipc, http)");
+    r.unregister();
+    let _ = std::fs::remove_dir_all(&dir);
+}

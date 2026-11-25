@@ -915,3 +915,69 @@ button.elem-link:hover {
   width: 100%;
   margin-top: 4px;
 }
+
+/* この計算機で動いている系の一覧(#618) */
+.names-dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+.names-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+.names-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    "main action"
+    "detail action";
+  gap: 2px 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.names-row.silent {
+  opacity: 0.6;
+}
+
+.names-main {
+  grid-area: main;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.names-name {
+  overflow-wrap: anywhere;
+}
+
+.names-pkg,
+.names-detail {
+  font-size: 0.85em;
+  color: var(--text-dim);
+}
+
+.names-detail {
+  grid-area: detail;
+}
+
+.names-action {
+  grid-area: action;
+  align-self: center;
+}
+
+.pane-header-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.names-action a {
+  color: var(--accent);
+}

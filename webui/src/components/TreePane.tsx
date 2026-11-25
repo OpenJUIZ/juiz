@@ -35,22 +35,29 @@ interface Props {
   onSelect: (key: string) => void;
   onToggle: (key: string) => void;
   onOpenSettings: () => void;
+  /** この計算機で動いている系の一覧を開く(#618) */
+  onOpenNames: () => void;
   /** 生成器の「＋」。作るダイアログを開く */
   onCreate: (factory: FactoryInfo) => void;
 }
 
 /** 左のツリー。系 → 分類 → 要素(容器の下に容器処理、副系は入れ子) */
 export function TreePane(props: Props) {
-  const { model, error, onOpenSettings } = props;
+  const { model, error, onOpenSettings, onOpenNames } = props;
   return (
     <nav className="pane tree-pane">
       <div className="pane-header">
         <span>
           <Term k="system" />
         </span>
-        <button type="button" onClick={onOpenSettings}>
-          設定
-        </button>
+        <span className="pane-header-buttons">
+          <button type="button" onClick={onOpenNames} title="このマシンで動いている系">
+            ほかの系
+          </button>
+          <button type="button" onClick={onOpenSettings}>
+            設定
+          </button>
+        </span>
       </div>
       {error && (
         <div className="tree-error" role="alert">
@@ -70,7 +77,7 @@ export function TreePane(props: Props) {
   );
 }
 
-type NodeProps = Omit<Props, "model" | "error" | "onOpenSettings">;
+type NodeProps = Omit<Props, "model" | "error" | "onOpenSettings" | "onOpenNames">;
 
 function SystemNode({
   system,

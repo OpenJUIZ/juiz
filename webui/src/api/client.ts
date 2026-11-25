@@ -2,6 +2,7 @@ import type { paths } from "./openapi.gen.ts";
 import type {
   ConnectionProfile,
   ContainerModelInfo,
+  NameRegistration,
   PoseStamped,
   SystemProfile,
   TransformationsTreeNode,
@@ -140,6 +141,12 @@ export class JuizClient {
       return { image: await res.blob() };
     }
     return { value: await res.json() };
+  }
+
+  /** この juiz がいる機械の名前の一覧(GET /api/naming/list、docs/spec/naming.md §9.4)。check なら死活も確かめる */
+  async nameList(check: boolean, signal?: AbortSignal): Promise<NameRegistration[]> {
+    const v = await this.get("/api/naming/list", check ? { check: "true" } : undefined, signal);
+    return Array.isArray(v) ? (v as NameRegistration[]) : [];
   }
 
   /** recursive なら副系の中身と各系の接続も入れてもらう(#116) */

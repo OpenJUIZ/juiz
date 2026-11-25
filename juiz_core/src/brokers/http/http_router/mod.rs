@@ -36,6 +36,7 @@ pub mod connection;
 pub mod container;
 pub mod container_process;
 pub mod execution_context;
+pub mod naming;
 pub mod process;
 pub mod system;
 pub mod topic;
@@ -103,6 +104,9 @@ pub struct FullQuery {
     source_system: Option<String>,
     /// topic/request_subscribe・request_publish が通ってきた System の UUID (`,` 区切り、issue #449)
     via: Option<String>,
+    /// `naming/resolve` の登録名、`naming/list` の死活の確かめ (docs/spec/naming.md §9.4)
+    name: Option<String>,
+    check: Option<String>,
 }
 
 impl FullQuery {
@@ -437,6 +441,7 @@ pub fn app_new(
     api.merge(composite::ApiDoc::openapi());
     api.merge(types::ApiDoc::openapi());
     api.merge(transformations::ApiDoc::openapi());
+    api.merge(naming::ApiDoc::openapi());
     log::trace!("app_new(static_filepaths: {static_filepaths:?}) called");
     let r = Router::new();
     // Swagger UI は feature "swagger-ui" のときだけ。無いときも OpenAPI 定義は返す。

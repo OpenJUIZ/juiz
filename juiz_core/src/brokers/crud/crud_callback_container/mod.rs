@@ -5,6 +5,7 @@ mod connection;
 mod container;
 mod container_process;
 mod types;
+mod naming;
 mod ec;
 mod process;
 mod system;
@@ -158,6 +159,9 @@ pub(crate) fn read_callback_container() -> ClassCallbackContainerType {
 
     // 型の登録所 (issue #193)
     read_cb_container.insert("type", types::create_read_callbacks());
+
+    // ネーミングサービス (docs/spec/naming.md §9.4、issue #618)
+    read_cb_container.insert("naming", naming::create_read_callbacks());
 
     // Transformations (issue #370)
     read_cb_container.insert("transform", transformations::transform_read_callbacks());

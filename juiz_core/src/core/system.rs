@@ -59,7 +59,7 @@ pub struct System {
     /// この機械の名前の登録 (docs/spec/naming.md §5)。drop で登録ファイルを消す
     naming: Option<crate::naming::Registered>,
     /// 登録のときに同じ名前の相手の死活を確かめる方法と、つなげる種類 (§6)
-    naming_probe: (Box<dyn crate::naming::ProfileProbe>, Vec<String>),
+    naming_probe: (Arc<dyn crate::naming::ProfileProbe>, Vec<String>),
 }
 
 fn check_system_manifest(manifest: Value) -> JuizResult<Value> {
@@ -117,7 +117,7 @@ impl System {
             subsystem_check: None,
             naming: None,
             naming_probe: (
-                Box::new(crate::naming::CoreProbe),
+                Arc::new(crate::naming::CoreProbe),
                 crate::naming::core_kinds(),
             ),
         })
@@ -153,6 +153,14 @@ impl System {
         probe: Box<dyn crate::naming::ProfileProbe>,
         kinds: Vec<String>,
     ) -> Self {
+        let probe: Arc<dyn crate::naming::ProfileProbe> = Arc::from(probe);
+        // 名前で指したつなぎ先 (`name://…`) を引くときも同じ方法を使う (docs/spec/naming.md §9.1)
+        match self.core_broker.lock_mut() {
+            Ok(mut cb) => cb
+                .worker_mut()
+                .set_naming_probe(probe.clone(), kinds.clone()),
+            Err(e) => log::error!("setting the naming probe failed: {e}"),
+        }
         self.naming_probe = (probe, kinds);
         self
     }
