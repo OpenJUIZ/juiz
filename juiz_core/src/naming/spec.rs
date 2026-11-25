@@ -6,7 +6,7 @@ use crate::prelude::*;
 
 use super::probe::ProfileProbe;
 use super::record::{namespace_segments, RegisteredBroker};
-use super::registry::{Candidate, NameQuery, NameRegistry};
+use super::registry::{Candidate, NameQuery};
 
 /// 名前で指すときのブローカーの種類名 (`name://…`)
 pub const NAME_SCHEME: &str = "name";
@@ -76,9 +76,9 @@ impl NameSpec {
         }))
     }
 
-    /// この機械の登録から 1 つに決め (§7.2、対話しない)、つなぐブローカーを選ぶ (§7.3)
+    /// この機械の登録 (見つからなければ LAN、§7.1) から 1 つに決め (§7.2、対話しない)、つなぐブローカーを選ぶ (§7.3)
     pub fn resolve(&self, probe: &dyn ProfileProbe, kinds: &[String]) -> JuizResult<Resolved> {
-        let candidate = NameRegistry::open()?.resolve(&self.query, probe, kinds)?;
+        let candidate = super::resolve_query(&self.query, probe, kinds)?;
         Resolved::new(candidate, self.kind.as_deref(), kinds)
     }
 }

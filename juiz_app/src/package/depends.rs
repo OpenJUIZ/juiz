@@ -4,7 +4,7 @@
 use super::install::{find_newest, Installed};
 use super::manifest::{parse_req, Kind, Manifest};
 use juiz_core::anyhow::{anyhow, bail, Result};
-use juiz_core::naming::{Candidate, Registration};
+use juiz_core::naming::{Candidate, Place, Registration};
 use juiz_sdk::serde_json::{json, Map, Value};
 use semver::{Version, VersionReq};
 use std::cell::RefCell;
@@ -63,10 +63,11 @@ pub(crate) fn depend_kind(v: &str) -> Option<&str> {
     DEPEND_KINDS.iter().copied().find(|k| *k == v)
 }
 
-/// この機械の名前の登録(naming.md §3)を引く所。テストでは差し替える
+/// この機械の名前の登録(naming.md §3)と LAN(§11)を引く所。テストでは差し替える
 pub(crate) trait NameList {
-    /// `package.name` が `name`、`package.kind` が `base`、版が `req` に入る、生きている登録(naming.md §8 の 4)
-    fn bases(&self, name: &str, req: &VersionReq) -> Vec<Registration>;
+    /// `package.name` が `name`、`package.kind` が `base`、版が `req` に入る、生きている登録(naming.md §8 の 4)。
+    /// この機械に無ければ LAN で見つけたもの(§8 の 5)
+    fn bases(&self, name: &str, req: &VersionReq) -> Vec<Candidate>;
     /// この juiz がつなげるブローカーの種類
     fn kinds(&self) -> Vec<String>;
 }
@@ -76,7 +77,7 @@ pub(crate) trait NameList {
 pub(crate) struct NoNames;
 
 impl NameList for NoNames {
-    fn bases(&self, _name: &str, _req: &VersionReq) -> Vec<Registration> {
+    fn bases(&self, _name: &str, _req: &VersionReq) -> Vec<Candidate> {
         Vec::new()
     }
     fn kinds(&self) -> Vec<String> {
@@ -84,12 +85,12 @@ impl NameList for NoNames {
     }
 }
 
-/// この機械の登録ファイルを読む [`NameList`]
+/// この機械の登録ファイルを読み、無ければ LAN を引く [`NameList`](feature `naming-mdns` のとき)
 ///
 /// 死活の確かめ(naming.md §6)に時間がかかることがあるので、見つかった結果だけを覚えて使い回す。
 /// 見つからなかった結果は覚えない(「もう一度試す」の間に基礎を起動したときに見つけられるように)。
 pub(crate) struct RegistryNames {
-    found: RefCell<BTreeMap<String, Vec<Registration>>>,
+    found: RefCell<BTreeMap<String, Vec<Candidate>>>,
 }
 
 impl RegistryNames {
@@ -101,7 +102,7 @@ impl RegistryNames {
 }
 
 impl NameList for RegistryNames {
-    fn bases(&self, name: &str, req: &VersionReq) -> Vec<Registration> {
+    fn bases(&self, name: &str, req: &VersionReq) -> Vec<Candidate> {
         let key = format!("{name} {req}");
         if let Some(v) = self.found.borrow().get(&key) {
             return v.clone();
@@ -110,11 +111,16 @@ impl NameList for RegistryNames {
             return Vec::new();
         };
         let kinds = self.kinds();
-        let out: Vec<Registration> = registry
-            .candidates_by(|r| is_base_of(r, name, req), &crate::name::AppProbe, &kinds)
-            .into_iter()
-            .map(|c| c.registration)
-            .collect();
+        let mut out: Vec<Candidate> =
+            registry.candidates_by(|r| is_base_of(r, name, req), &crate::name::AppProbe, &kinds);
+        if out.is_empty() && juiz_core::naming::lan::available() {
+            out = juiz_core::naming::lan_candidates_by(
+                &registry,
+                |r| is_base_of(r, name, req),
+                &crate::name::AppProbe,
+                &kinds,
+            );
+        }
         if !out.is_empty() {
             self.found.borrow_mut().insert(key, out.clone());
         }
@@ -144,20 +150,34 @@ fn from_name_list(
     names: &dyn NameList,
 ) -> Result<Option<Value>> {
     let mut regs = names.bases(name, req);
-    let reg = match regs.len() {
+    let candidate = match regs.len() {
         0 => return Ok(None),
         1 => regs.remove(0),
-        _ => {
+        _ if regs.iter().all(|c| c.place == Place::ThisMachine) => {
             // 基礎は同じ機械に 1 つしか動かない(IPC 名が同じ)ので、ふつうはここに来ない
             let list = regs
                 .iter()
-                .map(|r| format!("{} (pid {})", r.registered_name(), r.pid))
+                .map(|c| {
+                    format!(
+                        "{} (pid {})",
+                        c.registration.registered_name(),
+                        c.registration.pid
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join(", ");
             bail!("{name} is registered more than once on this machine: {list}. Choose one with --depend {name}=<URL>.");
         }
+        _ => {
+            // LAN の別々の機械で同じ基礎が動いている(naming.md §8 の 5)。黙って選ばない
+            let list = regs
+                .iter()
+                .map(Candidate::short)
+                .collect::<Vec<_>>()
+                .join(", ");
+            bail!("{name} is found more than once on the LAN: {list}. Choose one with --depend {name}=<URL>.");
+        }
     };
-    let candidate = Candidate { registration: reg };
     match candidate.select_broker(kind, &names.kinds()) {
         Ok((_, url)) => Ok(Some(url_to_conf(&url)?)),
         Err(_) if kind.is_none() => Ok(None),
@@ -991,6 +1011,8 @@ pub(crate) mod tests {
     /// 決めた登録だけがある偽の名前の一覧
     pub(crate) struct FakeNames {
         pub regs: Vec<Registration>,
+        /// LAN で見つかる登録(この機械の `regs` に当てはまるものが無いときだけ見る)
+        pub lan: Vec<Registration>,
         pub kinds: Vec<&'static str>,
     }
 
@@ -998,17 +1020,29 @@ pub(crate) mod tests {
         fn default() -> Self {
             FakeNames {
                 regs: vec![],
+                lan: vec![],
                 kinds: vec!["ipc", "http", "qmp", "zenoh"],
             }
         }
     }
 
     impl NameList for FakeNames {
-        fn bases(&self, name: &str, req: &VersionReq) -> Vec<Registration> {
-            self.regs
+        fn bases(&self, name: &str, req: &VersionReq) -> Vec<Candidate> {
+            let local: Vec<Candidate> = self
+                .regs
                 .iter()
                 .filter(|r| is_base_of(r, name, req))
                 .cloned()
+                .map(Candidate::local)
+                .collect();
+            if !local.is_empty() {
+                return local;
+            }
+            self.lan
+                .iter()
+                .filter(|r| is_base_of(r, name, req))
+                .cloned()
+                .map(Candidate::lan)
                 .collect()
         }
         fn kinds(&self) -> Vec<String> {
@@ -1042,6 +1076,7 @@ pub(crate) mod tests {
 
     fn names(regs: Vec<Registration>) -> FakeNames {
         FakeNames {
+            lan: vec![],
             regs,
             kinds: vec!["ipc", "http", "qmp", "zenoh"],
         }
@@ -1079,6 +1114,7 @@ pub(crate) mod tests {
         assert!(d[0].found);
         // ipc をつなげない juiz なら http(0.0.0.0 は 127.0.0.1 に)
         let no_ipc = FakeNames {
+            lan: vec![],
             regs: n.regs.clone(),
             kinds: vec!["http"],
         };
@@ -1126,11 +1162,59 @@ pub(crate) mod tests {
             &[("zenoh", "0.0.0.0:7448")],
         )]);
         let no_zenoh = FakeNames {
+            lan: vec![],
             regs: only_zenoh.regs.clone(),
             kinds: vec!["ipc", "http"],
         };
         let d = resolve_n(&mut json!({}), &[], &[], &no_zenoh).unwrap();
         assert_eq!(d[0].url(), "ipc://robot_base");
+    }
+
+    /// LAN で見つけた基礎(naming.md §8 の 5、#619)
+    #[test]
+    fn name_list_finds_a_base_on_the_lan() {
+        let lan_base = |host: &str, ip: &str| {
+            let mut r = registration(
+                "robot_base",
+                "1.3.0",
+                "base",
+                &[("http", &format!("{ip}:8101")), ("qmp", &format!("{ip}:9101"))],
+            );
+            r.host = host.to_owned();
+            r.uuid = format!("uuid-{host}");
+            r
+        };
+        let n = FakeNames {
+            regs: vec![],
+            lan: vec![lan_base("robot2-pc", "192.168.0.12")],
+            kinds: vec!["ipc", "http", "qmp", "zenoh"],
+        };
+        // 別の機械なので qmp が http より先(zenoh は無い)
+        let d = resolve_n(&mut json!({}), &[], &[], &n).unwrap();
+        assert_eq!(d[0].url(), "qmp://192.168.0.12:9101");
+        assert!(d[0].found);
+        // 種類の指定
+        let d = resolve_n(&mut json!({}), &[("robot_base", "http")], &[], &n).unwrap();
+        assert_eq!(d[0].url(), "http://192.168.0.12:8101");
+        // この機械の登録があれば LAN より先
+        let n2 = FakeNames {
+            regs: moved_base().regs,
+            lan: n.lan.clone(),
+            kinds: vec!["ipc", "http", "qmp", "zenoh"],
+        };
+        let d = resolve_n(&mut json!({}), &[], &[], &n2).unwrap();
+        assert_eq!(d[0].url(), "ipc://robot_base");
+        // LAN の 2 台で動いていれば黙って選ばない
+        let n3 = FakeNames {
+            regs: vec![],
+            lan: vec![
+                lan_base("robot2-pc", "192.168.0.12"),
+                lan_base("robot3-pc", "192.168.0.13"),
+            ],
+            kinds: vec!["ipc", "http", "qmp", "zenoh"],
+        };
+        let e = resolve_n(&mut json!({}), &[], &[], &n3).unwrap_err();
+        assert_eq!(e.to_string(), "robot_base is found more than once on the LAN: robot_base@robot2-pc, robot_base@robot3-pc. Choose one with --depend robot_base=<URL>.");
     }
 
     #[test]

@@ -46,6 +46,8 @@ home = "0.5.9"
 image = "0.24"
 interprocess = "2.2.0"
 libloading = "0.8.5"
+# LAN の自動発見 (DNS-SD / mDNS、docs/spec/naming.md §11、juiz_core の feature naming-mdns)
+mdns-sd = { version = "0.21.7", default-features = false, features = ["logging"] }
 litrs = "0.4.1"
 log = "0.4.20"
 mopa = "0.2.2"

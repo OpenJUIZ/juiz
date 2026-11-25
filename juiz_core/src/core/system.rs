@@ -58,6 +58,10 @@ pub struct System {
     subsystem_check: Option<Box<SubsystemCheckFunctionType>>,
     /// この機械の名前の登録 (docs/spec/naming.md §5)。drop で登録ファイルを消す
     naming: Option<crate::naming::Registered>,
+    /// LAN への広告 (docs/spec/naming.md §11)。drop で goodbye を送る
+    advertisement: Option<crate::naming::lan::Advertisement>,
+    /// 名前の登録・広告を済ませたか (登録しないときも 2 回目からは何もしない)
+    naming_started: bool,
     /// 登録のときに同じ名前の相手の死活を確かめる方法と、つなげる種類 (§6)
     naming_probe: (Arc<dyn crate::naming::ProfileProbe>, Vec<String>),
 }
@@ -116,6 +120,8 @@ impl System {
             working_dir: None,
             subsystem_check: None,
             naming: None,
+            advertisement: None,
+            naming_started: false,
             naming_probe: (
                 Arc::new(crate::naming::CoreProbe),
                 crate::naming::core_kinds(),
@@ -170,12 +176,19 @@ impl System {
         self.naming.as_ref().map(|r| &r.registration)
     }
 
+    /// LAN に広告していれば、その DNS-SD の名前 (docs/spec/naming.md §11)
+    pub fn lan_advertisement(&self) -> Option<&str> {
+        self.advertisement.as_ref().map(|a| a.fullname())
+    }
+
     /// 動き続ける System を、この機械の名前の一覧に登録する (docs/spec/naming.md §5.1)。
+    /// `option.naming.advertise: true` なら LAN にも広告する (§11)。
     /// 登録済みなら何もしない。`option.naming.unique: true` で同じ名前があればエラー
     pub fn register_name(&mut self) -> JuizResult<()> {
-        if self.naming.is_some() {
+        if self.naming_started {
             return Ok(());
         }
+        self.naming_started = true;
         let (manifest, brokers) = {
             let cb = self.core_broker().lock()?;
             let manifest = cb.worker().manifest();
@@ -191,13 +204,26 @@ impl System {
         };
         let uuid = self.store.uuid()?.to_string();
         let (probe, kinds) = &self.naming_probe;
-        self.naming =
-            crate::naming::register_system(&manifest, &uuid, brokers, probe.as_ref(), kinds)?;
+        self.naming = crate::naming::register_system(
+            &manifest,
+            &uuid,
+            brokers.clone(),
+            probe.as_ref(),
+            kinds,
+        )?;
+        self.advertisement = crate::naming::advertise_system(
+            &manifest,
+            &uuid,
+            brokers,
+            self.naming.as_ref().map(|r| &r.registration),
+        );
         Ok(())
     }
 
     /// 名前の登録を消す (docs/spec/naming.md §5.2)
     fn unregister_name(&mut self) {
+        // LAN の広告を先に止める (goodbye、§11)
+        self.advertisement = None;
         if let Some(r) = self.naming.take() {
             r.unregister();
         }

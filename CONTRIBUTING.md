@@ -52,6 +52,16 @@ scripts/test-zenoh.sh
 
 `juiz_zenoh_broker` と `juiz_qmp_broker` はどちらもプラグインの入口(`broker_factory` など)を持つので、juiz_app は Zenoh を `default-features = false`(feature `plugin` なし)で組み込みます。両方のクレートを `-p` で選んだうえで juiz_app の `zenoh-broker` を有効にしてビルドすると、入口がリンクでぶつかります。
 
+### LAN の自動発見(mDNS)
+
+ネーミングサービスの LAN の自動発見([docs/spec/naming.md](docs/spec/naming.md) §11)は、juiz_core と juiz_app の feature `naming-mdns`(既定でオフ、依存は `mdns-sd`)です。ふだんの `cargo build` / `cargo test`、`scripts/test.sh` では入りません。feature なしでも、TXT の読み書きなどの単体テスト(`naming::lan::tests`)と、`--advertise`・`--lan` を無視する警告のテスト(cli の `mdns::`)は走ります。
+
+触ったときは手元で `scripts/test-naming-mdns.sh` を実行します。同じ機械の中で広告して見つけるので、マルチキャストが自分に戻ってくる網が要ります(cli テストはポート 8170 を使います)。CI では `test-linux.yml` の `naming-mdns` ジョブが、別のキャッシュで同じスクリプトを実行します。
+
+```terminal
+scripts/test-naming-mdns.sh
+```
+
 ### Python 連携の feature
 
 Python の Process などを読み込む機能は、juiz_core の feature で切り替えます。

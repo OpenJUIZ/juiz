@@ -53,6 +53,8 @@ pub(crate) struct RunOptions {
     pub forget_depends: bool,
     /// `--no-register`(この機械の名前の一覧に登録しない、docs/spec/naming.md §10)
     pub no_register: bool,
+    /// `--advertise`(LAN に広告する、docs/spec/naming.md §10・§11)
+    pub advertise: bool,
     /// `--launched`(§17.3)。関連付けからの起動と、基礎を別窓で起動するとき(§15.7)に付く。窓のタイトルと止め方を出し、エラーで終わったら待つ
     #[allow(dead_code)]
     pub launched: bool,
@@ -233,6 +235,9 @@ fn start(prepared: &Prepared, conf: &Path, opts: &RunOptions, data: &Path) -> Re
     }
     if opts.no_register {
         juiz_core::naming::set_register_option(&mut manifest, false);
+    }
+    if opts.advertise {
+        juiz_core::naming::set_advertise_option(&mut manifest, true);
     }
     // ポートと IPC 名の事前確認(§15.2)
     let ctx = precheck::Context {

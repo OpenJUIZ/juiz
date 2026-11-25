@@ -16,6 +16,10 @@ webui = ["dep:juiz_webui"]
 # IPC ブローカー (同じマシンの別プロセスと Unix ソケット / 名前付きパイプでやり取りする、docs/spec/ipc-broker.md)
 ipc-broker = ["dep:interprocess", "dep:widestring"]
 
+# LAN の自動発見 (DNS-SD / mDNS `_juiz._tcp`、docs/spec/naming.md §11、#619)。依存とビルド時間のため既定オフ。
+# 広告は conf の option.naming.advertise: true か --advertise のときだけ。引く側は feature があれば既定で動く
+naming-mdns = ["dep:mdns-sd"]
+
 default = ["embed-python", "swagger-ui", "webui", "ipc-broker"]
 # Python の Process・Container・Component を読み込む。オフにすると pyo3 を使わず、libpython なしで動く。
 python = ["dep:pyo3"]
@@ -29,6 +33,7 @@ extension-module = ["python", "pyo3/extension-module"]
 axum = {workspace = true}
 futures ={workspace = true}
 libloading = {workspace = true}
+mdns-sd = {workspace = true, optional = true}
 
 home = {workspace = true}
 

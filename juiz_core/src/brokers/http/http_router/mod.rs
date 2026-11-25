@@ -107,6 +107,8 @@ pub struct FullQuery {
     /// `naming/resolve` の登録名、`naming/list` の死活の確かめ (docs/spec/naming.md §9.4)
     name: Option<String>,
     check: Option<String>,
+    /// naming/list・naming/resolve で LAN (mDNS) も見る (docs/spec/naming.md §9.4・§11)
+    lan: Option<String>,
 }
 
 impl FullQuery {
