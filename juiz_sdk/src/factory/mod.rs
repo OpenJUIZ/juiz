@@ -108,7 +108,7 @@ fn downcast_container_mut<T: 'static>(
         return Ok(container.downcast_mut::<ContainerImpl<T>>().unwrap());
     }
     let expected = ContainerTypeInfo::of::<ContainerImpl<T>>();
-    let actual = container.container_type_info();
+    let actual = container.container_type_info(crate::containers::sealed::TypeInfoToken);
     if actual.type_name != expected.type_name {
         return Err(anyhow!(JuizError::ContainerDowncastingError {
             identifier: "ContainerPTr".to_owned()
@@ -131,7 +131,7 @@ fn downcast_container_ref<T: 'static>(container: &dyn Container) -> JuizResult<&
         return Ok(container.downcast_ref::<ContainerImpl<T>>().unwrap());
     }
     let expected = ContainerTypeInfo::of::<ContainerImpl<T>>();
-    let actual = container.container_type_info();
+    let actual = container.container_type_info(crate::containers::sealed::TypeInfoToken);
     if actual.type_name != expected.type_name {
         return Err(anyhow!(JuizError::ContainerDowncastingError {
             identifier: "ContainerPTr".to_owned()
@@ -226,7 +226,10 @@ mod tests {
         fn pose_handle(&self) -> crate::transformations::ContainerPoseHandle {
             self.0.pose_handle()
         }
-        fn container_type_info(&self) -> ContainerTypeInfo {
+        fn container_type_info(
+            &self,
+            _: crate::containers::sealed::TypeInfoToken,
+        ) -> ContainerTypeInfo {
             REPORTED_INFO.with(|i| i.borrow().clone().unwrap())
         }
     }
@@ -269,5 +272,69 @@ mod tests {
             err.downcast_ref::<JuizError>(),
             Some(JuizError::ContainerDowncastingError { .. })
         ));
+    }
+
+    /// container_type_info を上書きしない (juiz_sdk の外ではできない) 自前のコンテナ。
+    /// 中身が ContainerImpl<i64> でも、既定の答えは自分の型名なのでダウンキャストはエラーになる (issue #613)。
+    #[derive(Debug)]
+    struct OwnContainer(ContainerImpl<i64>);
+
+    impl Display for OwnContainer {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            Display::fmt(&self.0, f)
+        }
+    }
+
+    impl Container for OwnContainer {
+        fn identifier(&self) -> ContainerIdentifier {
+            self.0.identifier()
+        }
+        fn profile(&self) -> JuizResult<crate::manifests::ContainerProfile> {
+            self.0.profile()
+        }
+        fn process(&self, name_or_id: &String) -> Option<ProcessPtr> {
+            self.0.process(name_or_id)
+        }
+        fn processes(&self) -> Vec<ProcessPtr> {
+            self.0.processes()
+        }
+        fn register_process(&mut self, p: ProcessPtr) -> JuizResult<ProcessPtr> {
+            self.0.register_process(p)
+        }
+        fn purge_process(&mut self, name_or_id: &String) -> JuizResult<()> {
+            self.0.purge_process(name_or_id)
+        }
+        fn clear(&mut self) -> JuizResult<()> {
+            self.0.clear()
+        }
+        fn pose_handle(&self) -> crate::transformations::ContainerPoseHandle {
+            self.0.pose_handle()
+        }
+    }
+
+    #[test]
+    fn own_container_without_override_is_not_downcast() {
+        let inner =
+            ContainerImpl::new(ContainerManifest::new("i64").name("c0"), Box::new(42)).unwrap();
+        let mut c = OwnContainer(inner);
+        let err = downcast_container_mut::<i64>(&mut c).unwrap_err();
+        assert!(matches!(
+            err.downcast_ref::<JuizError>(),
+            Some(JuizError::ContainerDowncastingError { .. })
+        ));
+        let err = downcast_container_ref::<i64>(&c).unwrap_err();
+        assert!(matches!(
+            err.downcast_ref::<JuizError>(),
+            Some(JuizError::ContainerDowncastingError { .. })
+        ));
+
+        // container_process_factory を通しても関数は呼ばれずにエラーになる
+        let factory = container_process_factory::<i64>(ProcessManifest::new("p"), |_, _| {
+            panic!("must not be called")
+        });
+        let ptr = ContainerPtr::new(OwnContainer(
+            ContainerImpl::new(ContainerManifest::new("i64").name("c1"), Box::new(1)).unwrap(),
+        ));
+        assert!((factory.1)(ptr, CapsuleMap::new()).is_err());
     }
 }
