@@ -222,6 +222,8 @@ def _read_all():
             if not isinstance(reg.get('name'), str) or not isinstance(reg.get('brokers', []), list):
                 continue
             out.append(reg)
+    # ディレクトリを読む順は OS によるので、登録名の順にそろえる
+    out.sort(key=registered_name)
     return out
 
 
