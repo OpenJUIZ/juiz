@@ -23,6 +23,7 @@ mod connection;
 mod datatype;
 mod model;
 mod module;
+mod name;
 mod namespace;
 mod package;
 mod pkg;

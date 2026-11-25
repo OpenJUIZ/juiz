@@ -15,6 +15,7 @@ mod execution_context;
 mod import;
 mod launched;
 mod model;
+mod name;
 mod namespace;
 mod package;
 mod process;
@@ -110,6 +111,12 @@ struct Args {
         help = "Start an IPC broker with this name (ex., cam0) for processes on the same machine. Clients connect with -s ipc://<name>."
     )]
     ipc: Option<String>,
+
+    #[arg(
+        long = "no-register",
+        help = "Do not register this juiz in the name list of this machine (option.naming.register: false). Used with -d."
+    )]
+    no_register: bool,
 
     #[arg(
         long = "namespace",
@@ -290,6 +297,13 @@ enum SubCommands {
         args: juiz_pkg::cli::PkgArgs,
     },
 
+    /// List the juiz running on this machine, and find one by its name (docs/spec/naming.md §9.3)
+    #[clap(arg_required_else_help = true)]
+    Name {
+        #[clap(subcommand)]
+        subcommand: name::NameSubCommands,
+    },
+
     /// Install libjuiz_sdk for C++ / Haskell plugins, and show where it is (issue #548)
     #[clap(arg_required_else_help = true)]
     Sdk {
@@ -364,6 +378,10 @@ enum SubCommands {
         /// Forget where the dependencies of this app were found last time (the remembered connections).
         #[arg(long = "forget-depends")]
         forget_depends: bool,
+
+        /// Do not register this juiz in the name list of this machine (option.naming.register: false).
+        #[arg(long = "no-register")]
+        no_register: bool,
 
         /// Started from the file association or another window (not for users to type).
         #[arg(long = "launched", hide = true)]
@@ -792,6 +810,10 @@ where
     if let Some(SubCommands::Model { subcommand }) = &args.subcommand {
         return model::run_model_command(subcommand);
     }
+    // juiz name も系を作らない (docs/spec/naming.md §9.3)
+    if let Some(SubCommands::Name { subcommand }) = &args.subcommand {
+        return name::run_name_command(subcommand);
+    }
     // juiz sdk も系を作らない (issue #548)
     if let Some(SubCommands::Sdk { subcommand }) = &args.subcommand {
         return sdk::run_sdk_command(subcommand);
@@ -885,6 +907,7 @@ fn package_command(args: &Args) -> Option<JuizResult<()>> {
             yes,
             no_prompt,
             forget_depends,
+            no_register,
             launched,
         } => Some(package::run::run_package(&package::run::RunOptions {
             package: package.clone(),
@@ -901,6 +924,7 @@ fn package_command(args: &Args) -> Option<JuizResult<()>> {
             yes: *yes,
             no_prompt: *no_prompt,
             forget_depends: *forget_depends,
+            no_register: *no_register || args.no_register,
             launched: *launched,
         })),
         SubCommands::Install { package, launched } => Some((|| {
@@ -983,6 +1007,9 @@ fn run(args: Args) -> JuizResult<()> {
         obj.remove("package");
     }
     let mut manifest = add_ipc_broker(manifest, args.ipc.as_deref())?;
+    if args.no_register {
+        juiz_core::naming::set_register_option(&mut manifest, false);
+    }
     // ポートが使用中のときの扱い (docs/spec/app-package.md §16.2)
     juiz_core::port_policy::override_port_policy(
         &mut manifest,
@@ -1000,6 +1027,7 @@ fn run(args: Args) -> JuizResult<()> {
         if args.daemonize || ratio.is_some() {
             return System::new(manifest)?
                 .set_working_dir(working_dir)
+                .set_naming_probe(Box::new(name::AppProbe), name::app_kinds())
                 .start_http_broker(flag_start)
                 .setup()?
                 //.add_subsystem_by_id(Some(server))?
@@ -1043,6 +1071,7 @@ fn run(args: Args) -> JuizResult<()> {
         | SubCommands::Import { .. }
         | SubCommands::Pkg { .. }
         | SubCommands::Sdk { .. }
+        | SubCommands::Name { .. }
         | SubCommands::Pack { .. }
         | SubCommands::Run { .. }
         | SubCommands::Install { .. }

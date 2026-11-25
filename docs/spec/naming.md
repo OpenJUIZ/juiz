@@ -147,6 +147,8 @@ UTF-8 の JSON のオブジェクト 1 つ。
 - 手順: `names/`(と途中のディレクトリ)を作る → `<名前>.json` を `create_new` で開く → 失敗(既にある)したら §6 で確かめ、死んでいれば消して 1 回だけやり直す。生きていれば §4.3。
 - 登録に失敗しても(権限、ディスクが一杯など)、System の起動は止めない。`warning: cannot register mobile_sim in the name list: <理由>` を標準エラーに出す。`option.naming.unique: true` のときだけ起動を止める。
 - 登録したら `registered as robot1/mobile_sim` をログ(`info`)に出す。標準エラーには出さない。
+- 実装(#616): `System::run`・`System::run_and_do`(渡した関数を呼ぶ前)・`System::wait_for_signal` の始めで登録する(登録済みなら何もしない)。`setup` の中でブローカーを立て、subsystems・mastersystem につないだ後になる。`unique: true` で止めるときは、つないだ相手から外れ(#303)、ブローカーを止めてからエラーを返す。
+- `started_at` は UTC(`2026-11-25T06:04:05Z` の形)で書く。
 
 ### 5.2 解除
 
@@ -159,12 +161,13 @@ UTF-8 の JSON のオブジェクト 1 つ。
 引くとき(§7)・登録するとき(§5.1)に、登録が生きているかを次の順で確かめる。
 
 1. `pid` のプロセスがいなければ、死んでいる。ファイルを消す。
-   - Unix: `kill(pid, 0)` が `ESRCH`。Windows: `OpenProcess` が失敗し、`GetLastError` が `ERROR_INVALID_PARAMETER`。
+   - Unix: `kill(pid, 0)` が `ESRCH`。Windows: `OpenProcess` が失敗し、`GetLastError` が `ERROR_INVALID_PARAMETER`、または開けたが `GetExitCodeProcess` が `STILL_ACTIVE` でない(終わったがハンドルが残っている)。
 2. `brokers` のうち、引く側がつなげる種類(§7.3 の順)で最初のものに `system/profile` を問い合わせる(1 秒まで)。
    - 応答の `system_store.uuid` が登録の `uuid` と同じなら、生きている。
    - 応答したが `uuid` が違えば、pid が使い回されたか、ポートを別の juiz が取った。死んでいるとみなしてファイルを消す。
    - 応答が無ければ(つながらない、タイムアウト)、次の種類のブローカーで同じことをする。どれも応答しなければ、**候補から外すが、ファイルは消さない**(pid は生きているので、一時的に詰まっているだけかもしれない)。
 3. つなげる種類のブローカーが 1 つも無ければ、候補から外す(ファイルは消さない)。
+   - つなげるが、引く側が `system/profile` を問い合わせる手段を持たない種類(Step 1 では zenoh)だけを持つ登録は、1 の pid の確かめだけで生きているとみなす。問い合わせられるのは、juiz_core だけなら ipc(feature `ipc-broker`)と http、juiz コマンドはこれに qmp(feature `qmp-broker`)を足したもの。
 
 - 心拍は持たない(#303 で「一時的な不通で消えるのを避ける」と決めたのと同じ考え)。確かめるのは引くときだけ。
 - `juiz name list`(§9)は 2 を省いてよい(`--check` で確かめる)。1 の pid の確かめは必ずする。
