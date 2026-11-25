@@ -230,10 +230,24 @@ app-package.md §15.6 の「つなぎ先の順」を次にする(太字が足す
 - conf の `subsystems` の `type_name: http` で host だけを書き、ポートを省いたとき(app-package.md §10.2): host がこの機械(`localhost`・`127.0.0.1`・`::1`)なら、まずこの機械の登録の `port` を使い、無ければ今までどおり `base.http_port`。別の host なら、§11・§12 でその host の登録が見つかればその `port`、無ければ `base.http_port`。
 - `kind: base` は同じ機械に 1 つしか動かない(IPC 名が同じため、app-package.md §10.1)ので、4 で候補が複数になることは無い。5 で複数になったら §7.2 による。
 - 4・5 で決まったつなぎ先を使ったときは `using robot_base at http://127.0.0.1:8101 (found in the name list)` を標準エラーに出す(app-package.md §15.6 の覚えた先の文と同じ扱い)。
-- subsystem につなぐと、相手は同じ種類でつなぎ返す(app-package.md §10.2)。今の `juiz run` は ipc と http のときだけアプリ側に受けのブローカーを足すので、zenoh・qmp を選んだときも足す(Step 2 #617 で入れる)。
+- subsystem につなぐと、相手は同じ種類でつなぎ返す(app-package.md §10.2)。今の `juiz run` は ipc と http のときだけアプリ側に受けのブローカーを足すので、zenoh・qmp を選んだときも足す(Step 2 #617 で入れた)。
 - `package://<名前>/…`(app-package.md §10.4)は書き方を変えない。上の順で決まったつなぎ先に置き換わる。
 - app-package.md §15.5(動いている基礎を探す)は、この機械の登録の一覧で行う。IPC の待ち受けの列挙は、登録を持たない古い juiz の基礎のために残す(同じ System が両方で見つかったら `uuid` で 1 つにまとめる)。§15.5 の「HTTP・qmp で動いている基礎は探さない」は、登録があれば探せるようになる。
 - `base.http_port` は「登録が無いときの既定」に下がる。基礎のポートが逃げても(app-package.md §15.2 の `note:`)、登録があれば見つかる。
+
+#617 の実装で決めた細部:
+
+- 4 は依存ごとに、`package.name` が依存の名前、`package.kind` が `base`、`package.version` が範囲に入る登録を集め、§6 で生きているものを候補にする(`juiz_app` の `package::depends::RegistryNames`)。ブローカーは §7.3 の同じ機械の順で、`juiz` コマンドがつなげる種類(`juiz name` と同じ)から選ぶ。
+  - 候補が無い、または候補につなげる種類のブローカーが無いときは 6(`ipc://<名前>`)に任せる(エラーにしない)。候補が 2 つ以上あれば `robot_base is registered more than once on this machine: … Choose one with --depend robot_base=<URL>.` のエラー(基礎は同じ機械に 1 つなので、ふつうは起きない)。
+  - 見つかった結果は 1 回の `juiz run` の中で使い回す。見つからなかった結果は使い回さない(§15.4 の「もう一度試す」の間に起動した基礎を見つけるため)。
+- 種類の指定(`--depend <名前>=<種類>`、conf の `subsystems` で `name` を省いたもの)で、その種類のブローカーを持つ登録が無いとき: `ipc` は `ipc://<名前>`、`http` は `127.0.0.1` と `base.http_port`(今の「ポートを省いた http」と同じ)、`qmp`・`zenoh` は `robot_base is not registered on this machine, so its qmp broker cannot be found. Write where it is (ex., --depend robot_base=qmp://192.168.0.10:<port>).` のエラー。登録はあるがその種類を持たないときは §7.3 の `has no … broker` のエラー。
+  - 種類として受け付けるのは `ipc`・`http`・`qmp`・`zenoh` だけ。ほかの `://` を含まない値は今までどおり URL の書式の誤り。
+  - conf の `subsystems` で `name` を省いたときは、`type_name` も省いてよい(種類も登録で決める)。`timeout_ms` などのほかのキーは残す。
+- 覚えた先(§15.6)は `--depend` と同じ扱いなので、`depends.yaml` に種類だけを書いても同じく引ける。
+- `found in the name list` の文は、決まったつなぎ先が 6 の既定(`ipc://<名前>`)と同じなら出さない(基礎は必ず ipc を持ち、同じ機械では ipc が先なので、ふつうの起動で毎回出るのを避ける)。種類の指定やポートの補いで登録を使ったとき、ipc をつなげない juiz で別の種類を選んだときに出る。対話できずつながらなかったときは、§10.3 のエラーの後に添える(覚えた先の文と同じ扱い)。
+- zenoh・qmp のつなぎ返し: conf にその種類のブローカーが無ければ `{type_name: qmp, name: qmp0, port: 0}`(zenoh も同じ形)を足す。ポートは空いている番号を OS が選び、名前は立てた後に `127.0.0.1:<ポート>` に置き換わる。`--depend` で URL を書いて zenoh・qmp でつなぐときも足す。
+- 基礎の HTTP のポートが逃げたときの app-package.md §15.2 の添え書きは、登録するとき(`option.naming.register` が true、`--no-register` 無し)は `note: apps on this machine find robot_base on port 8101 in the name list, but apps on other machines look for port 8100.`、登録しないときは今の文。
+- app-package.md §15.5 の「動いている基礎」は、登録の一覧(4 と同じ条件、ブローカーは §7.3 の順で 1 つ)に、IPC の待ち受けの列挙で見つかったものを足す。列挙で見つかったものの `system_store.uuid` が登録と同じなら足さない。
 
 ## 9. 名前で指す書き方とコマンド
 

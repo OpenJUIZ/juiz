@@ -5,7 +5,7 @@
 //! §10.3 の確認をし、失敗したら対話できるときだけ選択を出す。選び直した先は `--depend` と同じ扱いで
 //! conf を作り直す(`transforms` などの ID の書き換え §10.4 も、ipc / http のブローカーの用意も、選び直した先に合う)。
 
-use super::depends::{self, Depend, DependError};
+use super::depends::{self, Depend, DependError, NameList};
 use super::install::{find_newest, Installed};
 use super::manifest::{Kind, Manifest};
 use super::precheck::{choose, Mode, Prompt, Quit};
@@ -38,8 +38,10 @@ pub(crate) enum Probe {
 pub(crate) trait DepEnv: Prompt {
     /// subsystem の conf(`type_name`・`name`)の相手の profile を読む
     fn probe(&mut self, conf: &Value) -> Probe;
-    /// この機械で IPC で待ち受けている juiz の名前(§15.5)
+    /// この機械で IPC で待ち受けている juiz の名前(§15.5。登録を持たない古い juiz の基礎のため)
     fn ipc_names(&mut self) -> Vec<String>;
+    /// この機械の名前の登録(naming.md §8)
+    fn names(&self) -> &dyn NameList;
     /// 基礎を別窓で起動する(§15.7)。端末を開けず切り離して起動したときは、ログのパスを返す
     fn launch_base(&mut self, name: &str, version: &Version) -> Result<Option<String>>;
     fn sleep(&mut self, d: Duration);
@@ -74,6 +76,17 @@ fn verify(env: &mut impl DepEnv, app: &str, dep: &Depend) -> Result<(), Failure>
 /// `using robot_base at … (remembered; …)` の文(§15.6)
 fn remembered_line(name: &str, url: &str) -> String {
     format!("using {name} at {url} (remembered; --forget-depends to reset)")
+}
+
+/// `using robot_base at … (found in the name list)` の文(naming.md §8)
+fn found_line(name: &str, url: &str) -> String {
+    format!("using {name} at {url} (found in the name list)")
+}
+
+/// 登録で見つけたつなぎ先で、既定(`ipc://<名前>`)と違うときだけ文を出す(naming.md §8)
+fn found_url(dep: &Depend) -> Option<String> {
+    let url = dep.url();
+    (dep.found && url != format!("ipc://{}", dep.name)).then_some(url)
 }
 
 /// 依存のつなぎ先を決め、つながるかを確かめる(§10.2、§10.3、§15.4〜§15.6)
@@ -111,7 +124,7 @@ pub(crate) fn resolve_and_check(
     let mut remember = Vec::new();
     loop {
         let mut conf = original.clone();
-        let deps = depends::resolve(m, &mut conf, &overrides, installed)?;
+        let deps = depends::resolve(m, &mut conf, &overrides, installed, env.names())?;
         let Some(dep) = deps.iter().find(|d| !checked.contains(&d.name)).cloned() else {
             return Ok(Checked {
                 conf,
@@ -126,6 +139,8 @@ pub(crate) fn resolve_and_check(
             Ok(()) => {
                 if let Some(url) = remembered_url {
                     env.say(&remembered_line(&dep.name, url));
+                } else if let Some(url) = found_url(&dep) {
+                    env.say(&found_line(&dep.name, &url));
                 }
                 // 覚えるのは補った後の URL(http のポートを省いた入力でも、次回は同じ先へ)
                 if chosen.remove(&dep.name).is_some() {
@@ -147,6 +162,9 @@ pub(crate) fn resolve_and_check(
             if let Some(url) = remembered_url {
                 msg.push('\n');
                 msg.push_str(&remembered_line(&dep.name, url));
+            } else if let Some(url) = found_url(&dep) {
+                msg.push('\n');
+                msg.push_str(&found_line(&dep.name, &url));
             }
             return Err(DependError(msg).into());
         }
@@ -277,7 +295,7 @@ fn ask(
                 let mut trial = overrides.to_vec();
                 trial.retain(|(n, _)| n != &dep.name);
                 trial.push((dep.name.clone(), line.to_owned()));
-                match depends::resolve(m, &mut original.clone(), &trial, installed) {
+                match depends::resolve(m, &mut original.clone(), &trial, installed, env.names()) {
                     Ok(_) if line != depends::DEPEND_NONE => return Ok(Next::Use(line.to_owned())),
                     Ok(_) => env.say(&format!("'{line}' is not a broker URL (ex., ipc://robot_base, http://192.168.0.10:8100)")),
                     Err(e) => env.say(&format!("{e}")),
@@ -287,9 +305,29 @@ fn ask(
     }
 }
 
-/// §15.5: この機械で IPC で動いている、名前と版の合う基礎(今のつなぎ先は除く)
+/// §15.5: この機械で動いている、名前と版の合う基礎(今のつなぎ先は除く)
+///
+/// この機械の登録(naming.md §8)の一覧と、登録を持たない古い juiz の基礎のための IPC の待ち受けの列挙を合わせる。
+/// 同じ System が両方で見つかったら `uuid` で 1 つにまとめる。
 fn running_bases(env: &mut impl DepEnv, dep: &Depend, current: &str) -> Vec<(String, Version)> {
     let mut out = Vec::new();
+    let mut uuids: BTreeSet<String> = BTreeSet::new();
+    let kinds = env.names().kinds();
+    for reg in env.names().bases(&dep.name, &dep.req) {
+        let Some(v) = reg.package_version().and_then(|v| Version::parse(v).ok()) else {
+            continue;
+        };
+        let uuid = reg.uuid.clone();
+        let candidate = juiz_core::naming::Candidate { registration: reg };
+        let Ok((_, url)) = candidate.select_broker(None, &kinds) else {
+            continue;
+        };
+        uuids.insert(uuid);
+        if url == current {
+            continue;
+        }
+        out.push((url, v));
+    }
     for name in env.ipc_names() {
         let url = format!("ipc://{name}");
         if url == current {
@@ -298,6 +336,15 @@ fn running_bases(env: &mut impl DepEnv, dep: &Depend, current: &str) -> Vec<(Str
         let Probe::Profile(p) = env.probe(&json!({ "type_name": "ipc", "name": name })) else {
             continue;
         };
+        if let Some(u) = p
+            .get("system_store")
+            .and_then(|s| s.get("uuid"))
+            .and_then(Value::as_str)
+        {
+            if uuids.contains(u) {
+                continue;
+            }
+        }
         let Some(pkg) = p.get("package") else {
             continue;
         };
@@ -466,6 +513,8 @@ pub(crate) fn forget(data: &Path, app: &str) -> Result<bool> {
 pub(crate) struct RealDepEnv {
     /// 端末から切り離して起動したときのログの置き場所(§15.7)
     pub log_dir: PathBuf,
+    /// この機械の名前の登録(naming.md §8)
+    pub names: depends::RegistryNames,
 }
 
 impl Prompt for RealDepEnv {
@@ -484,6 +533,10 @@ impl DepEnv for RealDepEnv {
 
     fn ipc_names(&mut self) -> Vec<String> {
         ipc_names()
+    }
+
+    fn names(&self) -> &dyn NameList {
+        &self.names
     }
 
     fn launch_base(&mut self, name: &str, version: &Version) -> Result<Option<String>> {
@@ -782,6 +835,8 @@ mod tests {
         answers: VecDeque<&'static str>,
         said: Vec<String>,
         slept: u32,
+        /// この機械の名前の登録
+        names: depends::tests::FakeNames,
     }
 
     impl Fake {
@@ -825,6 +880,9 @@ mod tests {
                 .keys()
                 .filter_map(|u| u.strip_prefix("ipc://").map(str::to_owned))
                 .collect()
+        }
+        fn names(&self) -> &dyn NameList {
+            &self.names
         }
         fn launch_base(&mut self, name: &str, version: &Version) -> Result<Option<String>> {
             self.launched.push(format!("{name}@{version}"));
@@ -955,6 +1013,87 @@ mod tests {
             !t.contains("ipc://other") && !t.contains("ipc://old"),
             "{t}"
         );
+    }
+
+    /// 名前の一覧で見つけた先は、既定と違えば文を出す(naming.md §8)
+    #[test]
+    fn found_in_the_name_list_is_announced() {
+        use depends::tests::{registration, FakeNames};
+        let names = |kinds: Vec<&'static str>| FakeNames {
+            regs: vec![registration(
+                "robot_base",
+                "1.3.0",
+                "base",
+                &[("ipc", "robot_base"), ("http", "0.0.0.0:8101")],
+            )],
+            kinds,
+        };
+        // ipc で見つかれば既定と同じなので何も出さない
+        let mut env =
+            Fake::default().run("ipc://robot_base", profile("robot_base", "1.3.0", "base"));
+        env.names = names(vec!["ipc", "http"]);
+        let c = run(&mut env, &[], &[], &[], Mode::NoPrompt).unwrap();
+        assert_eq!(first_url(&c), "ipc://robot_base");
+        assert_eq!(env.text(), "");
+        // http で見つかれば出す
+        let mut env = Fake::default().run(
+            "http://127.0.0.1:8101",
+            profile("robot_base", "1.3.0", "base"),
+        );
+        env.names = names(vec!["http"]);
+        let c = run(&mut env, &[], &[], &[], Mode::NoPrompt).unwrap();
+        assert_eq!(first_url(&c), "http://127.0.0.1:8101");
+        assert_eq!(
+            env.text(),
+            "using robot_base at http://127.0.0.1:8101 (found in the name list)"
+        );
+        // つながらなければ、対話できないときのエラーに添える
+        let mut env = Fake::default();
+        env.names = names(vec!["http"]);
+        let e = run(&mut env, &[], &[], &[], Mode::NoPrompt)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            e.ends_with("\nusing robot_base at http://127.0.0.1:8101 (found in the name list)"),
+            "{e}"
+        );
+    }
+
+    /// 動いている基礎は名前の一覧と IPC の列挙から集め、同じ System は 1 つにまとめる(§15.5)
+    #[test]
+    fn running_bases_from_the_name_list() {
+        use depends::tests::{registration, FakeNames};
+        let mut reg = registration(
+            "robot_base",
+            "1.4.0",
+            "base",
+            &[("ipc", "robot_base9"), ("http", "0.0.0.0:8105")],
+        );
+        reg.uuid = "u".to_owned();
+        let mut env = Fake::default()
+            // 登録と同じ System(profile の uuid が "u")
+            .run("ipc://robot_base9", profile("robot_base", "1.4.0", "base"))
+            .answers(&["1"]);
+        // ipc をつなげない juiz にして、登録で見つけた先は http にする
+        env.names = FakeNames {
+            regs: vec![reg],
+            kinds: vec!["http"],
+        };
+        // --depend で別の先を書くと、そこにつながらず選択が出る(並べた後の問いは EOF でやめる)
+        let c = run(
+            &mut env,
+            &[("robot_base", "http://127.0.0.1:8106")],
+            &[],
+            &[],
+            Mode::Interactive,
+        );
+        assert!(c.is_err());
+        let t = env.text();
+        assert!(
+            t.contains("  1) robot_base 1.4.0 at http://127.0.0.1:8105"),
+            "{t}"
+        );
+        assert!(!t.contains("at ipc://robot_base9"), "{t}");
     }
 
     #[test]

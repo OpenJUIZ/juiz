@@ -866,7 +866,10 @@ fn run_prechecks_ports() {
     d.wait_log(&format!("HTTP broker: http://127.0.0.1:{}/", port + 1));
     let text = d.log_text();
     assert!(
-        text.contains(&format!("note: apps that connect to {base} over http look for port {port} and will not find it.")),
+        text.contains(&format!(
+            "note: apps on this machine find {base} on port {} in the name list, but apps on other machines look for port {port}.",
+            port + 1
+        )),
         "{text}"
     );
     assert!(text.contains(&format!("IPC broker: ipc://{base}")), "{text}");
@@ -887,6 +890,107 @@ fn run_prechecks_ports() {
     );
     d.wait_log(&format!("HTTP broker: http://127.0.0.1:{other}/"));
     d.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 基礎の HTTP のポートが逃げても、アプリはこの機械の名前の一覧で見つける (issue #617、naming.md §8)
+#[test]
+fn run_finds_base_in_name_list() {
+    let dir = temp_dir("package_naming");
+    let cache = dir.join("cache");
+    let ipc_dir = dir.join("ipc");
+    let base = format!("nl_base_{}", std::process::id() % 100000);
+    let port: u16 = 8630;
+    let base_pkg = pack_conf_only(
+        &dir,
+        &base,
+        &format!("version: 1.0.0\nkind: base\nbase:\n  http_port: {port}\n"),
+        "name: naming_base_system\nbrokers:\n  - type_name: qmp\n    name: qmp0\n    port: 8634\n",
+    );
+    let app_pkg = pack_conf_only(
+        &dir,
+        "nl_app",
+        &format!("version: 0.1.0\ndepends:\n  {base}: \">=1\"\n"),
+        "name: nl_app_system\noption:\n  http_broker:\n    start: false\n    port: 8633\n",
+    );
+    let run = |args: &[&str]| {
+        let mut cmd = juiz();
+        cmd.current_dir(&dir)
+            .env("JUIZ_CACHE_DIR", &cache)
+            .env("JUIZ_DATA_DIR", dir.join("data"))
+            .env("JUIZ_IPC_DIR", &ipc_dir)
+            .arg("run")
+            .args(args);
+        cmd
+    };
+
+    // 基礎のポートを juiz 以外が使っているので、--yes で port + 1 に逃げる
+    let blocker = std::net::TcpListener::bind(("0.0.0.0", port)).unwrap();
+    let mut base_daemon =
+        Daemon::spawn_command(run(&[path_str(&base_pkg), "--yes"]), dir.join("base.log"));
+    base_daemon.wait_log(&format!("HTTP broker: http://127.0.0.1:{}/", port + 1));
+
+    // --depend <名前>=http: 種類だけを指定すると、登録から逃げた後のポートを見つける
+    let mut app = Daemon::spawn_command(
+        run(&[
+            path_str(&app_pkg),
+            "--depend",
+            &format!("{base}=http"),
+            "--no-prompt",
+        ]),
+        dir.join("app_http.log"),
+    );
+    app.wait_log(&format!(
+        "using {base} at http://127.0.0.1:{} (found in the name list)",
+        port + 1
+    ));
+    app.wait_log("HTTP broker: http://127.0.0.1:");
+    app.stop();
+
+    // qmp を選ぶと、つなぎ返し用の qmp ブローカーをアプリに足して、基礎の subsystem になる
+    let mut cmd = run(&[
+        path_str(&app_pkg),
+        "--depend",
+        &format!("{base}=qmp"),
+        "--no-prompt",
+    ]);
+    cmd.env("RUST_LOG", "info");
+    let mut app = Daemon::spawn_command(cmd, dir.join("app_qmp.log"));
+    app.wait_log(&format!(
+        "using {base} at qmp://127.0.0.1:8634 (found in the name list)"
+    ));
+    app.wait_log("Added subsystem(");
+    app.wait_log("qmp broker: qmp://127.0.0.1:");
+    app.stop();
+
+    // --depend <名前>=<URL> は登録より勝つ(つながらないのでエラー)
+    let o = run(&[
+        path_str(&app_pkg),
+        "--depend",
+        &format!("{base}=http://127.0.0.1:{port}"),
+        "--no-prompt",
+    ])
+    .output()
+    .unwrap();
+    assert_eq!(o.status.code(), Some(1), "{o:?}");
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(!err.contains("found in the name list"), "{err}");
+
+    // 種類の指定に合うブローカーが無ければエラー
+    let o = run(&[
+        path_str(&app_pkg),
+        "--depend",
+        &format!("{base}=zenoh"),
+        "--no-prompt",
+    ])
+    .output()
+    .unwrap();
+    assert_eq!(o.status.code(), Some(1), "{o:?}");
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(err.contains("has no zenoh broker (it has: "), "{err}");
+
+    base_daemon.stop();
+    drop(blocker);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
