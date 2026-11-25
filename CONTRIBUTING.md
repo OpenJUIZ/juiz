@@ -398,6 +398,7 @@ Hackage への公開には、Hackage のアカウント(アップロード権限
 - [Container の 3D モデル(ContainerModel)](docs/spec/container-model.md)(issue #379)
 - [Zenoh ブローカー](docs/spec/zenoh-broker.md)(issue #487)
 - [Manifest と Profile の用語](docs/spec/manifest-profile.md)(issue #503)
+- [ネーミングサービス(名前からブローカーの接続先を引く)](docs/spec/naming.md)(issue #289)
 
 ## ライセンス
 
