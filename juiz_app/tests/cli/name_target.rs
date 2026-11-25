@@ -125,8 +125,10 @@ fn point_to_targets_by_name() {
         String::from_utf8_lossy(&o.stdout),
         String::from_utf8_lossy(&o.stderr)
     );
+    // 種類の並びは登録した順 (ブローカーの一覧の順は決まっていない)
     assert!(
-        out.contains("robot1/target has no qmp broker (it has: http, ipc)"),
+        out.contains("robot1/target has no qmp broker (it has: http, ipc)")
+            || out.contains("robot1/target has no qmp broker (it has: ipc, http)"),
         "{out}"
     );
     // URL と host:port は今までどおり
