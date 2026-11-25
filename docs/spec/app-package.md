@@ -425,7 +425,7 @@ juiz packages
 2. アプリの conf の `subsystems` のうち、`package: <名前>` を持つもの
 3. 既定: `{type_name: ipc, name: <名前>}`(`ipc://<名前>`)
 
-#390 で、1 と 2 の間に「§15.6 で覚えたつなぎ先」が入る。
+#390 で、1 と 2 の間に「§15.6 で覚えたつなぎ先」が入る。#617 で、2 と 3 の間に「この機械の名前の一覧(ネーミングサービス)の登録」が入る([naming.md](naming.md) §8)。`--depend <名前>=<種類>`(`ipc`・`http`・`qmp`・`zenoh`)は URL ではなく、登録を引くときの種類の指定になる。
 
 ```yaml
 # アプリの conf で別の機械の基礎を使う例
@@ -435,7 +435,7 @@ subsystems:
     name: "192.168.0.10"      # ポートを省くと、インストール済みの robot_base の base.http_port
 ```
 
-- `type_name: http` でポートを省いたときは、インストール済みの基礎(範囲に合う一番新しい版)の `base.http_port` を使う。基礎が入っていないか `base.http_port` が無ければエラー(`cannot decide the port for robot_base. Write the port in the conf or --depend.`)。
+- `type_name: http` でポートを省いたときは、host がこの機械(`localhost`・`127.0.0.1`・`::1`)なら、まずこの機械の登録の http のポートを使う(naming.md §8、#617)。無ければ、または別の host なら、インストール済みの基礎(範囲に合う一番新しい版)の `base.http_port` を使う。基礎が入っていないか `base.http_port` が無ければエラー(`cannot decide the port for robot_base. Write the port in the conf or --depend.`)。
 - `package` を持たない `subsystems` は今までどおり扱い、依存の確認はしない。
 - `--depend <名前>=none`(#452): その依存を subsystem に足さず、conf の `package: <名前>` の subsystem も取り除き、確認(§10.3)もしない。基礎が入っていなくても、動いていなくても起動する。別のアプリの下に葉としてつなぐときなど、依存先へ自分からつながない起動のため(§7.3 の `--remap` と合わせて使う)。
   - conf に `package://<名前>/…` の ID があればエラー(`'package://robot_base/…' in the conf refers to package robot_base, but --depend robot_base=none was given`)。`ipc://<名前>/…` は書き換えない(§10.4)。
@@ -445,6 +445,7 @@ subsystems:
 - subsystem としてつなぐと、相手は同じ種類のブローカーでこちらへつなぎ返す(mastersystem)。そのため `juiz run` は、アプリ側にもブローカーを用意する。
   - ipc でつなぐとき、conf に ipc ブローカーが無く `--ipc` も無ければ、`<アプリ名>-<プロセス ID>` の名前で ipc ブローカーを足す(同じアプリを複数動かせるように)。
   - http でつなぐときは、`--http` が無くても HTTP ブローカーを立てる(ポートは conf の `option.http_broker.port`、既定 8000)。`--no-http` とは両立しないのでエラーにする(§7.1)。
+  - qmp・zenoh でつなぐときは、conf にその種類のブローカーが無ければ空いているポートで足す(naming.md §8、#617)。
 - 確認(つないで profile を見る)は、アプリのブローカーを立てる前に行う。確認に失敗したときにソケットなどを残さないため。juiz_core の `System::set_subsystem_check` で、conf の `subsystems` の各要素について呼ぶ。
 - 基礎とアプリの名前の衝突を避けるには、ネームスペースを分ける(基礎 `/robot1/base`、アプリ `/robot1/patrol` など)。juiz run はネームスペースを自動では付けない。
 
@@ -591,6 +592,7 @@ format 1 では行わない。足すときは format を上げるか、format 1 
 | 〃 Step 3 親につながらないときの選択とつなぎ先の記憶 | #394 | §15.4〜§15.7 |
 | 〃 Step 4 Windows の関連付けとコンソール窓 | #395 | §17(Windows、§17.2、§17.3) |
 | 〃 Step 5 macOS・Linux の関連付けと SIGHUP | #396 | §17(macOS・Linux) |
+| ネーミングサービス Step 2 依存先を名前の一覧で引く | #617 | §10.2、§15.2、§15.5、§15.6([naming.md](naming.md) §8) |
 
 ## 15. 起動時の確認と対話(#390)
 
@@ -638,6 +640,7 @@ choose [1]:
 
 - 「空いている `<n>`」は元の番号から +1 ずつ試して最初に取れた番号(上限は元の番号 + 100、無ければその選択肢を出さない)。
 - 基礎の番号を変えるときは `note: apps that connect to robot_base over http look for port 8100 and will not find it.` を添える(§10.2 の http のつなぎ先は `base.http_port` で探すため)。
+  - #617 から: 名前の一覧に登録するとき(`option.naming.register` が true)は、この機械のアプリは登録のポートで見つけるので、`note: apps on this machine find robot_base on port 8101 in the name list, but apps on other machines look for port 8100.` にする(naming.md §8)。
 - アプリで、相手が juiz で §16.2 の `adopt_master` が有効なら、1) の文に `(join it as its subsystem)` を添え、選んだら相手を conf の `mastersystem` に足して起動する(§16 の「相手を親とみなす」と同じ結果を、事前確認で決める)。
 - 選んだ番号は今回だけ使い、覚えない。固定したいときは conf の `option.http_broker.port` か `--http-port <n>` を使う。
 - 番号を選び直した結果、§16 の取り直しは起きない(事前確認で取れた番号を conf に入れて起動するため)。事前確認の後に誰かが取った場合は §16 の規則で扱う。
@@ -692,10 +695,11 @@ choose [1]:
 
 ### 15.5 動いている基礎を探す(この機械の中だけ)
 
+- #617 から: この機械の名前の一覧(naming.md §3)で、`package.kind` が `base`、`package.name` が依存の名前と一致し、版が範囲に入る生きている登録を候補にする(ブローカーは naming.md §7.3 の順で選ぶ)。下の IPC の列挙は、登録を持たない古い juiz の基礎のために残し、同じ System(`system_store.uuid` が同じ)は 1 つにまとめる。
 - IPC の待ち受けを列挙する。Unix は ipc-broker.md §2.2 のソケットの置き場所にあるソケットのファイル、Windows は `\\.\pipe\` の下の `juiz-` で始まる名前付きパイプ。
 - 見つかった名前それぞれに `system/profile` を問い合わせ(1 つ 1 秒まで)、`package.kind` が `base`、`package.name` が依存の名前と一致し、版が範囲に入るものを候補にする。
-- HTTP・qmp で動いている基礎は探さない。他の機械を探すのはネーミングサービス(#289)の仕事にする。
-- #289 で、この探し方を機械ごとの登録の一覧に置き換え、つなぎ先の順(§15.6)に登録を引く段を足す。決めごとは [naming.md](naming.md) §8(Step 2 #617 で実装)。
+- (#617 まで)HTTP・qmp で動いている基礎は探さない。#617 からは、登録があれば HTTP・qmp・zenoh だけの基礎も見つかる。他の機械を探すのはネーミングサービス(#289)の Step 4・5。
+- 決めごとは [naming.md](naming.md) §8(Step 2 #617 で実装)。
 
 ### 15.6 選んだつなぎ先を覚える
 
@@ -708,6 +712,7 @@ my_patrol:                 # アプリのパッケージ名
 ```
 
 - §10.2 のつなぎ先の順を次にする: 1. `--depend` → **2. 覚えた先** → 3. conf の `subsystems[].package` → 4. `ipc://<名前>`。
+  - #617 から: 1. `--depend` → 2. 覚えた先 → 3. conf の `subsystems[].package` → **4. この機械の名前の一覧の登録** → 5. `ipc://<名前>`(naming.md §8)。登録で見つけた先が `ipc://<名前>` と違えば `using robot_base at http://127.0.0.1:8101 (found in the name list)` と出す。
 - 覚えた先を使ったときは `using robot_base at http://192.168.0.10:8100 (remembered; --forget-depends to reset)` と標準エラーに出す。
 - 覚えた先につながらなければ、§15.4 の選択を出す(対話できなければ §10.3 のエラーに、上の文を添える)。
 - `--forget-depends` はそのアプリの項目を消す。ファイルが壊れていたら警告を出して無いものとして扱う。

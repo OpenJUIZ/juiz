@@ -4,8 +4,11 @@
 use super::install::{find_newest, Installed};
 use super::manifest::{parse_req, Kind, Manifest};
 use juiz_core::anyhow::{anyhow, bail, Result};
+use juiz_core::naming::{Candidate, Registration};
 use juiz_sdk::serde_json::{json, Map, Value};
 use semver::{Version, VersionReq};
+use std::cell::RefCell;
+use std::collections::BTreeMap;
 
 /// 依存を確かめられなかったときのエラー。`System::setup` の文脈を外して、この文だけを利用者に見せる
 #[derive(Debug)]
@@ -28,6 +31,8 @@ pub(crate) struct Depend {
     pub req: VersionReq,
     /// subsystems に足す conf(`package: <name>` 付き)
     pub conf: Value,
+    /// この機械の登録(naming.md §8 の 4)で見つけたつなぎ先か
+    pub found: bool,
 }
 
 impl Depend {
@@ -48,6 +53,143 @@ fn conf_url(conf: &Value) -> String {
     let t = conf.get("type_name").and_then(Value::as_str).unwrap_or("?");
     let n = conf.get("name").and_then(Value::as_str).unwrap_or("?");
     format!("{t}://{n}")
+}
+
+/// `--depend <名前>=<種類>` に書ける種類(naming.md §8)
+pub(crate) const DEPEND_KINDS: [&str; 4] = ["ipc", "http", "qmp", "zenoh"];
+
+/// `--depend` の値が URL でなく種類の指定(`http` など)なら、その種類
+pub(crate) fn depend_kind(v: &str) -> Option<&str> {
+    DEPEND_KINDS.iter().copied().find(|k| *k == v)
+}
+
+/// この機械の名前の登録(naming.md §3)を引く所。テストでは差し替える
+pub(crate) trait NameList {
+    /// `package.name` が `name`、`package.kind` が `base`、版が `req` に入る、生きている登録(naming.md §8 の 4)
+    fn bases(&self, name: &str, req: &VersionReq) -> Vec<Registration>;
+    /// この juiz がつなげるブローカーの種類
+    fn kinds(&self) -> Vec<String>;
+}
+
+/// 登録を引かない [`NameList`](登録の無い古い動作。テスト用)
+#[allow(dead_code)]
+pub(crate) struct NoNames;
+
+impl NameList for NoNames {
+    fn bases(&self, _name: &str, _req: &VersionReq) -> Vec<Registration> {
+        Vec::new()
+    }
+    fn kinds(&self) -> Vec<String> {
+        DEPEND_KINDS.iter().map(|k| k.to_string()).collect()
+    }
+}
+
+/// この機械の登録ファイルを読む [`NameList`]
+///
+/// 死活の確かめ(naming.md §6)に時間がかかることがあるので、見つかった結果だけを覚えて使い回す。
+/// 見つからなかった結果は覚えない(「もう一度試す」の間に基礎を起動したときに見つけられるように)。
+pub(crate) struct RegistryNames {
+    found: RefCell<BTreeMap<String, Vec<Registration>>>,
+}
+
+impl RegistryNames {
+    pub(crate) fn new() -> Self {
+        RegistryNames {
+            found: RefCell::new(BTreeMap::new()),
+        }
+    }
+}
+
+impl NameList for RegistryNames {
+    fn bases(&self, name: &str, req: &VersionReq) -> Vec<Registration> {
+        let key = format!("{name} {req}");
+        if let Some(v) = self.found.borrow().get(&key) {
+            return v.clone();
+        }
+        let Ok(registry) = juiz_core::naming::NameRegistry::open() else {
+            return Vec::new();
+        };
+        let kinds = self.kinds();
+        let out: Vec<Registration> = registry
+            .candidates_by(|r| is_base_of(r, name, req), &crate::name::AppProbe, &kinds)
+            .into_iter()
+            .map(|c| c.registration)
+            .collect();
+        if !out.is_empty() {
+            self.found.borrow_mut().insert(key, out.clone());
+        }
+        out
+    }
+    fn kinds(&self) -> Vec<String> {
+        crate::name::app_kinds()
+    }
+}
+
+/// 登録が依存 `name` の範囲 `req` に合う基礎か(naming.md §8 の 4)
+pub(crate) fn is_base_of(r: &Registration, name: &str, req: &VersionReq) -> bool {
+    r.package_name() == Some(name)
+        && r.package_kind() == Some("base")
+        && r.package_version()
+            .and_then(|v| Version::parse(v).ok())
+            .is_some_and(|v| req.matches(&v))
+}
+
+/// 登録から依存のつなぎ先を引く(naming.md §7.3・§8)。`kind` は種類の指定
+///
+/// 見つからなければ None。種類を指定しないで、つなげる種類のブローカーが無いときも None(既定の `ipc://<名前>` に任せる)。
+fn from_name_list(
+    name: &str,
+    req: &VersionReq,
+    kind: Option<&str>,
+    names: &dyn NameList,
+) -> Result<Option<Value>> {
+    let mut regs = names.bases(name, req);
+    let reg = match regs.len() {
+        0 => return Ok(None),
+        1 => regs.remove(0),
+        _ => {
+            // 基礎は同じ機械に 1 つしか動かない(IPC 名が同じ)ので、ふつうはここに来ない
+            let list = regs
+                .iter()
+                .map(|r| format!("{} (pid {})", r.registered_name(), r.pid))
+                .collect::<Vec<_>>()
+                .join(", ");
+            bail!("{name} is registered more than once on this machine: {list}. Choose one with --depend {name}=<URL>.");
+        }
+    };
+    let candidate = Candidate { registration: reg };
+    match candidate.select_broker(kind, &names.kinds()) {
+        Ok((_, url)) => Ok(Some(url_to_conf(&url)?)),
+        Err(_) if kind.is_none() => Ok(None),
+        Err(e) => Err(anyhow!("{e}")),
+    }
+}
+
+/// 種類だけを指定した依存(`--depend <名前>=<種類>`、conf の `subsystems` で `name` を省いたもの)のつなぎ先(naming.md §8)
+///
+/// 戻り値の bool は登録で見つけたか。見つからなければ ipc は `ipc://<名前>`、http は `127.0.0.1`(ポートは
+/// 呼んだ側が `base.http_port` で補う)、qmp・zenoh はエラー。
+fn by_kind(
+    name: &str,
+    req: &VersionReq,
+    kind: &str,
+    names: &dyn NameList,
+) -> Result<(Value, bool)> {
+    if let Some(conf) = from_name_list(name, req, Some(kind), names)? {
+        return Ok((conf, true));
+    }
+    match kind {
+        "ipc" => Ok((json!({ "type_name": "ipc", "name": name }), false)),
+        "http" => Ok((json!({ "type_name": "http", "name": "127.0.0.1" }), false)),
+        _ => bail!(
+            "{name} is not registered on this machine, so its {kind} broker cannot be found. Write where it is (ex., --depend {name}={kind}://192.168.0.10:<port>)."
+        ),
+    }
+}
+
+/// host がこの機械を指すか(naming.md §8 の http のポートの補い)
+fn is_local_host(host: &str) -> bool {
+    matches!(host, "localhost" | "127.0.0.1" | "::1" | "[::1]")
 }
 
 /// `--depend <名前>=none` の `none`。その依存につながない(§10.2、#452)
@@ -195,11 +337,14 @@ fn is_broker(b: &Value, type_name: &str, name: Option<&str>) -> bool {
 ///
 /// `cli` は `--depend` の (名前, URL)。conf の `subsystems` のうち `package` を持つものは depends のつなぎ先として扱い、
 /// `--depend` で上書きされたものは取り除く。URL が `none` の依存にはつながず、返す一覧にも入れない(#452)。
+/// どれにも無い依存は、この機械の登録(`names`)で引き、無ければ `ipc://<名前>`(naming.md §8)。
+/// `cli` の値と conf の `name` を省いた subsystem は、種類の指定として登録を引く。
 pub(crate) fn resolve(
     m: &Manifest,
     conf: &mut Value,
     cli: &[(String, String)],
     installed: &[Installed],
+    names: &dyn NameList,
 ) -> Result<Vec<Depend>> {
     for (name, _) in cli {
         if !m.depends.contains_key(name) {
@@ -239,12 +384,55 @@ pub(crate) fn resolve(
         if cli_url.is_some_and(|u| u == DEPEND_NONE) {
             continue;
         }
+        // 登録を引いたら true(http のポートを補うときに引き直さない)
+        let mut looked_up = false;
+        let mut found = false;
         let mut sub = if let Some(url) = cli_url {
-            url_to_conf(url)?
+            match depend_kind(url) {
+                Some(kind) => {
+                    looked_up = true;
+                    let (c, f) = by_kind(name, &req, kind, names)?;
+                    found = f;
+                    c
+                }
+                None => url_to_conf(url)?,
+            }
         } else if let Some((_, s)) = from_conf.iter().find(|(n, _)| n == name) {
-            s.clone()
+            let mut s = s.clone();
+            if s.get("name").is_none_or(Value::is_null) {
+                // name を省いた subsystem は、登録を引いて決める(type_name があればその種類だけ)
+                looked_up = true;
+                let kind = match s.get("type_name") {
+                    None | Some(Value::Null) => None,
+                    Some(Value::String(k)) => Some(k.clone()),
+                    Some(v) => {
+                        bail!("'type_name' of the subsystem for {name} must be a string, but {v}")
+                    }
+                };
+                let (c, f) = match kind.as_deref() {
+                    Some(k) => by_kind(name, &req, k, names)?,
+                    None => match from_name_list(name, &req, None, names)? {
+                        Some(c) => (c, true),
+                        None => (json!({ "type_name": "ipc", "name": name }), false),
+                    },
+                };
+                found = f;
+                // timeout_ms などの他のキーは残す
+                let obj = s.as_object_mut().unwrap();
+                for (k, v) in c.as_object().unwrap() {
+                    obj.insert(k.clone(), v.clone());
+                }
+            }
+            s
         } else {
-            json!({ "type_name": "ipc", "name": name })
+            looked_up = true;
+            match from_name_list(name, &req, None, names)? {
+                Some(c) => {
+                    found = true;
+                    c
+                }
+                None => json!({ "type_name": "ipc", "name": name }),
+            }
         };
         if !sub.get("type_name").is_some_and(Value::is_string)
             || !sub.get("name").is_some_and(Value::is_string)
@@ -255,14 +443,34 @@ pub(crate) fn resolve(
             .unwrap()
             .insert("package".to_owned(), json!(name));
         if sub["type_name"] == "http" && !sub["name"].as_str().unwrap().contains(':') {
-            // ポートを省いたら、インストール済みの基礎の base.http_port を使う
-            let port = find_newest(installed, name, Some(&req))
-                .filter(|i| i.manifest.kind == Kind::Base)
-                .and_then(|i| i.manifest.base_http_port)
-                .ok_or_else(|| {
-                    anyhow!("cannot decide the port for {name}. Write the port in the conf or --depend.")
-                })?;
             let host = sub["name"].as_str().unwrap().to_owned();
+            // host がこの機械なら、まず登録のポートを使う(naming.md §8)
+            let registered = if !looked_up && is_local_host(&host) {
+                from_name_list(name, &req, Some("http"), names)
+                    .ok()
+                    .flatten()
+                    .and_then(|c| {
+                        c["name"]
+                            .as_str()
+                            .and_then(|n| n.rsplit_once(':'))
+                            .and_then(|(_, p)| p.parse::<u16>().ok())
+                    })
+            } else {
+                None
+            };
+            // 無ければ、インストール済みの基礎の base.http_port を使う
+            let port = match registered {
+                Some(p) => {
+                    found = true;
+                    p
+                }
+                None => find_newest(installed, name, Some(&req))
+                    .filter(|i| i.manifest.kind == Kind::Base)
+                    .and_then(|i| i.manifest.base_http_port)
+                    .ok_or_else(|| {
+                        anyhow!("cannot decide the port for {name}. Write the port in the conf or --depend.")
+                    })?,
+            };
             sub["name"] = json!(format!("{host}:{port}"));
         }
         out.push(Depend {
@@ -270,6 +478,7 @@ pub(crate) fn resolve(
             range: range.clone(),
             req,
             conf: sub,
+            found,
         });
     }
     let mut all: Vec<Value> = out.iter().map(|d| d.conf.clone()).collect();
@@ -361,12 +570,30 @@ fn rewrite_ids(m: &Manifest, obj: &mut Map<String, Value>, deps: &[Depend]) -> R
 /// subsystem としてつなぐと、相手は同じ種類のブローカーでこちらへつなぎ返す(mastersystem)。
 /// - ipc: conf に ipc ブローカーが無く `--ipc` も無ければ、`<アプリ名>-<プロセス ID>` の名前で足す。
 /// - http: HTTP ブローカーを立てる(戻り値 true)。
+/// - qmp・zenoh: conf にその種類のブローカーが無ければ、空いているポート(`port: 0`)で `qmp0`・`zenoh0` の名前で足す(naming.md §8)。
 pub(crate) fn ensure_brokers(
     m: &Manifest,
     conf: &mut Value,
     depends: &[Depend],
     ipc: Option<&str>,
 ) -> Result<(Option<String>, bool)> {
+    for kind in ["qmp", "zenoh"] {
+        if !depends.iter().any(|d| d.type_name() == kind) {
+            continue;
+        }
+        let obj = conf_object(conf)?;
+        let brokers = obj.entry("brokers").or_insert_with(|| json!([]));
+        if brokers.is_null() {
+            *brokers = json!([]);
+        }
+        let brokers = brokers
+            .as_array_mut()
+            .ok_or_else(|| anyhow!("'brokers' in the conf must be a list"))?;
+        if !brokers.iter().any(|b| is_broker(b, kind, None)) {
+            // 名前は立てた後に実際の住所(`127.0.0.1:<ポート>`)に置き換わる
+            brokers.push(json!({ "type_name": kind, "name": format!("{kind}0"), "port": 0 }));
+        }
+    }
     let needs_http = depends.iter().any(|d| d.type_name() == "http");
     let needs_ipc = depends.iter().any(|d| d.type_name() == "ipc");
     if !needs_ipc || ipc.is_some() {
@@ -430,9 +657,19 @@ pub(crate) fn connect_error(app: &str, dep: &Depend, installed: bool) -> DependE
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    /// 登録を引かない resolve(Step 2 より前のテストの形)
+    fn resolve(
+        m: &Manifest,
+        conf: &mut Value,
+        cli: &[(String, String)],
+        installed: &[Installed],
+    ) -> Result<Vec<Depend>> {
+        super::resolve(m, conf, cli, installed, &NoNames)
+    }
 
     fn manifest(text: &str) -> Manifest {
         Manifest::parse_str(text, "t").unwrap()
@@ -734,6 +971,252 @@ mod tests {
             ensure_brokers(&m, &mut json!({}), &d, None).unwrap(),
             (None, true)
         );
+    }
+
+    /// 決めた登録だけがある偽の名前の一覧
+    pub(crate) struct FakeNames {
+        pub regs: Vec<Registration>,
+        pub kinds: Vec<&'static str>,
+    }
+
+    impl Default for FakeNames {
+        fn default() -> Self {
+            FakeNames {
+                regs: vec![],
+                kinds: vec!["ipc", "http", "qmp", "zenoh"],
+            }
+        }
+    }
+
+    impl NameList for FakeNames {
+        fn bases(&self, name: &str, req: &VersionReq) -> Vec<Registration> {
+            self.regs
+                .iter()
+                .filter(|r| is_base_of(r, name, req))
+                .cloned()
+                .collect()
+        }
+        fn kinds(&self) -> Vec<String> {
+            self.kinds.iter().map(|k| k.to_string()).collect()
+        }
+    }
+
+    /// 登録 1 つ。`brokers` は (種類, 名前)
+    pub(crate) fn registration(
+        name: &str,
+        version: &str,
+        kind: &str,
+        brokers: &[(&str, &str)],
+    ) -> Registration {
+        Registration {
+            format: 1,
+            name: name.to_owned(),
+            namespace: String::new(),
+            uuid: format!("uuid-{name}-{version}"),
+            pid: 1,
+            host: "h".to_owned(),
+            juiz_version: "0.3.6".to_owned(),
+            started_at: "2026-11-25T00:00:00Z".to_owned(),
+            package: Some(json!({ "name": name, "version": version, "kind": kind })),
+            brokers: brokers
+                .iter()
+                .map(|(t, n)| juiz_core::naming::RegisteredBroker::new(t, n))
+                .collect(),
+        }
+    }
+
+    fn names(regs: Vec<Registration>) -> FakeNames {
+        FakeNames {
+            regs,
+            kinds: vec!["ipc", "http", "qmp", "zenoh"],
+        }
+    }
+
+    /// 基礎がポートを逃げて 8101 で動いている(ipc と http)
+    fn moved_base() -> FakeNames {
+        names(vec![registration(
+            "robot_base",
+            "1.3.0",
+            "base",
+            &[("ipc", "robot_base"), ("http", "0.0.0.0:8101")],
+        )])
+    }
+
+    fn resolve_n(
+        conf: &mut Value,
+        cli: &[(&str, &str)],
+        installed: &[Installed],
+        names: &FakeNames,
+    ) -> Result<Vec<Depend>> {
+        let cli: Vec<(String, String)> = cli
+            .iter()
+            .map(|(a, b)| (a.to_string(), b.to_string()))
+            .collect();
+        super::resolve(&app(), conf, &cli, installed, names)
+    }
+
+    #[test]
+    fn name_list_comes_after_written_ones() {
+        let n = moved_base();
+        // 何も書かなければ登録を引く。同じ機械では ipc が先
+        let d = resolve_n(&mut json!({}), &[], &[], &n).unwrap();
+        assert_eq!(d[0].url(), "ipc://robot_base");
+        assert!(d[0].found);
+        // ipc をつなげない juiz なら http(0.0.0.0 は 127.0.0.1 に)
+        let no_ipc = FakeNames {
+            regs: n.regs.clone(),
+            kinds: vec!["http"],
+        };
+        let d = resolve_n(&mut json!({}), &[], &[], &no_ipc).unwrap();
+        assert_eq!(d[0].url(), "http://127.0.0.1:8101");
+        // --depend の URL、conf の subsystems は登録より勝つ
+        let d = resolve_n(
+            &mut json!({}),
+            &[("robot_base", "http://10.0.0.1:8100")],
+            &[],
+            &n,
+        )
+        .unwrap();
+        assert_eq!(d[0].url(), "http://10.0.0.1:8100");
+        assert!(!d[0].found);
+        let mut conf = json!({ "subsystems": [ { "package": "robot_base", "type_name": "ipc", "name": "rb2" } ] });
+        let d = resolve_n(&mut conf, &[], &[], &n).unwrap();
+        assert_eq!(d[0].url(), "ipc://rb2");
+        assert!(!d[0].found);
+        // 登録が無い、版が範囲外、基礎でないものは使わず、今の既定 ipc://<名前>
+        for regs in [
+            vec![],
+            vec![registration(
+                "robot_base",
+                "2.0.0",
+                "base",
+                &[("http", "0.0.0.0:8101")],
+            )],
+            vec![registration(
+                "robot_base",
+                "1.3.0",
+                "app",
+                &[("http", "0.0.0.0:8101")],
+            )],
+        ] {
+            let d = resolve_n(&mut json!({}), &[], &[], &names(regs)).unwrap();
+            assert_eq!(d[0].url(), "ipc://robot_base");
+            assert!(!d[0].found);
+        }
+        // つなげる種類のブローカーが無い登録も既定に任せる
+        let only_zenoh = names(vec![registration(
+            "robot_base",
+            "1.3.0",
+            "base",
+            &[("zenoh", "0.0.0.0:7448")],
+        )]);
+        let no_zenoh = FakeNames {
+            regs: only_zenoh.regs.clone(),
+            kinds: vec!["ipc", "http"],
+        };
+        let d = resolve_n(&mut json!({}), &[], &[], &no_zenoh).unwrap();
+        assert_eq!(d[0].url(), "ipc://robot_base");
+    }
+
+    #[test]
+    fn depend_kind_looks_up_the_name_list() {
+        let n = moved_base();
+        let inst = [installed(base(Some(8100)))];
+        // --depend <名前>=http は登録の http(逃げた後のポート)
+        let d = resolve_n(&mut json!({}), &[("robot_base", "http")], &inst, &n).unwrap();
+        assert_eq!(d[0].url(), "http://127.0.0.1:8101");
+        assert!(d[0].found);
+        // 登録が無ければ 127.0.0.1 と base.http_port
+        let empty = names(vec![]);
+        let d = resolve_n(&mut json!({}), &[("robot_base", "http")], &inst, &empty).unwrap();
+        assert_eq!(d[0].url(), "http://127.0.0.1:8100");
+        assert!(!d[0].found);
+        // ipc は登録が無くても ipc://<名前>
+        let d = resolve_n(&mut json!({}), &[("robot_base", "ipc")], &[], &empty).unwrap();
+        assert_eq!(d[0].url(), "ipc://robot_base");
+        // その種類が無い、登録が無い qmp・zenoh はエラー
+        let e = resolve_n(&mut json!({}), &[("robot_base", "zenoh")], &[], &n)
+            .unwrap_err()
+            .to_string();
+        assert_eq!(e, "robot_base has no zenoh broker (it has: ipc, http)");
+        let e = resolve_n(&mut json!({}), &[("robot_base", "qmp")], &[], &empty)
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            e,
+            "robot_base is not registered on this machine, so its qmp broker cannot be found. Write where it is (ex., --depend robot_base=qmp://192.168.0.10:<port>)."
+        );
+        // 知らない種類は URL の書式の誤り
+        let e = resolve_n(&mut json!({}), &[("robot_base", "tcp")], &[], &n)
+            .unwrap_err()
+            .to_string();
+        assert!(e.starts_with("'tcp' is not a broker URL"), "{e}");
+    }
+
+    #[test]
+    fn conf_without_name_looks_up_the_name_list() {
+        let n = moved_base();
+        // type_name だけなら、その種類を登録で引く。他のキーは残す
+        let mut conf = json!({ "subsystems": [ { "package": "robot_base", "type_name": "http", "timeout_ms": 500 } ] });
+        let d = resolve_n(&mut conf, &[], &[], &n).unwrap();
+        assert_eq!(d[0].url(), "http://127.0.0.1:8101");
+        assert_eq!(d[0].conf["timeout_ms"], 500);
+        assert!(d[0].found);
+        // package だけなら種類も登録で決める
+        let mut conf = json!({ "subsystems": [ { "package": "robot_base" } ] });
+        let d = resolve_n(&mut conf, &[], &[], &n).unwrap();
+        assert_eq!(d[0].url(), "ipc://robot_base");
+    }
+
+    #[test]
+    fn local_http_without_port_uses_the_registered_port() {
+        let n = moved_base();
+        let inst = [installed(base(Some(8100)))];
+        for host in ["localhost", "127.0.0.1"] {
+            let mut conf = json!({ "subsystems": [ { "package": "robot_base", "type_name": "http", "name": host } ] });
+            let d = resolve_n(&mut conf, &[], &inst, &n).unwrap();
+            assert_eq!(d[0].url(), format!("http://{host}:8101"));
+            assert!(d[0].found);
+        }
+        // 別の host は base.http_port のまま
+        let mut conf = json!({ "subsystems": [ { "package": "robot_base", "type_name": "http", "name": "192.168.0.10" } ] });
+        let d = resolve_n(&mut conf, &[], &inst, &n).unwrap();
+        assert_eq!(d[0].url(), "http://192.168.0.10:8100");
+        assert!(!d[0].found);
+        // --depend の URL でも同じ
+        let d = resolve_n(
+            &mut json!({}),
+            &[("robot_base", "http://127.0.0.1")],
+            &inst,
+            &n,
+        )
+        .unwrap();
+        assert_eq!(d[0].url(), "http://127.0.0.1:8101");
+    }
+
+    #[test]
+    fn adds_qmp_and_zenoh_brokers_to_answer_back() {
+        let m = app();
+        for (kind, url) in [
+            ("qmp", "qmp://127.0.0.1:8080"),
+            ("zenoh", "zenoh://127.0.0.1:7448"),
+        ] {
+            let cli = vec![("robot_base".to_owned(), url.to_owned())];
+            let d = resolve(&m, &mut json!({}), &cli, &[]).unwrap();
+            let mut conf = json!({});
+            assert_eq!(
+                ensure_brokers(&m, &mut conf, &d, None).unwrap(),
+                (None, false)
+            );
+            assert_eq!(
+                conf["brokers"],
+                json!([ { "type_name": kind, "name": format!("{kind}0"), "port": 0 } ])
+            );
+            // conf にあれば足さない
+            let mut conf = json!({ "brokers": [ { "type_name": kind, "port": 5000 } ] });
+            ensure_brokers(&m, &mut conf, &d, None).unwrap();
+            assert_eq!(conf["brokers"].as_array().unwrap().len(), 1);
+        }
     }
 
     #[test]

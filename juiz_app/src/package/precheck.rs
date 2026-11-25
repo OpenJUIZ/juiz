@@ -500,10 +500,18 @@ fn use_port(conf: &mut Value, ctx: &Context, t: &Target, port: i64, env: &mut im
     if ctx.kind == Kind::Base && t.place == Place::HttpOption {
         if let Some(b) = ctx.base_http_port {
             if port != b as i64 {
-                env.say(&format!(
-                    "note: apps that connect to {} over http look for port {b} and will not find it.",
-                    ctx.name
-                ));
+                // 名前の一覧に登録するなら、この機械のアプリは登録のポートで見つける(naming.md §8)
+                if juiz_core::naming::naming_options(conf).register {
+                    env.say(&format!(
+                        "note: apps on this machine find {} on port {port} in the name list, but apps on other machines look for port {b}.",
+                        ctx.name
+                    ));
+                } else {
+                    env.say(&format!(
+                        "note: apps that connect to {} over http look for port {b} and will not find it.",
+                        ctx.name
+                    ));
+                }
             }
         }
     }
@@ -945,6 +953,17 @@ mod tests {
             ),
             "{t}"
         );
+        assert!(t.ends_with("note: apps on this machine find my_app on port 8101 in the name list, but apps on other machines look for port 8100."), "{t}");
+
+        // 登録しないときは、前の添え書き
+        let mut c = conf.clone();
+        juiz_core::naming::set_register_option(&mut c, false);
+        let mut env = Fake::default()
+            .used("http", &[8100])
+            .juiz(8100, None)
+            .answers(&["1"]);
+        precheck(&mut c, &ctx(Kind::Base, Mode::Interactive), &mut env).unwrap();
+        let t = env.text();
         assert!(t.ends_with("note: apps that connect to my_app over http look for port 8100 and will not find it."), "{t}");
 
         // --yes は空いている番号
@@ -958,7 +977,8 @@ mod tests {
         let mut env = Fake::default();
         precheck(&mut c, &ctx(Kind::Base, Mode::NoPrompt), &mut env).unwrap();
         assert!(
-            env.text().starts_with("note: apps that connect to my_app"),
+            env.text()
+                .starts_with("note: apps on this machine find my_app on port 8200"),
             "{}",
             env.text()
         );

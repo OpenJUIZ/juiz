@@ -183,10 +183,15 @@ fn start(prepared: &Prepared, conf: &Path, opts: &RunOptions, data: &Path) -> Re
         .map(|s| depends::parse_depend_arg(s))
         .collect::<Result<Vec<_>>>()?;
     let installed = install::list(data)?;
+    let mut dep_env = depcheck::RealDepEnv {
+        log_dir: cache_dir()?.join("logs"),
+        names: depends::RegistryNames::new(),
+    };
     // `--no-http` と http での依存の接続が両立しないことは、つなぐ前に見る(§7.1)
     {
-        let deps = depends::resolve(m, &mut manifest.clone(), &cli, &installed)?;
-        let (_, needs_http) = depends::ensure_brokers(m, &mut manifest.clone(), &deps, ipc.as_deref())?;
+        let deps = depends::resolve(m, &mut manifest.clone(), &cli, &installed, &dep_env.names)?;
+        let (_, needs_http) =
+            depends::ensure_brokers(m, &mut manifest.clone(), &deps, ipc.as_deref())?;
         http_broker_flag(opts, needs_http)?;
     }
     // 依存のつなぎ先を決め、つながるかを確かめる。つながらなければ対話で選び直す(§10.2、§15.4〜§15.6)
@@ -198,9 +203,6 @@ fn start(prepared: &Prepared, conf: &Path, opts: &RunOptions, data: &Path) -> Re
         Default::default()
     } else {
         depcheck::load_remembered(data, &m.name)
-    };
-    let mut dep_env = depcheck::RealDepEnv {
-        log_dir: cache_dir()?.join("logs"),
     };
     let checked = depcheck::resolve_and_check(
         m,
@@ -229,6 +231,9 @@ fn start(prepared: &Prepared, conf: &Path, opts: &RunOptions, data: &Path) -> Re
     if let Some(port) = opts.http_port {
         set_http_port(&mut manifest, port)?;
     }
+    if opts.no_register {
+        juiz_core::naming::set_register_option(&mut manifest, false);
+    }
     // ポートと IPC 名の事前確認(§15.2)
     let ctx = precheck::Context {
         name: m.name.clone(),
@@ -239,9 +244,6 @@ fn start(prepared: &Prepared, conf: &Path, opts: &RunOptions, data: &Path) -> Re
     };
     if precheck::precheck(&mut manifest, &ctx, &mut precheck::RealEnv)? == precheck::Outcome::Exit {
         return Ok(());
-    }
-    if opts.no_register {
-        juiz_core::naming::set_register_option(&mut manifest, false);
     }
     let working_dir = conf.parent().unwrap_or(app_dir);
     let mut system = System::new(manifest)?
@@ -830,6 +832,7 @@ pub(crate) mod tests {
             range: ">=0.1".into(),
             req: semver::VersionReq::parse(">=0.1").unwrap(),
             conf: jvalue!({}),
+            found: false,
         };
         let conf = || jvalue!({"brokers": [{"type_name": "qmp", "port": 3000}]});
         let opts = RunOptions::default();
