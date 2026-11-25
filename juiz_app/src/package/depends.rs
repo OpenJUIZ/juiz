@@ -262,6 +262,13 @@ pub(crate) fn remap_topics(conf: &mut Value, remaps: &[(String, String)]) -> Res
     Ok(())
 }
 
+/// `name://` の後ろ(登録名とクエリ)をこの機械の登録で引き、ブローカーの種類と名前にする(naming.md §9.1)
+fn resolve_name_url(name: &str) -> Result<(String, String)> {
+    let spec = juiz_core::naming::NameSpec::parse_broker_name(name)?;
+    let resolved = spec.resolve(&crate::name::AppProbe, &crate::name::app_kinds())?;
+    Ok(resolved.type_and_name())
+}
+
 /// `ipc://robot_base`、`http://192.168.0.10:8100` を subsystem の conf にする
 pub(crate) fn url_to_conf(url: &str) -> Result<Value> {
     let (type_name, name) = url
@@ -438,6 +445,14 @@ pub(crate) fn resolve(
             || !sub.get("name").is_some_and(Value::is_string)
         {
             bail!("the subsystem for {name} must have 'type_name' and 'name'");
+        }
+        // name://<登録名> で書いたつなぎ先は、ここで実際のブローカーにする(naming.md §9.1)。
+        // 種類が決まらないと、つなぎ返しのブローカーを足せないため
+        if sub["type_name"] == juiz_core::naming::NAME_SCHEME {
+            let (t, n) = resolve_name_url(sub["name"].as_str().unwrap())?;
+            sub["type_name"] = json!(t);
+            sub["name"] = json!(n);
+            found = true;
         }
         sub.as_object_mut()
             .unwrap()

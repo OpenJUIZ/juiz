@@ -2,11 +2,14 @@
 //!
 //! Step 1 (#616) は機械ごとの登録ファイル (§3〜§7)。動き続ける System は、ブローカーを立てた後に
 //! `<dir>/names/<ns>/<名前>.json` を書き、止まるときに消す。引く側は pid と `system/profile` で死活を確かめる。
+//!
+//! Step 3 (#618) は名前で指す書き方 `name://…` (§9.1)、CLI の `-s` の名前 (§9.2)、API `naming/list`・`naming/resolve` (§9.4)。
 
 mod dir;
 mod probe;
 mod record;
 mod registry;
+mod spec;
 
 pub use dir::{names_dir, runtime_dir, IPC_DIR_ENV, NAMES_DIR};
 pub use probe::{
@@ -21,6 +24,7 @@ pub use registry::{
     ambiguous_message, not_registered_message, Candidate, Conflict, ListedRegistration, NameQuery,
     NameRegistry, RegisterRequest, Registered,
 };
+pub use spec::{split_broker_url, NameSpec, Resolved, NAME_SCHEME};
 
 use crate::prelude::*;
 

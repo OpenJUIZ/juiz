@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { CenterPane } from "./components/CenterPane.tsx";
 import { PropertyPane } from "./components/PropertyPane.tsx";
 import { SettingsDialog } from "./components/SettingsDialog.tsx";
+import { NamesDialog } from "./components/NamesDialog.tsx";
 import { TopBar } from "./components/TopBar.tsx";
 import { TreePane } from "./components/TreePane.tsx";
 import { CreateDialog } from "./components/CreateDialog.tsx";
@@ -38,6 +39,8 @@ function ancestorKeys(model: Model, key: string): string[] {
 export default function App() {
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // この計算機で動いている系の一覧(#618)
+  const [namesOpen, setNamesOpen] = useState(false);
   // 生成器の「＋」で開く、作るダイアログ
   const [creating, setCreating] = useState<FactoryInfo | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -121,6 +124,7 @@ export default function App() {
         }}
         onToggle={toggle}
         onOpenSettings={() => setSettingsOpen(true)}
+        onOpenNames={() => setNamesOpen(true)}
         onCreate={setCreating}
       />
       <CenterPane
@@ -143,6 +147,13 @@ export default function App() {
             refresh();
           }}
           onClose={() => setCreating(null)}
+        />
+      )}
+      {namesOpen && (
+        <NamesDialog
+          serverUrl={settings.serverUrl}
+          currentUuid={model?.root.uuid ?? null}
+          onClose={() => setNamesOpen(false)}
         />
       )}
       {settingsOpen && (

@@ -144,6 +144,13 @@ fn construct_capsule_map(
     if let Some(v) = query.via.clone() {
         capsule_map.set_param("via", v.as_str());
     }
+    // ネーミングサービス (docs/spec/naming.md §9.4)
+    if let Some(v) = query.name.clone() {
+        capsule_map.set_param("name", v.as_str());
+    }
+    if let Some(v) = query.check.clone() {
+        capsule_map.set_param("check", v.as_str());
+    }
     // Transformations (issue #370)。reference は ID なら identifier と同じく自分を指す http の ID を core に直す
     if let Some(v) = query.reference.clone() {
         capsule_map.set_param(

@@ -128,7 +128,7 @@ struct Args {
         short = 's',
         long = "server",
         default_value = "http://127.0.0.1:8000",
-        help = "Host of server (ex., http://localhost:8000)"
+        help = "Host of server (ex., http://localhost:8000). A registered name (ex., mobile_sim, robot1/mobile_sim, name://mobile_sim?type=http) is looked up in the name list of this machine"
     )]
     server: String,
 
@@ -996,8 +996,14 @@ fn add_ipc_broker(mut manifest: Value, ipc: Option<&str>) -> JuizResult<Value> {
     Ok(manifest)
 }
 
-fn run(args: Args) -> JuizResult<()> {
+fn run(mut args: Args) -> JuizResult<()> {
     log::trace!("【呼出】juiz_app::run called");
+    // -s に名前を書いたら、この機械の登録で引いた URL にする (docs/spec/naming.md §9.2)
+    if args.subcommand.is_some() {
+        if let Some(url) = name::resolve_server(&args.server)? {
+            args.server = url;
+        }
+    }
     let mut manifest = namespace::override_namespace(
         yaml_conf_load(args.filepath.clone())?,
         args.namespace.as_deref(),

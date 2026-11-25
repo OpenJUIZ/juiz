@@ -638,7 +638,13 @@ def _quaternion(v):
 
 
 def connect(address: str):
-    """'ipc://<name>' か 'http://<host>:<port>' に繋ぐ SystemProxy を返す (issue #236)"""
+    """'ipc://<name>' か 'http://<host>:<port>' に繋ぐ SystemProxy を返す (issue #236)。
+
+    名前 ('mobile_sim'・'robot1/mobile_sim'・'name://mobile_sim?type=http') を渡すと、
+    この機械の名前の一覧で引いたブローカーに繋ぐ (docs/spec/naming.md §9.4、issue #618)"""
+    from .. import naming as _naming
+    if _naming.is_name(address):
+        address = _naming.resolve_name(address)
     m = re.match(r'^(ipc|http)://([^/:]*)(?::(\d+))?/?$', address)
     if m is None:
         raise ValueError(f"invalid address '{address}'. Use 'ipc://<name>' or 'http://<host>:<port>'")
@@ -652,12 +658,17 @@ def connect(address: str):
 
 def _connect_system(host, port, protocol, ipc):
     """(SystemProxy, エラーメッセージ用の接続先) を返す"""
+    if protocol == 'name':
+        # 名前で指す (docs/spec/naming.md §9.4)。host に登録名を書く
+        from .. import naming as _naming
+        url = _naming.resolve_name(host)
+        return connect(url), url
     if ipc is not None or protocol == 'ipc':
         name = ipc if ipc is not None else (host or DEFAULT_IPC_NAME)
         return SystemProxy(IpcProxy(name)), f'ipc://{name}'
     if protocol == 'http':
         return SystemProxy(HttpProxy(host, port)), f'http://{host}:{port}'
-    raise ValueError(f"unknown protocol '{protocol}'. Use 'http' or 'ipc'")
+    raise ValueError(f"unknown protocol '{protocol}'. Use 'http', 'ipc' or 'name'")
 
 
 class ObjectProxy(object):

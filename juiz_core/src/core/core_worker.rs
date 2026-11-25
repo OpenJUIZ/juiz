@@ -47,6 +47,10 @@ use juiz_sdk::anyhow::anyhow;
 pub struct CoreWorker {
     store: CoreStore,
     system_uuid: Uuid,
+    /// 名前で指したつなぎ先 (`name://…`) を引くときの死活の確かめ方とつなげる種類 (docs/spec/naming.md §9.1)
+    naming_probe: (Arc<dyn crate::naming::ProfileProbe>, Vec<String>),
+    /// 名前の解決結果 (`name://` の後ろ → (相手の pid, 種類, 名前))。相手の pid が死んだら引き直す
+    name_cache: Mutex<HashMap<String, (u32, String, String)>>,
 }
 
 impl CoreWorker {
@@ -59,7 +63,78 @@ impl CoreWorker {
         CoreWorker {
             store,
             system_uuid: uuid,
+            naming_probe: (
+                Arc::new(crate::naming::CoreProbe),
+                crate::naming::core_kinds(),
+            ),
+            name_cache: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// 名前で指したつなぎ先を引くときの死活の確かめ方とつなげる種類を決める (docs/spec/naming.md §9.1)
+    pub fn set_naming_probe(
+        &mut self,
+        probe: Arc<dyn crate::naming::ProfileProbe>,
+        kinds: Vec<String>,
+    ) {
+        self.naming_probe = (probe, kinds);
+    }
+
+    /// 名前を引くときの死活の確かめ方とつなげる種類
+    pub fn naming_probe(&self) -> (Arc<dyn crate::naming::ProfileProbe>, Vec<String>) {
+        (self.naming_probe.0.clone(), self.naming_probe.1.clone())
+    }
+
+    /// ブローカーの種類が `name` なら、名前をこの機械の登録で引き、実際のブローカーの種類と名前にする
+    /// (docs/spec/naming.md §9.1)。`name` でなければそのまま返す。
+    ///
+    /// 同じ名前の解決結果は使い回す。相手のプロセスがいなくなっていれば引き直す。
+    pub fn resolve_broker_name(
+        &self,
+        broker_type_name: &str,
+        broker_name: &str,
+    ) -> JuizResult<(String, String)> {
+        if broker_type_name != crate::naming::NAME_SCHEME {
+            return Ok((broker_type_name.to_owned(), broker_name.to_owned()));
+        }
+        if let Ok(cache) = self.name_cache.lock() {
+            if let Some((pid, t, n)) = cache.get(broker_name) {
+                if crate::naming::pid_alive(*pid) {
+                    return Ok((t.clone(), n.clone()));
+                }
+            }
+        }
+        let spec = crate::naming::NameSpec::parse_broker_name(broker_name)?;
+        let (probe, kinds) = &self.naming_probe;
+        let resolved = spec.resolve(probe.as_ref(), kinds)?;
+        let (t, n) = resolved.type_and_name();
+        log::info!("name://{broker_name} is resolved to {}", resolved.url);
+        if let Ok(mut cache) = self.name_cache.lock() {
+            cache.insert(
+                broker_name.to_owned(),
+                (resolved.candidate.registration.pid, t.clone(), n.clone()),
+            );
+        }
+        Ok((t, n))
+    }
+
+    /// ID のブローカーの部分が `name://…` なら解決する。ID にはクエリ (`?ns=`・`?type=`) を書けない (§9.1)
+    fn resolve_id_broker(
+        &self,
+        broker_type_name: &str,
+        broker_name: &str,
+    ) -> JuizResult<Option<(String, String)>> {
+        if broker_type_name != crate::naming::NAME_SCHEME {
+            return Ok(None);
+        }
+        if broker_name.contains('?') {
+            return Err(anyhow!(JuizError::InvalidIdentifierError {
+                message: format!(
+                    "name://{broker_name} can not have a query in an ID. Connect with the name in 'subsystems' and write the ID with the URL of the broker"
+                )
+            }));
+        }
+        self.resolve_broker_name(broker_type_name, broker_name).map(Some)
     }
 
     pub fn manifest(&self) -> Value {
@@ -137,6 +212,14 @@ impl CoreWorker {
         if identifier.broker_name == "core" && identifier.broker_type_name == "core" {
             return self.process_from_identifier(identifier, create_when_not_found);
         }
+        if let Some((t, n)) =
+            self.resolve_id_broker(&identifier.broker_type_name, &identifier.broker_name)?
+        {
+            let mut id = identifier.clone();
+            id.broker_type_name = t;
+            id.broker_name = n;
+            return self.process_proxy_from_identifier(&id, create_when_not_found);
+        }
         let broker_proxy = self.broker_proxy(
             &identifier.broker_type_name,
             &identifier.broker_name,
@@ -168,6 +251,11 @@ impl CoreWorker {
         create_when_not_found: bool,
     ) -> JuizResult<Arc<RwLock<dyn BrokerProxy>>> {
         log::trace!("broker_proxy({broker_type_name}, {broker_name}, {create_when_not_found})が呼ばれました。");
+        // 名前で指したつなぎ先は、この機械の登録で引いた実際のブローカーにする (docs/spec/naming.md §9.1)
+        if broker_type_name == crate::naming::NAME_SCHEME {
+            let (t, n) = self.resolve_broker_name(broker_type_name, broker_name)?;
+            return self.broker_proxy(&t, &n, create_when_not_found);
+        }
         let mut type_name = broker_type_name;
         if type_name == "core" {
             type_name = "local";
@@ -1031,6 +1119,14 @@ impl CoreWorker {
         if identifier.broker_name == "core" && identifier.broker_type_name == "core" {
             return self.container_from_identifier(identifier);
         }
+        if let Some((t, n)) =
+            self.resolve_id_broker(&identifier.broker_type_name, &identifier.broker_name)?
+        {
+            let mut id = identifier.clone();
+            id.broker_type_name = t;
+            id.broker_name = n;
+            return self.container_proxy_from_identifier(&id);
+        }
         let broker_proxy =
             self.broker_proxy(&identifier.broker_type_name, &identifier.broker_name, false)?;
         Ok(ContainerPtr::new(ContainerProxy::new(
@@ -1101,6 +1197,14 @@ impl CoreWorker {
         // let id_struct = IdentifierStruct::try_from(identifier.clone())?;
         if identifier.broker_name == "core" && identifier.broker_type_name == "core" {
             return self.container_process_from_id(identifier);
+        }
+        if let Some((t, n)) =
+            self.resolve_id_broker(&identifier.broker_type_name, &identifier.broker_name)?
+        {
+            let mut id = identifier.clone();
+            id.broker_type_name = t;
+            id.broker_name = n;
+            return self.container_process_proxy_from_identifier(&id);
         }
         let broker_proxy =
             self.broker_proxy(&identifier.broker_type_name, &identifier.broker_name, false)?;
@@ -1178,6 +1282,16 @@ impl CoreWorker {
         let id_struct = IdentifierStruct::try_from(identifier.clone())?;
         if id_struct.broker_name == "core" && id_struct.broker_type_name == "core" {
             return self.ec_from_id(identifier);
+        }
+        if let Some((t, n)) =
+            self.resolve_id_broker(&id_struct.broker_type_name, &id_struct.broker_name)?
+        {
+            let prefix = format!("{}://{}", id_struct.broker_type_name, id_struct.broker_name);
+            let id = match identifier.strip_prefix(&prefix) {
+                Some(rest) => format!("{t}://{n}{rest}"),
+                None => identifier.clone(),
+            };
+            return self.ec_proxy_from_identifier(&id);
         }
         let broker_proxy =
             self.broker_proxy(&id_struct.broker_type_name, &id_struct.broker_name, false)?;

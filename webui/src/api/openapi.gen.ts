@@ -1636,6 +1636,78 @@ export interface paths {
         };
         trace?: never;
     };
+    "/api/naming/list": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    /** @description true なら各登録に system/profile を問い合わせ、応答しないものに alive: false を付ける */
+                    check?: string | null;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description この System がいる機械の登録の配列 ({format, name, namespace, uuid, pid, host, juiz_version, started_at, package, brokers, alive, machine})。juiz name list --json と同じ形 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/naming/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    /** @description 登録名 (mobile_sim、robot1/mobile_sim、/mobile_sim、mobile_sim@robot1-pc) */
+                    name?: string | null;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 名前に当てはまる、生きている候補の配列 (naming/list の要素と同じ形)。1 つに選ばない */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/pose_listener/create": {
         parameters: {
             query?: never;
@@ -2223,6 +2295,9 @@ export interface paths {
                     source_system?: string | null;
                     /** @description topic/request_subscribe・request_publish が通ってきた System の UUID (`,` 区切り、issue #449) */
                     via?: string | null;
+                    /** @description `naming/resolve` の登録名、`naming/list` の死活の確かめ (docs/spec/naming.md §9.4) */
+                    name?: string | null;
+                    check?: string | null;
                 };
                 header?: never;
                 path?: never;

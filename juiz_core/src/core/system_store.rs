@@ -83,6 +83,21 @@ impl SystemStorePtr {
         manifest: &Value,
     ) -> JuizResult<Arc<RwLock<dyn BrokerProxy>>> {
         log::trace!("create_broker_proxy({manifest:}) called");
+        // 名前で指したつなぎ先 (`type_name: name`) は、この機械の登録で引いた実際のブローカーにする
+        // (docs/spec/naming.md §9.1)。conf の subsystems・mastersystem もここを通る
+        if obj_get_str(manifest, "type_name")? == crate::naming::NAME_SCHEME {
+            let name = obj_get_str(manifest, "name")?;
+            let (t, n) = core_broker.resolve_broker_name(crate::naming::NAME_SCHEME, name)?;
+            let mut m = manifest.clone();
+            if let Some(o) = m.as_object_mut() {
+                o.insert("type_name".to_owned(), jvalue!(t));
+                o.insert("name".to_owned(), jvalue!(n));
+                if o.contains_key("identifier") {
+                    o.insert("identifier".to_owned(), jvalue!(format!("{t}://{n}")));
+                }
+            }
+            return self.create_broker_proxy(core_broker, &m);
+        }
         let type_name = obj_get_str(manifest, "type_name")?;
         match self.lock()?.broker_factories.get(type_name) {
             Some(bf) => juiz_lock(bf)?

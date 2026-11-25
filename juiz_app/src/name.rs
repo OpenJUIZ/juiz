@@ -13,7 +13,8 @@ use clap::Subcommand;
 use juiz_core::anyhow::{anyhow, Result};
 use juiz_core::naming::{
     ambiguous_message, core_kinds, not_registered_message, Candidate, CoreProbe,
-    ListedRegistration, NameQuery, NameRegistry, Probe, ProfileProbe, RegisteredBroker,
+    ListedRegistration, NameQuery, NameRegistry, NameSpec, Probe, ProfileProbe, RegisteredBroker,
+    Resolved,
 };
 use juiz_core::prelude::*;
 
@@ -144,6 +145,21 @@ fn on_name(cmd: &NameSubCommands) -> Result<()> {
             Ok(())
         }
     }
+}
+
+/// CLI の `-s` の値が名前(`name://…` か、`://` も `:` も無いもの)なら、この機械の登録で引いて
+/// つなぐブローカーの URL を返す(docs/spec/naming.md §9.2)。名前でなければ `None`
+pub(crate) fn resolve_server(server: &str) -> Result<Option<String>> {
+    let Some(spec) = NameSpec::parse_server(server)? else {
+        return Ok(None);
+    };
+    let kinds = app_kinds();
+    let registry = NameRegistry::open()?;
+    let candidates = registry.candidates(&spec.query, &AppProbe, &kinds);
+    let chosen = choose(&spec.query, candidates)?;
+    let resolved = Resolved::new(chosen, spec.kind.as_deref(), &kinds)?;
+    log::info!("{server} is resolved to {}", resolved.url);
+    Ok(Some(resolved.url))
 }
 
 fn candidate_json(c: &Candidate) -> Value {

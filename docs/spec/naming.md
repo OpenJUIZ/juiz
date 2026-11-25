@@ -297,6 +297,18 @@ name://mobile_sim/process/inc0::increment
 - pyjuiz: つなぎ先に `name://…` か、`://` と `:` を含まない文字列を渡せる(§9.2 と同じ規則)。解決は pyjuiz が登録ファイルを直接読んで行う(juiz を通さない)。
 - 管理画面: 「この機械で動いている System」を `naming/list` で並べ、選ぶとその System の管理画面を開く。
 
+### 9.5 #618 の実装で決めた細部
+
+- conf では、`subsystems` の要素に `type_name: name` と `name: <登録名>`(クエリも書ける。例 `name: "mobile_sim?type=http"`)、`mastersystem` に `broker_type: name` と `broker_name: <登録名>` を書く(どちらも今の書き方の種類を `name` にしたもの)。`juiz run` の `--depend <名前>=name://…` と conf の `subsystems` の `name://` は、`juiz run` が起動前に解決して実際の種類にする(つなぎ返しのブローカーを §8 のとおり足すため。決まったら `found in the name list` の文を出す)。
+- 解決は `CoreWorker::broker_proxy`(と、conf の `subsystems`・`mastersystem`・CLI の `-s` が通る `SystemStorePtr::create_broker_proxy`)で行う。Process・Container・ContainerProcess・EC の Proxy を ID から作るときは、ID のブローカーの部分を解決した後の実際の URL に書き換えてから作る(一覧や profile に `name://` が出ない)。
+- ID のブローカーの部分にクエリ(`?`)があればエラー `name://<…> can not have a query in an ID. …`。
+- 同じ System の中の使い回し: 解決結果を `name://` の後ろの文字列ごとに覚え、次に使うときに相手の pid が生きていれば使う。死んでいれば引き直す(「つながらなくなったら」の判定を pid で行う。問い合わせを毎回しないため)。
+- 死活の確かめ方とつなげる種類は、System の `set_naming_probe` で決めたもの(juiz コマンドは ipc・http・qmp と、feature があれば zenoh)。
+- CLI の `-s` は、サブコマンドがあるときだけ解決する。候補が複数で対話できるときは `juiz name resolve` と同じく選ばせる。解決したら `<-s の値> is resolved to <URL>` をログ(`info`)に出す。`name://` で書いた `-s` も CLI で解決する。
+- API: `naming/list` は `?check=true` で §6 の 2 も確かめる(`juiz name list --check` と同じ)。`naming/resolve` の各要素は `naming/list` の要素と同じ形(`alive: true`)。どちらも IPC など CRUD のブローカーでも呼べる。
+- pyjuiz: `juiz.proxy.connect(<名前>)`、`ProcessProxy(name, host=<登録名>, protocol='name')`(ContainerProxy も同じ)、`juiz.resolve_name`・`juiz.name_list`(モジュール `juiz.naming`)。つなげる種類は ipc → http の順。死んだ登録は飛ばすが、ファイルは消さない(消すのは juiz)。候補が 0 なら `NameNotRegisteredError`、複数なら `NameAmbiguousError`(文は §7.2 と同じ。対話はしない)。
+- 管理画面: 左の欄の「ほかの系」で「このマシンで動いている系」を `naming/list?check=true` で並べる。HTTP のブローカーを持つ系は「開く」でその系の `/ui/` を別の画面に開く。待ち受けの host が `0.0.0.0`・`127.0.0.1` などなら、一覧を取った juiz の host に置き換える(別のマシンのブラウザからも届くように)。今見ている系には印を付ける。
+
 ## 10. conf とコマンドの引数
 
 ```yaml
@@ -347,7 +359,7 @@ Step 5 で決めること: 待ち時間、peer が返す登録の host の置き
 - §4.3 の重複: 2 つ目が `-2` で登録されること、`unique: true` で止まること、解除で他人の登録を消さないこと。
 - §7.2 の複数候補のエラーの文、§7.3 のブローカーの選び方(種類の指定を含む)。
 - §8 の順: `--depend`・覚えた先・conf が登録より勝つこと、基礎の HTTP のポートが逃げても登録で見つかること(Step 2)。
-- `-s <名前>` で CLI がつながること(Step 3)。
+- `-s <名前>` で CLI がつながること、conf の `subsystems` に名前で書いた相手につながり一覧に実際の URL が出ること、API `naming/list`・`naming/resolve`(Step 3、`juiz_app` の `tests/cli/name_target.rs`、ポート 8160・8161)。pyjuiz は `test/unit/naming_test.py`、管理画面は `webui/tests/naming.test.ts`。
 - 置き場所の権限は ipc-broker.md §8 と同じ方法で試す。
 
 ## 14. 対象外
