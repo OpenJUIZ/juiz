@@ -19,6 +19,9 @@ name: juiz wheels
 # Zenoh ブローカー(juiz_py の feature zenoh-broker、docs/spec/zenoh-broker.md §8.3、issue #491)は、
 # PR 以外(main・release/* への push、タグでの公開、手動実行)で組み込み、スモークテストでも zenoh:// で呼ぶ。
 # Zenoh を入れると release のビルドが約 1.5 分延びるので、PR のジョブの時間は変えない。
+#
+# LAN の自動発見(juiz_py の feature naming-mdns、docs/spec/naming.md §11.6、issue #621)は、
+# 依存が小さい(純 Rust の mdns-sd)ので PR でも常に組み込み、スモークテストで feature が入っていることを確かめる。
 on:
   workflow_call:
     inputs:
@@ -95,7 +98,7 @@ jobs:
           working-directory: bindings/juiz_py
           target: ${{ env.TARGET }}
           manylinux: auto
-          args: --release --out dist ${{ github.event_name != 'pull_request' && '--features zenoh-broker' || '' }}
+          args: --release --out dist --features naming-mdns ${{ github.event_name != 'pull_request' && '--features zenoh-broker' || '' }}
           sccache: "true"
 
       # Python の版ごとに venv を作って wheel を入れ、その venv の python と juiz でスモークテストする

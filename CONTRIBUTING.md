@@ -91,12 +91,12 @@ pip install ./bindings/pyjuiz
 ```terminal
 pip install maturin ./bindings/pyjuiz
 cd bindings/juiz_py
-maturin build --release
+maturin build --release --features naming-mdns   # 公開する wheel と同じく LAN の自動発見を入れる(入れないとスモークテストが落ちる)
 pip install target/wheels/juiz_cli-*.whl
 python tests/smoke_test.py                          # juiz_examples_python のディレクトリを渡すとサンプルも動かす
 ```
 
-CI では `.github/workflows/juiz-wheels.yml` が Linux(x86_64・aarch64、manylinux)、macOS(arm64・x86_64)、Windows(x86_64)の wheel をビルドし、それぞれでスモークテストと [juiz_examples_python](https://github.com/OpenJUIZ/juiz_examples_python) のサンプルを動かします。
+CI では `.github/workflows/juiz-wheels.yml` が Linux(x86_64・aarch64、manylinux)、macOS(arm64・x86_64)、Windows(x86_64)の wheel をビルドし、それぞれでスモークテストと [juiz_examples_python](https://github.com/OpenJUIZ/juiz_examples_python) のサンプルを動かします。wheel には常に feature `naming-mdns`(LAN の自動発見、docs/spec/naming.md §11.6)を入れ、PR 以外では `zenoh-broker` も入れます。
 v* タグを打つと `.github/workflows/pypi-publish.yml` が pyjuiz を公開したあと、これらの wheel を PyPI の `juiz-cli` として公開します。そのため版上げでは、`bindings/juiz_py/pyproject.toml` の `version` と `pyjuiz==` の版、`bindings/juiz_py/Cargo.toml` の `version` もタグに揃えてください(揃っていないと公開しません)。
 
 C++ のサンプルは CMake でビルドします。

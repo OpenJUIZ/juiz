@@ -1,6 +1,6 @@
 [package]
 name = "juiz_py"
-version = "0.3.6"
+version = "0.3.7"
 edition = "2021"
 description = "juiz command for Python (the PyPI package juiz-cli)"
 license = "MIT OR Apache-2.0"
@@ -17,6 +17,8 @@ crate-type = ["cdylib"]
 [features]
 # Zenoh ブローカーを組み込む (docs/spec/zenoh-broker.md §8.2、#491)
 zenoh-broker = ["juiz_app/zenoh-broker"]
+# LAN の自動発見 (DNS-SD / mDNS、docs/spec/naming.md §11.6、#621)。公開する wheel では常に入れる
+naming-mdns = ["juiz_app/naming-mdns"]
 
 [dependencies]
 juiz_app = { path = "../../juiz_app", default-features = false, features = ["python-entry", "qmp-broker", "ipc-broker"] }
