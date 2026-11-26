@@ -283,9 +283,10 @@ fn names_are_found_through_peers() {
         asker.log_text()
     );
 
-    assert!(asker.stop());
-    assert!(peer.stop());
+    // Windows では合図で止められず kill するので stop() は false (common::Daemon::stop_with)
+    assert!(asker.stop() || cfg!(not(unix)), "{}", asker.log_text());
+    assert!(peer.stop() || cfg!(not(unix)), "{}", peer.log_text());
     if let Some(f) = far.as_mut() {
-        assert!(f.stop());
+        assert!(f.stop() || cfg!(not(unix)), "{}", f.log_text());
     }
 }

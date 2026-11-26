@@ -417,7 +417,9 @@ fn rule_t5() {
     // 文書のディレクトリの外を import する
     let outside = temp("t5_outside");
     std::fs::write(outside.join("o.jidl"), "namespace o;\nrecord O { long x; }\n").unwrap();
-    std::fs::write(dir.join("imp.jidl"), format!("namespace i;\nimport idl \"{}\";\n", outside.join("o.jidl").display())).unwrap();
+    // .jidl の文字列は JSON の書き方なので、Windows の C:\Users\… の \ はエスケープになる。/ に直して書く (#624)
+    let outside_jidl = outside.join("o.jidl").display().to_string().replace('\\', "/");
+    std::fs::write(dir.join("imp.jidl"), format!("namespace i;\nimport idl \"{outside_jidl}\";\n")).unwrap();
     let (_, message) = err("imp.jidl");
     assert!(message.contains("outside the directory of the document"), "{message}");
     let _ = std::fs::remove_dir_all(outside);
