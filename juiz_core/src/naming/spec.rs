@@ -76,9 +76,15 @@ impl NameSpec {
         }))
     }
 
-    /// この機械の登録 (見つからなければ LAN、§7.1) から 1 つに決め (§7.2、対話しない)、つなぐブローカーを選ぶ (§7.3)
-    pub fn resolve(&self, probe: &dyn ProfileProbe, kinds: &[String]) -> JuizResult<Resolved> {
-        let candidate = super::resolve_query(&self.query, probe, kinds)?;
+    /// この機械の登録 (見つからなければ LAN と peers、§7.1) から 1 つに決め (§7.2、対話しない)、
+    /// つなぐブローカーを選ぶ (§7.3)
+    pub fn resolve(
+        &self,
+        probe: &dyn ProfileProbe,
+        kinds: &[String],
+        peers: &[super::peers::Peer],
+    ) -> JuizResult<Resolved> {
+        let candidate = super::resolve_query(&self.query, probe, kinds, peers)?;
         Resolved::new(candidate, self.kind.as_deref(), kinds)
     }
 }

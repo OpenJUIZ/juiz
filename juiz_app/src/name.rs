@@ -1,21 +1,23 @@
 //! この機械の名前の一覧 (docs/spec/naming.md §9.3、issue #616)
 //!
 //! ```text
-//! juiz name list [--check] [--lan] [--json]
-//! juiz name resolve <登録名> [--all] [--lan] [--json]
+//! juiz name list [--check] [--lan] [--peer <URL>]... [--json]
+//! juiz name resolve <登録名> [--all] [--lan] [--peer <URL>]... [--json]
 //! ```
 //!
 //! どちらもブローカーを立てない (System を作らない)。登録ファイルを直接読み、死活を確かめる。
-//! feature `naming-mdns` の juiz は LAN (mDNS、§11) も引く。`resolve` はこの機械で見つからなければ LAN を見る。
+//! feature `naming-mdns` の juiz は LAN (mDNS、§11) も引く。`--peer`・`JUIZ_NAMING_PEERS` の juiz にも聞く (§12)。
+//! `resolve` はこの機械で見つからなければ LAN と peers を見る。
 
 use std::io::{BufRead, IsTerminal, Write};
 
 use clap::Subcommand;
 use juiz_core::anyhow::{anyhow, Result};
+use juiz_core::naming::peers::{env_peers, parse_peers, Peer};
 use juiz_core::naming::{
     ambiguous_message, core_kinds, find_candidates, list_all, not_registered_message, Candidate,
-    CoreProbe, LanLookup, ListedRegistration, NameQuery, NameSpec, Place, Probe, ProfileProbe,
-    RegisteredBroker, Resolved,
+    CoreProbe, LanLookup, ListedRegistration, Looked, NameQuery, NameSpec, Place, Probe,
+    ProfileProbe, RegisteredBroker, Resolved,
 };
 use juiz_core::prelude::*;
 
@@ -27,9 +29,13 @@ pub(crate) enum NameSubCommands {
         #[arg(long = "check")]
         check: bool,
 
-        /// Also list the juiz advertised on the LAN (mDNS; needs a juiz built with the feature naming-mdns)
+        /// Also list the juiz advertised on the LAN (mDNS; needs a juiz built with the feature naming-mdns) and the ones the peers know
         #[arg(long = "lan")]
         lan: bool,
+
+        /// Also list the juiz this juiz knows (ex., http://192.168.0.10:8000). Can be written more than once
+        #[arg(long = "peer", value_name = "URL")]
+        peer: Vec<String>,
 
         /// Print JSON
         #[arg(long = "json")]
@@ -45,9 +51,13 @@ pub(crate) enum NameSubCommands {
         #[arg(long = "all")]
         all: bool,
 
-        /// Look at the LAN (mDNS) too, even when the name is found on this machine
+        /// Look at the LAN (mDNS) and the peers too, even when the name is found on this machine
         #[arg(long = "lan")]
         lan: bool,
+
+        /// A juiz to ask when the name is not found on this machine (ex., http://192.168.0.10:8000). Can be written more than once
+        #[arg(long = "peer", value_name = "URL")]
+        peer: Vec<String>,
 
         /// Print JSON
         #[arg(long = "json")]
@@ -98,9 +108,9 @@ pub(crate) fn app_kinds() -> Vec<String> {
     v
 }
 
-/// `juiz name` を実行して終了コードを返す
-pub(crate) fn run_name_command(cmd: &NameSubCommands) -> i32 {
-    match on_name(cmd) {
+/// `juiz name` を実行して終了コードを返す。`global_peers` は `juiz --peer <URL> name …` の分
+pub(crate) fn run_name_command(cmd: &NameSubCommands, global_peers: &[String]) -> i32 {
+    match on_name(cmd, global_peers) {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("error: {e:#}");
@@ -116,19 +126,52 @@ fn warn_no_lan(lan: bool) {
     }
 }
 
-fn on_name(cmd: &NameSubCommands) -> Result<()> {
+/// `--peer` で書いた peers を読む。読めないものはエラー (引数の誤りなので)
+fn cli_peers(written: &[String]) -> Result<Vec<Peer>> {
+    for w in written {
+        juiz_core::naming::peers::parse_peer(w)?;
+    }
+    Ok(parse_peers(written.iter().map(String::as_str)))
+}
+
+/// `--peer` と `JUIZ_NAMING_PEERS` の peers (§12.1)
+fn all_peers(written: &[String]) -> Result<Vec<Peer>> {
+    let mut w = written.to_vec();
+    w.extend(env_peers());
+    cli_peers(&w)
+}
+
+fn on_name(cmd: &NameSubCommands, global_peers: &[String]) -> Result<()> {
     let kinds = app_kinds();
     match cmd {
-        NameSubCommands::List { check, lan, json } => {
+        NameSubCommands::List {
+            check,
+            lan,
+            peer,
+            json,
+        } => {
             warn_no_lan(*lan);
-            let listed = list_all(*check, *lan, &AppProbe, &kinds)?;
+            let written: Vec<String> = global_peers.iter().chain(peer).cloned().collect();
+            // 一覧は既定でこの機械だけ。--lan なら LAN と peers (JUIZ_NAMING_PEERS を含む)、--peer なら書いた peers
+            let peers = if *lan {
+                all_peers(&written)?
+            } else {
+                cli_peers(&written)?
+            };
+            let listed = list_all(*check, *lan, &peers, &AppProbe, &kinds)?;
             if *json {
                 let v: Vec<Value> = listed.iter().map(ListedRegistration::to_json).collect();
                 println!("{}", serde_json::to_string_pretty(&v)?);
             } else {
                 print!(
                     "{}",
-                    format_list(&listed, *lan && juiz_core::naming::lan::available())
+                    format_list(
+                        &listed,
+                        Looked {
+                            lan: *lan && juiz_core::naming::lan::available(),
+                            peers: !peers.is_empty(),
+                        }
+                    )
                 );
             }
             Ok(())
@@ -137,12 +180,20 @@ fn on_name(cmd: &NameSubCommands) -> Result<()> {
             name,
             all,
             lan,
+            peer,
             json,
         } => {
             warn_no_lan(*lan);
             let query = NameQuery::parse(name)?;
-            let (candidates, looked) =
-                find_candidates(&query, &AppProbe, &kinds, LanLookup::from_flag(*lan))?;
+            let written: Vec<String> = global_peers.iter().chain(peer).cloned().collect();
+            let peers = all_peers(&written)?;
+            let (candidates, looked) = find_candidates(
+                &query,
+                &AppProbe,
+                &kinds,
+                LanLookup::from_flag(*lan),
+                &peers,
+            )?;
             if *all {
                 if *json {
                     let v: Vec<Value> = candidates.iter().map(candidate_json).collect();
@@ -151,7 +202,7 @@ fn on_name(cmd: &NameSubCommands) -> Result<()> {
                     for c in &candidates {
                         println!("{}", c.describe());
                         for b in &c.registration.brokers {
-                            if c.place == Place::Lan && b.type_name == "ipc" {
+                            if c.place.is_remote() && b.type_name == "ipc" {
                                 continue;
                             }
                             println!("    {}", b.local_url());
@@ -177,14 +228,16 @@ fn on_name(cmd: &NameSubCommands) -> Result<()> {
 }
 
 /// CLI の `-s` の値が名前(`name://…` か、`://` も `:` も無いもの)なら、この機械の登録で引いて
-/// つなぐブローカーの URL を返す(docs/spec/naming.md §9.2)。名前でなければ `None`
-pub(crate) fn resolve_server(server: &str) -> Result<Option<String>> {
+/// つなぐブローカーの URL を返す(docs/spec/naming.md §9.2)。名前でなければ `None`。
+/// この機械に無ければ LAN と peers(`--peer`・`JUIZ_NAMING_PEERS`、§12)を見る
+pub(crate) fn resolve_server(server: &str, peers: &[String]) -> Result<Option<String>> {
     let Some(spec) = NameSpec::parse_server(server)? else {
         return Ok(None);
     };
     let kinds = app_kinds();
+    let peers = all_peers(peers)?;
     let (candidates, looked) =
-        find_candidates(&spec.query, &AppProbe, &kinds, LanLookup::Fallback)?;
+        find_candidates(&spec.query, &AppProbe, &kinds, LanLookup::Fallback, &peers)?;
     let chosen = choose(&spec.query, candidates, looked)?;
     let resolved = Resolved::new(chosen, spec.kind.as_deref(), &kinds)?;
     log::info!("{server} is resolved to {}", resolved.url);
@@ -200,10 +253,10 @@ fn candidate_json(c: &Candidate) -> Value {
     .to_json()
 }
 
-/// 候補を 1 つに決める (§7.2)。端末なら選ばせ、そうでなければ複数はエラー。`lan` は LAN も見たか
-fn choose(query: &NameQuery, mut candidates: Vec<Candidate>, lan: bool) -> Result<Candidate> {
+/// 候補を 1 つに決める (§7.2)。端末なら選ばせ、そうでなければ複数はエラー。`looked` はほかに見た所
+fn choose(query: &NameQuery, mut candidates: Vec<Candidate>, looked: Looked) -> Result<Candidate> {
     match candidates.len() {
-        0 => Err(anyhow!(not_registered_message(query, lan))),
+        0 => Err(anyhow!(not_registered_message(query, looked))),
         1 => Ok(candidates.remove(0)),
         _ => {
             let tty = std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
@@ -252,13 +305,16 @@ fn ask_choice(
 }
 
 /// `juiz name list` の表。`lan` は LAN も見たとき (MACHINE の列を足す)
-fn format_list(listed: &[ListedRegistration], lan: bool) -> String {
+fn format_list(listed: &[ListedRegistration], looked: Looked) -> String {
     if listed.is_empty() {
-        return if lan {
-            "No juiz is registered on this machine or the LAN.\n".to_owned()
-        } else {
-            "No juiz is registered on this machine.\n".to_owned()
+        let q = NameQuery {
+            namespace: None,
+            name: "x".to_owned(),
+            host: None,
         };
+        // 「No juiz is registered on …」は §7.2 の文と同じ所の並べ方にする
+        let m = not_registered_message(&q, looked);
+        return format!("{}\n", m.replacen("x is not registered", "No juiz is registered", 1));
     }
     let rows: Vec<[String; 6]> = listed
         .iter()
@@ -281,7 +337,7 @@ fn format_list(listed: &[ListedRegistration], lan: bool) -> String {
             }
             let machine = match l.place {
                 Place::ThisMachine => "(this)".to_owned(),
-                Place::Lan => r.host.clone(),
+                Place::Lan | Place::Peer => r.host.clone(),
             };
             [
                 r.registered_name(),
@@ -295,7 +351,7 @@ fn format_list(listed: &[ListedRegistration], lan: bool) -> String {
         .collect();
     let header = ["NAME", "MACHINE", "PACKAGE", "PID", "STARTED", "BROKERS"];
     // LAN を見ないときは MACHINE の列を出さない (今までの表のまま)
-    let skip = if lan { usize::MAX } else { 1 };
+    let skip = if looked.any() { usize::MAX } else { 1 };
     let mut widths = header.map(str::len);
     for row in &rows {
         for (i, c) in row.iter().enumerate() {
@@ -360,7 +416,7 @@ mod tests {
                 place: Place::ThisMachine,
             },
         ];
-        let t = format_list(&listed, false);
+        let t = format_list(&listed, Looked::default());
         let lines: Vec<&str> = t.lines().collect();
         assert!(lines[0].starts_with("NAME"), "{t}");
         assert!(
@@ -373,12 +429,28 @@ mod tests {
         );
         assert!(lines[2].ends_with("(not answering)"), "{t}");
         assert_eq!(
-            format_list(&[], false),
+            format_list(&[], Looked::default()),
             "No juiz is registered on this machine.\n"
         );
         assert_eq!(
-            format_list(&[], true),
+            format_list(
+                &[],
+                Looked {
+                    lan: true,
+                    peers: false
+                }
+            ),
             "No juiz is registered on this machine or the LAN.\n"
+        );
+        assert_eq!(
+            format_list(
+                &[],
+                Looked {
+                    lan: false,
+                    peers: true
+                }
+            ),
+            "No juiz is registered on this machine or the peers.\n"
         );
     }
 
@@ -399,7 +471,13 @@ mod tests {
                 place: Place::Lan,
             },
         ];
-        let t = format_list(&listed, true);
+        let t = format_list(
+            &listed,
+            Looked {
+                lan: true,
+                peers: false,
+            },
+        );
         let lines: Vec<&str> = t.lines().collect();
         assert!(lines[0].starts_with("NAME               MACHINE"), "{t}");
         assert!(lines[1].starts_with("robot1/mobile_sim  (this)"), "{t}");

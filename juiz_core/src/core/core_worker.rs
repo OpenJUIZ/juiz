@@ -106,9 +106,15 @@ impl CoreWorker {
         }
         let spec = crate::naming::NameSpec::parse_broker_name(broker_name)?;
         let (probe, kinds) = &self.naming_probe;
-        let resolved = spec.resolve(probe.as_ref(), kinds)?;
+        // conf の option.naming.peers と JUIZ_NAMING_PEERS (docs/spec/naming.md §12)
+        let peers = crate::naming::peers::peers_of_manifest(self.store().manifest_ref());
+        let resolved = spec.resolve(probe.as_ref(), kinds, &peers)?;
         let (t, n) = resolved.type_and_name();
         log::info!("name://{broker_name} is resolved to {}", resolved.url);
+        // 別の機械の pid はこの機械では確かめられないので、使い回すのは同じ機械の候補だけ
+        if resolved.candidate.place.is_remote() {
+            return Ok((t, n));
+        }
         if let Ok(mut cache) = self.name_cache.lock() {
             cache.insert(
                 broker_name.to_owned(),

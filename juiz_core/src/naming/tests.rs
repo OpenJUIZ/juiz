@@ -450,7 +450,8 @@ fn options_and_names_from_manifest() {
         NamingOptions {
             register: true,
             unique: true,
-            advertise: false
+            advertise: false,
+            peers: vec![]
         }
     );
     assert_eq!(name_of_manifest(&m).as_deref(), Some("sys"));

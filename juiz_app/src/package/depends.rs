@@ -4,6 +4,7 @@
 use super::install::{find_newest, Installed};
 use super::manifest::{parse_req, Kind, Manifest};
 use juiz_core::anyhow::{anyhow, bail, Result};
+use juiz_core::naming::peers::Peer;
 use juiz_core::naming::{Candidate, Place, Registration};
 use juiz_sdk::serde_json::{json, Map, Value};
 use semver::{Version, VersionReq};
@@ -63,13 +64,17 @@ pub(crate) fn depend_kind(v: &str) -> Option<&str> {
     DEPEND_KINDS.iter().copied().find(|k| *k == v)
 }
 
-/// この機械の名前の登録(naming.md §3)と LAN(§11)を引く所。テストでは差し替える
+/// この機械の名前の登録(naming.md §3)と LAN(§11)・peers(§12)を引く所。テストでは差し替える
 pub(crate) trait NameList {
     /// `package.name` が `name`、`package.kind` が `base`、版が `req` に入る、生きている登録(naming.md §8 の 4)。
-    /// この機械に無ければ LAN で見つけたもの(§8 の 5)
+    /// この機械に無ければ LAN と peers で見つけたもの(§8 の 5)
     fn bases(&self, name: &str, req: &VersionReq) -> Vec<Candidate>;
     /// この juiz がつなげるブローカーの種類
     fn kinds(&self) -> Vec<String>;
+    /// 知っている juiz(naming.md §12)。`name://` を引くときにも使う
+    fn peers(&self) -> Vec<Peer> {
+        Vec::new()
+    }
 }
 
 /// 登録を引かない [`NameList`](登録の無い古い動作。テスト用)
@@ -85,18 +90,21 @@ impl NameList for NoNames {
     }
 }
 
-/// この機械の登録ファイルを読み、無ければ LAN を引く [`NameList`](feature `naming-mdns` のとき)
+/// この機械の登録ファイルを読み、無ければ LAN(feature `naming-mdns` のとき)と peers を引く [`NameList`]
 ///
 /// 死活の確かめ(naming.md §6)に時間がかかることがあるので、見つかった結果だけを覚えて使い回す。
 /// 見つからなかった結果は覚えない(「もう一度試す」の間に基礎を起動したときに見つけられるように)。
 pub(crate) struct RegistryNames {
     found: RefCell<BTreeMap<String, Vec<Candidate>>>,
+    peers: Vec<Peer>,
 }
 
 impl RegistryNames {
-    pub(crate) fn new() -> Self {
+    /// `peers` はアプリの conf の `option.naming.peers`・`--peer`・`JUIZ_NAMING_PEERS`(naming.md §12.1)
+    pub(crate) fn new(peers: Vec<Peer>) -> Self {
         RegistryNames {
             found: RefCell::new(BTreeMap::new()),
+            peers,
         }
     }
 }
@@ -113,12 +121,13 @@ impl NameList for RegistryNames {
         let kinds = self.kinds();
         let mut out: Vec<Candidate> =
             registry.candidates_by(|r| is_base_of(r, name, req), &crate::name::AppProbe, &kinds);
-        if out.is_empty() && juiz_core::naming::lan::available() {
-            out = juiz_core::naming::lan_candidates_by(
+        if out.is_empty() && (juiz_core::naming::lan::available() || !self.peers.is_empty()) {
+            out = juiz_core::naming::remote_candidates_by(
                 &registry,
                 |r| is_base_of(r, name, req),
                 &crate::name::AppProbe,
                 &kinds,
+                &self.peers,
             );
         }
         if !out.is_empty() {
@@ -128,6 +137,9 @@ impl NameList for RegistryNames {
     }
     fn kinds(&self) -> Vec<String> {
         crate::name::app_kinds()
+    }
+    fn peers(&self) -> Vec<Peer> {
+        self.peers.clone()
     }
 }
 
@@ -169,13 +181,22 @@ fn from_name_list(
             bail!("{name} is registered more than once on this machine: {list}. Choose one with --depend {name}=<URL>.");
         }
         _ => {
-            // LAN の別々の機械で同じ基礎が動いている(naming.md §8 の 5)。黙って選ばない
+            // LAN・peers の別々の機械で同じ基礎が動いている(naming.md §8 の 5)。黙って選ばない
             let list = regs
                 .iter()
                 .map(Candidate::short)
                 .collect::<Vec<_>>()
                 .join(", ");
-            bail!("{name} is found more than once on the LAN: {list}. Choose one with --depend {name}=<URL>.");
+            let place = if regs.iter().any(|c| c.place == Place::Peer) {
+                if regs.iter().any(|c| c.place == Place::Lan) {
+                    "on the LAN and the peers"
+                } else {
+                    "on the peers"
+                }
+            } else {
+                "on the LAN"
+            };
+            bail!("{name} is found more than once {place}: {list}. Choose one with --depend {name}=<URL>.");
         }
     };
     match candidate.select_broker(kind, &names.kinds()) {
@@ -283,9 +304,9 @@ pub(crate) fn remap_topics(conf: &mut Value, remaps: &[(String, String)]) -> Res
 }
 
 /// `name://` の後ろ(登録名とクエリ)をこの機械の登録で引き、ブローカーの種類と名前にする(naming.md §9.1)
-fn resolve_name_url(name: &str) -> Result<(String, String)> {
+fn resolve_name_url(name: &str, peers: &[Peer]) -> Result<(String, String)> {
     let spec = juiz_core::naming::NameSpec::parse_broker_name(name)?;
-    let resolved = spec.resolve(&crate::name::AppProbe, &crate::name::app_kinds())?;
+    let resolved = spec.resolve(&crate::name::AppProbe, &crate::name::app_kinds(), peers)?;
     Ok(resolved.type_and_name())
 }
 
@@ -469,7 +490,7 @@ pub(crate) fn resolve(
         // name://<登録名> で書いたつなぎ先は、ここで実際のブローカーにする(naming.md §9.1)。
         // 種類が決まらないと、つなぎ返しのブローカーを足せないため
         if sub["type_name"] == juiz_core::naming::NAME_SCHEME {
-            let (t, n) = resolve_name_url(sub["name"].as_str().unwrap())?;
+            let (t, n) = resolve_name_url(sub["name"].as_str().unwrap(), &names.peers())?;
             sub["type_name"] = json!(t);
             sub["name"] = json!(n);
             found = true;

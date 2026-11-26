@@ -1,6 +1,6 @@
 # ネーミングサービス仕様
 
-- 状態: 確定(ネーミングサービス Step 0、issue #615、2026-11-25)。§11 は Step 4(#619)で書き足した。§12 は枠だけで、Step 5(#620)で書き足す
+- 状態: 確定(ネーミングサービス Step 0、issue #615、2026-11-25)。§11 は Step 4(#619)、§12 は Step 5(#620)で書き足した
 - 親 issue: #289。計画と経緯はプロジェクトの計画書 naming-service-plan.md(2026-11-25 確定)にある
 - 関連: [app-package.md](app-package.md) §10.2・§15.4〜§15.6(`juiz run` のつなぎ先)、[ipc-broker.md](ipc-broker.md) §2.2(置き場所と権限)、[connected-systems.md](connected-systems.md)(つながった後の全体像)
 - この文書は Step 1〜6(#616〜#620、site#124)の実装の基準になる。実装で仕様を変えるときは、同じ PR でこの文書を直す
@@ -197,7 +197,7 @@ choose [1]:
 ```
 
 - 対話できないとき: 候補を並べたエラーにする。`mobile_sim is ambiguous: robot1/mobile_sim (this machine), robot2/mobile_sim@robot2-pc. Write the namespace or the machine (ex., robot1/mobile_sim).`
-- 候補が 0 なら `mobile_sim is not registered on this machine.`(LAN・peers を見たときは `… on this machine or the LAN.`)。
+- 候補が 0 なら `mobile_sim is not registered on this machine.`(LAN を見たときは `… on this machine or the LAN.`、peers に聞いたときは §12.2)。
 - 選んだものは覚えない(覚えるのは app-package.md §15.6 の `depends.yaml` だけ)。
 
 ### 7.3 ブローカーを選ぶ
@@ -283,7 +283,8 @@ name://mobile_sim/process/inc0::increment
 | --- | --- |
 | `juiz name list` | この機械の登録を並べる(登録名・package・版・pid・ブローカーの URL)。死んでいる登録(§6 の 1)は消してから並べる |
 | `juiz name list --check` | 各登録に `system/profile` を問い合わせ(§6 の 2)、応答しないものに印を付ける |
-| `juiz name list --lan` | LAN と peers の登録も並べる(Step 4・5、§11.5) |
+| `juiz name list --lan` | LAN と peers の登録も並べる(Step 4・5、§11.5・§12.2) |
+| `juiz name list --peer <URL>` | 書いた peers の登録も並べる(Step 5、§12.2) |
 | `juiz name resolve <登録名> --lan` | この機械と LAN の両方から候補を集める(§11.5) |
 | `juiz name resolve <登録名>` | §7 で解決し、選んだブローカーの URL を 1 行で出す。候補が複数なら §7.2 |
 | `juiz name resolve <登録名> --all` | 候補をすべて、ブローカーの一覧と一緒に出す |
@@ -293,7 +294,7 @@ name://mobile_sim/process/inc0::increment
 
 ### 9.4 API・pyjuiz・管理画面(Step 3)
 
-- API `naming/list`(GET): この System がいる機械の登録の一覧を返す(§9.3 の `--json` と同じ形)。`?lan=true` で LAN・peers も(Step 4・5)。peers(§12)はこの API を相手に聞く。
+- API `naming/list`(GET): この System がいる機械の登録の一覧を返す(§9.3 の `--json` と同じ形)。`?lan=true` で LAN・peers も(Step 4・5)。peers(§12)はこの API を `?connected=true` を付けて相手に聞く(§12.4)。
 - API `naming/resolve?name=<登録名>`(GET): §7 の候補をすべて返す(選ばない。選ぶのは呼んだ側)。
 - pyjuiz: つなぎ先に `name://…` か、`://` と `:` を含まない文字列を渡せる(§9.2 と同じ規則)。解決は pyjuiz が登録ファイルを直接読んで行う(juiz を通さない)。
 - 管理画面: 「この機械で動いている System」を `naming/list` で並べ、選ぶとその System の管理画面を開く。
@@ -398,17 +399,50 @@ Step 4(#619)で書き足した。
 - 選んだブローカーの URL は、§11.3 で host を置き換えたもの(`http://192.168.0.12:8001`)。
 - pyjuiz と管理画面は Step 4 では LAN を見ない(pyjuiz は登録ファイルを直接読むため。管理画面は `naming/list?lan=true` を使えば出せる)。
 
-## 12. 知っている juiz に聞く(peers)— Step 5(#620)で書き足す
+## 12. 知っている juiz に聞く(peers)
 
-決まっていること:
+Step 5(#620)で書き足した。マルチキャストが通らない網(Docker の bridge、サブネット越え、一部の Wi-Fi)のため、知っている juiz の URL を書いておき、その juiz に名前の一覧を聞く。新しいサーバーは作らない。peer は普通の juiz。
 
-- conf の `option.naming.peers` か `--peer <URL>` に、知っている juiz の URL を並べる。
-- 解決のとき、各 peer の API `naming/list`(§9.4)を呼び、その機械の登録を候補に足す。peer 自身の `system/walk`(connected-systems.md §4.1)で見える System も候補に足してよい。
-- 新しいサーバーは作らない。peer は普通の juiz。
+### 12.1 書き方
 
-Step 5 で決めること: 待ち時間、peer が返す登録の host の置き換え、`JUIZ_NAMING_PEERS` のような環境変数を持つか。
+- conf の `option.naming.peers`(URL の配列。1 つなら文字列でもよい)、引数 `--peer <URL>`(何度でも書ける。`juiz -f`・`juiz run`・`juiz name`)、環境変数 `JUIZ_NAMING_PEERS`(`,` か空白で区切る)。`--peer` は conf の `peers` に足す。3 つを合わせ、同じものは 1 つにする。
+- URL は peer の HTTP ブローカー: `http://<host>[:<port>]`・`<host>[:<port>]`(`http://` を省ける)。ポートを省けば `8000`。IPv6 は `[fd00::1]:8000`。後ろのパスは無視する。
+- peer に聞けるのは http だけ。ほかの種類(`qmp://…` など)は `peer 'qmp://…' is not an http URL. …` のエラー(`--peer`・`juiz name` の引数)か、警告をログに出して無視する(conf・環境変数)。
+- 環境変数は、conf を持たない `juiz name` と CLI の `-s <名前>` でも使う。Docker のコンテナに 1 行足すだけで済むようにするため。
 
-## 13. テスト(Step 1〜4)
+### 12.2 聞く
+
+- 聞く所と順は LAN(§11.5)と同じ段(§7.1 の 2、§8 の 5)。この機械の登録で候補が無かったときだけ聞く(`--lan`・`naming/resolve?lan=true` は両方)。LAN と peers は並行に見る。
+- 各 peer の API `naming/list?connected=true`(§9.4、§12.4)を HTTP の GET で呼ぶ。peer も並行に聞き、1 つ 1.5 秒まで待つ(LAN の待ちと同じ長さ。LAN と並行なので全体も 1.5 秒ほど)。
+- 答えない peer(つながらない、タイムアウト、`naming/list` の無い古い juiz)は `warning: peer http://192.168.0.10:8000 did not answer: <理由>` を出し、ほかの所で探し続ける(エラーにしない)。
+- 返った登録のうち、`uuid` がこの機械の登録と同じもの(peer が同じ機械にいて置き場所も同じとき)、LAN と peers で同じ `uuid` の 2 つ目は捨てる(LAN を先に残す)。
+- 死活は LAN と同じ(§11.5): 別の機械なので pid は見ず、§6 の 2・3 を別の機械の順(zenoh → qmp → http)で確かめる。
+- 一覧(`juiz name list`)は既定でこの機械だけ。`--lan` で LAN と peers(`JUIZ_NAMING_PEERS` を含む)、`--peer` を書けば書いた peers も並べる。API `naming/list?lan=true` は LAN とその System の conf・環境変数の peers。
+- peer に聞いた候補の印は `found: "peer"`、`machine` は登録の `host`(peer の機械名)。表示は LAN と同じ(`robot2/mobile_sim  0.4.0  at robot2-pc`、`robot2/mobile_sim@robot2-pc`)。
+- 候補が 0 で peers に聞いたときの文は `… is not registered on this machine or the peers.`、LAN も見たときは `… on this machine, the LAN or the peers.`。`juiz run` の依存で 2 つ以上見つかったときは `… is found more than once on the peers: …`(LAN と混ざれば `on the LAN and the peers`)。
+- 聞くのは 1 段だけ。peer は自分の peers や LAN を見ない(`naming/list?connected=true` に `lan` を付けない)。輪になっても問い合わせが広がらない。
+
+### 12.3 host の置き換え
+
+- peer が返すブローカーの ID の host が、この機械の中だけを指すもの(`127.0.0.1`・`localhost`・`::1`)か、すべての住所(`0.0.0.0`・`::`・空)なら、peer の URL の host に置き換える(`http://127.0.0.1:8001` → `http://192.168.0.10:8001`)。peer の機械の登録の ID は、§11.3 の落とし穴のとおり待ち受けが `0.0.0.0` でも `127.0.0.1` になるため。
+- 具体的な住所(`192.168.0.12`)はそのまま。`ipc` は捨てる(別の機械からつなげない)。
+- 本当に `127.0.0.1` だけで待ち受けているブローカーは、置き換えた住所では応答しないので、§6 の 2 で候補から外れる(LAN のように conf の `brokers` は見ない。peer の conf はこちらから見えないため)。
+
+### 12.4 peer がつないでいる System(`naming/list?connected=true`)
+
+- `naming/list` に `connected=true` を付けると、その System の機械の登録の後に、その System がつないでいる System(`mastersystem`・`subsystems`、connected-systems.md)のうち**別の機械に http でつないだもの**の登録を足す。peers はこれを付けて聞くので、peer の機械の登録に加えて、peer がつないでいる別の機械の System も引ける。
+  - 「別の機械」はつないでいる URL の host で見分ける(`127.0.0.1` などでない)。同じ機械の System(ipc・`127.0.0.1` でつないだもの)は、その機械の登録に出ているので足さない。
+  - 足す登録は、つないでいる System に `naming/list` を聞き、`uuid` がつないでいる System と同じ要素を取ったもの。host は §12.3 と同じく、つないでいる URL の host に置き換える。答えない System は黙って飛ばす(ログの debug)。機械の登録と同じ `uuid` は足さない。
+  - 足した要素には `found: "connected"` を付ける(`machine` は登録の `host`)。
+- `system/walk`(connected-systems.md §4.1)は UUID の木しか返さないので使わない。つながった全体を引きたいときは、そこにつながった System を peer に書く。qmp・zenoh でつないだ System は足さない(peer の側で `naming/list` を聞く手段が http だけのため)。
+
+### 12.5 使い回しと対象外
+
+- `name://`(§9.1)を System の中で解決した結果の使い回しは、同じ機械の候補だけにする。別の機械(LAN・peers)の候補は pid を確かめられないので、毎回引き直す(Step 4 の LAN でも同じ扱いに直した)。
+- pyjuiz と管理画面は peers を見ない(pyjuiz は登録ファイルを直接読むため。管理画面は `naming/list?lan=true` を使えば System の conf の peers の分も出る)。
+- 認証は無い(§14)。peers に書いた juiz には、こちらから問い合わせるだけで、こちらの情報は送らない。
+
+## 13. テスト(Step 1〜5)
 
 - 登録ファイルの書き込み・読み込み・解除を、`JUIZ_IPC_DIR` を一時ディレクトリにして試す(テストごとに別のディレクトリ)。
 - 死活: 存在しない pid の登録が消えること、pid は生きているが `uuid` が違う登録が消えること、応答しない登録が候補から外れるが消えないこと。
@@ -417,6 +451,7 @@ Step 5 で決めること: 待ち時間、peer が返す登録の host の置き
 - §8 の順: `--depend`・覚えた先・conf が登録より勝つこと、基礎の HTTP のポートが逃げても登録で見つかること(Step 2)。
 - `-s <名前>` で CLI がつながること、conf の `subsystems` に名前で書いた相手につながり一覧に実際の URL が出ること、API `naming/list`・`naming/resolve`(Step 3、`juiz_app` の `tests/cli/name_target.rs`、ポート 8160・8161)。pyjuiz は `test/unit/naming_test.py`、管理画面は `webui/tests/naming.test.ts`。
 - 置き場所の権限は ipc-broker.md §8 と同じ方法で試す。
+- Step 5: peer の URL の読み方・環境変数の分け方・`--peer` の書き足し・host の置き換え・`naming/list` の応答の読み方・答えない peer の警告は juiz_core の単体テスト(`naming::peers::tests`)。`juiz_app` の `tests/cli/peers.rs`(ポート 8180〜8182): 置き場所を分けた juiz コマンドから `--peer`・`JUIZ_NAMING_PEERS`・`-s` で peer の機械の登録を引けること、一覧の `found: "peer"`、答えない peer が警告になること、conf の `option.naming.peers` を書いた System が `subsystems` の名前と `naming/resolve` を peer で引くこと、peer が別の機械に http でつないだ System を `connected=true` で引けること(この機械のループバックでない IPv4 の住所を「別の機械」に見立てる。住所が無い環境ではその部分を飛ばす)。
 - Step 4: TXT の読み書き・host の埋め方・載せるブローカー・インスタンス名・LAN の候補のブローカーの順は juiz_core の単体テスト(`naming::lan::tests`、feature なしで走る)。feature `naming-mdns` では同じプロセスで広告して見つけるテスト、`juiz_app` の `tests/cli/mdns.rs`(置き場所を分けた juiz コマンドから名前で引き、止めたら見つからない、ポート 8170)。`juiz run` の LAN の段は `package::depends` の単体テスト。CI は test-linux.yml の `naming-mdns` ジョブ(scripts/test-naming-mdns.sh)。マルチキャストが自分に戻ってくる網が要る。
 
 ## 14. 対象外

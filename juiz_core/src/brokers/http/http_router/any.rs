@@ -154,6 +154,9 @@ fn construct_capsule_map(
     if let Some(v) = query.lan.clone() {
         capsule_map.set_param("lan", v.as_str());
     }
+    if let Some(v) = query.connected.clone() {
+        capsule_map.set_param("connected", v.as_str());
+    }
     // Transformations (issue #370)。reference は ID なら identifier と同じく自分を指す http の ID を core に直す
     if let Some(v) = query.reference.clone() {
         capsule_map.set_param(

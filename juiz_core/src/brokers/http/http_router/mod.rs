@@ -109,6 +109,8 @@ pub struct FullQuery {
     check: Option<String>,
     /// naming/list・naming/resolve で LAN (mDNS) も見る (docs/spec/naming.md §9.4・§11)
     lan: Option<String>,
+    /// naming/list (peer として聞かれたとき、docs/spec/naming.md §12.4)
+    connected: Option<String>,
 }
 
 impl FullQuery {

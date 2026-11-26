@@ -29,6 +29,7 @@ mod name;
 mod name_target;
 mod namespace;
 mod package;
+mod peers;
 mod pkg;
 mod plugin_path;
 mod remote;

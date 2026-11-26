@@ -125,6 +125,13 @@ struct Args {
     advertise: bool,
 
     #[arg(
+        long = "peer",
+        value_name = "URL",
+        help = "A juiz to ask for names when they are not found on this machine (ex., http://192.168.0.10:8000). Added to option.naming.peers. Can be written more than once. For networks where mDNS does not reach."
+    )]
+    peer: Vec<String>,
+
+    #[arg(
         long = "namespace",
         help = "Default namespace of the system. Overrides 'namespace' in the system definition file (ex., robot1). Use '/' for the root."
     )]
@@ -392,6 +399,10 @@ enum SubCommands {
         /// Advertise this juiz on the LAN by mDNS (option.naming.advertise: true). Needs the feature naming-mdns.
         #[arg(long = "advertise")]
         advertise: bool,
+
+        /// A juiz to ask for the dependencies and names (ex., http://192.168.0.10:8000). Added to option.naming.peers. Can be written more than once.
+        #[arg(long = "peer", value_name = "URL")]
+        peer: Vec<String>,
 
         /// Started from the file association or another window (not for users to type).
         #[arg(long = "launched", hide = true)]
@@ -822,7 +833,7 @@ where
     }
     // juiz name も系を作らない (docs/spec/naming.md §9.3)
     if let Some(SubCommands::Name { subcommand }) = &args.subcommand {
-        return name::run_name_command(subcommand);
+        return name::run_name_command(subcommand, &args.peer);
     }
     // juiz sdk も系を作らない (issue #548)
     if let Some(SubCommands::Sdk { subcommand }) = &args.subcommand {
@@ -919,6 +930,7 @@ fn package_command(args: &Args) -> Option<JuizResult<()>> {
             forget_depends,
             no_register,
             advertise,
+            peer,
             launched,
         } => Some(package::run::run_package(&package::run::RunOptions {
             package: package.clone(),
@@ -937,6 +949,7 @@ fn package_command(args: &Args) -> Option<JuizResult<()>> {
             forget_depends: *forget_depends,
             no_register: *no_register || args.no_register,
             advertise: *advertise || args.advertise,
+            peers: args.peer.iter().chain(peer.iter()).cloned().collect(),
             launched: *launched,
         })),
         SubCommands::Install { package, launched } => Some((|| {
@@ -1012,7 +1025,7 @@ fn run(mut args: Args) -> JuizResult<()> {
     log::trace!("【呼出】juiz_app::run called");
     // -s に名前を書いたら、この機械の登録で引いた URL にする (docs/spec/naming.md §9.2)
     if args.subcommand.is_some() {
-        if let Some(url) = name::resolve_server(&args.server)? {
+        if let Some(url) = name::resolve_server(&args.server, &args.peer)? {
             args.server = url;
         }
     }
@@ -1031,6 +1044,7 @@ fn run(mut args: Args) -> JuizResult<()> {
     if args.advertise {
         juiz_core::naming::set_advertise_option(&mut manifest, true);
     }
+    juiz_core::naming::peers::add_peers_option(&mut manifest, &args.peer);
     // ポートが使用中のときの扱い (docs/spec/app-package.md §16.2)
     juiz_core::port_policy::override_port_policy(
         &mut manifest,
