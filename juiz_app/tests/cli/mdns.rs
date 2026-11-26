@@ -108,7 +108,8 @@ fn advertised_juiz_is_found_by_name_on_the_lan() {
     assert!(o.status.success(), "{o:?}");
 
     // 止めたら goodbye を送るので、引いても見つからない
-    assert!(d.stop());
+    // Windows では合図で止められず kill するので stop() は false (common::Daemon::stop_with)
+    assert!(d.stop() || cfg!(not(unix)), "{}", d.log_text());
     let o = out(&["name", "resolve", "robot9/lan_sys"]);
     assert!(!o.status.success(), "{o:?}");
     assert!(
@@ -143,5 +144,6 @@ fn advertise_and_lan_are_ignored_without_the_feature() {
         String::from_utf8_lossy(&o.stdout).contains("robot9/lan_sys"),
         "{o:?}"
     );
-    assert!(d.stop());
+    // Windows では合図で止められず kill するので stop() は false (common::Daemon::stop_with)
+    assert!(d.stop() || cfg!(not(unix)), "{}", d.log_text());
 }
