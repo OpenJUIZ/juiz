@@ -10,6 +10,7 @@ Ctrl+C(Windows では CTRL_BREAK_EVENT)で止まることを確かめる。
 IPC ブローカー(--ipc)で起動し、ipc:// 経由でも呼び出せることを確かめる(issue #237)。
 環境変数 JUIZ_SMOKE_ZENOH=1 のときは Zenoh ブローカー(wheel を feature zenoh-broker でビルドしたとき)も
 起動し、zenoh:// 経由でも呼び出せることを確かめる(docs/spec/zenoh-broker.md §8.3、issue #491)。
+wheel に LAN の自動発見(feature naming-mdns)が入っていることも確かめる(docs/spec/naming.md §11.6、issue #621)。
 juiz_examples_python のディレクトリを渡すと、そのサンプル(Process と Container)も同じように動かす。
 """
 
@@ -158,12 +159,24 @@ def run_examples(juiz: str, examples: str) -> bool:
     ])
 
 
+def check_naming_mdns(juiz: str) -> bool:
+    """juiz name list --lan が「feature が無い」と警告しないこと(wheel に naming-mdns が入っていること)"""
+    result = subprocess.run([juiz, "name", "list", "--lan"], capture_output=True, text=True, timeout=60)
+    if result.returncode != 0 or "built without the feature naming-mdns" in result.stderr:
+        print(f"juiz name list --lan failed (code {result.returncode}):\n{result.stdout}{result.stderr}",
+              file=sys.stderr)
+        return False
+    return True
+
+
 def main() -> int:
     juiz = shutil.which("juiz")
     if juiz is None:
         print("juiz コマンドが見つかりません(wheel をインストールしてください)", file=sys.stderr)
         return 1
     subprocess.run([juiz, "--help"], check=True, stdout=subprocess.DEVNULL)
+    if not check_naming_mdns(juiz):
+        return 1
 
     with tempfile.TemporaryDirectory() as work:
         os.makedirs(os.path.join(work, "process"))

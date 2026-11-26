@@ -399,6 +399,14 @@ Step 4(#619)で書き足した。
 - 選んだブローカーの URL は、§11.3 で host を置き換えたもの(`http://192.168.0.12:8001`)。
 - pyjuiz と管理画面は Step 4 では LAN を見ない(pyjuiz は登録ファイルを直接読むため。管理画面は `naming/list?lan=true` を使えば出せる)。
 
+### 11.6 pip の juiz-cli の wheel
+
+Step 7(#621)で決めた。
+
+- 公開する juiz-cli の wheel には feature `naming-mdns` を入れる(juiz_py の同名の feature が `juiz_app/naming-mdns` を有効にする)。pip で入れた人も cargo で入れ直さずに LAN で名前を引け、広告もできる(§8.3 の Zenoh と同じ考え)。
+- Zenoh(zenoh-broker.md §8.3)と違い、PR のビルドでも常に入れる。依存は純 Rust の `mdns-sd` だけで、Linux x86_64 の release ビルドで拡張モジュールが約 1.1 MB(45.1 → 46.2 MB、strip 前)増え、wheel は約 15 MB のまま。PR と公開で wheel の構成を変えずに済む。
+- スモークテスト(`bindings/juiz_py/tests/smoke_test.py`)は `juiz name list --lan` が「feature が無い」警告を出さないことで、入っていることを確かめる。広告して見つける試験は CI の runner のマルチキャストに頼るので、wheel のジョブではしない(test-linux.yml の `naming-mdns` ジョブで確かめる)。
+
 ## 12. 知っている juiz に聞く(peers)
 
 Step 5(#620)で書き足した。マルチキャストが通らない網(Docker の bridge、サブネット越え、一部の Wi-Fi)のため、知っている juiz の URL を書いておき、その juiz に名前の一覧を聞く。新しいサーバーは作らない。peer は普通の juiz。
