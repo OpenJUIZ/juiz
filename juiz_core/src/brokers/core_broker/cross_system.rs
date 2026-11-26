@@ -141,7 +141,8 @@ impl CoreBroker {
             let mut m = manifest.clone();
             m.source = self.rewrite_from_system(&manifest.source, uuid)?;
             m.source_system = None;
-            return self.create_local_transform(&m, namespace);
+            // 止めて起動し直した始点の System からなら、残っている Transform を作り直す (§19.6、#642)
+            return self.create_local_transform_forwarded(&m, namespace, Some(uuid));
         }
         // 終点が別 System の Container: 終点の System に回す (§19.2 の 5・6)
         if let Some(dst) = remote_container_id(&manifest.destination) {
@@ -170,9 +171,20 @@ impl CoreBroker {
         manifest: &TransformManifest,
         namespace: &str,
     ) -> JuizResult<Value> {
-        let mut profiles = self
-            .transformations()
-            .create_transforms(std::slice::from_ref(manifest), namespace)?;
+        self.create_local_transform_forwarded(manifest, namespace, None)
+    }
+
+    fn create_local_transform_forwarded(
+        &self,
+        manifest: &TransformManifest,
+        namespace: &str,
+        forwarded_by: Option<&str>,
+    ) -> JuizResult<Value> {
+        let mut profiles = self.transformations().create_transforms_forwarded(
+            std::slice::from_ref(manifest),
+            namespace,
+            forwarded_by,
+        )?;
         profiles.pop().ok_or_else(|| {
             anyhow!(JuizError::InvalidValueError {
                 message: "transform_create created nothing".to_owned()

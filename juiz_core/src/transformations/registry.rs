@@ -1004,9 +1004,23 @@ impl Transformations {
         manifests: &[juiz_sdk::manifests::TransformManifest],
         namespace: &str,
     ) -> JuizResult<Vec<Value>> {
+        self.create_transforms_forwarded(manifests, namespace, None)
+    }
+
+    /// [`Transformations::create_transforms`] の、始点の System (UUID `forwarded_by`) から回された作成 (§19.2 の 5) のためのもの。
+    /// 同じ ID の Transform が、別の UUID の System から回されて作ったものとして残っていれば作り直す (§19.6、#642)。
+    /// 始点のブローカー付きの ID が同じなので、止めて起動し直した始点の System からの作成とみなす。
+    /// 同じ UUID から 2 回目なら今までどおり `TransformAlreadyExistsError`
+    pub fn create_transforms_forwarded(
+        &self,
+        manifests: &[juiz_sdk::manifests::TransformManifest],
+        namespace: &str,
+        forwarded_by: Option<&str>,
+    ) -> JuizResult<Vec<Value>> {
         let (profiles, notifications) = {
             let mut inner = self.lock()?;
             let mut added: Vec<String> = Vec::new();
+            let mut replaced: Vec<(String, TransformEntry)> = Vec::new();
             let mut added_sources: Vec<ContainerIdentifier> = Vec::new();
             let mut added_nodes: Vec<String> = Vec::new();
             let mut written = Vec::new();
@@ -1059,10 +1073,23 @@ impl Transformations {
                         .map(|w| inner.resolve_writer(w, namespace))
                         .collect::<JuizResult<Vec<String>>>()?;
                     let tid = transform_identifier(&source, &destination);
-                    if inner.transforms.contains_key(&tid) {
-                        return Err(anyhow!(JuizError::TransformAlreadyExistsError {
-                            identifier: tid
-                        }));
+                    if let Some(old) = inner.transforms.get(&tid) {
+                        let replaceable = remote.is_some()
+                            && !added.contains(&tid)
+                            && match (forwarded_by, old.forwarded_by.as_deref()) {
+                                (Some(new), Some(old)) => new != old,
+                                _ => false,
+                            };
+                        if !replaceable {
+                            return Err(anyhow!(JuizError::TransformAlreadyExistsError {
+                                identifier: tid
+                            }));
+                        }
+                        log::info!(
+                            "Transform({tid}) already exists. Recreating it for the System of its source (§19.6)."
+                        );
+                        let old = inner.transforms.remove(&tid).unwrap();
+                        replaced.push((tid.clone(), old));
                     }
                     let version = inner.next_version();
                     inner.transforms.insert(
@@ -1076,6 +1103,7 @@ impl Transformations {
                             imported: false,
                             remote,
                             writers,
+                            forwarded_by: forwarded_by.map(|u| u.to_owned()),
                         },
                     );
                     added.push(tid);
@@ -1086,6 +1114,9 @@ impl Transformations {
             if let Err(e) = result {
                 for tid in added.iter() {
                     inner.transforms.remove(tid);
+                }
+                for (tid, old) in replaced.into_iter() {
+                    inner.transforms.insert(tid, old);
                 }
                 for p in added_nodes.iter() {
                     inner.nodes.remove(p);

@@ -25,6 +25,8 @@ pub(super) struct TransformEntry {
     pub remote: Option<RemoteParams>,
     /// 端点のほかに `set_transform` で値を書いてよい Container の ID (§7.5、#410)
     pub writers: Vec<String>,
+    /// 始点の System から回されて作ったとき (§19.2 の 5)、回してきた System の UUID
+    pub forwarded_by: Option<String>,
 }
 
 /// System をまたぐ Transform の取り込みの設定 (§19.4)
