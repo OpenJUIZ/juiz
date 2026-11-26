@@ -145,6 +145,15 @@ pub enum Place {
     ThisMachine,
     /// LAN の mDNS (§11)。機械は登録の `host`
     Lan,
+    /// 知っている juiz (§12) に聞いたもの。機械は登録の `host`
+    Peer,
+}
+
+impl Place {
+    /// 別の機械か (ipc は使えず、pid は確かめられない)
+    pub fn is_remote(&self) -> bool {
+        !matches!(self, Place::ThisMachine)
+    }
 }
 
 /// 一覧の 1 行 (§9.3)
@@ -166,11 +175,17 @@ impl ListedRegistration {
             }
             let machine = match self.place {
                 Place::ThisMachine => "this".to_owned(),
-                Place::Lan => self.registration.host.clone(),
+                Place::Lan | Place::Peer => self.registration.host.clone(),
             };
             m.insert("machine".to_owned(), jvalue!(machine));
-            if self.place == Place::Lan {
-                m.insert("found".to_owned(), jvalue!("lan"));
+            match self.place {
+                Place::Lan => {
+                    m.insert("found".to_owned(), jvalue!("lan"));
+                }
+                Place::Peer => {
+                    m.insert("found".to_owned(), jvalue!("peer"));
+                }
+                Place::ThisMachine => {}
             }
         }
         v
@@ -201,6 +216,14 @@ impl Candidate {
         }
     }
 
+    /// 知っている juiz (§12) に聞いた候補
+    pub fn peer(registration: Registration) -> Candidate {
+        Candidate {
+            registration,
+            place: Place::Peer,
+        }
+    }
+
     /// 候補の一覧の 1 行 `robot1/mobile_sim  0.4.0  pid 12345  (this machine)`、
     /// LAN なら `robot2/mobile_sim  0.4.0  at robot2-pc` (§7.2)
     pub fn describe(&self) -> String {
@@ -211,7 +234,7 @@ impl Candidate {
         }
         match self.place {
             Place::ThisMachine => s.push_str(&format!("  pid {}  (this machine)", r.pid)),
-            Place::Lan => s.push_str(&format!("  at {}", r.host)),
+            Place::Lan | Place::Peer => s.push_str(&format!("  at {}", r.host)),
         }
         s
     }
@@ -220,7 +243,7 @@ impl Candidate {
     pub fn short(&self) -> String {
         match self.place {
             Place::ThisMachine => format!("{} (this machine)", self.registration.registered_name()),
-            Place::Lan => format!(
+            Place::Lan | Place::Peer => format!(
                 "{}@{}",
                 self.registration.registered_name(),
                 self.registration.host
@@ -232,7 +255,7 @@ impl Candidate {
     fn order(&self) -> &'static [&'static str] {
         match self.place {
             Place::ThisMachine => &LOCAL_ORDER,
-            Place::Lan => &REMOTE_ORDER,
+            Place::Lan | Place::Peer => &REMOTE_ORDER,
         }
     }
 
@@ -514,19 +537,37 @@ impl NameRegistry {
     ) -> JuizResult<Candidate> {
         let mut c = self.candidates(query, probe, kinds);
         match c.len() {
-            0 => Err(anyhow!(not_registered_message(query, false))),
+            0 => Err(anyhow!(not_registered_message(query, Looked::default()))),
             1 => Ok(c.remove(0)),
             _ => Err(anyhow!(ambiguous_message(query, &c))),
         }
     }
 }
 
-/// 候補が 0 のときの文 (§7.2)。`lan` は LAN も見たとき
-pub fn not_registered_message(query: &NameQuery, lan: bool) -> String {
-    if lan {
-        format!("{query} is not registered on this machine or the LAN.")
-    } else {
-        format!("{query} is not registered on this machine.")
+/// この機械の登録のほかに見た所 (§7.1)
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Looked {
+    /// LAN (mDNS、§11)
+    pub lan: bool,
+    /// 知っている juiz (§12)
+    pub peers: bool,
+}
+
+impl Looked {
+    pub fn any(&self) -> bool {
+        self.lan || self.peers
+    }
+}
+
+/// 候補が 0 のときの文 (§7.2・§12.2)。`looked` はこの機械のほかに見た所
+pub fn not_registered_message(query: &NameQuery, looked: Looked) -> String {
+    match (looked.lan, looked.peers) {
+        (false, false) => format!("{query} is not registered on this machine."),
+        (true, false) => format!("{query} is not registered on this machine or the LAN."),
+        (false, true) => format!("{query} is not registered on this machine or the peers."),
+        (true, true) => {
+            format!("{query} is not registered on this machine, the LAN or the peers.")
+        }
     }
 }
 

@@ -293,6 +293,22 @@ impl CoreBroker {
             .chain(self.subsystem_proxies.iter())
     }
 
+    /// つないでいる System (mastersystem・subsystems) の uuid と、つないでいるブローカーの種類・名前
+    /// (docs/spec/naming.md §12.4 の naming/list?connected=true)
+    pub(crate) fn connected_system_brokers(&self) -> Vec<(String, String, String)> {
+        self.connected_systems()
+            .filter_map(|s| {
+                let bp = s.broker_proxy();
+                let bp = juiz_borrow(&bp).ok()?;
+                Some((
+                    s.uuid().to_string(),
+                    bp.type_name().to_owned(),
+                    bp.name().to_owned(),
+                ))
+            })
+            .collect()
+    }
+
     /// この System の UUID
     fn my_uuid(&self) -> JuizResult<Uuid> {
         Ok(Uuid::parse_str(

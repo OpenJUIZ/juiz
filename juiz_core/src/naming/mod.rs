@@ -7,9 +7,13 @@
 //!
 //! Step 4 (#619) は LAN の自動発見 (mDNS、§11)。広告は `option.naming.advertise: true` のときだけ、引く側は
 //! feature `naming-mdns` があれば、この機械の登録で見つからなかったときに LAN も見る。
+//!
+//! Step 5 (#620) は知っている juiz に聞く (peers、§12)。`option.naming.peers`・`--peer`・`JUIZ_NAMING_PEERS` に
+//! 書いた juiz の API `naming/list` を、LAN と同じ段で引く。
 
 mod dir;
 pub mod lan;
+pub mod peers;
 mod probe;
 mod record;
 mod registry;
@@ -25,20 +29,22 @@ pub use record::{
     validate_name, ReadResult, RegisteredBroker, Registration, FORMAT,
 };
 pub use registry::{
-    ambiguous_message, not_registered_message, Candidate, Conflict, ListedRegistration, NameQuery,
-    NameRegistry, Place, RegisterRequest, Registered,
+    ambiguous_message, not_registered_message, Candidate, Conflict, ListedRegistration, Looked,
+    NameQuery, NameRegistry, Place, RegisterRequest, Registered,
 };
 pub use spec::{split_broker_url, NameSpec, Resolved, NAME_SCHEME};
 
 use crate::prelude::*;
 
-/// conf の `option.naming` (§10)。`peers` は Step 5
+/// conf の `option.naming` (§10)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NamingOptions {
     pub register: bool,
     pub unique: bool,
     /// LAN に広告する (§11、既定 false)
     pub advertise: bool,
+    /// 知っている juiz の URL (§12)。書いたまま (読み方は [`peers::parse_peer`])
+    pub peers: Vec<String>,
 }
 
 impl Default for NamingOptions {
@@ -47,6 +53,7 @@ impl Default for NamingOptions {
             register: true,
             unique: false,
             advertise: false,
+            peers: Vec::new(),
         }
     }
 }
@@ -80,6 +87,21 @@ pub fn naming_options(manifest: &Value) -> NamingOptions {
                 None => {
                     log::warn!("option.naming.advertise must be true or false, but {v}. Ignored.")
                 }
+            },
+            "peers" => match v {
+                Value::Array(a) => {
+                    for p in a {
+                        match p.as_str() {
+                            Some(s) => o.peers.push(s.to_owned()),
+                            None => log::warn!(
+                                "option.naming.peers must be a list of URLs, but has {p}. Ignored."
+                            ),
+                        }
+                    }
+                }
+                Value::String(s) => o.peers.push(s.clone()),
+                Value::Null => {}
+                v => log::warn!("option.naming.peers must be a list of URLs, but {v}. Ignored."),
             },
             k if KNOWN_OPTION_KEYS.contains(&k) => {}
             k => log::warn!("unknown key option.naming.{k} is ignored."),
@@ -297,66 +319,104 @@ impl LanLookup {
     }
 }
 
-/// LAN で見つけた登録 (§11.5)。この機械の登録と同じ uuid のものは外す。feature が無ければ空
-pub fn lan_registrations(local: &NameRegistry) -> Vec<Registration> {
-    if !lan::available() {
+/// 別の機械の登録 (§7.1 の 2): `lan` なら LAN (feature `naming-mdns` のとき、§11.5)、`peers` に聞いたもの (§12.2)。
+/// この機械の登録と同じ uuid のもの、LAN と peers で同じ uuid の 2 つ目は捨てる。答えない peer は警告を出す
+pub fn remote_registrations(
+    local: &NameRegistry,
+    lan: bool,
+    peers: &[peers::Peer],
+) -> Vec<(Registration, Place)> {
+    let lan = lan && lan::available();
+    if !lan && peers.is_empty() {
         return vec![];
     }
     let mine = local.uuids();
-    lan::browse(lan::BROWSE_WAIT)
-        .into_iter()
-        .filter(|r| !mine.contains(&r.uuid))
-        .collect()
+    // LAN は 1.5 秒待つので、その間に peers に聞く
+    let asking = {
+        let peers = peers.to_vec();
+        let mine = mine.clone();
+        std::thread::spawn(move || peers::peer_registrations(&peers, &mine))
+    };
+    let mut seen = mine;
+    let mut out = vec![];
+    if lan {
+        for r in lan::browse(lan::BROWSE_WAIT) {
+            if seen.insert(r.uuid.clone()) {
+                out.push((r, Place::Lan));
+            }
+        }
+    }
+    let (from_peers, warnings) = asking.join().unwrap_or_default();
+    for w in warnings {
+        log::warn!("{w}");
+        eprintln!("warning: {w}");
+    }
+    for r in from_peers {
+        if seen.insert(r.uuid.clone()) {
+            out.push((r, Place::Peer));
+        }
+    }
+    out
 }
 
-/// LAN で見つけた登録のうち、条件に当てはまり生きているもの (§11.5)
-pub fn lan_candidates_by(
+/// 別の機械 (LAN と peers) の登録のうち、条件に当てはまり生きているもの (§11.5・§12.2)
+pub fn remote_candidates_by(
     local: &NameRegistry,
     filter: impl Fn(&Registration) -> bool,
     probe: &dyn ProfileProbe,
     kinds: &[String],
+    peers: &[peers::Peer],
 ) -> Vec<Candidate> {
-    lan_registrations(local)
+    remote_registrations(local, true, peers)
         .into_iter()
-        .filter(|r| filter(r))
-        .filter(|r| check_remote(r, probe, kinds) == Liveness::Alive)
-        .map(Candidate::lan)
+        .filter(|(r, _)| filter(r))
+        .filter(|(r, _)| check_remote(r, probe, kinds) == Liveness::Alive)
+        .map(|(registration, place)| Candidate {
+            registration,
+            place,
+        })
         .collect()
 }
 
-/// 名前に当てはまる候補を、この機械の登録と LAN から集める (§7.1)。戻り値の bool は LAN を見たか
+/// 名前に当てはまる候補を、この機械の登録と LAN・peers から集める (§7.1)。戻り値の [`Looked`] はほかに見た所
 pub fn find_candidates(
     query: &NameQuery,
     probe: &dyn ProfileProbe,
     kinds: &[String],
     lan: LanLookup,
-) -> JuizResult<(Vec<Candidate>, bool)> {
+    peers: &[peers::Peer],
+) -> JuizResult<(Vec<Candidate>, Looked)> {
     let registry = NameRegistry::open()?;
     let mut out = registry.candidates(query, probe, kinds);
-    let look = lan::available()
-        && match lan {
-            LanLookup::Never => false,
-            LanLookup::Fallback => out.is_empty(),
-            LanLookup::Always => true,
-        };
-    if look {
-        out.extend(lan_candidates_by(
+    let look = match lan {
+        LanLookup::Never => false,
+        LanLookup::Fallback => out.is_empty(),
+        LanLookup::Always => true,
+    };
+    let looked = Looked {
+        lan: look && lan::available(),
+        peers: look && !peers.is_empty(),
+    };
+    if looked.any() {
+        out.extend(remote_candidates_by(
             &registry,
             |r| query.matches(r),
             probe,
             kinds,
+            if looked.peers { peers } else { &[] },
         ));
     }
-    Ok((out, look))
+    Ok((out, looked))
 }
 
-/// 名前を 1 つの候補に決める (§7.2、対話しない)。この機械で見つからなければ LAN も見る
+/// 名前を 1 つの候補に決める (§7.2、対話しない)。この機械で見つからなければ LAN と peers も見る
 pub fn resolve_query(
     query: &NameQuery,
     probe: &dyn ProfileProbe,
     kinds: &[String],
+    peers: &[peers::Peer],
 ) -> JuizResult<Candidate> {
-    let (mut c, looked) = find_candidates(query, probe, kinds, LanLookup::Fallback)?;
+    let (mut c, looked) = find_candidates(query, probe, kinds, LanLookup::Fallback, peers)?;
     match c.len() {
         0 => Err(juiz_sdk::anyhow::anyhow!(not_registered_message(
             query, looked
@@ -366,42 +426,41 @@ pub fn resolve_query(
     }
 }
 
-/// 一覧 (§9.3)。`lan` なら LAN で見つけたものも足す (`--lan`、`naming/list?lan=true`)
+/// 一覧 (§9.3)。`lan` なら LAN で見つけたもの (`--lan`、`naming/list?lan=true`)、`peers` に聞いたものも足す
 pub fn list_all(
     check_profile: bool,
     lan: bool,
+    peers: &[peers::Peer],
     probe: &dyn ProfileProbe,
     kinds: &[String],
 ) -> JuizResult<Vec<ListedRegistration>> {
     let registry = NameRegistry::open()?;
     let mut out = registry.list(check_profile, probe, kinds);
-    if lan {
-        let mut remote: Vec<ListedRegistration> = lan_registrations(&registry)
-            .into_iter()
-            .filter_map(|r| {
-                let alive = if check_profile {
-                    match check_remote(&r, probe, kinds) {
-                        Liveness::Dead => return None,
-                        Liveness::Alive => Some(true),
-                        _ => Some(false),
-                    }
-                } else {
-                    None
-                };
-                Some(ListedRegistration {
-                    registration: r,
-                    alive,
-                    place: Place::Lan,
-                })
+    let mut remote: Vec<ListedRegistration> = remote_registrations(&registry, lan, peers)
+        .into_iter()
+        .filter_map(|(r, place)| {
+            let alive = if check_profile {
+                match check_remote(&r, probe, kinds) {
+                    Liveness::Dead => return None,
+                    Liveness::Alive => Some(true),
+                    _ => Some(false),
+                }
+            } else {
+                None
+            };
+            Some(ListedRegistration {
+                registration: r,
+                alive,
+                place,
             })
-            .collect();
-        remote.sort_by_key(|l| {
-            (
-                l.registration.registered_name(),
-                l.registration.host.clone(),
-            )
-        });
-        out.extend(remote);
-    }
+        })
+        .collect();
+    remote.sort_by_key(|l| {
+        (
+            l.registration.registered_name(),
+            l.registration.host.clone(),
+        )
+    });
+    out.extend(remote);
     Ok(out)
 }

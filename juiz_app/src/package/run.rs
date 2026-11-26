@@ -55,6 +55,8 @@ pub(crate) struct RunOptions {
     pub no_register: bool,
     /// `--advertise`(LAN に広告する、docs/spec/naming.md §10・§11)
     pub advertise: bool,
+    /// `--peer <URL>`(知っている juiz、docs/spec/naming.md §10・§12)
+    pub peers: Vec<String>,
     /// `--launched`(§17.3)。関連付けからの起動と、基礎を別窓で起動するとき(§15.7)に付く。窓のタイトルと止め方を出し、エラーで終わったら待つ
     #[allow(dead_code)]
     pub launched: bool,
@@ -185,9 +187,11 @@ fn start(prepared: &Prepared, conf: &Path, opts: &RunOptions, data: &Path) -> Re
         .map(|s| depends::parse_depend_arg(s))
         .collect::<Result<Vec<_>>>()?;
     let installed = install::list(data)?;
+    // --peer はアプリの conf の option.naming.peers に足す(依存を引くときも、起動した System が名前を引くときも使う)
+    juiz_core::naming::peers::add_peers_option(&mut manifest, &opts.peers);
     let mut dep_env = depcheck::RealDepEnv {
         log_dir: cache_dir()?.join("logs"),
-        names: depends::RegistryNames::new(),
+        names: depends::RegistryNames::new(juiz_core::naming::peers::peers_of_manifest(&manifest)),
     };
     // `--no-http` と http での依存の接続が両立しないことは、つなぐ前に見る(§7.1)
     {

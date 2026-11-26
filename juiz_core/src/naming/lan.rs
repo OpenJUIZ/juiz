@@ -701,7 +701,13 @@ mod tests {
             "mobile_sim is ambiguous: robot2/mobile_sim (this machine), robot2/mobile_sim@robot2-pc. Write the namespace or the machine (ex., robot2/mobile_sim)."
         );
         assert_eq!(
-            crate::naming::not_registered_message(&q, true),
+            crate::naming::not_registered_message(
+                &q,
+                crate::naming::Looked {
+                    lan: true,
+                    peers: false
+                }
+            ),
             "mobile_sim is not registered on this machine or the LAN."
         );
     }
