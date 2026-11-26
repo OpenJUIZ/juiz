@@ -28,6 +28,8 @@ const examples = [_][]const u8{
     "zig_part_lookup",
     "zig_part_set_transform",
     "zig_part_set_model",
+    // readonly 同士が並行に走るかを待ち合わせで確かめる (issue #625)
+    "zig_part_meet",
     // Process・Container・ContainerProcess を 1 つのライブラリにまとめた Component (issue #575)
     "example_component_zig",
     // 画像の引数・戻り値 (issue #576)
