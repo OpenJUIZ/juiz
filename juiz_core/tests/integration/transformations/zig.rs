@@ -14,10 +14,10 @@ use juiz_sdk::process_identifier::ProcessIdentifier;
 const EPS: f64 = 1e-9;
 const H: f64 = std::f64::consts::FRAC_1_SQRT_2;
 
-const PROCESSES: [&str; 8] = [
+const PROCESSES: [&str; 9] = [
     "zig_part_pose", "zig_part_set_pose", "zig_part_try",
     "zig_part_peek", "zig_part_sleep", "zig_part_lookup", "zig_part_set_transform",
-    "zig_part_set_model",
+    "zig_part_set_model", "zig_part_meet",
 ];
 
 fn part(name: &str) -> Value {
@@ -184,34 +184,35 @@ fn zig_pose_errors_have_kinds() -> JuizResult<()> {
     })
 }
 
-/// 同じ Container の 2 つの ContainerProcess を 2 つのスレッドから同時に呼び、かかった時間を返す
+/// 同じ Container の 2 つの ContainerProcess を 2 つのスレッドから同時に呼び、かかった時間と 2 つの結果を返す
 fn call_two_at_once(
     system: &System,
     container: &str,
     (t1, a1): (&str, Value),
     (t2, a2): (&str, Value),
-) -> JuizResult<std::time::Duration> {
+) -> JuizResult<(std::time::Duration, [Value; 2])> {
     let broker = system.core_broker().clone();
     let start = std::time::Instant::now();
-    std::thread::scope(|scope| -> JuizResult<()> {
+    let results = std::thread::scope(|scope| -> JuizResult<[Value; 2]> {
         let calls = [(t1, a1), (t2, a2)].map(|(t, a)| {
             let broker = broker.clone();
             let container = container.to_owned();
             let t = t.to_owned();
-            scope.spawn(move || -> JuizResult<()> {
+            scope.spawn(move || -> JuizResult<Value> {
                 let id: ProcessIdentifier =
                     format!("core://core/container_process/{container}_{t}::{t}:{container}").try_into()?;
                 let args: CapsuleMap = a.try_into()?;
-                broker.lock()?.container_process_call(&id, args)?;
-                Ok(())
+                let result = broker.lock()?.container_process_call(&id, args)?;
+                result.lock_as_value(|v| v.clone())
             })
         });
-        for c in calls {
-            c.join().expect("the calling thread panicked")?;
-        }
-        Ok(())
+        let [c1, c2] = calls;
+        Ok([
+            c1.join().expect("the calling thread panicked")?,
+            c2.join().expect("the calling thread panicked")?,
+        ])
     })?;
-    Ok(start.elapsed())
+    Ok((start.elapsed(), results))
 }
 
 /// 状態を *const で受ける Zig の ContainerProcess は readonly (#377): 同じ Container の readonly 同士は並行に走る。
@@ -223,21 +224,20 @@ fn zig_readonly_container_process() -> JuizResult<()> {
     }
     crate::common::logger::init();
     System::new(conf())?.setup()?.run_and_do_once(|system| {
-        // 測る前に 1 回ずつ呼んでおく。初回の呼び出しの準備 (macOS の CI では 100ms を超えた、#579) を時間に入れない
-        call(system, "base0", "zig_part_peek", jvalue!({"reference": "map", "sleep_ms": 0}))?;
-        call(system, "base0", "zig_part_sleep", jvalue!({"sleep_ms": 0}))?;
         let sleep = 300;
-        let both_readonly = call_two_at_once(
+        // readonly 同士: 2 つが同時に走っていれば、zig_part_meet の待ち合わせがどちらも成り立つ。
+        // かかった時間ではなく重なったかどうかで確かめる (#625、macOS の CI で時間の余裕が足りず落ちた。Rust の #534 と同じ)。
+        // 短いほうが先に終わっても、長いほうは終わった後に ContainerPose を読める
+        let (_, met) = call_two_at_once(
             system,
             "base0",
-            ("zig_part_peek", jvalue!({"reference": "map", "sleep_ms": sleep})),
-            ("zig_part_peek", jvalue!({"reference": "map", "sleep_ms": sleep / 2})),
+            ("zig_part_meet", jvalue!({"reference": "map", "linger_ms": sleep})),
+            ("zig_part_meet", jvalue!({"reference": "map"})),
         )?;
-        assert!(
-            both_readonly.as_millis() < (sleep + sleep / 2 - 30) as u128,
-            "two readonly calls took {both_readonly:?}"
-        );
-        let mixed = call_two_at_once(
+        assert_eq!(met, [jvalue!(true), jvalue!(true)], "two readonly calls did not run concurrently");
+        // readonly と書き込みのもの: 書き込みロックを待つので 2 回分かかる
+        // (直列なら必ず 2 回分以上かかるので、この下限は混んだランナーでも揺れない)
+        let (mixed, _) = call_two_at_once(
             system,
             "base0",
             ("zig_part_peek", jvalue!({"reference": "map", "sleep_ms": sleep})),
