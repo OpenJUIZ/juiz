@@ -313,12 +313,12 @@ fn running_bases(env: &mut impl DepEnv, dep: &Depend, current: &str) -> Vec<(Str
     let mut out = Vec::new();
     let mut uuids: BTreeSet<String> = BTreeSet::new();
     let kinds = env.names().kinds();
-    for reg in env.names().bases(&dep.name, &dep.req) {
+    for candidate in env.names().bases(&dep.name, &dep.req) {
+        let reg = &candidate.registration;
         let Some(v) = reg.package_version().and_then(|v| Version::parse(v).ok()) else {
             continue;
         };
         let uuid = reg.uuid.clone();
-        let candidate = juiz_core::naming::Candidate { registration: reg };
         let Ok((_, url)) = candidate.select_broker(None, &kinds) else {
             continue;
         };
@@ -1020,6 +1020,7 @@ mod tests {
     fn found_in_the_name_list_is_announced() {
         use depends::tests::{registration, FakeNames};
         let names = |kinds: Vec<&'static str>| FakeNames {
+            lan: vec![],
             regs: vec![registration(
                 "robot_base",
                 "1.3.0",
@@ -1076,6 +1077,7 @@ mod tests {
             .answers(&["1"]);
         // ipc をつなげない juiz にして、登録で見つけた先は http にする
         env.names = FakeNames {
+            lan: vec![],
             regs: vec![reg],
             kinds: vec!["http"],
         };

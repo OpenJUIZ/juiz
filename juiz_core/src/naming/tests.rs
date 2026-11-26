@@ -388,7 +388,7 @@ fn select_broker_order_and_kind() {
             RegisteredBroker::new("ipc", "mobile_sim"),
         ],
     };
-    let c = Candidate { registration: reg };
+    let c = Candidate::local(reg);
     let all: Vec<String> = LOCAL_ORDER.iter().map(|s| s.to_string()).collect();
     assert_eq!(c.select_broker(None, &all).unwrap().1, "ipc://mobile_sim");
     let no_ipc: Vec<String> = vec!["zenoh".into(), "http".into()];
@@ -449,7 +449,8 @@ fn options_and_names_from_manifest() {
         naming_options(&m),
         NamingOptions {
             register: true,
-            unique: true
+            unique: true,
+            advertise: false
         }
     );
     assert_eq!(name_of_manifest(&m).as_deref(), Some("sys"));
@@ -458,6 +459,10 @@ fn options_and_names_from_manifest() {
         jvalue!({"name": "sys", "package": {"name": "pkg", "version": "1.0.0", "kind": "app"}});
     assert_eq!(name_of_manifest(&m).as_deref(), Some("pkg"));
     set_register_option(&mut m, false);
+    assert!(!naming_options(&m).register);
+    assert!(!naming_options(&m).advertise);
+    set_advertise_option(&mut m, true);
+    assert!(naming_options(&m).advertise);
     assert!(!naming_options(&m).register);
     assert_eq!(name_of_manifest(&jvalue!({})), None);
 }

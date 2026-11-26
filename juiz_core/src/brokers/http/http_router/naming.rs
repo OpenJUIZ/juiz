@@ -11,6 +11,8 @@ use serde::Deserialize;
 pub struct NamingListQuery {
     /// true なら各登録に system/profile を問い合わせ、応答しないものに alive: false を付ける
     check: Option<String>,
+    /// true なら LAN (mDNS、feature naming-mdns の juiz のとき) で見つけた登録も足す。machine は相手の機械名、found: "lan"
+    lan: Option<String>,
 }
 
 #[allow(unused)]
@@ -18,6 +20,8 @@ pub struct NamingListQuery {
 pub struct NamingResolveQuery {
     /// 登録名 (mobile_sim、robot1/mobile_sim、/mobile_sim、mobile_sim@robot1-pc)
     name: Option<String>,
+    /// true ならこの機械と LAN の両方を見る。既定はこの機械で見つからなかったときだけ LAN を見る
+    lan: Option<String>,
 }
 
 #[allow(unused)]

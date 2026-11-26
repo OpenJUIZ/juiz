@@ -8,6 +8,7 @@
 //! ```sh
 //! scripts/test.sh -p juiz_app --test cli -- package::
 //! cargo test -p juiz_app --features zenoh-broker --test cli -- zenoh::
+//! cargo test -p juiz_app --features naming-mdns --test cli -- mdns::
 //! ```
 //!
 //! 例外: feature python-entry のテストは埋め込み Python を使うので、別のバイナリ
@@ -22,6 +23,7 @@ mod broker_plugin_features;
 mod connection;
 mod datatype;
 mod model;
+mod mdns;
 mod module;
 mod name;
 mod name_target;

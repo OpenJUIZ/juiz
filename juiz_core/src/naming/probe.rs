@@ -212,3 +212,31 @@ pub fn check(reg: &Registration, probe: &dyn ProfileProbe, kinds: &[String]) -> 
         Liveness::Alive
     }
 }
+
+/// LAN で見つけた登録を確かめる (§11.5)。別の機械なので pid は見ず、§6 の 2・3 を他の機械の順 (§7.3) で行う。
+/// `brokers` の URL は host を置き換えた後のもの
+pub fn check_remote(reg: &Registration, probe: &dyn ProfileProbe, kinds: &[String]) -> Liveness {
+    let mut connectable = false;
+    let mut asked = false;
+    for kind in super::lan::REMOTE_ORDER {
+        if !kinds.iter().any(|k| k == kind) {
+            continue;
+        }
+        if let Some(b) = reg.brokers.iter().find(|b| b.type_name == kind) {
+            connectable = true;
+            match probe.probe(b, &b.id) {
+                Probe::Uuid(u) if u == reg.uuid => return Liveness::Alive,
+                Probe::Uuid(_) => return Liveness::Dead,
+                Probe::NoResponse => asked = true,
+                Probe::Unsupported => {}
+            }
+        }
+    }
+    if !connectable {
+        Liveness::NotConnectable
+    } else if asked {
+        Liveness::NoResponse
+    } else {
+        Liveness::Alive
+    }
+}

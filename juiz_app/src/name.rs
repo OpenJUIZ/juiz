@@ -1,20 +1,21 @@
 //! この機械の名前の一覧 (docs/spec/naming.md §9.3、issue #616)
 //!
 //! ```text
-//! juiz name list [--check] [--json]
-//! juiz name resolve <登録名> [--all] [--json]
+//! juiz name list [--check] [--lan] [--json]
+//! juiz name resolve <登録名> [--all] [--lan] [--json]
 //! ```
 //!
 //! どちらもブローカーを立てない (System を作らない)。登録ファイルを直接読み、死活を確かめる。
+//! feature `naming-mdns` の juiz は LAN (mDNS、§11) も引く。`resolve` はこの機械で見つからなければ LAN を見る。
 
 use std::io::{BufRead, IsTerminal, Write};
 
 use clap::Subcommand;
 use juiz_core::anyhow::{anyhow, Result};
 use juiz_core::naming::{
-    ambiguous_message, core_kinds, not_registered_message, Candidate, CoreProbe,
-    ListedRegistration, NameQuery, NameRegistry, NameSpec, Probe, ProfileProbe, RegisteredBroker,
-    Resolved,
+    ambiguous_message, core_kinds, find_candidates, list_all, not_registered_message, Candidate,
+    CoreProbe, LanLookup, ListedRegistration, NameQuery, NameSpec, Place, Probe, ProfileProbe,
+    RegisteredBroker, Resolved,
 };
 use juiz_core::prelude::*;
 
@@ -25,6 +26,10 @@ pub(crate) enum NameSubCommands {
         /// Ask each juiz for its profile and mark the ones that do not answer
         #[arg(long = "check")]
         check: bool,
+
+        /// Also list the juiz advertised on the LAN (mDNS; needs a juiz built with the feature naming-mdns)
+        #[arg(long = "lan")]
+        lan: bool,
 
         /// Print JSON
         #[arg(long = "json")]
@@ -39,6 +44,10 @@ pub(crate) enum NameSubCommands {
         /// Print all the candidates with their brokers, without choosing one
         #[arg(long = "all")]
         all: bool,
+
+        /// Look at the LAN (mDNS) too, even when the name is found on this machine
+        #[arg(long = "lan")]
+        lan: bool,
 
         /// Print JSON
         #[arg(long = "json")]
@@ -100,23 +109,40 @@ pub(crate) fn run_name_command(cmd: &NameSubCommands) -> i32 {
     }
 }
 
+/// `--lan` を feature の無い juiz で書いたときの警告
+fn warn_no_lan(lan: bool) {
+    if lan && !juiz_core::naming::lan::available() {
+        eprintln!("warning: --lan is ignored: this juiz is built without the feature naming-mdns");
+    }
+}
+
 fn on_name(cmd: &NameSubCommands) -> Result<()> {
-    let registry = NameRegistry::open()?;
     let kinds = app_kinds();
     match cmd {
-        NameSubCommands::List { check, json } => {
-            let listed = registry.list(*check, &AppProbe, &kinds);
+        NameSubCommands::List { check, lan, json } => {
+            warn_no_lan(*lan);
+            let listed = list_all(*check, *lan, &AppProbe, &kinds)?;
             if *json {
                 let v: Vec<Value> = listed.iter().map(ListedRegistration::to_json).collect();
                 println!("{}", serde_json::to_string_pretty(&v)?);
             } else {
-                print!("{}", format_list(&listed));
+                print!(
+                    "{}",
+                    format_list(&listed, *lan && juiz_core::naming::lan::available())
+                );
             }
             Ok(())
         }
-        NameSubCommands::Resolve { name, all, json } => {
+        NameSubCommands::Resolve {
+            name,
+            all,
+            lan,
+            json,
+        } => {
+            warn_no_lan(*lan);
             let query = NameQuery::parse(name)?;
-            let candidates = registry.candidates(&query, &AppProbe, &kinds);
+            let (candidates, looked) =
+                find_candidates(&query, &AppProbe, &kinds, LanLookup::from_flag(*lan))?;
             if *all {
                 if *json {
                     let v: Vec<Value> = candidates.iter().map(candidate_json).collect();
@@ -125,13 +151,16 @@ fn on_name(cmd: &NameSubCommands) -> Result<()> {
                     for c in &candidates {
                         println!("{}", c.describe());
                         for b in &c.registration.brokers {
+                            if c.place == Place::Lan && b.type_name == "ipc" {
+                                continue;
+                            }
                             println!("    {}", b.local_url());
                         }
                     }
                 }
                 return Ok(());
             }
-            let chosen = choose(&query, candidates)?;
+            let chosen = choose(&query, candidates, looked)?;
             let (_, url) = chosen.select_broker(None, &kinds)?;
             if *json {
                 let mut v = candidate_json(&chosen);
@@ -154,9 +183,9 @@ pub(crate) fn resolve_server(server: &str) -> Result<Option<String>> {
         return Ok(None);
     };
     let kinds = app_kinds();
-    let registry = NameRegistry::open()?;
-    let candidates = registry.candidates(&spec.query, &AppProbe, &kinds);
-    let chosen = choose(&spec.query, candidates)?;
+    let (candidates, looked) =
+        find_candidates(&spec.query, &AppProbe, &kinds, LanLookup::Fallback)?;
+    let chosen = choose(&spec.query, candidates, looked)?;
     let resolved = Resolved::new(chosen, spec.kind.as_deref(), &kinds)?;
     log::info!("{server} is resolved to {}", resolved.url);
     Ok(Some(resolved.url))
@@ -166,14 +195,15 @@ fn candidate_json(c: &Candidate) -> Value {
     ListedRegistration {
         registration: c.registration.clone(),
         alive: Some(true),
+        place: c.place,
     }
     .to_json()
 }
 
-/// 候補を 1 つに決める (§7.2)。端末なら選ばせ、そうでなければ複数はエラー
-fn choose(query: &NameQuery, mut candidates: Vec<Candidate>) -> Result<Candidate> {
+/// 候補を 1 つに決める (§7.2)。端末なら選ばせ、そうでなければ複数はエラー。`lan` は LAN も見たか
+fn choose(query: &NameQuery, mut candidates: Vec<Candidate>, lan: bool) -> Result<Candidate> {
     match candidates.len() {
-        0 => Err(anyhow!(not_registered_message(query))),
+        0 => Err(anyhow!(not_registered_message(query, lan))),
         1 => Ok(candidates.remove(0)),
         _ => {
             let tty = std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
@@ -221,12 +251,16 @@ fn ask_choice(
     }
 }
 
-/// `juiz name list` の表
-fn format_list(listed: &[ListedRegistration]) -> String {
+/// `juiz name list` の表。`lan` は LAN も見たとき (MACHINE の列を足す)
+fn format_list(listed: &[ListedRegistration], lan: bool) -> String {
     if listed.is_empty() {
-        return "No juiz is registered on this machine.\n".to_owned();
+        return if lan {
+            "No juiz is registered on this machine or the LAN.\n".to_owned()
+        } else {
+            "No juiz is registered on this machine.\n".to_owned()
+        };
     }
-    let rows: Vec<[String; 5]> = listed
+    let rows: Vec<[String; 6]> = listed
         .iter()
         .map(|l| {
             let r = &l.registration;
@@ -238,14 +272,20 @@ fn format_list(listed: &[ListedRegistration]) -> String {
             let mut brokers = r
                 .brokers
                 .iter()
+                .filter(|b| l.place == Place::ThisMachine || b.type_name != "ipc")
                 .map(|b| b.local_url())
                 .collect::<Vec<_>>()
                 .join(" ");
             if l.alive == Some(false) {
                 brokers.push_str("  (not answering)");
             }
+            let machine = match l.place {
+                Place::ThisMachine => "(this)".to_owned(),
+                Place::Lan => r.host.clone(),
+            };
             [
                 r.registered_name(),
+                machine,
                 package,
                 r.pid.to_string(),
                 r.started_at.clone(),
@@ -253,16 +293,21 @@ fn format_list(listed: &[ListedRegistration]) -> String {
             ]
         })
         .collect();
-    let header = ["NAME", "PACKAGE", "PID", "STARTED", "BROKERS"];
+    let header = ["NAME", "MACHINE", "PACKAGE", "PID", "STARTED", "BROKERS"];
+    // LAN を見ないときは MACHINE の列を出さない (今までの表のまま)
+    let skip = if lan { usize::MAX } else { 1 };
     let mut widths = header.map(str::len);
     for row in &rows {
         for (i, c) in row.iter().enumerate() {
             widths[i] = widths[i].max(c.chars().count());
         }
     }
-    let line = |cols: [&str; 5]| -> String {
+    let line = |cols: [&str; 6]| -> String {
         let mut s = String::new();
         for (i, c) in cols.iter().enumerate() {
+            if i == skip {
+                continue;
+            }
             if i == cols.len() - 1 {
                 s.push_str(c);
             } else {
@@ -273,7 +318,7 @@ fn format_list(listed: &[ListedRegistration]) -> String {
     };
     let mut out = line(header);
     for r in &rows {
-        out.push_str(&line([&r[0], &r[1], &r[2], &r[3], &r[4]]));
+        out.push_str(&line([&r[0], &r[1], &r[2], &r[3], &r[4], &r[5]]));
     }
     out
 }
@@ -307,13 +352,15 @@ mod tests {
             ListedRegistration {
                 registration: reg("robot1", "mobile_sim"),
                 alive: None,
+                place: Place::ThisMachine,
             },
             ListedRegistration {
                 registration: reg("", "teleop"),
                 alive: Some(false),
+                place: Place::ThisMachine,
             },
         ];
-        let t = format_list(&listed);
+        let t = format_list(&listed, false);
         let lines: Vec<&str> = t.lines().collect();
         assert!(lines[0].starts_with("NAME"), "{t}");
         assert!(
@@ -325,30 +372,62 @@ mod tests {
             "{t}"
         );
         assert!(lines[2].ends_with("(not answering)"), "{t}");
-        assert_eq!(format_list(&[]), "No juiz is registered on this machine.\n");
+        assert_eq!(
+            format_list(&[], false),
+            "No juiz is registered on this machine.\n"
+        );
+        assert_eq!(
+            format_list(&[], true),
+            "No juiz is registered on this machine or the LAN.\n"
+        );
+    }
+
+    #[test]
+    fn list_table_with_lan() {
+        let mut remote = reg("robot2", "mobile_sim");
+        remote.host = "robot2-pc".into();
+        remote.brokers = vec![RegisteredBroker::new("http", "192.168.0.12:8001")];
+        let listed = vec![
+            ListedRegistration {
+                registration: reg("robot1", "mobile_sim"),
+                alive: None,
+                place: Place::ThisMachine,
+            },
+            ListedRegistration {
+                registration: remote,
+                alive: None,
+                place: Place::Lan,
+            },
+        ];
+        let t = format_list(&listed, true);
+        let lines: Vec<&str> = t.lines().collect();
+        assert!(lines[0].starts_with("NAME               MACHINE"), "{t}");
+        assert!(lines[1].starts_with("robot1/mobile_sim  (this)"), "{t}");
+        assert!(lines[2].starts_with("robot2/mobile_sim  robot2-pc"), "{t}");
+        assert!(lines[2].ends_with("http://192.168.0.12:8001"), "{t}");
     }
 
     #[test]
     fn choose_by_number() {
         let q = NameQuery::parse("mobile_sim").unwrap();
         let c = vec![
-            Candidate {
-                registration: reg("robot1", "mobile_sim"),
-            },
-            Candidate {
-                registration: reg("robot2", "mobile_sim"),
-            },
+            Candidate::local(reg("robot1", "mobile_sim")),
+            Candidate::lan({
+                let mut r = reg("robot2", "mobile_sim");
+                r.host = "robot2-pc".into();
+                r
+            }),
         ];
         let mut out = Vec::new();
         let i = ask_choice(&q, &c, &mut "x\n2\n".as_bytes(), &mut out).unwrap();
         assert_eq!(i, 1);
         let text = String::from_utf8(out).unwrap();
-        assert!(text.starts_with("2 juiz are registered as mobile_sim:\n  1) robot1/mobile_sim  0.4.0  pid 12345  (this machine)\n"), "{text}");
+        assert!(text.starts_with("2 juiz are registered as mobile_sim:\n  1) robot1/mobile_sim  0.4.0  pid 12345  (this machine)\n  2) robot2/mobile_sim  0.4.0  at robot2-pc\n"), "{text}");
         assert!(text.contains("type a number from 1 to 2"), "{text}");
         let i = ask_choice(&q, &c, &mut "\n".as_bytes(), &mut Vec::new()).unwrap();
         assert_eq!(i, 0);
         // 入力が閉じたら、対話できないときと同じエラー
         let e = ask_choice(&q, &c, &mut "".as_bytes(), &mut Vec::new()).unwrap_err();
-        assert!(e.to_string().starts_with("mobile_sim is ambiguous"), "{e}");
+        assert_eq!(e.to_string(), "mobile_sim is ambiguous: robot1/mobile_sim (this machine), robot2/mobile_sim@robot2-pc. Write the namespace or the machine (ex., robot1/mobile_sim).");
     }
 }

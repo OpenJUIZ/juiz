@@ -119,6 +119,12 @@ struct Args {
     no_register: bool,
 
     #[arg(
+        long = "advertise",
+        help = "Advertise this juiz on the LAN by mDNS so that other machines find it by name (option.naming.advertise: true). Needs a juiz built with the feature naming-mdns. The HTTP broker has no authentication, so use this only on a network you trust."
+    )]
+    advertise: bool,
+
+    #[arg(
         long = "namespace",
         help = "Default namespace of the system. Overrides 'namespace' in the system definition file (ex., robot1). Use '/' for the root."
     )]
@@ -382,6 +388,10 @@ enum SubCommands {
         /// Do not register this juiz in the name list of this machine (option.naming.register: false).
         #[arg(long = "no-register")]
         no_register: bool,
+
+        /// Advertise this juiz on the LAN by mDNS (option.naming.advertise: true). Needs the feature naming-mdns.
+        #[arg(long = "advertise")]
+        advertise: bool,
 
         /// Started from the file association or another window (not for users to type).
         #[arg(long = "launched", hide = true)]
@@ -908,6 +918,7 @@ fn package_command(args: &Args) -> Option<JuizResult<()>> {
             no_prompt,
             forget_depends,
             no_register,
+            advertise,
             launched,
         } => Some(package::run::run_package(&package::run::RunOptions {
             package: package.clone(),
@@ -925,6 +936,7 @@ fn package_command(args: &Args) -> Option<JuizResult<()>> {
             no_prompt: *no_prompt,
             forget_depends: *forget_depends,
             no_register: *no_register || args.no_register,
+            advertise: *advertise || args.advertise,
             launched: *launched,
         })),
         SubCommands::Install { package, launched } => Some((|| {
@@ -1015,6 +1027,9 @@ fn run(mut args: Args) -> JuizResult<()> {
     let mut manifest = add_ipc_broker(manifest, args.ipc.as_deref())?;
     if args.no_register {
         juiz_core::naming::set_register_option(&mut manifest, false);
+    }
+    if args.advertise {
+        juiz_core::naming::set_advertise_option(&mut manifest, true);
     }
     // ポートが使用中のときの扱い (docs/spec/app-package.md §16.2)
     juiz_core::port_policy::override_port_policy(

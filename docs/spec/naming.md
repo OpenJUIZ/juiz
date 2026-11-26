@@ -1,6 +1,6 @@
 # ネーミングサービス仕様
 
-- 状態: 確定(ネーミングサービス Step 0、issue #615、2026-11-25)。§11・§12 は枠だけで、Step 4(#619)・Step 5(#620)で書き足す
+- 状態: 確定(ネーミングサービス Step 0、issue #615、2026-11-25)。§11 は Step 4(#619)で書き足した。§12 は枠だけで、Step 5(#620)で書き足す
 - 親 issue: #289。計画と経緯はプロジェクトの計画書 naming-service-plan.md(2026-11-25 確定)にある
 - 関連: [app-package.md](app-package.md) §10.2・§15.4〜§15.6(`juiz run` のつなぎ先)、[ipc-broker.md](ipc-broker.md) §2.2(置き場所と権限)、[connected-systems.md](connected-systems.md)(つながった後の全体像)
 - この文書は Step 1〜6(#616〜#620、site#124)の実装の基準になる。実装で仕様を変えるときは、同じ PR でこの文書を直す
@@ -283,7 +283,8 @@ name://mobile_sim/process/inc0::increment
 | --- | --- |
 | `juiz name list` | この機械の登録を並べる(登録名・package・版・pid・ブローカーの URL)。死んでいる登録(§6 の 1)は消してから並べる |
 | `juiz name list --check` | 各登録に `system/profile` を問い合わせ(§6 の 2)、応答しないものに印を付ける |
-| `juiz name list --lan` | LAN と peers の登録も並べる(Step 4・5) |
+| `juiz name list --lan` | LAN と peers の登録も並べる(Step 4・5、§11.5) |
+| `juiz name resolve <登録名> --lan` | この機械と LAN の両方から候補を集める(§11.5) |
 | `juiz name resolve <登録名>` | §7 で解決し、選んだブローカーの URL を 1 行で出す。候補が複数なら §7.2 |
 | `juiz name resolve <登録名> --all` | 候補をすべて、ブローカーの一覧と一緒に出す |
 
@@ -323,24 +324,79 @@ option:
 | 引数 | 効き目 | 対象 |
 | --- | --- | --- |
 | `--no-register` | `register: false` | `juiz -f`、`juiz run` |
-| `--advertise` | `advertise: true`(Step 4) | `juiz -f`、`juiz run` |
+| `--advertise` | `advertise: true`(Step 4、§11.2) | `juiz -f`、`juiz run` |
 | `--peer <URL>` | `peers` に足す(Step 5、何度でも書ける) | `juiz -f`、`juiz run`、`juiz name` |
 
 - 引数は conf より優先する。
 - `option.naming` の知らないキーは警告をログに出して無視する(#401 の Process の知らないキーと同じ扱い)。
 
-## 11. LAN の自動発見(mDNS)— Step 4(#619)で書き足す
+## 11. LAN の自動発見(mDNS)
 
-決まっていること:
+Step 4(#619)で書き足した。
+
+### 11.1 決まっていたこと
 
 - DNS-SD のサービス種別は `_juiz._tcp`。TXT に登録の中身(§3.2 の `name`・`namespace`・`uuid`・`juiz_version`・`package`・ブローカーの一覧)を載せる。
 - 広告は既定オフ(`option.naming.advertise: true` か `--advertise` で出す)。HTTP ブローカーには認証が無いので、LAN 全体に「ここにある」と出すかは利用者が選ぶ。
 - 引く側(発見)は、feature があれば既定で動く。
-- juiz_core の既定オフの feature `naming-mdns` にする(zenoh と同じく、依存とビルド時間のため CI の別ジョブで試す)。Rust の実装は `mdns-sd` を使う予定。
+- juiz_core の既定オフの feature `naming-mdns` にする(zenoh と同じく、依存とビルド時間のため CI の別ジョブで試す)。Rust の実装は `mdns-sd`(0.21 系、純 Rust、非同期ランタイムに依らない)を使う。`juiz_app` の同名の feature `naming-mdns` がこれを入れる。
 - 止めるときは goodbye(TTL 0)を送る。異常終了で残ったものは TTL 切れに任せ、引いた側でも §6 の 2 で確かめる。
 - マルチキャストが通らない網(Docker の bridge、一部の Wi-Fi、サブネット越え)では効かない。その場合は §12。
 
-Step 4 で決めること: TXT の項目名と長さの上限(1 項目 255 バイト)を越えるときの扱い、ブローカーの host の埋め方、インスタンス名の付け方、同じ機械の見分け方、引くときの待ち時間。
+### 11.2 広告
+
+- 広告するのは §5.1 で登録する System と同じ(動き続ける System)。時機も同じ(登録の直後、`System::stop` で登録を消す直前に goodbye)。
+- `advertise` は `register` と別に効く。`register: false`(`--no-register`)でも `advertise: true` なら広告する(この機械の一覧には出ず、LAN だけに出る)。登録したときは、登録と同じ名前(§4.3 で `-2` を付けたもの)で出す。
+- 広告したら `note: robot1/mobile_sim is advertised on the LAN (mDNS). Other machines on the LAN can find and call it.` を標準エラーに出す(認証の無いブローカーを LAN に出したことを利用者に見せる)。
+- 広告できないときは警告を出して広告しない(起動は止めない)。
+  - feature の無い juiz: `warning: robot1/mobile_sim is not advertised on the LAN: this juiz is built without the feature naming-mdns`
+  - 他の機械からつなげるブローカーが無い(§11.3 で全部外れた)、mDNS が使えない: `warning: cannot advertise robot1/mobile_sim on the LAN: <理由>`
+  - 名前が規則に合わない: §4.1 と同じ形の `warning: … this juiz is not advertised on the LAN`
+
+### 11.3 載せるブローカーと host の埋め方
+
+- `ipc` は載せない(別の機械からつなげない)。
+- ブローカーの ID の host は、待ち受けが `0.0.0.0` でも `127.0.0.1` になることがある(http は常に `127.0.0.1:<port>`、zenoh は `0.0.0.0` を `127.0.0.1` にする)。そこで ID の host が `127.0.0.1`・`localhost`・`::1` のときは conf の `brokers` を見る:
+  - 同じ種類の要素がすべて `host` に `127.0.0.1`・`localhost`・`::1` を書いていれば、この機械の中だけで待ち受けているので載せない。
+  - そうでなければ(`host` を書いていない、`0.0.0.0` など。`-d` の HTTP ブローカーもこちら)、すべての住所で待ち受けているとみなし、host を `0.0.0.0` にして載せる。
+- ID の host が具体的な住所(`192.168.0.10`)なら、そのまま載せる。
+- 受け手は host が `0.0.0.0`・`::`・`[::]`・空のブローカーを、mDNS の応答の住所に置き換える。住所は IPv4(リンクローカルでないもの → リンクローカル)を先に、無ければ IPv6(リンクローカルでないもの、`[…]` で書く)。ループバックの住所は使わない。置き換えられないブローカーは捨てる。
+- SRV のポートは、載せたブローカーの http → qmp → zenoh の順で最初のもの(DNS-SD の決まりで要るだけで、juiz は TXT のブローカーの一覧を使う)。
+
+### 11.4 TXT の項目、インスタンス名、同じ機械の見分け方
+
+| キー | 必須 | 中身 |
+| --- | --- | --- |
+| `f` | ○ | §3.2 の `format`(今は `1`)。読む側は知らない版を飛ばす |
+| `name` | ○ | 登録名の名前の部分 |
+| `ns` | ○ | ネームスペース(ルートは空) |
+| `uuid` | ○ | `system_store.uuid` |
+| `pid` | ○ | 表示用(別の機械の pid は確かめに使わない) |
+| `host` | ○ | 機械のホスト名(`@<機械>` の照合と表示に使う) |
+| `v` | ○ | juiz の版 |
+| `t` | ○ | `started_at` |
+| `pkg`・`pkgv`・`kind` | | `package.name`・`package.version`・`package.kind`(`juiz run` のときだけ) |
+| `b0`、`b1`、… | | ブローカーの ID(§11.3 を通したもの、例 `http://0.0.0.0:8001`) |
+
+- 1 項目(`<キー>=<値>`)は 255 バイトまで(RFC 6763 §6.1)。必須の項目が越えれば広告しない(長いネームスペースなど)。`pkg` などとブローカーは、越えた項目だけを載せず `warning: '<キー>=<値>' is longer than 255 bytes and is not advertised` を出す。
+- インスタンス名は、登録名の `/` を `.` にして 54 バイトまでに切り、`-<uuid の先頭 8 文字>` を付けたもの(`robot1.mobile_sim-1b2c3d4e`)。同じ名前の juiz が LAN に何台いてもぶつからない。表示には使わない(表示は TXT から作る)。
+- mDNS の A・AAAA レコードの名前は `juiz-<uuid の先頭 8 文字>.local.`。OS の応答者(Avahi・Bonjour)の機械名とぶつけないため。
+- 同じ機械の見分け方: LAN で見つけた登録のうち、`uuid` がこの機械の登録ファイル(§3)のどれかと同じものは捨てる(同じ System をこの機械と LAN で 2 度出さない)。`host` の名前では見分けない(Docker で `JUIZ_IPC_DIR` を分けたコンテナ同士は、同じ機械でも LAN として見える)。
+
+### 11.5 引く(発見)
+
+- `_juiz._tcp` を 1.5 秒だけ探し、届いた応答の TXT から §3.2 の形の登録を作る。同じ `uuid` の応答が何度も届いたら(住所が揃うにつれて届き直す)、ブローカーが多く埋まったものを残す。
+  - 1.5 秒にしたのは、mDNS の応答者が同じレコードを 1 秒に 1 回しか流さない(RFC 6762 §6)ため。直前に別の juiz が引いた直後でも、1 秒後の問い合わせの再送への応答で見つかる。
+- 死活は §6 の 2・3 で確かめる。別の機械なので 1(pid)は見ない。ブローカーは §7.3 の別の機械の順(zenoh → qmp → http)で問い合わせ、応答の `uuid` が違えば捨てる(消すファイルは無い)。応答が無いもの・つなげる種類が無いものは候補にしない。問い合わせられない種類(zenoh)だけなら、見つかったことをもって生きているとみなす。
+- 引く所と順(§7.1):
+  - `juiz name resolve`、CLI の `-s <名前>`、`name://`(conf・ID・`juiz run` の `--depend`)、API `naming/resolve`: この機械の登録で候補が無かったときだけ LAN を見る。`juiz name resolve --lan`、`naming/resolve?lan=true` は両方を見る。
+  - `juiz name list --lan`、API `naming/list?lan=true`: この機械の一覧の後に、LAN で見つけたものを並べる(既定は LAN を見ない。1.5 秒待つので)。
+  - `juiz run` の依存(§8 の 5): 4(この機械の登録)で見つからなかったときだけ。条件は 4 と同じ(`package.name`・`kind: base`・版)。LAN で 2 つ以上見つかったら、対話できても選ばせず `robot_base is found more than once on the LAN: robot_base@robot2-pc, robot_base@robot3-pc. Choose one with --depend robot_base=<URL>.` のエラー(§7.2 の選ばせる形は Step 4 では入れない)。
+- 候補が 0 で LAN も見たときは `… is not registered on this machine or the LAN.`(§7.2)。
+- feature の無い juiz は LAN を見ない(今までどおり)。`--lan` を書けば `warning: --lan is ignored: this juiz is built without the feature naming-mdns` を出し、この機械の分だけを並べる。
+- `juiz name list --lan` の表には `MACHINE` の列(この機械は `(this)`、LAN は機械名)を足す。LAN のものは ipc のブローカーを出さない。`--json` の要素は `machine` に機械名、`found: "lan"` を足す(この機械の要素は今までどおり `machine: "this"`)。
+- 選んだブローカーの URL は、§11.3 で host を置き換えたもの(`http://192.168.0.12:8001`)。
+- pyjuiz と管理画面は Step 4 では LAN を見ない(pyjuiz は登録ファイルを直接読むため。管理画面は `naming/list?lan=true` を使えば出せる)。
 
 ## 12. 知っている juiz に聞く(peers)— Step 5(#620)で書き足す
 
@@ -352,7 +408,7 @@ Step 4 で決めること: TXT の項目名と長さの上限(1 項目 255 バ�
 
 Step 5 で決めること: 待ち時間、peer が返す登録の host の置き換え、`JUIZ_NAMING_PEERS` のような環境変数を持つか。
 
-## 13. テスト(Step 1〜3)
+## 13. テスト(Step 1〜4)
 
 - 登録ファイルの書き込み・読み込み・解除を、`JUIZ_IPC_DIR` を一時ディレクトリにして試す(テストごとに別のディレクトリ)。
 - 死活: 存在しない pid の登録が消えること、pid は生きているが `uuid` が違う登録が消えること、応答しない登録が候補から外れるが消えないこと。
@@ -361,6 +417,7 @@ Step 5 で決めること: 待ち時間、peer が返す登録の host の置き
 - §8 の順: `--depend`・覚えた先・conf が登録より勝つこと、基礎の HTTP のポートが逃げても登録で見つかること(Step 2)。
 - `-s <名前>` で CLI がつながること、conf の `subsystems` に名前で書いた相手につながり一覧に実際の URL が出ること、API `naming/list`・`naming/resolve`(Step 3、`juiz_app` の `tests/cli/name_target.rs`、ポート 8160・8161)。pyjuiz は `test/unit/naming_test.py`、管理画面は `webui/tests/naming.test.ts`。
 - 置き場所の権限は ipc-broker.md §8 と同じ方法で試す。
+- Step 4: TXT の読み書き・host の埋め方・載せるブローカー・インスタンス名・LAN の候補のブローカーの順は juiz_core の単体テスト(`naming::lan::tests`、feature なしで走る)。feature `naming-mdns` では同じプロセスで広告して見つけるテスト、`juiz_app` の `tests/cli/mdns.rs`(置き場所を分けた juiz コマンドから名前で引き、止めたら見つからない、ポート 8170)。`juiz run` の LAN の段は `package::depends` の単体テスト。CI は test-linux.yml の `naming-mdns` ジョブ(scripts/test-naming-mdns.sh)。マルチキャストが自分に戻ってくる網が要る。
 
 ## 14. 対象外
 

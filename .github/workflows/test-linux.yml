@@ -1,6 +1,6 @@
 name: Test (Linux)
 
-# Linux でのビルドとテスト(rust・opencv・zenoh・Linux の wheel)。
+# Linux でのビルドとテスト(rust・opencv・zenoh・naming-mdns・Linux の wheel)。
 # PR と main・release/* への push と手動実行で動く。linux-aarch64 の wheel は PR では動かさない。
 # カバレッジは coverage.yml(週 1 回と手動実行、#520)。
 # macOS・Windows は test-macos.yml・test-windows.yml に分けてあり、main・release/* への push と手動実行でだけ動く。
@@ -223,6 +223,31 @@ jobs:
           sudo prlimit --pid $$ --memlock=unlimited:unlimited
           ulimit -l
           scripts/test-zenoh.sh --verbose
+
+  # LAN の自動発見 mDNS(juiz_core / juiz_app の feature naming-mdns、docs/spec/naming.md §11、issue #619)。
+  # feature は既定オフなので、rust ジョブとは別のキャッシュでビルド・テストする(zenoh ジョブと同じ考え)。
+  # 同じランナーの中で広告して見つけるので、マルチキャストが自分に戻ってくる網が要る(ubuntu のランナーは戻る)。
+  naming-mdns:
+    name: Naming mDNS build & test
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        id: setup-python
+        with:
+          python-version: "3.14"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: naming-mdns-python${{ steps.setup-python.outputs.python-version }}
+          save-if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') }}
+
+      - name: Build & test
+        run: scripts/test-naming-mdns.sh --verbose
 
   # pip で入れる juiz(bindings/juiz_py、issue #88)の wheel を Linux でビルドし、
   # インストールした juiz コマンドで Python の Process とサンプルを動かす(juiz-wheels.yml)。

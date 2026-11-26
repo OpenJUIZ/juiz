@@ -6,6 +6,7 @@ use juiz_sdk::anyhow::anyhow;
 
 use crate::prelude::*;
 
+use super::lan::REMOTE_ORDER;
 use super::probe::{check, check_pid, Liveness, ProfileProbe, LOCAL_ORDER};
 use super::record::{
     is_stale, read_registration, registered_name, registration_files, registration_path,
@@ -136,12 +137,23 @@ impl std::fmt::Display for NameQuery {
     }
 }
 
+/// 登録を見つけた場所 (§7.1)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Place {
+    /// この機械の登録ファイル (§3)
+    #[default]
+    ThisMachine,
+    /// LAN の mDNS (§11)。機械は登録の `host`
+    Lan,
+}
+
 /// 一覧の 1 行 (§9.3)
 #[derive(Debug, Clone)]
 pub struct ListedRegistration {
     pub registration: Registration,
     /// `--check` のとき: 応答したか
     pub alive: Option<bool>,
+    pub place: Place,
 }
 
 impl ListedRegistration {
@@ -152,7 +164,14 @@ impl ListedRegistration {
             if let Some(a) = self.alive {
                 m.insert("alive".to_owned(), jvalue!(a));
             }
-            m.insert("machine".to_owned(), jvalue!("this"));
+            let machine = match self.place {
+                Place::ThisMachine => "this".to_owned(),
+                Place::Lan => self.registration.host.clone(),
+            };
+            m.insert("machine".to_owned(), jvalue!(machine));
+            if self.place == Place::Lan {
+                m.insert("found".to_owned(), jvalue!("lan"));
+            }
         }
         v
     }
@@ -162,23 +181,59 @@ impl ListedRegistration {
 #[derive(Debug, Clone)]
 pub struct Candidate {
     pub registration: Registration,
+    pub place: Place,
 }
 
 impl Candidate {
-    /// `(this machine)` などの場所の表示
-    pub fn place(&self) -> &'static str {
-        "this machine"
+    /// この機械の登録の候補
+    pub fn local(registration: Registration) -> Candidate {
+        Candidate {
+            registration,
+            place: Place::ThisMachine,
+        }
     }
 
-    /// 候補の一覧の 1 行 `robot1/mobile_sim  0.4.0  pid 12345  (this machine)` (§7.2)
+    /// LAN で見つけた候補
+    pub fn lan(registration: Registration) -> Candidate {
+        Candidate {
+            registration,
+            place: Place::Lan,
+        }
+    }
+
+    /// 候補の一覧の 1 行 `robot1/mobile_sim  0.4.0  pid 12345  (this machine)`、
+    /// LAN なら `robot2/mobile_sim  0.4.0  at robot2-pc` (§7.2)
     pub fn describe(&self) -> String {
         let r = &self.registration;
         let mut s = r.registered_name();
         if let Some(v) = r.package_version() {
             s.push_str(&format!("  {v}"));
         }
-        s.push_str(&format!("  pid {}  ({})", r.pid, self.place()));
+        match self.place {
+            Place::ThisMachine => s.push_str(&format!("  pid {}  (this machine)", r.pid)),
+            Place::Lan => s.push_str(&format!("  at {}", r.host)),
+        }
         s
+    }
+
+    /// 複数候補のエラーの文の 1 つ (`robot1/mobile_sim (this machine)`・`robot2/mobile_sim@robot2-pc`)
+    pub fn short(&self) -> String {
+        match self.place {
+            Place::ThisMachine => format!("{} (this machine)", self.registration.registered_name()),
+            Place::Lan => format!(
+                "{}@{}",
+                self.registration.registered_name(),
+                self.registration.host
+            ),
+        }
+    }
+
+    /// ブローカーを選ぶ順 (§7.3)
+    fn order(&self) -> &'static [&'static str] {
+        match self.place {
+            Place::ThisMachine => &LOCAL_ORDER,
+            Place::Lan => &REMOTE_ORDER,
+        }
     }
 
     /// つなぐブローカーを選ぶ (§7.3)。`kind` は種類の指定、`kinds` は引く側がつなげる種類
@@ -201,6 +256,7 @@ impl Candidate {
             let b = reg
                 .brokers
                 .iter()
+                .filter(|b| self.place == Place::ThisMachine || b.type_name != "ipc")
                 .find(|b| b.type_name == kind)
                 .ok_or_else(|| {
                     anyhow!(
@@ -214,11 +270,11 @@ impl Candidate {
             }
             return Ok((b.clone(), b.local_url()));
         }
-        for k in LOCAL_ORDER {
+        for k in self.order() {
             if !kinds.iter().any(|x| x == k) {
                 continue;
             }
-            if let Some(b) = reg.brokers.iter().find(|b| b.type_name == k) {
+            if let Some(b) = reg.brokers.iter().find(|b| &b.type_name == k) {
                 return Ok((b.clone(), b.local_url()));
             }
         }
@@ -398,10 +454,12 @@ impl NameRegistry {
                 Liveness::Alive => out.push(ListedRegistration {
                     registration: r,
                     alive: check_profile.then_some(true),
+                    place: Place::ThisMachine,
                 }),
                 Liveness::NoResponse | Liveness::NotConnectable => out.push(ListedRegistration {
                     registration: r,
                     alive: Some(false),
+                    place: Place::ThisMachine,
                 }),
             }
         }
@@ -432,7 +490,7 @@ impl NameRegistry {
                 continue;
             }
             match check(&r, probe, kinds) {
-                Liveness::Alive => out.push(Candidate { registration: r }),
+                Liveness::Alive => out.push(Candidate::local(r)),
                 Liveness::Dead => {
                     remove_if_uuid(&self.dir, &p, &r.uuid);
                 }
@@ -440,6 +498,11 @@ impl NameRegistry {
             }
         }
         out
+    }
+
+    /// この機械の登録の uuid (生きているかは確かめない)。LAN の登録から同じ機械のものを外すのに使う (§11.4)
+    pub fn uuids(&self) -> std::collections::BTreeSet<String> {
+        self.read_all().into_iter().map(|(_, r)| r.uuid).collect()
     }
 
     /// 名前を 1 つの候補に決める (§7.2、対話しないとき)。候補が 0 か複数ならエラー
@@ -451,23 +514,27 @@ impl NameRegistry {
     ) -> JuizResult<Candidate> {
         let mut c = self.candidates(query, probe, kinds);
         match c.len() {
-            0 => Err(anyhow!(not_registered_message(query))),
+            0 => Err(anyhow!(not_registered_message(query, false))),
             1 => Ok(c.remove(0)),
             _ => Err(anyhow!(ambiguous_message(query, &c))),
         }
     }
 }
 
-/// 候補が 0 のときの文 (§7.2)
-pub fn not_registered_message(query: &NameQuery) -> String {
-    format!("{query} is not registered on this machine.")
+/// 候補が 0 のときの文 (§7.2)。`lan` は LAN も見たとき
+pub fn not_registered_message(query: &NameQuery, lan: bool) -> String {
+    if lan {
+        format!("{query} is not registered on this machine or the LAN.")
+    } else {
+        format!("{query} is not registered on this machine.")
+    }
 }
 
 /// 候補が複数で、対話できないときの文 (§7.2)
 pub fn ambiguous_message(query: &NameQuery, candidates: &[Candidate]) -> String {
     let list = candidates
         .iter()
-        .map(|c| format!("{} ({})", c.registration.registered_name(), c.place()))
+        .map(Candidate::short)
         .collect::<Vec<_>>()
         .join(", ");
     let example = candidates
