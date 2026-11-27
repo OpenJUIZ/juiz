@@ -295,7 +295,7 @@ juiz_core に、C ABI のブローカーのための `CRUDBrokerProxy` の実装
 ホストは、ある `type_name` のブローカーを次の順で探し、最初に見つかったものを使う。
 
 1. conf の `plugins.broker_factories` で読み込んだプラグイン(C ABI でも Rust ABI でも、§11)
-2. 組み込み(`register_builtin_broker_factory`、juiz_app の qmp・feature の Zenoh など。C ABI のブローカーを rlib としてリンクしたものは `register_builtin_cabi_broker(<クレート>::broker_factory_cabi)` で登録する)
+2. 組み込み(`register_builtin_broker_factory`、juiz_app の qmp など。#640 までは feature の Zenoh も。C ABI のブローカーを rlib としてリンクしたものは `register_builtin_cabi_broker(<クレート>::broker_factory_cabi)` で登録する)
 3. 置き場所(§10)にあるもの
 
 - 1 が 2 より先なのは今と同じ(conf でプラグインを書いたら組み込みより優先する、builtin_broker_factories.rs)。
@@ -530,6 +530,13 @@ juiz broker remove <名前> [--version <版>]
 | 7 リリース | #641 | |
 
 ## 15. 計画から変えたこと・細かく決めたこと
+
+Step 5(#640、juiz から Zenoh を外す)で決めたこと:
+
+- **juiz から Zenoh の組み込みを全部外した。** juiz_app・juiz_py の feature `zenoh-broker`、`brokers/zenoh_broker`、`scripts/test-zenoh.sh`、`test-linux.yml` の zenoh ジョブ、publish.yml の juiz_zenoh_broker、wheel の `--features zenoh-broker` とスモークテストの zenoh を消した(zenoh-broker.md §16)。§6.4 の案内の文は変えない。cli のテスト `zenoh::` は案内の 2 つ(conf の `brokers`、`-s zenoh://…`)だけを、feature の条件なしで走らせる。
+- **juiz コマンドの名前の解決(naming.md)は、置き場所に入れた種類にもつなげる。** 今までは feature `zenoh-broker` のときに `zenoh` をつなげる種類に足していた。代わりに、置き場所で `used` の版がある種類を足す(`juiz_app::name::app_kinds`)。問い合わせ(`system/profile`)の手段は無いので、§6 の 1(pid)で確かめる種類のままにする(naming.md §6)。
+- **ブローカー共通のスイートと tcp_test_broker は juiz に残す。** juiz_zenoh_broker が git の依存で使うため(Step 4)。suite の `RemoteBroker` の Zenoh 向けのポートのずらし(200)もそのまま。
+- **リリースノートに書くこと(#641):** 「Zenoh ブローカーは juiz(cargo の juiz_app、pip の juiz-cli)に組み込まなくなった。使うときは `juiz broker install zenoh` で入れる(OpenJUIZ/juiz_zenoh_broker、0.4.0 から)。conf と `zenoh://` の書き方は同じ。crates.io の juiz_zenoh_broker は 0.3.7 で終わり」。
 
 Step 4(#639、juiz_zenoh_broker へ移す)で決めたこと:
 

@@ -42,15 +42,7 @@ QUIC (qmp) ブローカー(`brokers/qmp_broker`、クレート `juiz_qmp_broker`
 
 ### Zenoh ブローカー
 
-Zenoh ブローカー(`brokers/zenoh_broker`、クレート `juiz_zenoh_broker`、[docs/spec/zenoh-broker.md](docs/spec/zenoh-broker.md))は、Zenoh のビルドが重い(juiz_app の初回ビルドが約 2 倍になる)ので、ワークスペースの `default-members` に入れていません。`juiz` コマンドへの組み込みも juiz_app の feature `zenoh-broker`(既定でオフ)です。ふだんの `cargo build` / `cargo test`、`scripts/test.sh`、CI の rust ジョブとカバレッジではビルドしません。
-
-触ったときは手元で `scripts/test-zenoh.sh` を実行します。feature `zenoh-broker` 付きの `juiz` と例のプラグイン、juiz_core の feature なしの Zenoh のプラグインを作ってから、`juiz_zenoh_broker` のテストと juiz_app の `zenoh_cli_test` を走らせます(テストはポート 5212〜5251 を使います)。CI では `test-linux.yml` の `zenoh` ジョブが、別のキャッシュで同じスクリプトを実行します。
-
-```terminal
-scripts/test-zenoh.sh
-```
-
-`juiz_zenoh_broker` と `juiz_qmp_broker` はどちらもプラグインの入口(`broker_factory` など)を持つので、juiz_app は Zenoh を `default-features = false`(feature `plugin` なし)で組み込みます。両方のクレートを `-p` で選んだうえで juiz_app の `zenoh-broker` を有効にしてビルドすると、入口がリンクでぶつかります。
+Zenoh ブローカーは C ABI のブローカーとして別のリポジトリ [OpenJUIZ/juiz_zenoh_broker](https://github.com/OpenJUIZ/juiz_zenoh_broker) に移しました(issue #639・#640)。juiz には組み込まず、使うときは `juiz broker install zenoh` で入れます([docs/spec/broker-plugin-abi.md](docs/spec/broker-plugin-abi.md) §10)。テストとベンチもそちらのリポジトリにあります。juiz_zenoh_broker は juiz_sdk・juiz_core・`brokers/broker_suite` を git の依存(`rev` 固定)で使うので、ブローカー共通のスイートや C ABI のグルーを変えたときは、juiz_zenoh_broker の `rev` を上げて CI を確かめてください。
 
 ### LAN の自動発見(mDNS)
 
@@ -96,7 +88,7 @@ pip install target/wheels/juiz_cli-*.whl
 python tests/smoke_test.py                          # juiz_examples_python のディレクトリを渡すとサンプルも動かす
 ```
 
-CI では `.github/workflows/juiz-wheels.yml` が Linux(x86_64・aarch64、manylinux)、macOS(arm64・x86_64)、Windows(x86_64)の wheel をビルドし、それぞれでスモークテストと [juiz_examples_python](https://github.com/OpenJUIZ/juiz_examples_python) のサンプルを動かします。wheel には常に feature `naming-mdns`(LAN の自動発見、docs/spec/naming.md §11.6)を入れ、PR 以外では `zenoh-broker` も入れます。
+CI では `.github/workflows/juiz-wheels.yml` が Linux(x86_64・aarch64、manylinux)、macOS(arm64・x86_64)、Windows(x86_64)の wheel をビルドし、それぞれでスモークテストと [juiz_examples_python](https://github.com/OpenJUIZ/juiz_examples_python) のサンプルを動かします。wheel には常に feature `naming-mdns`(LAN の自動発見、docs/spec/naming.md §11.6)を入れます。Zenoh は入れません(使う人は `juiz broker install zenoh`、issue #640)。
 v* タグを打つと `.github/workflows/pypi-publish.yml` が pyjuiz を公開したあと、これらの wheel を PyPI の `juiz-cli` として公開します。そのため版上げでは、`bindings/juiz_py/pyproject.toml` の `version` と `pyjuiz==` の版、`bindings/juiz_py/Cargo.toml` の `version` もタグに揃えてください(揃っていないと公開しません)。
 
 C++ のサンプルは CMake でビルドします。
@@ -225,27 +217,26 @@ juiz_core/tests/integration/
 | juiz_app | `cli` | `juiz_app/tests/cli/`。feature python-entry のテストだけは埋め込み Python を使うので別の `python_entry_test` |
 | juiz_sdk | `api` | `juiz_sdk/tests/api/` |
 | juiz_qmp_broker | `broker` | `brokers/qmp_broker/tests/broker/`(ベンチは `bench/`) |
-| juiz_zenoh_broker | `broker` | `brokers/zenoh_broker/tests/broker/`(ベンチは `bench/`) |
 | juiz_tcp_test_broker | `broker` | `brokers/tcp_test_broker/tests/broker/`(C ABI のブローカーの確認、公開しない) |
 
 ブローカーの組み込みの登録(`qmp_broker::register` など)や `#[global_allocator]`、`#[no_mangle]` の関数は 1 つのバイナリの中のすべてのテストに効きます。足すときは、同じバイナリのほかのテストに影響しないかを確かめてください。テストで使う conf やプラグインのソース、golden ファイルは `tests/` の下の別ディレクトリ(`confs/`、`python/`、`golden/` など)に置きます。
 
 ### ブローカー共通のスイート
 
-どのブローカーでも同じになるべき確認は、公開しないクレート `brokers/broker_suite`(`juiz_broker_suite`)に置き、各ブローカーのテストから呼びます。juiz_core・juiz_qmp_broker・juiz_zenoh_broker・juiz_tcp_test_broker は版を書かない path の dev-dependency で使います(crates.io に公開するときには外されます)。
+どのブローカーでも同じになるべき確認は、公開しないクレート `brokers/broker_suite`(`juiz_broker_suite`)に置き、各ブローカーのテストから呼びます。juiz_core・juiz_qmp_broker・juiz_tcp_test_broker は版を書かない path の dev-dependency で使います(crates.io に公開するときには外されます)。juiz の外の OpenJUIZ/juiz_zenoh_broker は git の依存で使います。
 
 C ABI のブローカー(docs/spec/broker-plugin-abi.md)は、フレームの処理を juiz_core の共通の処理(`juiz_core::cabi`)に任せるので、試験用の小さな TCP ブローカー `brokers/tcp_test_broker`(種類名 `tcptest`、juiz_core に依存しない)でスイートを走らせて、その共通の処理を確かめます。
 
 | モジュール | 中身 | 走らせるブローカー |
 |---|---|---|
-| `api` | BrokerProxy の API を一通り呼ぶ確認(`check_all` と個々の `check_*`)。相手の System の中身は `Fixture` で渡す | core・local・HTTP・IPC(`juiz_core/tests/integration/brokers/*_api.rs`)、qmp・Zenoh |
-| `data` | 画像・数の配列・Topic の push をフレームで送る確認と、そのための Process | IPC・qmp・Zenoh |
-| `remote` | 別の System のブローカーに繋ぐテストの本体(API・組み込み・ネームスペース・Composite・型・Transformations・モデル)。ブローカーの違いは `RemoteBroker`(型名・プラグイン名・ポートのずらし・組み込みの登録)で渡す | qmp・Zenoh・tcptest(各 `tests/broker/*.rs` は `#[test]` から呼ぶだけ) |
+| `api` | BrokerProxy の API を一通り呼ぶ確認(`check_all` と個々の `check_*`)。相手の System の中身は `Fixture` で渡す | core・local・HTTP・IPC(`juiz_core/tests/integration/brokers/*_api.rs`)、qmp・Zenoh(juiz_zenoh_broker) |
+| `data` | 画像・数の配列・Topic の push をフレームで送る確認と、そのための Process | IPC・qmp・Zenoh(juiz_zenoh_broker) |
+| `remote` | 別の System のブローカーに繋ぐテストの本体(API・組み込み・ネームスペース・Composite・型・Transformations・モデル)。ブローカーの違いは `RemoteBroker`(型名・プラグイン名・ポートのずらし・組み込みの登録)で渡す | qmp・tcptest・Zenoh(juiz_zenoh_broker)(各 `tests/broker/*.rs` は `#[test]` から呼ぶだけ) |
 | `fixture` / `support` | Rust の例だけを読んだ System の設定(`RUST_ONLY`)と、小さな部品(`int_of`・`find_process` など) | |
 
 - ブローカーを足すときは、`api::check_all` と(フレームで送るなら)`data` の確認を走らせるテストを書き、そのブローカーだけの確認(HTTP の自分宛ての識別子、qmp の切断、Zenoh の共有メモリ、IPC のソケットの片付けなど)はそのブローカーのテストに置きます。
 - ブローカーによって応答の形が違うもの(EC の値が `__value__` で包まれるかどうかなど)は、スイートの側で両方を受け付けます(`support::unwrap_value`)。違いをそろえるのは別の issue で扱います。
-- 確認を足すときは、すべてのブローカーで通ることを確かめます(Zenoh は `scripts/test-zenoh.sh`、CI では `test-linux.yml` の zenoh ジョブ)。
+- 確認を足すときは、すべてのブローカーで通ることを確かめます(Zenoh は juiz_zenoh_broker の `scripts/test.sh` に `JUIZ_SRC` で手元の juiz を渡す)。
 
 ### 名前
 
@@ -326,11 +317,7 @@ cargo test --release -p juiz_core --test integration -- bench::image_transfer --
 PYTHONPATH=bindings/pyjuiz cargo test --release -p juiz_core --test integration -- bench::composite --ignored --nocapture --test-threads=1
 ```
 
-Zenoh ブローカーのベンチは juiz_core に置かず(Zenoh を juiz_core のテストでビルドしないため)、`juiz_zenoh_broker` のテストにあります。
-
-```terminal
-cargo test --release -p juiz_zenoh_broker --test broker -- bench:: --ignored --nocapture --test-threads=1
-```
+Zenoh ブローカーのベンチは OpenJUIZ/juiz_zenoh_broker のリポジトリにあります。
 
 `bench::image_transfer` は、テストバイナリ自身を別プロセスの juiz として起動し(HTTP はポート 8050、qmp は 8051、IPC は名前 image_transfer_bench)、そこへ HTTP・IPC・qmp で画像を渡します。プラグインは使わないので、事前の準備は要りません。
 
@@ -389,7 +376,7 @@ Hackage への公開には、Hackage のアカウント(アップロード権限
 | `juiz_std_types` | 標準の型 `juiz_std` の Rust のクレート (組み込みの JIDL から作る)。`juiz_std_types/test_package` は `extern_path` のテスト |
 | `juiz_core` | 機能要素を実体化・管理するコア (CoreBroker, Broker など) |
 | `juiz_app` | `juiz` コマンド |
-| `brokers` | 追加のブローカー実装 (QUIC の `juiz_qmp_broker`、Zenoh の `juiz_zenoh_broker`) |
+| `brokers` | 追加のブローカー実装 (QUIC の `juiz_qmp_broker`、C ABI の試験用の `juiz_tcp_test_broker`、共通のテスト `juiz_broker_suite`。Zenoh は OpenJUIZ/juiz_zenoh_broker) |
 | `ecs` | 実行コンテキスト (TimerEC, OneShotEC, MainLoopEC) |
 | `bindings` | C (`cjuiz`: libjuiz_sdk の C の関数の宣言 `juiz_sdk.h`)、C++ (`cppjuiz`)、Haskell (`hsjuiz`)、Zig (`zigjuiz`)、Python (`pyjuiz`、pip で入れる `juiz` コマンドの `juiz_py`)、JavaScript 向けバインディング |
 | `examples` | Rust / C++ / Python / Haskell / Zig のサンプル |
@@ -410,7 +397,7 @@ Hackage への公開には、Hackage のアカウント(アップロード権限
 - [設計文書(juizdesign.yaml)](docs/spec/design.md)(issue #592)
 - [Transformations(Container の位置姿勢と座標変換)](docs/spec/transformations.md)(issue #366)
 - [Container の 3D モデル(ContainerModel)](docs/spec/container-model.md)(issue #379)
-- [Zenoh ブローカー](docs/spec/zenoh-broker.md)(issue #487)
+- [Zenoh ブローカー](docs/spec/zenoh-broker.md)(issue #487。実装は OpenJUIZ/juiz_zenoh_broker)
 - [Manifest と Profile の用語](docs/spec/manifest-profile.md)(issue #503)
 - [ネーミングサービス(名前からブローカーの接続先を引く)](docs/spec/naming.md)(issue #289)
 

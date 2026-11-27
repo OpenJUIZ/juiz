@@ -157,8 +157,6 @@ fn builtin_types() -> Vec<&'static str> {
     v.push("ipc");
     #[cfg(feature = "qmp-broker")]
     v.push("qmp");
-    #[cfg(feature = "zenoh-broker")]
-    v.push("zenoh");
     v
 }
 

@@ -26,10 +26,6 @@ webui = ["juiz_core/webui"]
 # QUIC (qmp) ブローカーを組み込む。設定ファイルの brokers / broker_proxies に type_name: qmp を書くだけで使える
 # (plugins.broker_factories でプラグインを読み込む必要が無い)。issue #63
 qmp-broker = ["dep:juiz_qmp_broker"]
-# Zenoh ブローカーを組み込む。conf に type_name: zenoh を書くだけで使える (docs/spec/zenoh-broker.md §8.2、#491)。
-# Zenoh はビルドが重い (初回ビルドが約 100 秒延びる) ので default には入れない。
-# feature なしの juiz でも plugins.broker_factories.zenoh_broker でプラグインとして読める
-zenoh-broker = ["dep:juiz_zenoh_broker", "juiz_zenoh_broker/shared-memory"]
 # LAN の自動発見 (mDNS、docs/spec/naming.md §11、#619)。`juiz name list --lan`・名前の解決で LAN も引き、
 # --advertise で LAN に広告する。既定オフ (CI は test-linux.yml の naming-mdns ジョブ)
 naming-mdns = ["juiz_core/naming-mdns"]
@@ -48,8 +44,6 @@ juiz_idl = { workspace = true }
 juiz_pkg = { workspace = true }
 juiz_sdk = { workspace = true }
 juiz_qmp_broker = { workspace = true, optional = true }
-# プラグインの入口 (feature plugin) は qmp_broker の入口とぶつかるので切る
-juiz_zenoh_broker = { workspace = true, optional = true, default-features = false }
 pyo3 = { workspace = true, optional = true }
 # juiz pack / juiz run (.juizapp、docs/spec/app-package.md、#285)
 globset = "0.4"

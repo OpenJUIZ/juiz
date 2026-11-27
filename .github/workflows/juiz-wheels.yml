@@ -16,9 +16,8 @@ name: juiz wheels
 # inputs.linux-only で linux-x86_64 だけに絞れる。
 # Test は OS ごとのワークフローからそれぞれの OS を指定して呼び、PR では linux-x86_64 だけにして Actions の実行時間を減らす。
 #
-# Zenoh ブローカー(juiz_py の feature zenoh-broker、docs/spec/zenoh-broker.md §8.3、issue #491)は、
-# PR 以外(main・release/* への push、タグでの公開、手動実行)で組み込み、スモークテストでも zenoh:// で呼ぶ。
-# Zenoh を入れると release のビルドが約 1.5 分延びるので、PR のジョブの時間は変えない。
+# Zenoh ブローカーは wheel に組み込まない。使う人は `juiz broker install zenoh` で入れる
+# (OpenJUIZ/juiz_zenoh_broker、docs/spec/broker-plugin-abi.md §10、issue #640)。
 #
 # LAN の自動発見(juiz_py の feature naming-mdns、docs/spec/naming.md §11.6、issue #621)は、
 # 依存が小さい(純 Rust の mdns-sd)ので PR でも常に組み込み、スモークテストで feature が入っていることを確かめる。
@@ -98,14 +97,12 @@ jobs:
           working-directory: bindings/juiz_py
           target: ${{ env.TARGET }}
           manylinux: auto
-          args: --release --out dist --features naming-mdns ${{ github.event_name != 'pull_request' && '--features zenoh-broker' || '' }}
+          args: --release --out dist --features naming-mdns
           sccache: "true"
 
       # Python の版ごとに venv を作って wheel を入れ、その venv の python と juiz でスモークテストする
       - name: Smoke test (Python 3.10 and 3.14)
         env:
-          # wheel に Zenoh を組み込んだとき(PR 以外)は zenoh:// でも呼ぶ
-          JUIZ_SMOKE_ZENOH: ${{ github.event_name != 'pull_request' && '1' || '0' }}
           PYTHON_OLDEST: ${{ steps.python-oldest.outputs.python-path }}
           PYTHON_LATEST: ${{ steps.python-latest.outputs.python-path }}
         run: |
