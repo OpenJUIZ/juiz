@@ -299,6 +299,14 @@ impl CoreWorker {
             .store()
             .broker_proxies
             .factory(type_name)
+            .cloned()
+            .or_else(|e| {
+                // conf のプラグインにも組み込みにも無い種類は、置き場所から読む (broker-plugin-abi.md §6.4 の 3)
+                match crate::brokers::installed::load_installed_broker(type_name)? {
+                    Some(entry) => Ok(crate::brokers::cabi::cabi_broker_proxy_factory(entry)),
+                    None => Err(e),
+                }
+            })
             .or_else(|e| {
                 // feature やプラグインで足せる種類 (zenoh など) なら案内を付ける (docs/spec/zenoh-broker.md §8.2)
                 let e = match e.downcast_ref::<JuizError>() {

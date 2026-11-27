@@ -19,6 +19,7 @@
 mod common;
 
 mod app;
+mod broker;
 mod broker_plugin_features;
 mod connection;
 mod datatype;

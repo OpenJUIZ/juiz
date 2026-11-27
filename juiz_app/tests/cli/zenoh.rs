@@ -107,6 +107,7 @@ brokers:
     let log = dir.join("server.log");
     let log_file = std::fs::File::create(&log).unwrap();
     let mut child = juiz()
+        .env("JUIZ_BROKER_HOME", dir.join("no_brokers"))
         .args(["-f", path_str(&conf), "-d"])
         .stdout(log_file.try_clone().unwrap())
         .stderr(log_file)
@@ -129,11 +130,8 @@ brokers:
     };
     let text = std::fs::read_to_string(&log).unwrap_or_default();
     assert!(!status.success(), "{text}");
-    assert!(text.contains("--features zenoh-broker"), "{text}");
-    assert!(
-        text.contains("plugins.broker_factories.zenoh_broker"),
-        "{text}"
-    );
+    // 置き場所 (JUIZ_BROKER_HOME) は空なので、juiz broker install を案内する (broker-plugin-abi.md §6.4)
+    assert!(text.contains("juiz broker install zenoh"), "{text}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -142,8 +140,10 @@ brokers:
 fn zenoh_server_option_missing_shows_hint() {
     // -s zenoh://... でも BrokerProxy を作るところで同じ案内が出る (相手は居なくてよい)
     let host = format!("zenoh://127.0.0.1:{MISSING_PORT}");
+    let home = std::env::temp_dir().join(format!("juiz_zenoh_no_brokers_{}", std::process::id()));
     let out = juiz()
         .env("RUST_BACKTRACE", "0")
+        .env("JUIZ_BROKER_HOME", &home)
         .args(["-s", &host, "process", "list"])
         .output()
         .unwrap();
@@ -153,5 +153,5 @@ fn zenoh_server_option_missing_shows_hint() {
         String::from_utf8_lossy(&out.stderr)
     );
     // 終了コードは今は 0 のまま (process list がエラーを表示して終わる) なので見ない
-    assert!(text.contains("--features zenoh-broker"), "{text}");
+    assert!(text.contains("juiz broker install zenoh"), "{text}");
 }

@@ -337,7 +337,7 @@ pub(crate) fn install(o: &InstallOptions) -> Result<Outcome> {
 }
 
 /// URL の中身を読む。`file://` はローカルのファイル
-fn fetch(url: &str) -> Result<Vec<u8>> {
+pub(crate) fn fetch(url: &str) -> Result<Vec<u8>> {
     if let Some(p) = url.strip_prefix("file://") {
         // file:///C:/... の先頭の / を外す
         let p = if cfg!(windows) && p.starts_with('/') && p.as_bytes().get(2) == Some(&b':') {
@@ -368,7 +368,7 @@ fn fetch(url: &str) -> Result<Vec<u8>> {
 }
 
 /// `.sha256` (`<16進> <名前>` または `<16進>` だけ) と照合する
-fn verify_sha256(data: &[u8], sums: &[u8]) -> Result<()> {
+pub(crate) fn verify_sha256(data: &[u8], sums: &[u8]) -> Result<()> {
     let text = String::from_utf8_lossy(sums);
     let expected = text
         .split_whitespace()
@@ -386,7 +386,7 @@ fn verify_sha256(data: &[u8], sums: &[u8]) -> Result<()> {
 }
 
 /// アーカイブを `dir` に展開する。`..` や絶対パスを含む項目は tar / zip のクレートが外へ書かせない
-fn extract(data: &[u8], ext: &str, dir: &Path) -> Result<()> {
+pub(crate) fn extract(data: &[u8], ext: &str, dir: &Path) -> Result<()> {
     match ext {
         "zip" => {
             let mut z =

@@ -42,6 +42,8 @@ pub(crate) struct Manifest {
     pub rust_abi: Option<u32>,
     /// Rust ABI の Rust のプラグインをビルドした rustc(§4.1 `rust.rustc`、§12.1)
     pub rust_rustc: Option<String>,
+    /// C ABI のブローカーのプラグインの ABI の版(§4.1 `broker_abi`、broker-plugin-abi.md §12)
+    pub broker_abi: Option<u32>,
     pub files: Option<BTreeMap<String, String>>,
     raw: Map<String, Value>,
 }
@@ -65,11 +67,12 @@ const KNOWN_KEYS: &[&str] = &[
     "languages",
     "targets",
     "rust",
+    "broker_abi",
     "files",
 ];
 
 /// pack が書く項目(書き出すときは最後に置く)
-const PACK_KEYS: &[&str] = &["languages", "targets", "rust", "files"];
+const PACK_KEYS: &[&str] = &["languages", "targets", "rust", "broker_abi", "files"];
 
 /// 言語の名前(§4.1 languages)
 pub(crate) const LANGUAGES: &[&str] = &["rust", "python", "c++", "haskell", "zig"];
@@ -259,6 +262,17 @@ impl Manifest {
             ),
             None => (None, None, None),
         };
+        let broker_abi = match m.get("broker_abi") {
+            None | Some(Value::Null) => None,
+            Some(a) => Some(
+                a.as_u64()
+                    .and_then(|a| u32::try_from(a).ok())
+                    .filter(|a| *a > 0)
+                    .ok_or_else(|| {
+                        anyhow!("'broker_abi' in juizapp.yaml must be a positive integer, but {a}")
+                    })?,
+            ),
+        };
         let files = match opt_map(&m, "files")? {
             Some(f) => {
                 let f = str_map(f, "files")?;
@@ -290,6 +304,7 @@ impl Manifest {
             rust_juiz_sdk,
             rust_abi,
             rust_rustc,
+            broker_abi,
             files,
             raw: m,
         })
@@ -359,6 +374,9 @@ impl Manifest {
                 r.insert("rustc".into(), Value::from(rustc.clone()));
             }
             items.push(("rust".into(), Value::Object(r)));
+        }
+        if let Some(abi) = self.broker_abi {
+            items.push(("broker_abi".into(), Value::from(abi)));
         }
         if let Some(f) = &self.files {
             let m: Map<String, Value> = f

@@ -34,6 +34,8 @@ pub use brokers::{localize_identifier, CRUDBrokerProxy, CRUDBrokerProxyHolder};
 pub use brokers::frame;
 /// C ABI のブローカーのホスト側 (docs/spec/broker-plugin-abi.md §6)
 pub use brokers::cabi;
+/// 置き場所に入れた C ABI のブローカー (docs/spec/broker-plugin-abi.md §10、`juiz broker`)
+pub use brokers::installed;
 /// ブローカーの待ち受けポートが使用中のときの扱い (docs/spec/app-package.md §16)。qmp ブローカーも使う
 pub use brokers::port_policy;
 /// IPC ブローカー (docs/spec/ipc-broker.md、feature "ipc-broker")

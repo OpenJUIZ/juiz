@@ -174,6 +174,7 @@ qmp と同じものを置く。
 - feature `zenoh-broker = ["dep:juiz_zenoh_broker", "juiz_zenoh_broker/shared-memory"]`(共有メモリも入れる、§11.1)。`default` に入れない。有効なとき、`main_with_args` で `zenoh_broker::register()` を呼ぶ(#637 からは `juiz_core::register_builtin_cabi_broker(zenoh_broker::broker_entry)`、§15)。
 - 同じ `type_name` のプラグインを `plugins.broker_factories.zenoh_broker` で読んだときは、qmp と同じくプラグインを優先する。
 - feature が無い juiz で conf に `type_name: zenoh` を書いたとき、または `-s zenoh://...` で繋ごうとしたときは、「知らないブローカーの種類」のエラー(`BrokerFactoryCanNotFoundError` / `FactoryCanNotFoundError`)に、`--features zenoh-broker` でビルドするかプラグインを読むよう案内を足す。qmp も同じ(`juiz_core::brokers::builtin_broker_factories::broker_factory_not_found`)。
+  - (#638 で変更)Zenoh の案内は `The broker type 'zenoh' is not installed. Install it with 'juiz broker install zenoh'.` にした(broker-plugin-abi.md §6.4)。置き場所(`juiz broker install`)に入れた Zenoh があれば、feature が無くてもそれを読む。
 - juiz_py には同じ名前の feature `zenoh-broker`(`juiz_app/zenoh-broker` を有効にする)を置く。pip の juiz-cli の wheel で使うかは §8.3。
 
 ### 8.3 pip の juiz-cli の wheel

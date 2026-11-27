@@ -531,6 +531,18 @@ juiz broker remove <名前> [--version <版>]
 
 ## 15. 計画から変えたこと・細かく決めたこと
 
+Step 3(#638、`juiz broker` と置き場所)で決めたこと:
+
+- **置き場所から読むのは、その種類のファクトリが要るところ 3 か所。** System がブローカー・ブローカープロキシを作るとき(conf の `brokers`・`broker_proxies`。サーバーとクライアントの両方のファクトリを System に登録する)、`CoreWorker::broker_proxy`(ID の頭 `tcptest://…`、`-s` など)、`SystemStore::create_broker_proxy`(副系・主系)。後の 2 つは System を持たないので、ブローカープロキシのファクトリだけを作って使う(`juiz_core::cabi::cabi_broker_proxy_factory`)。読み込んだ表はライブラリのパスごとにプロセスで 1 つ持ち、2 回目からはそれを使う(`juiz_core::installed`)。
+- **conf に書いた種類を System を作る前に全部読み込むことはしない。** 上の 3 か所で無いとわかったときにだけ見るので、組み込み・conf のプラグインがあれば置き場所は読まない(§6.4 の順のまま)。
+- **ホストのターゲットは juiz をビルドした target triple(`juiz_core::HOST_TARGET`)。** `juiz-broker.json` の `target` と比べる。アーカイブの拡張子は Windows のターゲットなら `.zip`。
+- **置き場所の版のディレクトリが使えない理由は 4 つに分けて `juiz broker list` に出す。** `used`・`older`・`ABI <n> is not supported by this juiz`・`invalid (<理由>)`(`juiz-broker.json` が無い・壊れている、名前・版がディレクトリと違う、`built for <別のターゲット>`、ライブラリが無い)。組み込みと同じ名前の種類が置き場所にあれば、組み込みが先に使われるので `not used (builtin)` と出す。
+- **種類の名前は英数字と `_`・`-` だけ。** 置き場所のディレクトリの名前になるので、区切りや `..` を入れさせない。`juiz-broker.json` の `library` も版のディレクトリの中の相対パスだけ。
+- **`--from` はパスも受ける。** `file://` も `https://` も付いていなければローカルのファイルとして `file://` に直す。
+- **`--version` のときの有無は `.sha256` で見る。** https ではアーカイブを落とさずに有無を知るため。
+- **案内の文(§6.4)は zenoh だけ名前の表から出す。** qmp は juiz_app の feature(既定でオン)で組み込む種類なので、今までどおり feature の案内にした。Step 5(#640)で Zenoh を juiz_app の feature から外すまでは、feature `zenoh-broker` 付きの juiz では組み込みの Zenoh が使われる。
+- **`.juizapp` では C ABI のブローカーを Rust のプラグインに数えない。** `languages` に `rust` を入れず、`rust.juiz_sdk` なども書かない。manifest の一番上の `broker_abi` に版を書く(app-package.md §4.1・§6.3 の 6)。`juiz run`・`juiz install` は段 6 で、Rust のプラグインが無くても `broker_abi` を見る。
+
 Step 2(#637、Zenoh の載せ替え)で決めたこと:
 
 - **入口の表を `#[no_mangle]` なしで作るマクロ `define_broker_entry!` を足した。** `export_broker_plugin!` は中でこれを使い、`broker_factory_cabi` から呼ぶ。組み込み用のクレート(juiz_app に rlib としてリンクする Zenoh など)は `define_broker_entry!(T, pub fn broker_entry)` で作った関数を `register_builtin_cabi_broker` に渡し、`broker_factory_cabi` は feature(`plugin`)のときだけ置く。C ABI のブローカーを 2 つ以上 juiz に組み込んでもリンクで名前がぶつからない。
