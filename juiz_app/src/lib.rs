@@ -19,6 +19,7 @@ mod name;
 mod namespace;
 mod package;
 mod process;
+mod broker;
 mod sdk;
 mod setup;
 mod transformations;
@@ -315,6 +316,13 @@ enum SubCommands {
     Name {
         #[clap(subcommand)]
         subcommand: name::NameSubCommands,
+    },
+
+    /// Install broker plugins (C ABI) such as zenoh, and list the broker types (docs/spec/broker-plugin-abi.md §10)
+    #[clap(arg_required_else_help = true)]
+    Broker {
+        #[clap(subcommand)]
+        subcommand: broker::BrokerSubCommands,
     },
 
     /// Install libjuiz_sdk for C++ / Haskell plugins, and show where it is (issue #548)
@@ -836,6 +844,10 @@ where
     if let Some(SubCommands::Name { subcommand }) = &args.subcommand {
         return name::run_name_command(subcommand, &args.peer);
     }
+    // juiz broker も系を作らない (docs/spec/broker-plugin-abi.md §10.4、#638)
+    if let Some(SubCommands::Broker { subcommand }) = &args.subcommand {
+        return broker::run_broker_command(subcommand);
+    }
     // juiz sdk も系を作らない (issue #548)
     if let Some(SubCommands::Sdk { subcommand }) = &args.subcommand {
         return sdk::run_sdk_command(subcommand);
@@ -1107,6 +1119,7 @@ fn run(mut args: Args) -> JuizResult<()> {
         | SubCommands::Import { .. }
         | SubCommands::Pkg { .. }
         | SubCommands::Sdk { .. }
+        | SubCommands::Broker { .. }
         | SubCommands::Name { .. }
         | SubCommands::Pack { .. }
         | SubCommands::Run { .. }

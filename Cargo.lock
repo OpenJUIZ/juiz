@@ -2100,6 +2100,7 @@ dependencies = [
  "pyo3",
  "reqwest",
  "roxmltree",
+ "semver",
  "serde",
  "sha2",
  "signal-hook",

@@ -63,35 +63,36 @@ pub(crate) fn builtin_broker_factories() -> Vec<(BrokerFactoryFunction, BrokerPr
         .clone()
 }
 
-/// juiz の feature やプラグインで足す種類のブローカーが見つからないときの案内。知らない種類なら None
-fn broker_factory_hint(type_name: &str) -> Option<&'static str> {
-    match type_name {
-        // docs/spec/zenoh-broker.md §8.2
-        "zenoh" => Some(
-            "The zenoh broker is not built into this juiz. \
-             Build juiz with the feature `zenoh-broker` (cargo install juiz_app --features zenoh-broker), \
-             or load the plugin with `plugins.broker_factories.zenoh_broker` in the conf.",
-        ),
-        "qmp" => Some(
-            "The qmp broker is not built into this juiz. \
+/// `juiz broker install <名前>` で入れられる種類 (docs/spec/broker-plugin-abi.md §10.3 の名前の表)。
+/// 表そのもの (取得先のリポジトリ) は juiz_app が持つ。ここは案内の文を選ぶためだけに使う
+pub const INSTALLABLE_BROKER_TYPES: &[&str] = &["zenoh"];
+
+/// ブローカーの種類が見つからないときの案内 (broker-plugin-abi.md §6.4)。
+/// qmp は juiz_app の feature (既定でオン) で組み込む種類なので、その案内を付ける
+fn broker_factory_hint(type_name: &str) -> String {
+    if type_name == "qmp" {
+        return "The qmp broker is not built into this juiz. \
              Build juiz with the feature `qmp-broker` (on by default), \
-             or load the plugin with `plugins.broker_factories.qmp_broker` in the conf.",
-        ),
-        _ => None,
+             or load the plugin with `plugins.broker_factories.qmp_broker` in the conf."
+            .to_owned();
+    }
+    if INSTALLABLE_BROKER_TYPES.contains(&type_name) {
+        format!("The broker type '{type_name}' is not installed. Install it with 'juiz broker install {type_name}'.")
+    } else {
+        format!(
+            "The broker type '{type_name}' is not built in or installed. \
+             Load its plugin with plugins.broker_factories in the conf, \
+             or install it with 'juiz broker install {type_name} --from <URL>'."
+        )
     }
 }
 
-/// type_name のブローカーのファクトリが無いときのエラー。feature やプラグインで足せる種類なら、その案内を付ける。
+/// type_name のブローカーのファクトリが無いときのエラー。conf のプラグイン・`juiz broker install` の案内を付ける。
 /// `downcast_ref::<JuizError>()` で元のエラー (`error`) も取り出せる。
 pub(crate) fn broker_factory_not_found(type_name: &str, error: JuizError) -> anyhow::Error {
     let e = anyhow::Error::from(error);
-    match broker_factory_hint(type_name) {
-        Some(hint) => {
-            let message = format!("{e} {hint}");
-            e.context(message)
-        }
-        None => e,
-    }
+    let message = format!("{e} {}", broker_factory_hint(type_name));
+    e.context(message)
 }
 
 #[cfg(test)]
@@ -106,8 +107,10 @@ mod tests {
         );
         let s = e.to_string();
         assert!(s.contains("BrokerFactory(zenoh) can not be found."), "{s}");
-        assert!(s.contains("--features zenoh-broker"), "{s}");
-        assert!(s.contains("plugins.broker_factories.zenoh_broker"), "{s}");
+        assert!(
+            s.contains("The broker type 'zenoh' is not installed. Install it with 'juiz broker install zenoh'."),
+            "{s}"
+        );
         assert!(matches!(
             e.downcast_ref::<JuizError>(),
             Some(JuizError::BrokerFactoryCanNotFoundError { .. })
@@ -115,11 +118,16 @@ mod tests {
     }
 
     #[test]
-    fn no_hint_for_unknown_type() {
+    fn hint_for_unknown_type() {
         let e = broker_factory_not_found(
             "foo",
             JuizError::FactoryCanNotFoundError { type_name: "foo".to_owned() },
         );
-        assert!(!e.to_string().contains("feature"), "{e}");
+        let s = e.to_string();
+        assert!(s.contains("plugins.broker_factories"), "{s}");
+        assert!(s.contains("'juiz broker install foo --from <URL>'"), "{s}");
+        assert!(broker_factory_not_found("qmp", JuizError::FactoryCanNotFoundError { type_name: "qmp".to_owned() })
+            .to_string()
+            .contains("qmp-broker"));
     }
 }

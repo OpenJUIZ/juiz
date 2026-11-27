@@ -132,6 +132,7 @@ files:
 | `rust.juiz_sdk` | 文字列 | Rust を含むとき | — | pack | Rust のプラグインをビルドした juiz_sdk の版 |
 | `rust.abi` | 整数 | C ABI の Rust のプラグインを含むとき | — | pack | Rust のプラグインの C ABI の版(rust-plugin-abi.md §9) |
 | `rust.rustc` | 文字列 | Rust ABI の Rust のプラグインを含むとき | — | pack | Rust ABI のプラグイン(EC・ブローカーと、C ABI の入口が無い古いプラグイン)をビルドした `rustc -V` の出力(§12.1) |
+| `broker_abi` | 整数 | C ABI のブローカーのプラグインを含むとき | — | pack | ブローカーのプラグインの C ABI の版(broker-plugin-abi.md §9・§12、#638) |
 | `files` | パス → `sha256:<小文字 16 進 64 桁>` | ○(パッケージ内) | — | pack | `juizapp.yaml` を除く全ファイルの SHA-256(§9.1) |
 
 - 「○(パッケージ内)」は、pack 前の `juizapp.yaml` では省いてよく、`.juizapp` の中では必須という意味。
@@ -240,7 +241,7 @@ pack は次を順に行い、どれかが満たされなければエラーにし
 4. `languages` を 3 から求めて書く。作る人が書いてあれば、求めたものと一致しなければならない。
 5. `targets` を `plugins/` の下のディレクトリ名から求めて書く(`--target` があればその列)。ネイティブのプラグインが 1 つも無ければ `[any]`。作る人が書いてあれば、求めたものと一致しなければならない。
 6. Rust を含むとき、各 Rust のプラグインを C ABI か Rust ABI かに分ける(§12.1)。どちらもファイルのバイト列から文字列を探して読む(読み込まずに読むので、別ターゲットのバイナリでも読める)。
-   - `ec_factories` のプラグインは Rust ABI。`broker_factories` のプラグインは、印 `juiz_broker_abi=<版>;` があればブローカーの C ABI(broker-plugin-abi.md §12、#638 で実装)で、rustc・juiz_sdk の検査をせず版を manifest の `broker_abi` に書く。無ければ Rust ABI。
+   - `ec_factories` のプラグインは Rust ABI。`broker_factories` のプラグインは、印 `juiz_broker_abi=<版>;` があればブローカーの C ABI(broker-plugin-abi.md §12、#638)で、rustc・juiz_sdk の検査をせず版を manifest の `broker_abi` に書く。版はすべて同じでなければならない(違えばエラー)。あるターゲットには印があり別のターゲットには無いのもエラー。C ABI のブローカーは Rust のプラグインとして数えず、`languages` の `rust` にも入れない。印が無ければ Rust ABI。`abi: rust` を書いたものは印があっても Rust ABI。
    - conf のプラグインの項目に `abi: rust`(rust-plugin-abi.md §11)を書いたものも Rust ABI(ホストが Rust ABI で読むため)。`abi` が `c`・`rust` 以外ならエラー。
    - それ以外は、印 `juiz_rust_abi=<版>;`(rust-plugin-abi.md §9.3)があれば C ABI、無ければ Rust ABI(この仕組みより前の juiz_sdk でビルドしたもの)。
    - どのプラグインからも、ビルド情報の文字列(`juiz_sdk=…;rustc=…`、`juiz_sdk::build_info`)を読む。`juiz_sdk` の版はすべてのプラグイン・ターゲットで同じでなければならない。違えばどのファイルが違うかを示してエラー。`rust.juiz_sdk` に書く。
@@ -379,7 +380,7 @@ juiz packages
 | 3. juiz の版 | ホストの juiz の版が `juiz` の範囲に入る | `<name> <ver> requires juiz <範囲>, but this is juiz <版>.` に続けて、`=x.y.z` なら `Install it with: cargo install juiz_app --version x.y.z` か `pip install juiz-cli==x.y.z` |
 | 4. ターゲット | ホストのターゲットが `targets` にあるか、`targets` が `[any]` | `<name> <ver> is built for <targets の並び>, but this machine is <ホスト>.` |
 | 5. ファイル | §11 の zip の安全規則と、`files` との照合(§9.1) | 規則・ファイルごとの文(§11、§9.1) |
-| 6. ビルド情報 | `rust.abi` があれば、ホストがその C ABI の版を読める。`rust.rustc` があれば、ホストの rustc と一致する(§12.1) | `<name> <ver> contains Rust plugins with plugin ABI <n>, but this juiz supports ABI <版の並び>. Update juiz.` / `<name> <ver> contains Rust plugins built with <rustc>, but this juiz was built with <rustc>.` |
+| 6. ビルド情報 | `broker_abi` があれば、ホストがそのブローカーの C ABI の版を読める(broker-plugin-abi.md §12)。`rust.abi` があれば、ホストがその C ABI の版を読める。`rust.rustc` があれば、ホストの rustc と一致する(§12.1) | `<name> <ver> contains broker plugins with broker ABI <n>, but this juiz supports ABI <版の並び>. Update juiz.` / `<name> <ver> contains Rust plugins with plugin ABI <n>, but this juiz supports ABI <版の並び>. Update juiz.` / `<name> <ver> contains Rust plugins built with <rustc>, but this juiz was built with <rustc>.` |
 | 7. 言語 | `python` を含むなら、ホストが Python を埋め込める(embed-python)。`python.version` に合う | `<name> needs Python, but this juiz was built without Python support. Install juiz with: pip install juiz-cli` など |
 | 8. Python の依存 | `python.requires` の各要求を、ホストが埋め込む Python の `importlib.metadata` で満たせる | 足りないものを並べ、`<その Python の実行ファイル> -m pip install "numpy>=1.26" …` を案内。有効にした venv があれば `python -m pip install …`。埋め込みの Python では実行ファイルを `sys.base_prefix` から求める。その Python が externally-managed(PEP 668、Homebrew の Python など)なら、`<実行ファイル> -m venv .venv` → venv を有効にする → `python -m pip install …` → 有効にしたまま juiz を動かす、の手順を案内。Python のプラグインに要る `juiz` モジュールも無ければ、入れるものに `pyjuiz` を足す(#321) |
 | 9. 依存 | §10.2 | §10.3 |
@@ -585,6 +586,7 @@ format 1 では行わない。足すときは format を上げるか、format 1 
 | Zig の同梱とクロスビルド | #577 | §12.2、§12.3 |
 | Rust プラグインの C ABI(#291 の Step 4) | #332 | §4.1 の `rust.abi`・`rust.rustc`、§4.3、§6.3 の 6、§9 の段 6・10、§12.1(#328 で直し、#332 で実装) |
 | 段 6〜8 を展開の前に行う | #325 | §9 |
+| ブローカーの C ABI(#634 の Step 3) | #638 | §4.1 の `broker_abi`、§6.3 の 6、§9 の段 6(broker-plugin-abi.md §12) |
 | Container のモデルの検査(ContainerModel Step 3) | #383 | §6.3 の 9 |
 | .juizapp 使い勝手 Step 0 仕様書 | #391 | §15、§16、§17 |
 | 〃 Step 1 ブローカーの `port_fallback`・`adopt_master` と bind エラー | #392 | §16 |

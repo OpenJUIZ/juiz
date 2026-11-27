@@ -611,9 +611,24 @@ impl System {
         }
     }
 
+    /// conf のプラグインにも組み込みにも無い種類なら、置き場所 (`juiz broker install`) から読み込んで登録する
+    /// (docs/spec/broker-plugin-abi.md §6.4 の 3)。置き場所にも無ければ何もしない
+    pub(crate) fn load_installed_broker_factory(&mut self, type_name: &str) -> JuizResult<bool> {
+        if self.has_broker_factory(type_name)? {
+            return Ok(true);
+        }
+        let Some(entry) = crate::brokers::installed::load_installed_broker(type_name)? else {
+            return Ok(false);
+        };
+        let (bf, bpf) = crate::brokers::cabi::cabi_broker_factories(entry, self.core_broker().clone())?;
+        self.register_broker_factories_wrapper(BrokerFactoriesWrapper::new(None, bf, bpf)?)?;
+        Ok(true)
+    }
+
     pub fn create_broker(&mut self, manifest: &Value) -> JuizResult<BrokerPtr> {
         log::trace!("【呼出】System::create_broker({manifest:}) called");
         let type_name = obj_get_str(manifest, "type_name")?;
+        self.load_installed_broker_factory(type_name)?;
         let bf = self.broker_factories_wrapper(type_name)?;
         let b = juiz_lock(&bf)?
             .create_broker(&manifest)
@@ -638,6 +653,9 @@ impl System {
         manifest: &Value,
     ) -> JuizResult<Arc<RwLock<dyn BrokerProxy>>> {
         log::trace!("【呼出】System::create_broker_proxy({manifest:}) called");
+        if let Ok(type_name) = obj_get_str(manifest, "type_name") {
+            self.load_installed_broker_factory(type_name)?;
+        }
         //self.core_broker().lock_mut().cre
         let bp = self
             .core_broker()

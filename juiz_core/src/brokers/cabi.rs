@@ -66,6 +66,19 @@ pub fn cabi_broker_factories(
     Ok((Arc::new(Mutex::new(bf)), Arc::new(Mutex::new(bpf))))
 }
 
+/// 読み込んだ表から、ブローカープロキシのファクトリだけを作る。System を持たないところ
+/// (CoreWorker・SystemStore) で、置き場所のブローカーにつなぐときに使う (§6.4 の 3)
+pub fn cabi_broker_proxy_factory(entry: Arc<BrokerEntry>) -> Arc<Mutex<dyn BrokerProxyFactory>> {
+    let type_name = entry.type_name().to_owned();
+    Arc::new(Mutex::new(CabiBrokerProxyFactory {
+        core: ObjectCore::create_factory(
+            JuizObjectClass::BrokerProxyFactory("CabiBrokerProxyFactory"),
+            &type_name,
+        ),
+        entry,
+    }))
+}
+
 // ---- サーバー (§6.1) ----
 
 pub struct CabiBrokerFactory {

@@ -70,6 +70,8 @@ pub(crate) struct Host {
     pub rustc: String,
     /// 読める Rust のプラグインの C ABI の版(rust-plugin-abi.md §9.2)
     pub rust_abi: Vec<u32>,
+    /// 読める C ABI のブローカーの ABI の版(broker-plugin-abi.md §9.2)
+    pub broker_abi: Vec<u32>,
 }
 
 impl Host {
@@ -79,6 +81,7 @@ impl Host {
             target: juiz_core::HOST_TARGET.to_owned(),
             rustc: BuildInfo::current().rustc_str().to_owned(),
             rust_abi: juiz_core::RUST_PLUGIN_ABI_VERSIONS.to_vec(),
+            broker_abi: juiz_core::cabi::SUPPORTED_BROKER_ABI_VERSIONS.to_vec(),
         }
     }
 }
@@ -556,7 +559,23 @@ pub(crate) fn check_host(m: &Manifest, host: &Host) -> Result<()> {
 }
 
 /// §9 の段 6(Rust のプラグインのビルド情報)。C ABI のプラグインは ABI の版、Rust ABI のプラグインは rustc を比べる(§12.1)
+/// C ABI のブローカーのプラグインは `broker_abi` の版を読めるかを見る(broker-plugin-abi.md §12)
 pub(crate) fn check_rust_build(m: &Manifest, host: &Host) -> Result<()> {
+    if let Some(abi) = m.broker_abi {
+        if !host.broker_abi.contains(&abi) {
+            let supported = host
+                .broker_abi
+                .iter()
+                .map(u32::to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
+            bail!(
+                "{} {} contains broker plugins with broker ABI {abi}, but this juiz supports ABI {supported}. Update juiz.",
+                m.name,
+                m.version
+            );
+        }
+    }
     if !m.has_language("rust") {
         return Ok(());
     }
@@ -882,6 +901,7 @@ pub(crate) mod tests {
             target: "x86_64-unknown-linux-gnu".to_owned(),
             rustc: "rustc 1.91.0 (f8297e351 2025-10-28)".to_owned(),
             rust_abi: vec![1],
+            broker_abi: vec![1],
         }
     }
 
@@ -1124,6 +1144,26 @@ pub(crate) mod tests {
         .unwrap();
         assert!(check_rust_build(&parse("{juiz_sdk: 0.0.30, rustc: x}"), &h).is_err());
         assert!(check_rust_build(&parse("{juiz_sdk: 0.0.30, abi: 1, rustc: x}"), &h).is_err());
+    }
+
+    /// C ABI のブローカーは broker_abi の版を見る。Rust のプラグインが無くても見る(broker-plugin-abi.md §12)
+    #[test]
+    fn broker_abi_checks() {
+        let h = host();
+        let parse = |abi: &str| {
+            Manifest::parse_str(
+                &format!("format: 1\nname: app\nversion: 0.1.0\nlanguages: [python]\nbroker_abi: {abi}"),
+                "t",
+            )
+            .unwrap()
+        };
+        check_rust_build(&parse("1"), &h).unwrap();
+        let e = check_rust_build(&parse("2"), &h).unwrap_err().to_string();
+        assert_eq!(
+            e,
+            "app 0.1.0 contains broker plugins with broker ABI 2, but this juiz supports ABI 1. Update juiz."
+        );
+        assert!(Manifest::parse_str("format: 1\nname: app\nversion: 0.1.0\nbroker_abi: x", "t").is_err());
     }
 
     #[test]

@@ -36,6 +36,8 @@ libloading = {workspace = true}
 mdns-sd = {workspace = true, optional = true}
 
 home = {workspace = true}
+# 置き場所のブローカーの版を比べる (docs/spec/broker-plugin-abi.md §10.1、#638)
+semver = "1"
 
 
 # opencv = {version="0.92.0", default-features=false, features=["highgui", "videoio", "imgproc", "imgcodecs", "clang-runtime"], optional=true}

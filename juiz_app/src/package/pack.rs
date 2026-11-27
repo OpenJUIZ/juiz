@@ -117,6 +117,9 @@ pub(crate) fn pack(opts: &PackOptions) -> Result<Packed> {
     // 3. 各プラグインのファイル
     let mut rust_files: Vec<RustFile> = Vec::new();
     let mut host_native: Vec<String> = Vec::new();
+    // C ABI のブローカーのプラグイン: (ABI の版, ファイル)。プラグインの名前の集合(broker-plugin-abi.md §12)
+    let mut broker_abis: Vec<(u32, String)> = Vec::new();
+    let mut cabi_brokers: BTreeSet<String> = BTreeSet::new();
     for p in &plugins {
         let raw = &p.path;
         if p.native && !raw.contains("{target}") {
@@ -152,17 +155,58 @@ pub(crate) fn pack(opts: &PackOptions) -> Result<Packed> {
             if p.native && t == juiz_core::HOST_TARGET {
                 host_native.push(rel.clone());
             }
+            if p.broker_cabi_candidate {
+                let abs = &files[&rel].abs;
+                let bytes = std::fs::read(abs)
+                    .with_context(|| format!("cannot read {}", abs.display()))?;
+                let marker = juiz_core::installed::broker_abi_marker_in(&bytes)
+                    .map_err(|e| anyhow!("{rel}: {e}"))?;
+                let was_cabi = cabi_brokers.contains(&p.name);
+                match marker {
+                    Some(v) => {
+                        if !was_cabi && rust_files.iter().any(|f| f.plugin == p.name) {
+                            bail!("the broker plugin '{}' has the broker ABI marker in {rel}, but not for every target", p.name);
+                        }
+                        cabi_brokers.insert(p.name.clone());
+                        broker_abis.push((v, rel));
+                        continue;
+                    }
+                    None if was_cabi => bail!(
+                        "the broker plugin '{}' has no broker ABI marker in {rel}, but has it for another target",
+                        p.name
+                    ),
+                    None => {}
+                }
+            }
             if p.language == "rust" {
                 rust_files.push(RustFile {
                     rel,
                     forced_rust_abi: p.rust_abi_reason,
+                    plugin: p.name.clone(),
                 });
             }
         }
     }
+    // C ABI のブローカーは同じ ABI の版でなければならない(§12)
+    m.broker_abi = None;
+    for (v, rel) in &broker_abis {
+        match m.broker_abi {
+            None => m.broker_abi = Some(*v),
+            Some(a) if a != *v => bail!(
+                "broker plugins in the package must use the same broker ABI, but {} uses ABI {a} and {rel} uses ABI {v}",
+                broker_abis[0].1
+            ),
+            _ => {}
+        }
+    }
 
     // 4. languages
-    let used: BTreeSet<&str> = plugins.iter().map(|p| p.language.as_str()).collect();
+    // C ABI のブローカーは Rust のプラグインとして数えない(rustc・juiz_sdk を見ない、broker-plugin-abi.md §12)
+    let used: BTreeSet<&str> = plugins
+        .iter()
+        .filter(|p| !cabi_brokers.contains(&p.name))
+        .map(|p| p.language.as_str())
+        .collect();
     let languages: Vec<String> = LANGUAGES
         .iter()
         .filter(|l| used.contains(*l))
@@ -293,6 +337,9 @@ struct PluginRef {
     native: bool,
     /// Rust ABI で読まれる理由(EC・ブローカー、または conf の `abi: rust`)。無ければ印で決める(§6.3 の 6)
     rust_abi_reason: Option<&'static str>,
+    /// `plugins.broker_factories` のもので、`abi: rust` が無い。ファイルにブローカーの C ABI の印
+    /// `juiz_broker_abi=<版>;` があれば C ABI のブローカーとして Rust のプラグインに数えない(broker-plugin-abi.md §12)
+    broker_cabi_candidate: bool,
 }
 
 /// entry の conf の plugins を並べる(§6.3 の 3)
@@ -348,8 +395,11 @@ fn push_plugin(
     if !LANGUAGES.contains(&language) {
         bail!("unknown language '{language}' of plugins.{kind}.{name} (one of {LANGUAGES:?})");
     }
+    let abi_rust_written = matches!(v.get("abi"), Some(Value::String(a)) if a == "rust");
     let rust_abi_reason = if language != "rust" {
         None
+    } else if kind == "broker_factories" && abi_rust_written {
+        Some("'abi: rust' in the conf")
     } else if matches!(kind, "broker_factories" | "ec_factories") {
         Some("EC / broker plugin")
     } else {
@@ -368,6 +418,7 @@ fn push_plugin(
         path: path.to_owned(),
         native: language != "python",
         rust_abi_reason,
+        broker_cabi_candidate: kind == "broker_factories" && !abi_rust_written,
     });
     Ok(())
 }
@@ -473,6 +524,8 @@ fn command_output(cmd: &str, args: &[&str], file: &Path) -> Option<String> {
 #[derive(Debug, Clone)]
 struct RustFile {
     rel: String,
+    /// conf のプラグインの名前
+    plugin: String,
     /// Rust ABI で読まれる理由(印より優先する)
     forced_rust_abi: Option<&'static str>,
 }
@@ -831,6 +884,7 @@ mod tests {
         std::fs::write(dir.join(name), bytes).unwrap();
         RustFile {
             rel: name.to_owned(),
+            plugin: name.to_owned(),
             forced_rust_abi: forced,
         }
     }
@@ -982,6 +1036,58 @@ plugins:
         assert_eq!(get("cont_get").language, "c++");
         assert_eq!(get("timer_ec").language, "rust");
         assert_eq!(ps.len(), 6);
+    }
+
+    /// C ABI のブローカー (印 juiz_broker_abi=) は Rust のプラグインに数えず、broker_abi を書く。
+    /// 印の無いブローカー・`abi: rust` のブローカーは今までどおり Rust ABI (broker-plugin-abi.md §12)
+    #[test]
+    fn packs_cabi_broker_plugins() {
+        let d = std::env::temp_dir().join(format!("juiz_pack_cabi_broker_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        let targets = ["aarch64-unknown-linux-gnu", "x86_64-pc-windows-msvc"];
+        let write = |broker_bytes: &dyn Fn(&str) -> Vec<u8>, abi_rust: bool| {
+            let _ = std::fs::remove_dir_all(&d);
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(d.join("juizapp.yaml"), "format: 1\nname: app\nversion: 0.1.0\nentry: app.conf\n").unwrap();
+            let abi = if abi_rust { ", abi: rust" } else { "" };
+            std::fs::write(
+                d.join("app.conf"),
+                format!("name: app\nplugins:\n  broker_factories:\n    foo_broker: {{ path: \"plugins/{{target}}\"{abi} }}\nbrokers:\n  - {{ type_name: foo }}\n"),
+            )
+            .unwrap();
+            for t in targets {
+                let dir = d.join("plugins").join(t);
+                std::fs::create_dir_all(&dir).unwrap();
+                std::fs::write(dir.join(plugin_file_name(t, "foo_broker")), broker_bytes(t)).unwrap();
+            }
+        };
+        let opts = PackOptions { dir: d.clone(), output: Some(d.join("out.juizapp")), targets: vec![] };
+        let cabi = |_: &str| b"juiz_sdk=0.3.7;rustc=rustc A\0juiz_broker_abi=1;\0".to_vec();
+
+        write(&cabi, false);
+        let p = pack(&opts).unwrap();
+        assert_eq!(p.manifest.broker_abi, Some(1));
+        assert_eq!(p.manifest.languages, Some(vec![]));
+        assert!(p.manifest.rust_juiz_sdk.is_none());
+        assert!(p.manifest.to_yaml().contains("broker_abi: 1"), "{}", p.manifest.to_yaml());
+
+        // abi: rust なら印があっても Rust ABI のプラグイン
+        write(&cabi, true);
+        let p = pack(&opts).unwrap();
+        assert_eq!(p.manifest.broker_abi, None);
+        assert_eq!(p.manifest.languages, Some(vec!["rust".to_owned()]));
+        assert_eq!(p.manifest.rust_rustc.as_deref(), Some("rustc A"));
+
+        // ターゲットによって印があったりなかったりはエラー
+        write(&|t: &str| if t.contains("windows") { cabi(t) } else { b"juiz_sdk=0.3.7;rustc=rustc A\0".to_vec() }, false);
+        let e = pack(&opts).unwrap_err().to_string();
+        assert!(e.contains("foo_broker"), "{e}");
+
+        // 違う版の印が混ざるのもエラー
+        write(&|t: &str| format!("juiz_sdk=0.3.7;rustc=rustc A\0juiz_broker_abi={};\0", if t.contains("windows") { 2 } else { 1 }).into_bytes(), false);
+        let e = pack(&opts).unwrap_err().to_string();
+        assert!(e.contains("the same broker ABI"), "{e}");
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     /// language: zig のプラグインはネイティブ (C ABI) として数える (issue #572)

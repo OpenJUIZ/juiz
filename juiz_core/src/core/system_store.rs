@@ -106,12 +106,17 @@ impl SystemStorePtr {
                     log::error!("creating BrokerProxy(type_name={type_name}) failed. Error ({e})");
                     Err(e)
                 }),
-            None => Err(broker_factory_not_found(
-                type_name,
-                JuizError::FactoryCanNotFoundError {
-                    type_name: type_name.to_owned(),
-                },
-            )),
+            // conf のプラグインにも組み込みにも無い種類は、置き場所から読む (broker-plugin-abi.md §6.4 の 3)
+            None => match crate::brokers::installed::load_installed_broker(type_name)? {
+                Some(entry) => juiz_lock(&crate::brokers::cabi::cabi_broker_proxy_factory(entry))?
+                    .create_broker_proxy(core_broker, manifest.clone()),
+                None => Err(broker_factory_not_found(
+                    type_name,
+                    JuizError::FactoryCanNotFoundError {
+                        type_name: type_name.to_owned(),
+                    },
+                )),
+            },
         }
     }
 

@@ -4,6 +4,7 @@ pub mod broker_factory_impl;
 pub mod broker_ptr;
 pub mod builtin_broker_factories;
 pub mod cabi;
+pub mod installed;
 
 mod core_broker;
 
