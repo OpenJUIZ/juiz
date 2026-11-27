@@ -531,6 +531,12 @@ juiz broker remove <名前> [--version <版>]
 
 ## 15. 計画から変えたこと・細かく決めたこと
 
+Step 2(#637、Zenoh の載せ替え)で決めたこと:
+
+- **入口の表を `#[no_mangle]` なしで作るマクロ `define_broker_entry!` を足した。** `export_broker_plugin!` は中でこれを使い、`broker_factory_cabi` から呼ぶ。組み込み用のクレート(juiz_app に rlib としてリンクする Zenoh など)は `define_broker_entry!(T, pub fn broker_entry)` で作った関数を `register_builtin_cabi_broker` に渡し、`broker_factory_cabi` は feature(`plugin`)のときだけ置く。C ABI のブローカーを 2 つ以上 juiz に組み込んでもリンクで名前がぶつからない。
+- **Zenoh は Rust ABI の入口を並べて置かない。** §3.1 では移行のあいだ並べてよいとしたが、置くと juiz_core に依存し続けることになるので外した。`abi: rust` で Zenoh は読めない。
+- ベンチ(TCP・共有メモリ、720p・4K)は載せ替えの前後で揺れの範囲だった(zenoh-broker.md §15)。
+
 Step 1(#636)の実装で決めたこと:
 
 - **ホスト側の C の受け渡しも juiz_sdk に置いた。** §8 では `juiz_sdk::broker_cabi::host` を試験用の道具としていたが、juiz_core のホストもこれを使う。unsafe な受け渡しを 1 か所にまとめ、グルーと同じクレートで両側を試せるようにするため。juiz_core に残るのはフレームの処理・`localize_request`・`CRUDBroker` への振り分けだけ。

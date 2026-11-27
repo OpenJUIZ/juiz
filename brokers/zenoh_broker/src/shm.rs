@@ -5,9 +5,9 @@
 //! 相手が同じホストで共有メモリを使えるなら Zenoh は領域の場所だけを送り、そうでなければ Zenoh が
 //! 中身を TCP で送る。どちらになるかは Zenoh がセッションを開くときに決める。
 
-use juiz_core::anyhow::anyhow;
-use juiz_core::frame::OutgoingFrame;
-use juiz_core::prelude::*;
+use juiz_sdk::broker_cabi::{BrokerError, FrameSource};
+use juiz_sdk::log;
+use serde_json::Value;
 use zenoh::bytes::ZBytes;
 use zenoh::Session;
 
@@ -93,15 +93,6 @@ pub(crate) fn shm_pool_bytes(manifest: &Value) -> u64 {
         .unwrap_or(DEFAULT_SHM_POOL_BYTES)
 }
 
-/// フレームの書き出しの長さ (先頭 4 + ヘッダの長さ 4 + ヘッダ + 本体ごとに長さ 8 と本体、docs/spec/large-data.md §3.1)
-pub(crate) fn frame_len(frame: &OutgoingFrame) -> JuizResult<usize> {
-    let mut len = 8 + frame.header_bytes()?.len() as u64;
-    for i in 0..frame.body_count() {
-        len += 8 + frame.body_len(i).unwrap_or_default();
-    }
-    usize::try_from(len).map_err(|_| anyhow!("the frame is too large ({len} bytes)"))
-}
-
 #[cfg(feature = "shared-memory")]
 type Provider = std::sync::Arc<zenoh::shm::ShmProvider<zenoh::shm::PosixShmProviderBackend>>;
 
@@ -145,27 +136,31 @@ impl FrameEncoder {
         self.session.is_some()
     }
 
-    /// フレームを ZBytes にする。len は frame_len(frame)
-    pub(crate) fn encode(&self, frame: &OutgoingFrame, len: usize) -> JuizResult<ZBytes> {
+    /// ホストの送るフレームを ZBytes にする (broker-plugin-abi.md §5.2)。共有メモリが使えれば、借りた領域へ
+    /// ホストに直接書かせる。使えなければ Vec に書かせる (どちらも写しは 1 回)
+    pub(crate) fn encode(&self, frame: FrameSource<'_>) -> Result<ZBytes, BrokerError> {
+        let len = usize::try_from(frame.len())
+            .map_err(|_| BrokerError::frame(format!("the frame is too large ({} bytes)", frame.len())))?;
         #[cfg(feature = "shared-memory")]
         if let Some(buf) = self.alloc(len) {
             let mut buf = buf;
             let mut dst: &mut [u8] = &mut buf[..];
             frame.write_to(&mut dst)?;
             if !dst.is_empty() {
-                return Err(anyhow!(
+                return Err(BrokerError::frame(format!(
                     "the frame was shorter than expected ({} bytes left)",
                     dst.len()
-                ));
+                )));
             }
             return Ok(ZBytes::from(buf));
         }
-        let bytes = frame.to_bytes()?;
+        let mut bytes = Vec::with_capacity(len);
+        frame.write_to(&mut bytes)?;
         if bytes.len() != len {
-            return Err(anyhow!(
+            return Err(BrokerError::frame(format!(
                 "the frame length ({}) does not match the expected length ({len})",
                 bytes.len()
-            ));
+            )));
         }
         Ok(ZBytes::from(bytes))
     }
@@ -220,29 +215,19 @@ impl FrameEncoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
-    fn frame_len_matches_to_bytes() {
-        let mut map = CapsuleMap::new();
-        map.insert("a".to_owned(), jvalue!(1).into());
-        map.insert(
-            "arr".to_owned(),
-            jvalue!((0..10000).collect::<Vec<i64>>()).into(),
-        );
-        let frame = OutgoingFrame::request(3, &map).unwrap();
-        assert_eq!(frame_len(&frame).unwrap(), frame.to_bytes().unwrap().len());
-        let plain = FrameEncoder::plain();
-        assert!(!plain.uses_shm());
-        let len = frame_len(&frame).unwrap();
-        assert_eq!(plain.encode(&frame, len).unwrap().len(), len);
+    fn plain_encoder() {
+        assert!(!FrameEncoder::plain().uses_shm());
     }
 
     #[test]
     fn manifest_options() {
-        assert_eq!(shm_enabled(&jvalue!({})), cfg!(feature = "shared-memory"));
-        assert!(!shm_enabled(&jvalue!({"shared_memory": false})));
-        assert_eq!(shm_pool_bytes(&jvalue!({})), DEFAULT_SHM_POOL_BYTES);
-        assert_eq!(shm_pool_bytes(&jvalue!({"shm_pool_bytes": 1024})), 1024);
+        assert_eq!(shm_enabled(&json!({})), cfg!(feature = "shared-memory"));
+        assert!(!shm_enabled(&json!({"shared_memory": false})));
+        assert_eq!(shm_pool_bytes(&json!({})), DEFAULT_SHM_POOL_BYTES);
+        assert_eq!(shm_pool_bytes(&json!({"shm_pool_bytes": 1024})), 1024);
         // 小さな pool はどこでも mlock できる
         assert!(memlock_allows(4096).is_ok());
     }

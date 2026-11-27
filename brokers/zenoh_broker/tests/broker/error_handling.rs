@@ -4,7 +4,7 @@
 //! - サーバーを再起動した後も、同じ BrokerProxy で呼べる
 //! - HTTP の処理から zenoh の BrokerProxy を呼ぶ (HTTP で受けた要求を zenoh の副系へ転送する、§5.2)
 //!
-//! zenoh は組み込み (zenoh_broker::register) で使う。別プロセスのサーバーは juiz コマンドに
+//! zenoh は組み込み (crate::common::register、C ABI の入口を登録する) で使う。別プロセスのサーバーは juiz コマンドに
 //! プラグイン (libzenoh_broker) を読ませる。どちらも ../../target/debug にビルドされている前提。
 
 use std::collections::HashMap;
@@ -15,7 +15,7 @@ use juiz_core::env_logger;
 use juiz_core::prelude::*;
 use juiz_core::CRUDBrokerProxy;
 use zenoh::Wait;
-use zenoh_broker::ZenohBrokerProxy;
+use juiz_core::cabi::CabiBrokerProxy;
 
 const UNUSED_PORT: i64 = 5240;
 const NOT_JUIZ_PORT: i64 = 5241;
@@ -28,7 +28,7 @@ const FORWARD_HTTP_PORT: i64 = 8245;
 fn setup() {
     let _ = env_logger::try_init();
     static REGISTER: std::sync::Once = std::sync::Once::new();
-    REGISTER.call_once(zenoh_broker::register);
+    REGISTER.call_once(register);
 }
 
 fn param(id: &str) -> HashMap<String, String> {
@@ -39,7 +39,7 @@ fn param(id: &str) -> HashMap<String, String> {
 fn zenoh_can_not_connect() {
     setup();
     let start = Instant::now();
-    let e = ZenohBrokerProxy::new(&jvalue!({ "name": format!("127.0.0.1:{UNUSED_PORT}") }))
+    let e = crate::common::proxy(&jvalue!({ "name": format!("127.0.0.1:{UNUSED_PORT}") }))
         .err()
         .expect("connecting to a closed port must fail");
     let message = format!("{e:#}");
@@ -65,7 +65,7 @@ fn zenoh_peer_without_juiz() -> JuizResult<()> {
         config.insert_json5(k, &v).unwrap();
     }
     let _peer = zenoh::open(config).wait().unwrap();
-    let proxy = ZenohBrokerProxy::new(&jvalue!({ "name": format!("127.0.0.1:{NOT_JUIZ_PORT}") }))?;
+    let proxy = crate::common::proxy(&jvalue!({ "name": format!("127.0.0.1:{NOT_JUIZ_PORT}") }))?;
     let start = Instant::now();
     let e = proxy.read("system", "uuid", HashMap::new()).unwrap_err();
     assert!(
@@ -107,7 +107,7 @@ fn zenoh_timeout_and_frame_limit() -> JuizResult<()> {
             worker.store_mut().processes.register_factory("zenoh_slow", pf)?;
             worker.create_process_ref(&ProcessManifest::new("zenoh_slow").name("slow0").use_memo(false))?;
         }
-        let proxy = ZenohBrokerProxy::new(&jvalue!({
+        let proxy = crate::common::proxy(&jvalue!({
             "name": broker_name,
             "timeout_ms": 300,
             "max_frame_bytes": 100_000
@@ -145,13 +145,13 @@ fn zenoh_timeout_and_frame_limit() -> JuizResult<()> {
 fn zenoh_server_restart() -> JuizResult<()> {
     setup();
     let broker_name = format!("127.0.0.1:{RESTART_PORT}");
-    let connect = |server: &mut ServerProcess| -> ZenohBrokerProxy {
+    let connect = |server: &mut ServerProcess| -> CabiBrokerProxy {
         let deadline = Instant::now() + Duration::from_secs(60);
         loop {
             if let Some(status) = server.0.try_wait().unwrap() {
                 panic!("juiz server exited ({status})");
             }
-            match ZenohBrokerProxy::new(&jvalue!({ "name": broker_name })) {
+            match crate::common::proxy(&jvalue!({ "name": broker_name })) {
                 Ok(p) => break p,
                 Err(e) => {
                     assert!(Instant::now() < deadline, "can not connect to server: {e:?}");
@@ -160,7 +160,7 @@ fn zenoh_server_restart() -> JuizResult<()> {
             }
         }
     };
-    let list = |proxy: &ZenohBrokerProxy| -> JuizResult<usize> {
+    let list = |proxy: &CabiBrokerProxy| -> JuizResult<usize> {
         let v = proxy.read("process", "list", HashMap::new())?.extract_value()?;
         Ok(v.as_array().map(|a| a.len()).unwrap_or(0))
     };

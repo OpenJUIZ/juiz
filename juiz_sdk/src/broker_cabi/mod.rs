@@ -884,29 +884,44 @@ impl log::Log for HostLogger {
     fn flush(&self) {}
 }
 
+/// 入口の表を返す関数を作る。引数は [`BrokerPlugin`] を実装した型と、作る関数の名前 (`pub fn <名前>` のように書く)。
+/// [`export_broker_plugin!`] と違って `#[no_mangle]` の `broker_factory_cabi` は置かないので、
+/// 組み込み (rlib として juiz にリンクし、`register_builtin_cabi_broker(<名前>)` で登録する) だけで使うとき、
+/// ほかのブローカーの入口とリンクでぶつからない
+#[macro_export]
+macro_rules! define_broker_entry {
+    ($t:ty, $vis:vis fn $name:ident) => {
+        /// ブローカーの C ABI の入口の表を返す (docs/spec/broker-plugin-abi.md §3.1)
+        $vis extern "C" fn $name() -> *const $crate::broker_cabi::JuizBrokerEntry {
+            extern "C" fn __juiz_broker_info(out: *const $crate::cabi::JuizBytesSink) -> i64 {
+                $crate::broker_cabi::glue::info::<$t>(out, env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"))
+            }
+
+            static __JUIZ_BROKER_ENTRY: $crate::broker_cabi::JuizBrokerEntry = $crate::broker_cabi::JuizBrokerEntry::new(
+                __juiz_broker_info,
+                $crate::broker_cabi::glue::init,
+                $crate::broker_cabi::glue::server_start::<$t>,
+                $crate::broker_cabi::glue::server_stop::<$t>,
+                $crate::broker_cabi::glue::client_connect::<$t>,
+                $crate::broker_cabi::glue::client_request::<$t>,
+                $crate::broker_cabi::glue::client_close::<$t>,
+            );
+            &__JUIZ_BROKER_ENTRY
+        }
+    };
+}
+
 /// ブローカーのプラグインの入口 `broker_factory_cabi` (§3.1) と、入口の表・info・init を作る。
 /// 引数は [`BrokerPlugin`] を実装した型。1 つの cdylib に 1 回だけ書く
 #[macro_export]
 macro_rules! export_broker_plugin {
     ($t:ty) => {
-        extern "C" fn __juiz_broker_info(out: *const $crate::cabi::JuizBytesSink) -> i64 {
-            $crate::broker_cabi::glue::info::<$t>(out, env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"))
-        }
-
-        static __JUIZ_BROKER_ENTRY: $crate::broker_cabi::JuizBrokerEntry = $crate::broker_cabi::JuizBrokerEntry::new(
-            __juiz_broker_info,
-            $crate::broker_cabi::glue::init,
-            $crate::broker_cabi::glue::server_start::<$t>,
-            $crate::broker_cabi::glue::server_stop::<$t>,
-            $crate::broker_cabi::glue::client_connect::<$t>,
-            $crate::broker_cabi::glue::client_request::<$t>,
-            $crate::broker_cabi::glue::client_close::<$t>,
-        );
+        $crate::define_broker_entry!($t, fn __juiz_broker_entry);
 
         /// ブローカーの C ABI の入口 (docs/spec/broker-plugin-abi.md §3.1)
         #[unsafe(no_mangle)]
         pub extern "C" fn broker_factory_cabi() -> *const $crate::broker_cabi::JuizBrokerEntry {
-            &__JUIZ_BROKER_ENTRY
+            __juiz_broker_entry()
         }
     };
 }

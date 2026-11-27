@@ -113,6 +113,8 @@ juiz が組み立てる Zenoh の設定は次のとおり。
 
 ### 5.2 クライアント(`ZenohBrokerProxy`)
 
+> #637 で C ABI のブローカーに載せ替えた(§15)。フレームを作る・読む・id を照合する・`max_frame_bytes` を確かめるのはホストの `CabiBrokerProxy` になり、プラグインは query で運ぶだけになった。下の決めごと(送り方・待ち時間・エラー)はそのまま。
+
 - qmp の BrokerProxy と同じく、要求ごとに `param` と `map` を組み立てる専用の BrokerProxy にする(`MessengerBrokerProxy` は使わない。`method_name` は小文字)。
 - 要求のフレームを `Vec<u8>` に書き、`ZBytes::from(Vec<u8>)`(写しなし)にして `session.get("juiz/v1/crud").payload(..)` で送る。`target` は `BestMatching`、`consolidation` は `None`、`timeout` は `timeout_ms`。
 - 最初に届いた reply を応答とする。reply の payload を `ZBytes::reader()`(`std::io::Read`)で `juiz_core::frame::read_frame` に渡し、まとめて 1 つの領域に写さずに読む(Zenoh が分割して受け取った断片から、本体を最終的な領域へ直接読む)。
@@ -123,6 +125,8 @@ juiz が組み立てる Zenoh の設定は次のとおり。
 - 同期の `.wait()` で待つ。tokio の非同期タスクの中からは呼ばない(qmp の `futures::executor::block_on` と同じ制約)。HTTP の処理から Zenoh の BrokerProxy を呼ぶ場合(副系へ転送するとき)を Step 1 のテストで確かめる。
 
 ### 5.3 サーバー
+
+> #637 で C ABI のブローカーに載せ替えた(§15)。`on_start` は `server_start` になり、要求の処理・エラー応答・名前の付け直しはホストの `CabiBroker` がする。待ち受けに失敗したら `server_start` がエラーを返す。
 
 - `on_start` で Zenoh のセッションを開き、§5.1 の queryable を宣言する。受け取りは Zenoh のチャンネル(FIFO のハンドラ)にし、受け取り用の普通のスレッドで `recv()` する。Zenoh の受け取りのコールバックの中で処理しない(Zenoh の内部のスレッドを止めるため)。
 - query を 1 つ受け取るたびに、処理用の普通のスレッドを作る(tokio のタスクにしない。#231・IPC と同じ理由)。query は並行に処理する(HTTP の #356 と同じく、同じ Process への呼び出しも並行に走る)。スレッドの数の上限は設けない。数が問題になれば Step 1 でスレッドプールにしてよい。
@@ -155,6 +159,8 @@ juiz が組み立てる Zenoh の設定は次のとおり。
 
 ### 8.1 クレートの入口
 
+> #637 で C ABI に載せ替え、下の Rust ABI の入口は無くなった。今の入口は §15 を見ること。
+
 qmp と同じものを置く。
 
 - `zenoh_broker_factory` / `zenoh_broker_proxy_factory`(`type_name: "zenoh"`)。
@@ -165,7 +171,7 @@ qmp と同じものを置く。
 
 ### 8.2 juiz_app
 
-- feature `zenoh-broker = ["dep:juiz_zenoh_broker", "juiz_zenoh_broker/shared-memory"]`(共有メモリも入れる、§11.1)。`default` に入れない。有効なとき、`main_with_args` で `zenoh_broker::register()` を呼ぶ。
+- feature `zenoh-broker = ["dep:juiz_zenoh_broker", "juiz_zenoh_broker/shared-memory"]`(共有メモリも入れる、§11.1)。`default` に入れない。有効なとき、`main_with_args` で `zenoh_broker::register()` を呼ぶ(#637 からは `juiz_core::register_builtin_cabi_broker(zenoh_broker::broker_entry)`、§15)。
 - 同じ `type_name` のプラグインを `plugins.broker_factories.zenoh_broker` で読んだときは、qmp と同じくプラグインを優先する。
 - feature が無い juiz で conf に `type_name: zenoh` を書いたとき、または `-s zenoh://...` で繋ごうとしたときは、「知らないブローカーの種類」のエラー(`BrokerFactoryCanNotFoundError` / `FactoryCanNotFoundError`)に、`--features zenoh-broker` でビルドするかプラグインを読むよう案内を足す。qmp も同じ(`juiz_core::brokers::builtin_broker_factories::broker_factory_not_found`)。
 - juiz_py には同じ名前の feature `zenoh-broker`(`juiz_app/zenoh-broker` を有効にする)を置く。pip の juiz-cli の wheel で使うかは §8.3。
@@ -311,3 +317,23 @@ Zenoh は qmp より 720p で約 2.5 倍、4K で約 3 倍速い。Zenoh の Top
 | 3 共有メモリ | #492 | §11、§4 の `shared_memory`・`shm_pool_bytes` |
 | 4 公式サイトのガイド | OpenJUIZ.github.io#96 | §4 |
 | 5 リリース | #493 | – |
+| C ABI への載せ替え(ブローカーの C ABI 化 Step 2) | #637 | §15 |
+
+## 15. C ABI のブローカーへの載せ替え(#637)
+
+ブローカーの C ABI 化(親 #634、[broker-plugin-abi.md](broker-plugin-abi.md))の Step 2 で、Zenoh ブローカーを C ABI のプラグインにした。
+
+- クレートは juiz_sdk のグルー(`juiz_sdk::broker_cabi`)だけで作り、juiz_core に依存しない(テストでだけ dev-dependency)。`ZenohBroker` が `BrokerPlugin` を実装する。サーバーは `src/server.rs`、クライアントは `src/client.rs`。
+- プラグインとしての入口は `broker_factory_cabi`(C ABI、feature `plugin` のときだけ、broker-plugin-abi.md §3.1)。Rust ABI の `broker_factory`・`broker_proxy_factory`・`broker_factory_build_info` は置かない(`abi: rust` では読めない)。conf の `plugins.broker_factories.zenoh_broker` はそのまま使え、違う rustc・juiz_sdk の版の juiz からも読める。
+- 組み込みにするときは `juiz_core::register_builtin_cabi_broker(zenoh_broker::broker_entry)`。`broker_entry` は `juiz_sdk::define_broker_entry!` で作る `#[no_mangle]` でない関数で、ほかのブローカーの入口とリンクでぶつからない(§8.1 の `plugin` の考えを保つ)。`register()`・`ZenohBrokerProxy`・`zenoh_broker_factory` は無くなった。System を通さずに呼ぶときは `juiz_core::cabi::CabiBrokerProxy::from_entry_fn(zenoh_broker::broker_entry, &manifest)`。
+- 共有メモリ(§11)は、借りた `ZShmMut` の領域を `&mut [u8]` にして `FrameSource::write_to` に渡し、ホストに直接書かせる。使えないときは `Vec<u8>` に書かせる。受け取りは `ZBytes::reader()` をそのまま読み口にする。どちらも写しの回数は前と同じ。
+- Zenoh の query からは相手の住所が取れないので、`handle` の `peer_addr` は長さ 0 にする(§3 と同じ)。
+- エラーの文は前と同じ形(`zenoh://<name>: can not connect (tcp/…)`・`no response within <ms> ms`・`no juiz zenoh broker answered`)。`<type_name>://<name>:` はホストが付ける。
+- ベンチ(4 vCPU、release、別プロセス、1 回あたり [ms]、3 回ずつ測った幅)。載せ替えの前後の差は回ごとの揺れの範囲だった。`JUIZ_ZENOH_BENCH_TCP_ONLY=1` で TCP だけにする。
+
+| | 720p 戻り値 | 720p 引数 | 720p push | 4K 戻り値 | 4K 引数 | 4K push |
+|---|---|---|---|---|---|---|
+| 共有メモリ 前 | 1.29〜1.35 | 1.22〜1.30 | 1.20〜1.31 | 7.64〜8.18 | 7.39〜8.53 | 7.67〜8.56 |
+| 共有メモリ 後 | 1.24〜1.41 | 1.38〜1.51 | 1.21〜1.35 | 7.31〜8.85 | 7.29〜7.66 | 7.65〜9.14 |
+| TCP だけ 前 | 2.21〜2.35 | 2.09〜2.69 | 2.07〜2.39 | 18.45〜19.63 | 18.47〜19.35 | 18.98〜20.15 |
+| TCP だけ 後 | 2.22〜2.27 | 2.10〜2.21 | 2.04〜2.10 | 18.76〜19.13 | 17.74〜18.71 | 19.50〜21.00 |
