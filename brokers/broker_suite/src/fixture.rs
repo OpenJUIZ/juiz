@@ -25,9 +25,18 @@ pub const RUST_ONLY: Fixture = Fixture {
     connect: ("inc0", "inc1"),
 };
 
-/// ワークスペースの target/debug (例のプラグインと juiz コマンドの置き場所)
+/// 例のプラグインと juiz コマンドの置き場所を変える環境変数。
+/// juiz の外のリポジトリ (OpenJUIZ/juiz_zenoh_broker など) がこのクレートを git の依存で使うとき、
+/// CARGO_MANIFEST_DIR は cargo の git のチェックアウトの中になり、そこには何もビルドされていないので、
+/// juiz をビルドした target/debug をこれで渡す (issue #639)
+pub const TARGET_DIR_ENV: &str = "JUIZ_BROKER_SUITE_TARGET_DIR";
+
+/// 例のプラグインと juiz コマンドの置き場所。[`TARGET_DIR_ENV`] があればそれ、無ければワークスペースの target/debug
 pub fn target_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/debug")
+    match std::env::var_os(TARGET_DIR_ENV) {
+        Some(dir) if !dir.is_empty() => PathBuf::from(dir),
+        _ => PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/debug"),
+    }
 }
 
 pub fn plugin_path() -> String {
