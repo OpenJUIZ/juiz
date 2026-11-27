@@ -73,7 +73,8 @@ processes:
     };
     let log = String::from_utf8_lossy(&out.stderr).into_owned();
     assert!(
-        log.contains("BrokerFactory(type_name=zenoh) (builtin) Loaded"),
+        // Zenoh は C ABI のブローカーとして組み込む (docs/spec/broker-plugin-abi.md §6.4、#637)
+        log.contains("BrokerFactory(type_name=zenoh) (builtin, C ABI) Loaded"),
         "{log}"
     );
     assert!(

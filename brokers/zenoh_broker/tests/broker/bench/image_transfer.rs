@@ -10,7 +10,10 @@
 //!
 //! ```sh
 //! cargo test --release -p juiz_zenoh_broker --test broker -- bench:: --ignored --nocapture --test-threads=1
+//! JUIZ_ZENOH_BENCH_TCP_ONLY=1 cargo test --release -p juiz_zenoh_broker --test broker -- bench:: --ignored --nocapture --test-threads=1
 //! ```
+//!
+//! 既定では同じホストなので共有メモリを使う (pool を mlock できるとき、§11)。JUIZ_ZENOH_BENCH_TCP_ONLY=1 で TCP だけにする。
 
 use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
@@ -24,6 +27,13 @@ const SERVER_PORT: i64 = 5250;
 const SERVE_ENV: &str = "JUIZ_ZENOH_BENCH_SERVE";
 const READY: &str = "JUIZ_ZENOH_BENCH_READY";
 const TOPIC: &str = "bench/zenoh_topic";
+/// 1 にすると、サーバーもクライアントも共有メモリを切って TCP だけで測る
+const TCP_ONLY_ENV: &str = "JUIZ_ZENOH_BENCH_TCP_ONLY";
+
+/// 共有メモリを切るか (JUIZ_ZENOH_BENCH_TCP_ONLY=1)
+fn tcp_only() -> bool {
+    std::env::var(TCP_ONLY_ENV).is_ok_and(|v| v == "1")
+}
 
 const SIZES: [(u32, u32, &str); 2] = [(1280, 720, "720p"), (3840, 2160, "4K")];
 const WARMUP: usize = 2;
@@ -84,12 +94,13 @@ fn bench_sink(args: CapsuleMap) -> JuizResult<Capsule> {
 }
 
 fn serve(port: i64) -> JuizResult<()> {
-    zenoh_broker::register();
+    crate::common::register();
     System::new(jvalue!({
         "name": "zenoh_bench_server",
         "option": { "http_broker": { "start": false } },
         "brokers": [
-            { "type_name": "zenoh", "name": format!("127.0.0.1:{port}"), "host": "127.0.0.1", "port": port }
+            { "type_name": "zenoh", "name": format!("127.0.0.1:{port}"), "host": "127.0.0.1", "port": port,
+              "shared_memory": !tcp_only() }
         ]
     }))?
     .setup()?
@@ -176,13 +187,14 @@ fn ms(d: Duration) -> String {
 fn bench_image_transfer() -> JuizResult<()> {
     let _ = juiz_core::env_logger::try_init();
     let _server = spawn_server();
-    let proxy = zenoh_broker::ZenohBrokerProxy::new(&jvalue!({ "name": format!("127.0.0.1:{SERVER_PORT}") }))?;
+    let proxy = crate::common::proxy(&jvalue!({ "name": format!("127.0.0.1:{SERVER_PORT}"), "shared_memory": !tcp_only() }))?;
     use juiz_core::CRUDBrokerProxy;
     let param = |id: &str| std::collections::HashMap::from([("identifier".to_owned(), id.to_owned())]);
     let source = "core://core/process/source0::bench_source";
     let sink = "core://core/process/sink0::bench_sink";
 
-    println!("zenoh (TCP, other process), best of {ROUNDS} rounds:");
+    let path = if tcp_only() { "TCP only" } else { "shared memory if usable" };
+    println!("zenoh ({path}, other process), best of {ROUNDS} rounds:");
     for (w, h, label) in SIZES {
         let img = cached_image(w, h);
         let len = img.as_bytes().len();

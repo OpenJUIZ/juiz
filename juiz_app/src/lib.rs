@@ -804,8 +804,9 @@ where
     let _ = env_logger::try_init();
     #[cfg(feature = "qmp-broker")]
     qmp_broker::register();
+    // Zenoh は C ABI のブローカー (docs/spec/broker-plugin-abi.md §6.4 の 2、#637)
     #[cfg(feature = "zenoh-broker")]
-    zenoh_broker::register();
+    juiz_core::register_builtin_cabi_broker(zenoh_broker::broker_entry);
     let args = match Args::try_parse_from(args) {
         Ok(args) => args,
         Err(e) => {

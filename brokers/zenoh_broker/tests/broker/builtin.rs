@@ -1,4 +1,4 @@
-//! zenoh ブローカーを組み込み (zenoh_broker::register) で使うテスト (docs/spec/zenoh-broker.md §8)
+//! zenoh ブローカーを組み込み (register_builtin_cabi_broker) で使うテスト (docs/spec/zenoh-broker.md §8)
 //!
 //! 中身はブローカー共通のスイート (juiz_broker_suite::remote、issue #522)。
 //! - 同じプロセス内: プラグインを読み込まない設定でも zenoh のブローカー / ブローカープロキシが使える。
