@@ -30,7 +30,7 @@ Rust のプラグインを、ホスト(juiz)と違う rustc・違う依存クレ
 3. **プラグインの中は今までどおり。** グルーがプラグイン自身の juiz_sdk で `CapsuleMap` を作り、利用者の書いた関数(`fn(CapsuleMap) -> JuizResult<Capsule>` など)を呼ぶ。利用者のコードは書き換えなくてよい。
 4. **ホストは ABI の版の数字だけを比べる。** rustc と juiz_sdk の版は比べない(ログに出すだけ)。
 5. **panic は境界を越えない。** プラグイン側の入口はすべて `catch_unwind` で囲み、エラーコードにして返す。
-6. **対象は Process・Container・ContainerProcess・Component。** EC とブローカーは juiz_core の trait を直接渡しているので Rust ABI のまま残す(§12)。
+6. **対象は Process・Container・ContainerProcess・Component。** EC は juiz_core の trait を直接渡しているので Rust ABI のまま残す。ブローカーは別の C ABI(broker-plugin-abi.md)にした(§12)。
 7. **古いプラグインも当面読める。** `_cabi` の入口が無いプラグインは、今の Rust ABI と `BuildInfo` の検査で読み込む(§11、決めごと A)。
 
 ## 3. 入口
@@ -452,13 +452,13 @@ typedef struct juiz_rust_native {
 | ContainerProcess(`#[juiz_container_process]`・`#[juiz_component_container_process]`) | C ABI | |
 | Component(`juiz_component_manifest!`) | C ABI | |
 | EC のプラグイン(`ec_factories`) | Rust ABI のまま | juiz_core の trait(`ExecutionContextFunction` など)を直接渡すため |
-| ブローカーのプラグイン(`broker_factories`、`broker_factory` / `broker_proxy_factory`) | Rust ABI のまま | `CoreBrokerPtr`・`BrokerFactory` の trait を直接渡すため |
+| ブローカーのプラグイン(`broker_factories`) | ブローカー専用の C ABI(`broker_factory_cabi`)と、今の Rust ABI(`broker_factory` / `broker_proxy_factory`、当面残す) | この文書の表とは別の、フレームを運ぶだけの境界にした([broker-plugin-abi.md](broker-plugin-abi.md)、#634)。Rust ABI のほうは `CoreBrokerPtr`・`BrokerFactory` の trait を直接渡す |
 | コンテナスタック(`container_stack_factory`、マクロを使わず juiz_core を直接使う) | Rust ABI のまま | 親コンテナの `ContainerPtr` を直接受け取るため |
 | `plugin_manager`(どこでも使っていない) | 変えない | |
 
-EC・ブローカーのプラグインは今の `BuildInfo` の検査を続け、.juizapp でも rustc を検査する(app-package.md §12.1)。
+EC のプラグインと Rust ABI のブローカーのプラグインは今の `BuildInfo` の検査を続け、.juizapp でも rustc を検査する(app-package.md §12.1)。C ABI のブローカー(broker-plugin-abi.md)は `BuildInfo` を比べず、ブローカーの ABI の版だけを比べる(broker-plugin-abi.md §9.2・§12)。
 
-ブローカーのプラグインは、`broker_factory` の隣に `broker_factory_build_info`(`extern "C"`、juiz_sdk の `build_info_ptr()` を返す)を置き、juiz_core は `broker_factory` を呼ぶ前にこれでコンパイラと juiz_sdk の版を比べる(issue #450。無い古いプラグインは警告だけで読む)。
+Rust ABI のブローカーのプラグインは、`broker_factory` の隣に `broker_factory_build_info`(`extern "C"`、juiz_sdk の `build_info_ptr()` を返す)を置き、juiz_core は `broker_factory` を呼ぶ前にこれでコンパイラと juiz_sdk の版を比べる(issue #450。無い古いプラグインは警告だけで読む)。
 juiz_core の feature はビルド情報に入れない。代わりに、プラグインとの境界に出るトレイトのメソッドと構造体の並びを feature で変えない(`BrokerProxy::topic_push_shared` は feature `ipc-broker` が無くても宣言する)。そのため、`cargo build -p juiz_qmp_broker` のように feature なしの juiz_core で作ったプラグインを、既定の feature の juiz から読んでもよい。
 
 ## 13. 範囲外(後の Step か、未定)
@@ -466,7 +466,7 @@ juiz_core の feature はビルド情報に入れない。代わりに、プラ�
 - プラグインの中の `log` をホストの logger に流す(C の関数でログを渡す形)。今はプラグインごとの logger のまま
 - 実行中にプラグインを外す(lazy-evaluation.md §10 と同じく、外さない前提)
 - C ABI のプラグインを Rust 以外(C++ など)が直接書けるようにすること。この表の形は Rust のグルー専用で、C++ は今の libjuiz_sdk の C ABI を使う
-- EC・ブローカーの C ABI 化
+- EC の C ABI 化。ブローカーは、この文書の表に載せずに別の C ABI にした(broker-plugin-abi.md、#634)
 - Rust ABI の読み込みをやめる版(§11)
 
 ## 14. Step との対応
