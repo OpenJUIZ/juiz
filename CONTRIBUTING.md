@@ -226,18 +226,21 @@ juiz_core/tests/integration/
 | juiz_sdk | `api` | `juiz_sdk/tests/api/` |
 | juiz_qmp_broker | `broker` | `brokers/qmp_broker/tests/broker/`(ベンチは `bench/`) |
 | juiz_zenoh_broker | `broker` | `brokers/zenoh_broker/tests/broker/`(ベンチは `bench/`) |
+| juiz_tcp_test_broker | `broker` | `brokers/tcp_test_broker/tests/broker/`(C ABI のブローカーの確認、公開しない) |
 
 ブローカーの組み込みの登録(`qmp_broker::register` など)や `#[global_allocator]`、`#[no_mangle]` の関数は 1 つのバイナリの中のすべてのテストに効きます。足すときは、同じバイナリのほかのテストに影響しないかを確かめてください。テストで使う conf やプラグインのソース、golden ファイルは `tests/` の下の別ディレクトリ(`confs/`、`python/`、`golden/` など)に置きます。
 
 ### ブローカー共通のスイート
 
-どのブローカーでも同じになるべき確認は、公開しないクレート `brokers/broker_suite`(`juiz_broker_suite`)に置き、各ブローカーのテストから呼びます。juiz_core・juiz_qmp_broker・juiz_zenoh_broker は版を書かない path の dev-dependency で使います(crates.io に公開するときには外されます)。
+どのブローカーでも同じになるべき確認は、公開しないクレート `brokers/broker_suite`(`juiz_broker_suite`)に置き、各ブローカーのテストから呼びます。juiz_core・juiz_qmp_broker・juiz_zenoh_broker・juiz_tcp_test_broker は版を書かない path の dev-dependency で使います(crates.io に公開するときには外されます)。
+
+C ABI のブローカー(docs/spec/broker-plugin-abi.md)は、フレームの処理を juiz_core の共通の処理(`juiz_core::cabi`)に任せるので、試験用の小さな TCP ブローカー `brokers/tcp_test_broker`(種類名 `tcptest`、juiz_core に依存しない)でスイートを走らせて、その共通の処理を確かめます。
 
 | モジュール | 中身 | 走らせるブローカー |
 |---|---|---|
 | `api` | BrokerProxy の API を一通り呼ぶ確認(`check_all` と個々の `check_*`)。相手の System の中身は `Fixture` で渡す | core・local・HTTP・IPC(`juiz_core/tests/integration/brokers/*_api.rs`)、qmp・Zenoh |
 | `data` | 画像・数の配列・Topic の push をフレームで送る確認と、そのための Process | IPC・qmp・Zenoh |
-| `remote` | 別の System のブローカーに繋ぐテストの本体(API・組み込み・ネームスペース・Composite・型・Transformations・モデル)。ブローカーの違いは `RemoteBroker`(型名・プラグイン名・ポートのずらし・組み込みの登録)で渡す | qmp・Zenoh(各 `tests/*_test.rs` は `#[test]` から呼ぶだけ) |
+| `remote` | 別の System のブローカーに繋ぐテストの本体(API・組み込み・ネームスペース・Composite・型・Transformations・モデル)。ブローカーの違いは `RemoteBroker`(型名・プラグイン名・ポートのずらし・組み込みの登録)で渡す | qmp・Zenoh・tcptest(各 `tests/broker/*.rs` は `#[test]` から呼ぶだけ) |
 | `fixture` / `support` | Rust の例だけを読んだ System の設定(`RUST_ONLY`)と、小さな部品(`int_of`・`find_process` など) | |
 
 - ブローカーを足すときは、`api::check_all` と(フレームで送るなら)`data` の確認を走らせるテストを書き、そのブローカーだけの確認(HTTP の自分宛ての識別子、qmp の切断、Zenoh の共有メモリ、IPC のソケットの片付けなど)はそのブローカーのテストに置きます。

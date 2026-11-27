@@ -4,7 +4,8 @@ use std::sync::{Arc, Mutex};
 use crate::{
     brokers::broker_factories_wrapper::BrokerFactoriesWrapper,
     brokers::CoreBrokerPtr,
-    plugin::{concat_dirname, plugin_name_to_file_name, RustPlugin},
+    brokers::cabi::{cabi_broker_factories, BrokerEntry},
+    plugin::{concat_dirname, plugin_name_to_file_name, RustPlugin, RustPluginAbi},
     prelude::*,
 };
 
@@ -29,10 +30,24 @@ fn setup_broker_factory(
     let working_dir = system.get_working_dir();
     let plugin_filename =
         concat_dirname(v, plugin_name_to_file_name(&name.to_string()), working_dir)?;
+    let plugin: RustPlugin = RustPlugin::load_with_abi(plugin_filename, RustPluginAbi::from_conf(v)?)?;
+    // C ABI の入口があればそちらで読む。そのときは rustc・juiz_sdk の版の検査 (#450) はしない
+    // (docs/spec/broker-plugin-abi.md §11)
+    if let Some(entry_fn) = plugin.broker_cabi_entry() {
+        let keep: Arc<dyn std::any::Any + Send + Sync> = plugin.library();
+        // SAFETY: broker_factory_cabi は §3.1 の入口
+        let entry = unsafe { BrokerEntry::load(entry_fn, &plugin.path().display().to_string(), Some(keep)) }?;
+        log::debug!(
+            "BrokerFactory (name={name:}) is loaded through the broker plugin C ABI (type_name={})",
+            entry.type_name()
+        );
+        let (bf, bpf) = cabi_broker_factories(entry, system.core_broker().clone())?;
+        system.register_broker_factories_wrapper(BrokerFactoriesWrapper::new(Some(plugin), bf, bpf)?)?;
+        return Ok(());
+    }
     let bf;
     let bpf;
     unsafe {
-        let plugin: RustPlugin = RustPlugin::load(plugin_filename)?;
         // ブローカーのプラグインは Rust ABI で読み込むので、コンパイラと juiz_sdk の版がそろっているか先に確かめる。
         // broker_factory_build_info が無い (0.2.7 までの) プラグインは警告を出して読み込む (issue #450)
         plugin.check_build_info("broker_factory")?;

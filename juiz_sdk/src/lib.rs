@@ -157,6 +157,7 @@
 //! ```
 
 pub mod build_info;
+pub mod broker_cabi;
 pub mod cabi;
 pub mod connection_identifier;
 pub mod connections;

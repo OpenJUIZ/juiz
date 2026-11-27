@@ -26,11 +26,14 @@ pub use brokers::{
     create_broker_factory_impl, create_broker_proxy_factory_impl, CRUDBroker, CRUDBrokerHolder,
 };
 pub use brokers::builtin_broker_factories::{
-    register_builtin_broker_factory, BrokerFactoryFunction, BrokerProxyFactoryFunction,
+    register_builtin_broker_factory, register_builtin_cabi_broker, BrokerFactoryFunction,
+    BrokerProxyFactoryFunction,
 };
 pub use brokers::{localize_identifier, CRUDBrokerProxy, CRUDBrokerProxyHolder};
 /// 生バイトのフレーム形式 (docs/spec/large-data.md §3)。qmp ブローカーも使う
 pub use brokers::frame;
+/// C ABI のブローカーのホスト側 (docs/spec/broker-plugin-abi.md §6)
+pub use brokers::cabi;
 /// ブローカーの待ち受けポートが使用中のときの扱い (docs/spec/app-package.md §16)。qmp ブローカーも使う
 pub use brokers::port_policy;
 /// IPC ブローカー (docs/spec/ipc-broker.md、feature "ipc-broker")

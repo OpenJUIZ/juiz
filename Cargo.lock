@@ -2226,6 +2226,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "juiz_tcp_test_broker"
+version = "0.0.0"
+dependencies = [
+ "juiz_broker_suite",
+ "juiz_core",
+ "juiz_sdk",
+ "reqwest",
+ "serde_json",
+]
+
+[[package]]
 name = "juiz_types"
 version = "0.3.7"
 dependencies = [

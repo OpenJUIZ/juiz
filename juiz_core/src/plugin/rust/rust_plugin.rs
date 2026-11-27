@@ -299,6 +299,28 @@ impl RustPlugin {
         })
     }
 
+    /// C ABI のブローカーの入口 `broker_factory_cabi` (docs/spec/broker-plugin-abi.md §11)。
+    /// conf の `abi: rust` のとき、または無いときは None で、今の Rust ABI で読む
+    pub fn broker_cabi_entry(&self) -> Option<juiz_sdk::broker_cabi::JuizBrokerEntryFn> {
+        if self.abi == RustPluginAbi::Rust {
+            log::debug!(
+                "RustPlugin({}) broker is loaded through the Rust ABI (abi: rust)",
+                self.path.display()
+            );
+            return None;
+        }
+        let name = juiz_sdk::broker_cabi::ENTRY_SYMBOL.as_bytes();
+        // SAFETY: 型は broker-plugin-abi.md §3.1 の入口の形
+        unsafe { self.lib.get::<juiz_sdk::broker_cabi::JuizBrokerEntryFn>(name) }
+            .ok()
+            .map(|f| *f)
+    }
+
+    /// 読み込んだライブラリ。C ABI のブローカーの表がライブラリを外さないように持つ
+    pub fn library(&self) -> Arc<Library> {
+        self.lib.clone()
+    }
+
     pub fn load_broker_factory(
         &self,
         system: &mut System,

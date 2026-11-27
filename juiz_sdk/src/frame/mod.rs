@@ -459,6 +459,16 @@ impl OutgoingFrame {
         }
     }
 
+    /// write_to が書くバイト数 (先頭 4 + ヘッダの長さ 4 + ヘッダ + 本体ごとに長さ 8 と本体、§3.1)。
+    /// ブローカーの C ABI で、送る前にプラグインへ長さを知らせるのに使う (docs/spec/broker-plugin-abi.md §5.2)
+    pub fn encoded_len(&self) -> JuizResult<u64> {
+        let mut len = 8 + serde_json::to_vec(&self.header)?.len() as u64;
+        for body in self.bodies.iter() {
+            len += 8 + body.len();
+        }
+        Ok(len)
+    }
+
     /// フレームをバイト列にする (ファイル記述子と一緒に 1 度に送るときに使う)
     pub fn to_bytes(&self) -> JuizResult<Vec<u8>> {
         let mut buf = Vec::new();

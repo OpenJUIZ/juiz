@@ -235,7 +235,7 @@ typedef struct juiz_broker_server_host {
 - `handle` の中から、ホストは `sender->send` をちょうど 1 回呼ぶ。要求を処理できなかったときも、エラー応答のフレーム(large-data.md §3.2 の `kind: error`)を作って送る。
 - `handle` の戻り値:
   - `0`: 応答を送った(エラー応答を含む)。
-  - `JUIZ_BROKER_FRAME_ERROR`: 要求のフレームが読めなかった。ホストは読めたところまでで id がわかればその id で、わからなければ id 0 でエラー応答を送ろうとする。区切りがわからなくなったかもしれないので、ストリームのプラグインはその接続を閉じる。
+  - `JUIZ_BROKER_FRAME_ERROR`: 要求のフレームが読めなかった。ホストは読めたところまでで id がわかればその id で、わからなければ id 0 でエラー応答を送ろうとする(`len` が上限を超えて読まなかったときも id 0)。クライアントのホストは、id 0 の `kind: error` の応答を id の食い違いにせず、その文のエラーにする。区切りがわからなくなったかもしれないので、ストリームのプラグインはその接続を閉じる。
   - `JUIZ_BROKER_SEND_FAILED`: `sender->send` が負の値を返した(応答を送れなかった)。
 - `peer_addr` は相手の住所(`<ip>:<port>`、UTF-8)。わからなければ長さ 0。ホストは `SocketAddr` として読めれば `on_capsule_map_request` の `requesting_host_addr` に渡す(今の qmp と同じ)。
 - `server_stop` は、受け取りをやめ、処理中の `handle` がすべて戻るのを待ってから戻らなければならない。戻った後、プラグインは `host` の関数を呼んではならない。ホストは `server_stop` の後に `host` の `ctx` を捨てる。
@@ -275,9 +275,9 @@ typedef struct juiz_broker_server_host {
 
 ### 6.1 サーバー
 
-juiz_core に、C ABI のブローカーのための `BrokerFactory` を 1 つ置く。種類ごとの違いは入口の表だけで、作るのは今と同じ `CRUDBrokerHolder`。
+juiz_core に、C ABI のブローカーのための `BrokerFactory` を 1 つ置く(`juiz_core::cabi::CabiBrokerFactory`)。種類ごとの違いは入口の表だけで、作るのは `CRUDBroker` を持つ `CabiBroker`(`CRUDBrokerHolder` と同じく `CRUDBroker` を持つが、tokio のタスクは使わない)。
 
-- `on_start` にあたる処理は、`spawn_blocking` で `server_start` を呼び、戻ったら名前を直して起動済みにし、止められるまで待つ。止められたら(タスクが abort されたら)`server_stop` を呼ぶ(`Drop` で呼ぶ)。
+- `start` は別のスレッドで `server_start` を呼び、戻ったら名前を直して(`0.0.0.0`・`::` はホストでも `127.0.0.1` に直す)起動済みにする。失敗したら `set_start_failed` に理由を入れ、`wait_until_started` が待たずにその理由を返す。`stop`(と `Drop`)は `server_stop` を呼ぶ。
 - `handle` の中身: 読み口からフレームを読む → `IncomingFrame::into_capsule_map` → `localize_request`(§6.3)→ `CRUDBroker::dispatcher()` の `on_capsule_map_request`(ロックは名前と dispatcher を取り出す間だけ、#356)→ `OutgoingFrame::response` か `OutgoingFrame::error` → `sender->send`。今の Zenoh の `respond` と同じ流れ。
 
 ### 6.2 クライアント
@@ -288,14 +288,14 @@ juiz_core に、C ABI のブローカーのための `CRUDBrokerProxy` の実装
 
 ### 6.3 自分宛ての ID の書き換え
 
-今 qmp・Zenoh・IPC がそれぞれ持っている `localize_request` を、`type_name` を引数に取る 1 つの関数にしてホストに置く。中身は今の Zenoh のものと同じ(`accessed_broker_name` が無ければ自分の名前、`identifier` を `localize_identifier` で 2 回、`accessed_broker_id`・`accessed_broker_type`・`accessed_broker_name` を入れる)。プラグインは書き換えをしない。
+今 qmp・Zenoh・IPC がそれぞれ持っている `localize_request` を、`type_name` を引数に取る 1 つの関数にしてホストに置く(`juiz_core::brokers::localize_request`。qmp・Zenoh・IPC を載せ替えるのはそれぞれの Step で)。中身は今の Zenoh のものと同じ(`accessed_broker_name` が無ければ自分の名前、`identifier` を `localize_identifier` で 2 回、`accessed_broker_id`・`accessed_broker_type`・`accessed_broker_name` を入れる)。プラグインは書き換えをしない。
 
 ### 6.4 種類の決まり方
 
 ホストは、ある `type_name` のブローカーを次の順で探し、最初に見つかったものを使う。
 
 1. conf の `plugins.broker_factories` で読み込んだプラグイン(C ABI でも Rust ABI でも、§11)
-2. 組み込み(`register_builtin_broker_factory`、juiz_app の qmp・feature の Zenoh など)
+2. 組み込み(`register_builtin_broker_factory`、juiz_app の qmp・feature の Zenoh など。C ABI のブローカーを rlib としてリンクしたものは `register_builtin_cabi_broker(<クレート>::broker_factory_cabi)` で登録する)
 3. 置き場所(§10)にあるもの
 
 - 1 が 2 より先なのは今と同じ(conf でプラグインを書いたら組み込みより優先する、builtin_broker_factories.rs)。
@@ -390,7 +390,8 @@ juiz_sdk::export_broker_plugin!(MyBroker);  // broker_factory_cabi と表・info
 - `BrokerError` は §7.1 のコード(`Error`・`Timeout`・`Unavailable`・`Frame`)と文を持つ。
 - グルーは juiz_core に依存しない。フレームを組み立ても読みもしないので、`juiz_sdk::frame` にも依存しない。
 - `info` の `build_info` は `juiz_sdk::build_info`、`plugin_name`・`plugin_version` はマクロが `env!("CARGO_PKG_NAME")`・`env!("CARGO_PKG_VERSION")` から入れる。
-- 試験用に、ホストの代わりに表を読み、ループバックでサーバーとクライアントをつなぐ道具(`juiz_sdk::broker_cabi::host`)を置く。juiz_core の broker_suite(brokers/broker_suite、#522)は C ABI のブローカーにもそのまま使う(ホストの共通の処理を通るので)。
+- ホスト側の C の受け渡し(表を読んで確かめる `BrokerEntry::load`、読み口・書き口を `Read` / `Write` にした `PluginReader` / `PluginWriter`、サーバーの `RunningServer`、クライアントの `Client`、ログの口)も `juiz_sdk::broker_cabi::host` に置き、juiz_core はその上でフレームの処理だけを書く。同じモジュールに、受け取った要求をそのまま返す `EchoHandler` を置き、juiz_core なしでプラグインのサーバーとクライアントをつないで確かめられるようにする(ループバック)。juiz_core の broker_suite(brokers/broker_suite、#522)は C ABI のブローカーにもそのまま使う(ホストの共通の処理を通るので)。
+- 試験用のブローカーは `brokers/tcp_test_broker`(クレート `juiz_tcp_test_broker`、種類名 `tcptest`、公開しない)。グルーだけで作り、長さ(u64 LE)を前に付けたフレームを TCP で送る。これで broker_suite と C ABI だけの確認(待ち受けの失敗、待ち時間切れ、上限、panic、HTTP の処理の中からの呼び出し、`abi: rust`)を走らせる。
 
 C 以外の言語(C++ など)でブローカーを書くことも、この表の形なら原理上はできる。ヘッダ(`juiz_broker.h`)を配るのは今回はしない(§13)。
 
@@ -529,6 +530,13 @@ juiz broker remove <名前> [--version <版>]
 | 7 リリース | #641 | |
 
 ## 15. 計画から変えたこと・細かく決めたこと
+
+Step 1(#636)の実装で決めたこと:
+
+- **ホスト側の C の受け渡しも juiz_sdk に置いた。** §8 では `juiz_sdk::broker_cabi::host` を試験用の道具としていたが、juiz_core のホストもこれを使う。unsafe な受け渡しを 1 か所にまとめ、グルーと同じクレートで両側を試せるようにするため。juiz_core に残るのはフレームの処理・`localize_request`・`CRUDBroker` への振り分けだけ。
+- **サーバーは `CRUDBrokerHolder` でなく `CabiBroker`。** `CRUDBrokerHolder` は種類名が `&'static str`・起動の関数が `Copy` の関数で、読み込んだ表を持てないため(§6.1)。
+- **id 0 のエラー応答はその文のエラーにする。** 上限を超えて読まなかった要求には id がわからないため(§5.3)。
+- 今の System は同じ種類のブローカーを 1 つしか持たない(conf の `brokers` に同じ種類を 2 つ書くと後のものだけが立つ)。§5.3 の「`server_start` を何度呼んでもよい」はプラグインの側の約束として残す。
 
 - **入口はサーバーとクライアントを 1 つの表にした。** 計画の `start` / `stop` / `connect` / `request` / `close` を、rust-plugin-abi.md と同じく `broker_factory_cabi` が返す 1 つの表にまとめた。今の `broker_factory` / `broker_proxy_factory` の 2 つに分かれていたものも 1 つになる。
 - **フレームは「読み口」と「書き口」で受け渡す。** 計画の `request(handle, frame) -> frame` のようにバイト列を丸ごと渡すと、受け取りで「通り道 → プラグインのバッファ → ホストの最終的な領域」と 1 回増える。そこで、受け取りはホストが最終的な領域を `read` に渡して直接書かせ(#339 と同じ考え)、送り出しはプラグインが確保した領域(共有メモリ)へホストが `write` で直接書くことにした。どちらも今の qmp・Zenoh の写しの回数と同じ。

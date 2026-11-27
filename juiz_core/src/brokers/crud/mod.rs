@@ -7,4 +7,4 @@ pub mod localize_identifier;
 pub use crud_broker::{CRUDBroker, CRUDDispatcher};
 pub use crud_broker_holder::CRUDBrokerHolder;
 pub use crud_broker_proxy::{CRUDBrokerProxy, CRUDBrokerProxyHolder};
-pub use localize_identifier::localize_identifier;
+pub use localize_identifier::{localize_identifier, localize_request};

@@ -115,6 +115,8 @@ members = [
     "brokers/zenoh_broker",
     # どのブローカーでも成り立つ確認をまとめたテスト用のクレート (公開しない、issue #522)
     "brokers/broker_suite",
+    # ブローカーのプラグインの C ABI を確かめる試験用の TCP ブローカー (公開しない、issue #636)
+    "brokers/tcp_test_broker",
 
 
     "juiz_sdk/test_packages/a_arg_proc",
@@ -172,6 +174,7 @@ default-members = [
     #"examples/rust/container/example_container_stack",
     #"examples/rust/container/example_container_stack_get",
     "brokers/qmp_broker",
+    "brokers/tcp_test_broker",
 
 
     # "juiz_sdk/test_packages/a_arg_proc",

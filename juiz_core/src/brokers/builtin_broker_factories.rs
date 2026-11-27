@@ -33,6 +33,28 @@ pub fn register_builtin_broker_factory(
         .push((broker_factory, broker_proxy_factory));
 }
 
+/// C ABI のブローカー (docs/spec/broker-plugin-abi.md) の入口 `broker_factory_cabi`
+pub use juiz_sdk::broker_cabi::JuizBrokerEntryFn;
+
+static BUILTIN_CABI_BROKERS: Mutex<Vec<JuizBrokerEntryFn>> = Mutex::new(Vec::new());
+
+/// これ以降に setup() するすべての System に、C ABI のブローカーを組み込む (§6.4 の 2)。
+/// entry はプラグインのクレートを rlib としてリンクしたときの `broker_factory_cabi`。
+/// [`register_builtin_broker_factory`] と同じく、conf で同じ type_name のプラグインを読み込んだらそちらを使う
+pub fn register_builtin_cabi_broker(entry: JuizBrokerEntryFn) {
+    BUILTIN_CABI_BROKERS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push(entry);
+}
+
+pub(crate) fn builtin_cabi_brokers() -> Vec<JuizBrokerEntryFn> {
+    BUILTIN_CABI_BROKERS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+}
+
 pub(crate) fn builtin_broker_factories() -> Vec<(BrokerFactoryFunction, BrokerProxyFactoryFunction)>
 {
     BUILTIN_BROKER_FACTORIES
