@@ -2,7 +2,7 @@
 
 - 状態: 確定(Zenoh ブローカー Step 0、issue #489、2026-11-14)。§11 は Step 3(#492、2026-11-14)で決めた
 - 親 issue: #487。計画と経緯はプロジェクトの計画書 zenoh-broker-plan.md(2026-11-14)にある
-- 関連: フレーム形式は [large-data.md](large-data.md) §3、qmp の決めごとは同 §4、プラグインの境界は [rust-plugin-abi.md](rust-plugin-abi.md) §12(#450)、似た作りの [ipc-broker.md](ipc-broker.md)
+- 関連: フレーム形式は [large-data.md](large-data.md) §3、qmp の決めごとは同 §4、プラグインの境界は [rust-plugin-abi.md](rust-plugin-abi.md) §12(#450)。ブローカーの C ABI への載せ替えと別リポジトリへの移動は [broker-plugin-abi.md](broker-plugin-abi.md)(#634)、似た作りの [ipc-broker.md](ipc-broker.md)
 - この文書は Step 1〜5(#490〜#493、site#96)の実装の基準になる。実装で仕様を変えるときは、同じ PR でこの文書を直す
 - 「しなければならない」「エラーにする」は必須の規則、「してよい」は任意を表す
 

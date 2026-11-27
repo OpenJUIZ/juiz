@@ -240,7 +240,7 @@ pack は次を順に行い、どれかが満たされなければエラーにし
 4. `languages` を 3 から求めて書く。作る人が書いてあれば、求めたものと一致しなければならない。
 5. `targets` を `plugins/` の下のディレクトリ名から求めて書く(`--target` があればその列)。ネイティブのプラグインが 1 つも無ければ `[any]`。作る人が書いてあれば、求めたものと一致しなければならない。
 6. Rust を含むとき、各 Rust のプラグインを C ABI か Rust ABI かに分ける(§12.1)。どちらもファイルのバイト列から文字列を探して読む(読み込まずに読むので、別ターゲットのバイナリでも読める)。
-   - `broker_factories`・`ec_factories` のプラグインは Rust ABI。
+   - `ec_factories` のプラグインは Rust ABI。`broker_factories` のプラグインは、印 `juiz_broker_abi=<版>;` があればブローカーの C ABI(broker-plugin-abi.md §12、#638 で実装)で、rustc・juiz_sdk の検査をせず版を manifest の `broker_abi` に書く。無ければ Rust ABI。
    - conf のプラグインの項目に `abi: rust`(rust-plugin-abi.md §11)を書いたものも Rust ABI(ホストが Rust ABI で読むため)。`abi` が `c`・`rust` 以外ならエラー。
    - それ以外は、印 `juiz_rust_abi=<版>;`(rust-plugin-abi.md §9.3)があれば C ABI、無ければ Rust ABI(この仕組みより前の juiz_sdk でビルドしたもの)。
    - どのプラグインからも、ビルド情報の文字列(`juiz_sdk=…;rustc=…`、`juiz_sdk::build_info`)を読む。`juiz_sdk` の版はすべてのプラグイン・ターゲットで同じでなければならない。違えばどのファイルが違うかを示してエラー。`rust.juiz_sdk` に書く。
@@ -516,7 +516,7 @@ Rust のプラグインには 2 種類ある(rust-plugin-abi.md、#291 で C ABI
 | 種類 | どれか | 受け取る側の juiz に要るもの |
 | --- | --- | --- |
 | C ABI | `#[juiz_process]` などのマクロで作った Process・Container・ContainerProcess・Component で、C ABI の入った juiz_sdk でビルドしたもの(印 `juiz_rust_abi=<版>;` を持つ) | その ABI の版を読めること。rustc と juiz_sdk の版は問わない |
-| Rust ABI | EC・ブローカーのプラグイン、コンテナスタック、C ABI より前の juiz_sdk でビルドしたもの | 作った人と同じ rustc(`rustc -V` の出力)と同じ juiz_sdk の版(`BuildInfo` が両方を比べる) |
+| Rust ABI | EC のプラグイン、Rust ABI のブローカーのプラグイン(ブローカーの C ABI の印 `juiz_broker_abi=` を持たないもの、broker-plugin-abi.md §12)、コンテナスタック、C ABI より前の juiz_sdk でビルドしたもの | 作った人と同じ rustc(`rustc -V` の出力)と同じ juiz_sdk の版(`BuildInfo` が両方を比べる) |
 
 - pack は、C ABI のプラグインがあれば `rust.abi` を、Rust ABI のプラグインがあれば `rust.rustc` を書く(§6.3)。run は §9 の段 6 でホストと比べて、読み込む前に分かる文で止める。
 - C ABI のプラグインだけのパッケージは、`cargo install juiz_app` で自分の rustc でビルドした juiz や、Homebrew の rustc でビルドした juiz でも動く。`juiz` の版の範囲も `>=作った版` でよい(§4.3)。
