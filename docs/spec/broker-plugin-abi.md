@@ -524,12 +524,20 @@ juiz broker remove <名前> [--version <版>]
 | 1 ホストと juiz_sdk のグルー | #636 | §3〜§9、§11。試験用の小さなブローカー(TCP など)で broker_suite を通す |
 | 2 Zenoh を C ABI に載せ替え | #637 | §5.1・§5.2 の共有メモリでの使い方。broker_suite と共有メモリのテスト。完了の条件は zenoh-broker.md §11.5 のベンチ(720p・4K、TCP と共有メモリ)との差が誤差の範囲であること |
 | 3 `juiz broker` と置き場所 | #638 | §6.4、§10、§12 |
-| 4 juiz_zenoh_broker へ移す | #639 | §10.2 のアーカイブと公開ワークフロー |
+| 4 juiz_zenoh_broker へ移す | #639 | §10.2 のアーカイブと公開ワークフロー、§15 |
 | 5 juiz から Zenoh を外す | #640 | §6.4 の案内、zenoh-broker.md §8 |
 | 6 サイト | site#127 | `juiz broker` のガイド、ブローカーの作り方(§8) |
 | 7 リリース | #641 | |
 
 ## 15. 計画から変えたこと・細かく決めたこと
+
+Step 4(#639、juiz_zenoh_broker へ移す)で決めたこと:
+
+- **OpenJUIZ/juiz_zenoh_broker は crates.io に出さない。** 配るのは §10.2 のアーカイブだけ。juiz_sdk・テストの juiz_core・juiz_broker_suite は juiz の git の依存(同じ `rev`)にする。crates.io の juiz_sdk と git の juiz_core を混ぜると juiz_sdk が 2 つになり、テストで入口の型が合わなくなるため。juiz の版を上げて使うときは `rev` を上げる。
+- **broker_suite は公開しない。** git の依存で使う。例のプラグインと juiz コマンドの置き場所は、環境変数 `JUIZ_BROKER_SUITE_TARGET_DIR` で渡す(無ければ今までどおりワークスペースの `target/debug`)。juiz_zenoh_broker の `scripts/test.sh` は、`juiz-rev.txt` の rev の juiz を取ってきて、自分と同じ `target/debug` に juiz コマンドと例のプラグインをビルドする。
+- **ライブラリの名前を `juiz_zenoh_broker` にした**(`libjuiz_zenoh_broker.so`、§10.1 の並び)。juiz の中の `brokers/zenoh_broker` は `zenoh_broker` のままで、Step 5(#640)で消す。conf の `plugins.broker_factories` でパスを書いて読むときの名前は `juiz_zenoh_broker` になる。
+- **版は 0.4.0 から。** juiz の中で出していた juiz_zenoh_broker(crates.io の 0.3.7 まで)の続きの番号にして、古い版と同じ番号にならないようにした。以後は juiz の版とそろえない。
+- **公開は `v<版>` のタグ。** release.yml が 5 つのターゲットでビルドし、アーカイブを作り、`juiz-rev.txt` の juiz で `juiz broker install --from` して、conf に `type_name: zenoh` を書いた juiz と `juiz -s zenoh://…` で Process を呼べることを確かめてから、Releases に置く。ABI の版はライブラリの中の印から読んでアーカイブの名前に入れる。
 
 Step 3(#638、`juiz broker` と置き場所)で決めたこと:
 
