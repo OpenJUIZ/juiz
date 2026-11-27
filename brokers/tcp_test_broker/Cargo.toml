@@ -1,0 +1,26 @@
+[package]
+name = "juiz_tcp_test_broker"
+version = "0.0.0"
+edition = "2021"
+description = "A small TCP broker for testing the broker plugin C ABI of JUIZ (docs/spec/broker-plugin-abi.md). Not published."
+license.workspace = true
+publish = false
+
+# ブローカーのプラグインの C ABI (docs/spec/broker-plugin-abi.md、issue #636) を確かめるための小さなブローカー。
+# juiz_core には依存しない (C ABI のブローカーは juiz_sdk のグルーだけで作る、§2 の 4)。
+# 長さ (u64 LE) を前に付けたフレームを TCP で送るだけで、速さは考えない。
+
+[lib]
+# プラグインとして読み込むときのファイル名 (libtcp_test_broker.so など) と conf の plugins.broker_factories.tcp_test_broker
+name = "tcp_test_broker"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+juiz_sdk = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+# テストだけ。プラグイン自身は juiz_core を使わない
+juiz_core = { workspace = true }
+juiz_broker_suite = { path = "../broker_suite" }
+reqwest = { workspace = true }

@@ -1,3 +1,5 @@
+use crate::prelude::*;
+
 /// 自分自身のブローカーを指す識別子 ({broker_type}://<host>:<port>/...) を core://core/... に書き換える。
 ///
 /// process/list などは core のオブジェクトを {broker_type}://<アクセスされた住所>/... の形で返すので、
@@ -137,4 +139,27 @@ mod tests {
         let id = "http://127.0.0.1:8000/process/inc0::inc";
         assert_eq!(localize_identifier(id, "http", None), id);
     }
+}
+
+/// 受け取った要求の param に、どの住所でアクセスされたかを書き込み、自分自身を指す
+/// `<broker_type_name>://` の識別子を core://core/... に書き換える。
+///
+/// 要求・応答のフレームを運ぶブローカー (C ABI のブローカー、docs/spec/broker-plugin-abi.md §6.3) の
+/// 共通の処理。中身は Zenoh・qmp のものと同じで、`accessed_broker_name` が無ければ自分の名前を使う
+pub fn localize_request(cm: &mut CapsuleMap, broker_type_name: &str, own_name: &str) {
+    let accessed_name = cm
+        .get_param("accessed_broker_name")
+        .cloned()
+        .unwrap_or_else(|| own_name.to_owned());
+    if let Some(id) = cm.get_param("identifier").cloned() {
+        let mut id = localize_identifier(id.as_str(), broker_type_name, Some(accessed_name.as_str()));
+        id = localize_identifier(id.as_str(), broker_type_name, Some(own_name));
+        cm.set_param("identifier", id.as_str());
+    }
+    cm.set_param(
+        "accessed_broker_id",
+        format!("{broker_type_name}://{accessed_name}").as_str(),
+    );
+    cm.set_param("accessed_broker_type", broker_type_name);
+    cm.set_param("accessed_broker_name", accessed_name.as_str());
 }

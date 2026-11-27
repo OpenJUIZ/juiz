@@ -372,6 +372,25 @@ pub enum JuizError {
         host_abi: String,
         hint: String,
     },
+    // --- ブローカーのプラグインの C ABI (docs/spec/broker-plugin-abi.md §7.3、issue #636) ---
+    /// C ABI のブローカーの入口の関数が失敗した。`symbol` は `broker_factory_cabi.<関数名>`
+    #[error("broker plugin ({plugin}) failed in '{symbol}': {message}")]
+    BrokerPluginCallError {
+        plugin: String,
+        symbol: String,
+        message: String,
+    },
+    /// C ABI のブローカーの入口の表の ABI の版を、この juiz が読めない (§9.2)
+    #[error("broker plugin ({plugin}) uses broker plugin ABI {plugin_abi}, but this juiz supports ABI {host_abi}. {hint}")]
+    BrokerPluginAbiVersionError {
+        plugin: String,
+        plugin_abi: u32,
+        host_abi: String,
+        hint: String,
+    },
+    /// C ABI のブローカーを読み込めない (表の関数が null、info が読めない、init が失敗した、§7.3)
+    #[error("broker plugin ({plugin}) can not be loaded. {message}")]
+    BrokerPluginLoadError { plugin: String, message: String },
     // --- Transformations (docs/spec/transformations.md §17、issue #366) ---
     /// 長さ 0 の四元数、NaN・無限大を含む位置姿勢
     #[error("Invalid pose value: {message}")]

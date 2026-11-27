@@ -3,7 +3,8 @@ use juiz_sdk::anyhow::Context;
 use crate::{
     brokers::{
         broker_factories_wrapper::BrokerFactoriesWrapper,
-        builtin_broker_factories::builtin_broker_factories,
+        builtin_broker_factories::{builtin_broker_factories, builtin_cabi_brokers},
+        cabi::{cabi_broker_factories, load_builtin_entry},
     },
     prelude::*,
 };
@@ -23,6 +24,18 @@ pub(super) fn setup_builtin_broker_factories(system: &mut System) -> JuizResult<
         let bpf = broker_proxy_factory().context("creating builtin broker proxy factory failed")?;
         system.register_broker_factories_wrapper(BrokerFactoriesWrapper::new(None, bf, bpf)?)?;
         log::info!("BrokerFactory(type_name={type_name:}) (builtin) Loaded");
+    }
+    // C ABI のブローカー (docs/spec/broker-plugin-abi.md §6.4 の 2)
+    for entry_fn in builtin_cabi_brokers() {
+        let entry = load_builtin_entry(entry_fn).context("loading builtin C ABI broker failed")?;
+        let type_name = entry.type_name().to_owned();
+        if system.has_broker_factory(&type_name)? {
+            log::info!("BrokerFactory(type_name={type_name:}) is already loaded as a plugin. The builtin one is not used.");
+            continue;
+        }
+        let (bf, bpf) = cabi_broker_factories(entry, system.core_broker().clone())?;
+        system.register_broker_factories_wrapper(BrokerFactoriesWrapper::new(None, bf, bpf)?)?;
+        log::info!("BrokerFactory(type_name={type_name:}) (builtin, C ABI) Loaded");
     }
     Ok(())
 }
