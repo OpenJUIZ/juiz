@@ -348,7 +348,18 @@ transforms:
     // 親には何も残らない
     assert_eq!(client.output(S5_HTTP, &["transform", "list"]).trim(), "[]");
 
+    // 親を止めても子の Transform は残り (§19.6)、親を起動し直すと already exists にならずに作り直される (#642)
     assert!(s5.stop() || cfg!(not(unix)), "{}", s5.log_text());
+    if cfg!(unix) {
+        let mut s5 = start(&s5_conf, dir.join("s5-restart.log"));
+        client.wait_for(S5_HTTP, &["container", "list"], |o| o.contains("map"));
+        let long = client.wait_for(S4_HTTP, &["transform", "list", "--long"], |o| {
+            o.contains("(remote: ok)")
+        });
+        assert_eq!(long.matches("/container/map::static_anchor -> ").count(), 1, "{long}");
+        assert!(!s5.log_text().contains("already exists"), "{}", s5.log_text());
+        assert!(s5.stop(), "{}", s5.log_text());
+    }
     assert!(s4.stop() || cfg!(not(unix)), "{}", s4.log_text());
     let _ = std::fs::remove_dir_all(&dir);
 }

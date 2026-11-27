@@ -846,6 +846,7 @@ Step 0(#413)で足した節。親 issue #376。「(Step n で決める)」と書
 - 最後に取れてから `timeout` 秒たっても取れなければ、その P' からの写し(B' の直下の子としての P'、ほかに子がなくなった B')を S2 のすべての PoseState から消す(§10 の Anchor の削除と同じ)。以後その基準で読むと `NoCommonAnchorError` で、理由に「相手の System(<ID>)につながらない」を入れる。**Transform は消さない**。
 - つながり直せば、次の取り込みで写しが自動で戻る(`since` は使わず全部取る)。
 - #303 の `system/remove_subsystem` で相手の System が外れたときも、その System を始点にする写しを消す(Transform は残し、取り込みは続ける)。
+- 残った Transform は、始点の System を起動し直したとき(§19.2 の 5 で回して作る)に作り直す(#642)。回して作った Transform は回してきた System の UUID を覚えておき、同じ ID(始点のブローカー付きの ID と終点が同じ)の作成が**別の UUID** から回されてきたら、止めて起動し直した同じ System からとみなして、古い Transform を新しい manifest の値・`rate`・`timeout`・`writers` で置き換える(`TransformAlreadyExistsError` にしない)。同じ UUID からの 2 回目や、回されずに作った Transform と重なるときは今までどおり `TransformAlreadyExistsError`。同じブローカー付きの ID を持つ System は同時に 1 つしか動かない(同じ IPC の名前・同じ host:port)ので、別の System の Transform を取ってしまうことはない。
 - 終点 C を消せば Transform も消え(§10)、P を始点にする Transform がなくなった P' の取り込みも止める。
 
 ### 19.7 Pose 通知

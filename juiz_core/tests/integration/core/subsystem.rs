@@ -605,6 +605,83 @@ fn transform_over_star_ipc() -> JuizResult<()> {
     })
 }
 
+/// conf の transforms で B の Container に Transform を張る A を止めて起動し直すと、B に残っている前回の Transform を
+/// 作り直して起動できる。同じ A から 2 回作るのは今までどおり already exists (issue #642、transformations.md §19.6)
+#[cfg(all(test, feature = "ipc-broker"))]
+#[test]
+fn restarted_app_recreates_its_transform_ipc() -> JuizResult<()> {
+    use juiz_sdk::manifests::TransformManifest;
+    struct Part {}
+    crate::common::logger::init();
+    let b_conf = ipc_system("subsystem_restart_tf", "b", &[]);
+    let b_ipc = b_conf["brokers"][0]["name"].as_str().unwrap().to_owned();
+    let destination = format!("ipc://{b_ipc}/container/base0::part");
+    let a_conf = |x: f64| {
+        let mut a = ipc_system("subsystem_restart_tf", "a", &["b"]);
+        a["containers"] = jvalue!([{ "type_name": "static_anchor", "name": "map" }]);
+        a["transforms"] = jvalue!([{
+            "source": "map",
+            "destination": destination.clone(),
+            "translation": { "x": x, "y": 0.0, "z": 0.0 }
+        }]);
+        a
+    };
+    let transforms_of = |b: &System| -> JuizResult<Vec<(String, f64)>> {
+        let cb = b.core_broker().lock()?;
+        let t = &cb.worker().store().transformations;
+        t.transform_list()?
+            .into_iter()
+            .map(|id| {
+                let p = t.transform_profile(&id)?;
+                let x = p["transform"]["translation"]["x"].as_f64().unwrap_or(f64::NAN);
+                Ok((id, x))
+            })
+            .collect()
+    };
+    System::new(b_conf)?.setup()?.run_and_do_once(|b| {
+        {
+            let mut cb = b.core_broker().lock_mut()?;
+            let juiz_sdk::factory::ContainerFactoryStruct(manifest, constructor) =
+                juiz_sdk::factory::container_factory(
+                    ContainerManifest::new("part"),
+                    |_args: CapsuleMap| Ok(Box::new(Part {})),
+                );
+            cb.worker_mut()
+                .store_mut()
+                .containers
+                .register_factory("part", container_factory_create(manifest, constructor)?)?;
+            cb.worker_mut().create_container_ref(
+                "part",
+                "base0",
+                Vec::<(&str, Value)>::new().into(),
+            )?;
+        }
+        System::new(a_conf(1.0))?.setup()?.run_and_do_once(|a| {
+            let list = transforms_of(b)?;
+            assert_eq!(list.len(), 1, "{list:?}");
+            assert_eq!(list[0].1, 1.0);
+            // 同じ A (同じ UUID) からもう一度作るのはエラー
+            let mut cb = a.core_broker().lock_mut()?;
+            let bp: &mut dyn BrokerProxy = &mut *cb;
+            let r = bp.transform_create(&TransformManifest::new("map", &destination));
+            assert!(
+                r.as_ref().is_err_and(|e| format!("{e:#}").contains("already exists")),
+                "{r:?}"
+            );
+            Ok(())
+        })?;
+        // 止めても B の Transform は残る (§19.6)
+        assert_eq!(transforms_of(b)?.len(), 1);
+        // 起動し直すと作り直される (値は新しい conf のもの)
+        System::new(a_conf(2.0))?.setup()?.run_and_do_once(|_a| {
+            let list = transforms_of(b)?;
+            assert_eq!(list.len(), 1, "{list:?}");
+            assert_eq!(list[0].1, 2.0, "{list:?}");
+            Ok(())
+        })
+    })
+}
+
 /// 一本の木 (A の subsystems = [C]、C の subsystems = [B]) で、A の再帰的な一覧に B の Process も出る (issue #449・#478)
 #[cfg(all(test, feature = "ipc-broker"))]
 #[test]
