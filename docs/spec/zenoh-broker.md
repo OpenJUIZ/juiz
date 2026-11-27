@@ -5,6 +5,7 @@
 - 関連: フレーム形式は [large-data.md](large-data.md) §3、qmp の決めごとは同 §4、プラグインの境界は [rust-plugin-abi.md](rust-plugin-abi.md) §12(#450)。ブローカーの C ABI への載せ替えと別リポジトリへの移動は [broker-plugin-abi.md](broker-plugin-abi.md)(#634)、似た作りの [ipc-broker.md](ipc-broker.md)
 - この文書は Step 1〜5(#490〜#493、site#96)の実装の基準になる。実装で仕様を変えるときは、同じ PR でこの文書を直す
 - 「しなければならない」「エラーにする」は必須の規則、「してよい」は任意を表す
+- (#640 で変更)実装は juiz から [OpenJUIZ/juiz_zenoh_broker](https://github.com/OpenJUIZ/juiz_zenoh_broker) に移った(#639)。juiz の `brokers/zenoh_broker`・juiz_app / juiz_py の feature `zenoh-broker`・`scripts/test-zenoh.sh`・CI の zenoh ジョブは無い。使うときは `juiz broker install zenoh` で入れる。§2・§8・§10 のうち juiz の中のクレート・feature・CI のことは #640 より前の記録として残す。今の形は §16
 
 ## 1. 目的と範囲
 
@@ -24,6 +25,8 @@ juiz の外で測った値(クラウド 4 vCPU、別プロセス、送るだけ�
 | 参考: qmp(juiz の中、large-data.md §4) | 約 11 ms | – |
 
 ## 2. クレートと依存
+
+> #640 で juiz から外した。今のクレートと CI は §16 を見ること。
 
 - `brokers/zenoh_broker`。パッケージ名 `juiz_zenoh_broker`、ライブラリ名 `zenoh_broker`(プラグインのファイル名 `libzenoh_broker.so` などと conf の `plugins.broker_factories.zenoh_broker` のため)、`crate-type = ["cdylib", "rlib"]`。qmp と同じ形にする。
 - 依存は `zenoh = { version = "1.10.2", default-features = false, features = ["transport_tcp"] }`。ほかの transport(UDP・QUIC・WebSocket など)は入れない。共有メモリは juiz_zenoh_broker の feature `shared-memory`(既定オン)で zenoh の `shared-memory` と `unstable` を足す(§11.1)。
@@ -159,7 +162,7 @@ juiz が組み立てる Zenoh の設定は次のとおり。
 
 ### 8.1 クレートの入口
 
-> #637 で C ABI に載せ替え、下の Rust ABI の入口は無くなった。今の入口は §15 を見ること。
+> #637 で C ABI に載せ替え、下の Rust ABI の入口は無くなった。今の入口は §15 を見ること。#640 で juiz_app・juiz_py への組み込み(§8.2・§8.3)も無くなった(§16)。
 
 qmp と同じものを置く。
 
@@ -319,6 +322,7 @@ Zenoh は qmp より 720p で約 2.5 倍、4K で約 3 倍速い。Zenoh の Top
 | 4 公式サイトのガイド | OpenJUIZ.github.io#96 | §4 |
 | 5 リリース | #493 | – |
 | C ABI への載せ替え(ブローカーの C ABI 化 Step 2) | #637 | §15 |
+| juiz_zenoh_broker への移動・juiz から外す(ブローカーの C ABI 化 Step 4・5) | #639・#640 | §16 |
 
 ## 15. C ABI のブローカーへの載せ替え(#637)
 
@@ -338,3 +342,13 @@ Zenoh は qmp より 720p で約 2.5 倍、4K で約 3 倍速い。Zenoh の Top
 | 共有メモリ 後 | 1.24〜1.41 | 1.38〜1.51 | 1.21〜1.35 | 7.31〜8.85 | 7.29〜7.66 | 7.65〜9.14 |
 | TCP だけ 前 | 2.21〜2.35 | 2.09〜2.69 | 2.07〜2.39 | 18.45〜19.63 | 18.47〜19.35 | 18.98〜20.15 |
 | TCP だけ 後 | 2.22〜2.27 | 2.10〜2.21 | 2.04〜2.10 | 18.76〜19.13 | 17.74〜18.71 | 19.50〜21.00 |
+
+## 16. juiz の外への移動(#639・#640)
+
+ブローカーの C ABI 化(親 #634)の Step 4・5 で、Zenoh ブローカーを juiz から外した。
+
+- 実装・テスト・ベンチは [OpenJUIZ/juiz_zenoh_broker](https://github.com/OpenJUIZ/juiz_zenoh_broker)。crates.io には出さず、Releases のアーカイブだけで配る(broker-plugin-abi.md §10.2・§15)。版は 0.4.0 から、juiz の版とはそろえない。ライブラリの名前は `juiz_zenoh_broker`(conf の `plugins.broker_factories.juiz_zenoh_broker`)。
+- juiz では、juiz_app・juiz_py の feature `zenoh-broker`、ワークスペースの `brokers/zenoh_broker`、`scripts/test-zenoh.sh`、`test-linux.yml` の zenoh ジョブ、publish.yml の juiz_zenoh_broker、wheel のビルドとスモークテストの Zenoh を消した。
+- pip の juiz-cli の wheel(§8.3)にも cargo で入れる juiz にも Zenoh は入らない。conf の `type_name: zenoh` や `-s zenoh://…` は、`juiz broker install zenoh` で入れた後に使える。入れていなければ `The broker type 'zenoh' is not installed. Install it with 'juiz broker install zenoh'.` のエラーになる(broker-plugin-abi.md §6.4)。
+- 種類名 `zenoh`、ID `zenoh://…`、conf の書き方(§4)、名前の順(naming.md §7.3 の `zenoh`)、`.juizapp` の `--depend <名前>=zenoh` はそのまま。juiz コマンドの名前の解決は、置き場所に入れた種類につなげる(naming.md §9.5)。
+- crates.io の juiz_zenoh_broker(0.3.7 まで)は、これより新しい juiz では使えない。

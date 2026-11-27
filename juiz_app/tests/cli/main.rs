@@ -7,7 +7,6 @@
 //!
 //! ```sh
 //! scripts/test.sh -p juiz_app --test cli -- package::
-//! cargo test -p juiz_app --features zenoh-broker --test cli -- zenoh::
 //! cargo test -p juiz_app --features naming-mdns --test cli -- mdns::
 //! ```
 //!

@@ -305,7 +305,7 @@ name://mobile_sim/process/inc0::increment
 - 解決は `CoreWorker::broker_proxy`(と、conf の `subsystems`・`mastersystem`・CLI の `-s` が通る `SystemStorePtr::create_broker_proxy`)で行う。Process・Container・ContainerProcess・EC の Proxy を ID から作るときは、ID のブローカーの部分を解決した後の実際の URL に書き換えてから作る(一覧や profile に `name://` が出ない)。
 - ID のブローカーの部分にクエリ(`?`)があればエラー `name://<…> can not have a query in an ID. …`。
 - 同じ System の中の使い回し: 解決結果を `name://` の後ろの文字列ごとに覚え、次に使うときに相手の pid が生きていれば使う。死んでいれば引き直す(「つながらなくなったら」の判定を pid で行う。問い合わせを毎回しないため)。
-- 死活の確かめ方とつなげる種類は、System の `set_naming_probe` で決めたもの(juiz コマンドは ipc・http・qmp と、feature があれば zenoh)。
+- 死活の確かめ方とつなげる種類は、System の `set_naming_probe` で決めたもの(juiz コマンドは ipc・http・qmp と、feature があれば zenoh)。(#640 で変更)feature `zenoh-broker` は無くなり、juiz コマンドは ipc・http・qmp と、置き場所に入れた種類(`juiz broker install zenoh` など、broker-plugin-abi.md §10 の `used` の版がある種類)につなげる。
 - CLI の `-s` は、サブコマンドがあるときだけ解決する。候補が複数で対話できるときは `juiz name resolve` と同じく選ばせる。解決したら `<-s の値> is resolved to <URL>` をログ(`info`)に出す。`name://` で書いた `-s` も CLI で解決する。
 - API: `naming/list` は `?check=true` で §6 の 2 も確かめる(`juiz name list --check` と同じ)。`naming/resolve` の各要素は `naming/list` の要素と同じ形(`alive: true`)。どちらも IPC など CRUD のブローカーでも呼べる。
 - pyjuiz: `juiz.proxy.connect(<名前>)`、`ProcessProxy(name, host=<登録名>, protocol='name')`(ContainerProxy も同じ)、`juiz.resolve_name`・`juiz.name_list`(モジュール `juiz.naming`)。つなげる種類は ipc → http の順。死んだ登録は飛ばすが、ファイルは消さない(消すのは juiz)。候補が 0 なら `NameNotRegisteredError`、複数なら `NameAmbiguousError`(文は §7.2 と同じ。対話はしない)。
@@ -404,7 +404,7 @@ Step 4(#619)で書き足した。
 Step 7(#621)で決めた。
 
 - 公開する juiz-cli の wheel には feature `naming-mdns` を入れる(juiz_py の同名の feature が `juiz_app/naming-mdns` を有効にする)。pip で入れた人も cargo で入れ直さずに LAN で名前を引け、広告もできる(§8.3 の Zenoh と同じ考え)。
-- Zenoh(zenoh-broker.md §8.3)と違い、PR のビルドでも常に入れる。依存は純 Rust の `mdns-sd` だけで、Linux x86_64 の release ビルドで拡張モジュールが約 1.1 MB(45.1 → 46.2 MB、strip 前)増え、wheel は約 15 MB のまま。PR と公開で wheel の構成を変えずに済む。
+- Zenoh(zenoh-broker.md §8.3)と違い、PR のビルドでも常に入れる(#640 からは Zenoh は wheel に入れない)。依存は純 Rust の `mdns-sd` だけで、Linux x86_64 の release ビルドで拡張モジュールが約 1.1 MB(45.1 → 46.2 MB、strip 前)増え、wheel は約 15 MB のまま。PR と公開で wheel の構成を変えずに済む。
 - スモークテスト(`bindings/juiz_py/tests/smoke_test.py`)は `juiz name list --lan` が「feature が無い」警告を出さないことで、入っていることを確かめる。広告して見つける試験は CI の runner のマルチキャストに頼るので、wheel のジョブではしない(test-linux.yml の `naming-mdns` ジョブで確かめる)。
 
 ## 12. 知っている juiz に聞く(peers)

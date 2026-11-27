@@ -103,8 +103,14 @@ pub(crate) fn app_kinds() -> Vec<String> {
     let mut v = core_kinds();
     #[cfg(feature = "qmp-broker")]
     v.push("qmp".to_owned());
-    #[cfg(feature = "zenoh-broker")]
-    v.push("zenoh".to_owned());
+    // 置き場所に入れたブローカー (`juiz broker install zenoh` など、broker-plugin-abi.md §10) にもつなげる (#640)
+    if let Some(home) = juiz_core::installed::broker_home() {
+        for b in juiz_core::installed::list_installed(&home) {
+            if b.status == juiz_core::installed::InstalledStatus::Used && !v.contains(&b.type_name) {
+                v.push(b.type_name);
+            }
+        }
+    }
     v
 }
 

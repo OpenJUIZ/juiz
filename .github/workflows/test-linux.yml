@@ -1,6 +1,6 @@
 name: Test (Linux)
 
-# Linux でのビルドとテスト(rust・opencv・zenoh・naming-mdns・Linux の wheel)。
+# Linux でのビルドとテスト(rust・opencv・naming-mdns・Linux の wheel)。
 # PR と main・release/* への push と手動実行で動く。linux-aarch64 の wheel は PR では動かさない。
 # カバレッジは coverage.yml(週 1 回と手動実行、#520)。
 # macOS・Windows は test-macos.yml・test-windows.yml に分けてあり、main・release/* への push と手動実行でだけ動く。
@@ -191,41 +191,8 @@ jobs:
       - name: Test
         run: cargo test -p juiz_opencv
 
-  # Zenoh ブローカー(brokers/zenoh_broker、docs/spec/zenoh-broker.md)と juiz_app の feature zenoh-broker のビルドとテスト。
-  # Zenoh を足すと初回ビルドが約 100 秒延びるので、juiz_zenoh_broker は default-members に入れず、
-  # rust ジョブの時間を変えないよう、このジョブだけで別のキャッシュを使ってビルド・テストする(issue #491)。
-  # Python の例は使わないが、juiz コマンドが既定の feature(embed-python)で libpython にリンクするので setup-python する。
-  zenoh:
-    name: Zenoh broker build & test
-    if: ${{ !github.event.pull_request.draft }}
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        id: setup-python
-        with:
-          python-version: "3.14"
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      # pyo3 のビルド結果に Python のパスが入るので、rust ジョブと同じくパッチ版までキーに入れる
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: zenoh-python${{ steps.setup-python.outputs.python-version }}
-          save-if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') }}
-
-      # juiz(feature zenoh-broker)と例のプラグインのビルド、juiz_zenoh_broker と juiz_app の cli テストの zenoh::(手元と同じスクリプト)
-      # Zenoh は共有メモリの pool 全体を mlock する。ランナーの一般ユーザーの RLIMIT_MEMLOCK (8 MiB) では
-      # pool (既定 64 MiB) を作れず TCP に戻るので、共有メモリの経路も確かめるために上限を外す (§11.3)
-      - name: Build & test
-        run: |
-          sudo prlimit --pid $$ --memlock=unlimited:unlimited
-          ulimit -l
-          scripts/test-zenoh.sh --verbose
-
   # LAN の自動発見 mDNS(juiz_core / juiz_app の feature naming-mdns、docs/spec/naming.md §11、issue #619)。
-  # feature は既定オフなので、rust ジョブとは別のキャッシュでビルド・テストする(zenoh ジョブと同じ考え)。
+  # feature は既定オフなので、rust ジョブとは別のキャッシュでビルド・テストする。
   # 同じランナーの中で広告して見つけるので、マルチキャストが自分に戻ってくる網が要る(ubuntu のランナーは戻る)。
   naming-mdns:
     name: Naming mDNS build & test

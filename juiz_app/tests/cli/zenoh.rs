@@ -1,91 +1,16 @@
-//! juiz_app の feature `zenoh-broker` のテスト (docs/spec/zenoh-broker.md §8.2、issue #491)
+//! Zenoh のブローカーが入っていないときの案内のテスト (docs/spec/broker-plugin-abi.md §6.4)
 //!
-//! - feature あり: プラグインを読まずに、conf の `type_name: zenoh` と `-s zenoh://...` だけで使えること。
-//!   Zenoh はビルドが重いので、CI では Zenoh だけの別ジョブ (test-linux.yml の zenoh) で
-//!   `cargo test -p juiz_app --features zenoh-broker --test cli -- zenoh::` として走らせる。
-//! - feature なし: Zenoh のブローカーを使おうとしたときのエラーに、feature とプラグインの案内が付くこと。
-//!   こちらは既定の feature のテスト (scripts/test.sh) で走る。
+//! Zenoh は juiz の外 (OpenJUIZ/juiz_zenoh_broker) に移り、juiz には組み込まない (#640)。
+//! 置き場所 (JUIZ_BROKER_HOME) が空の juiz で Zenoh を使おうとすると、
+//! `juiz broker install zenoh` の案内が出ることを確かめる。
+//! Zenoh そのもののテストは juiz_zenoh_broker のリポジトリにある。
 //!
-//! ポートは zenoh_broker のテスト (5212〜5250) の続きの 5251〜5252。
+//! ポートは 5252 (以前の zenoh_broker のテストの続きの番号)。相手は居なくてよい。
 
 use crate::common::{juiz, path_str, temp_dir};
 
-#[cfg(feature = "zenoh-broker")]
-use crate::common::{plugin_dir_str, Daemon};
-#[cfg(feature = "zenoh-broker")]
-use std::time::{Duration, Instant};
-
-#[cfg(feature = "zenoh-broker")]
-const BUILTIN_PORT: u16 = 5251;
-#[cfg(not(feature = "zenoh-broker"))]
 const MISSING_PORT: u16 = 5252;
 
-#[cfg(feature = "zenoh-broker")]
-#[test]
-fn zenoh_broker_builtin() {
-    let dir = temp_dir("zenoh_builtin_cli");
-    let p = plugin_dir_str();
-    let server_conf = dir.join("server.conf");
-    // plugins.broker_factories に zenoh_broker を書かない
-    std::fs::write(
-        &server_conf,
-        format!(
-            r#"name: zenoh_builtin_server
-option:
-  http_broker:
-    start: false
-plugins:
-  process_factories:
-    increment_process: {{ path: "{p}" }}
-brokers:
-  - {{ type_name: zenoh, host: 127.0.0.1, port: {BUILTIN_PORT} }}
-processes:
-  - {{ type_name: increment_process, name: inc0 }}
-"#
-        ),
-    )
-    .unwrap();
-    let mut server = Daemon::spawn(
-        &["-f", path_str(&server_conf), "-d"],
-        dir.join("server.log"),
-    );
-    let host = format!("zenoh://127.0.0.1:{BUILTIN_PORT}");
-    let inc0 = format!("{host}/process/inc0::increment_process");
-
-    // クライアント側も conf なしで、組み込みの Zenoh の BrokerProxy で呼ぶ
-    let deadline = Instant::now() + Duration::from_secs(60);
-    let out = loop {
-        let out = juiz()
-            .env("RUST_LOG", "info")
-            .args(["-s", &host, "process", "call", &inc0, r#"{"arg1": 2}"#, "-p"])
-            .output()
-            .unwrap();
-        let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
-        if out.status.success() && stdout.contains("Value(3)") {
-            break out;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "process call did not succeed: {out:?}\nserver log:\n{}",
-            server.log_text()
-        );
-        std::thread::sleep(Duration::from_millis(500));
-    };
-    let log = String::from_utf8_lossy(&out.stderr).into_owned();
-    assert!(
-        // Zenoh は C ABI のブローカーとして組み込む (docs/spec/broker-plugin-abi.md §6.4、#637)
-        log.contains("BrokerFactory(type_name=zenoh) (builtin, C ABI) Loaded"),
-        "{log}"
-    );
-    assert!(
-        server.stop() || cfg!(windows),
-        "server log:\n{}",
-        server.log_text()
-    );
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-#[cfg(not(feature = "zenoh-broker"))]
 #[test]
 fn zenoh_broker_missing_shows_hint() {
     let dir = temp_dir("zenoh_missing_cli");
@@ -135,7 +60,6 @@ brokers:
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-#[cfg(not(feature = "zenoh-broker"))]
 #[test]
 fn zenoh_server_option_missing_shows_hint() {
     // -s zenoh://... でも BrokerProxy を作るところで同じ案内が出る (相手は居なくてよい)

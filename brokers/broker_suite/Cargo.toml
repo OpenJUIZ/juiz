@@ -7,8 +7,8 @@ license.workspace = true
 publish = false
 
 # どのブローカーでも成り立つ確認をまとめたテスト用のクレート (issue #522)。
-# juiz_core・juiz_qmp_broker・juiz_zenoh_broker の dev-dependencies から版を書かない path で使う
-# (crates.io に公開するときには外される)。
+# juiz_core・juiz_qmp_broker・juiz_tcp_test_broker の dev-dependencies から版を書かない path で使う
+# (crates.io に公開するときには外される)。juiz の外の OpenJUIZ/juiz_zenoh_broker は git の依存で使う。
 
 [dependencies]
 juiz_core = { workspace = true }
