@@ -3,6 +3,10 @@
 hsjuiz の版は juiz(crates.io の juiz_app、PyPI の pyjuiz / juiz-cli)と同じ番号にそろえています。
 使う libjuiz_sdk も同じ版にしてください。
 
+## 0.4.0
+
+- hsjuiz の API は 0.3.7 から変えていない(ブローカーの C ABI 化と juiz broker install #634 の公開に版をそろえた)。
+
 ## 0.3.7
 
 - hsjuiz の API は 0.3.6 から変えていない(ネーミングサービス #289 の公開に版をそろえた)。
