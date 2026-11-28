@@ -1,7 +1,7 @@
 .{
     // zigjuiz: Zig で juiz の Process を書くためのライブラリ (issue #573)。版は juiz と同じにする
     .name = .zigjuiz,
-    .version = "0.3.7",
+    .version = "0.4.0",
     .fingerprint = 0xd3d350c494744e49,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{},
